@@ -594,3 +594,66 @@ def kruskal_wallis(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalResu
 
 def available_methods() -> list[str]:
     return sorted(REGISTRY)
+
+
+@method("bootstrap_correlation")
+def bootstrap_correlation(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalResult:
+    """Resample the association to see whether it is an artefact of a few rows (§51).
+
+    Reports the fraction of resamples keeping the observed sign and a percentile
+    interval. Stability is the question here, not significance: a correlation
+    that flips sign in a fifth of resamples is not a finding whatever its
+    p-value says.
+    """
+    x_name, y_name = spec["variables"]["x"], spec["variables"]["y"]
+    x, y, dropped = _paired_numeric(frame, x_name, y_name)
+    n = len(x)
+    iterations = int(spec.get("parameters", {}).get("iterations", 2000))
+    kind = str(spec.get("parameters", {}).get("correlation", "pearson"))
+    confidence = spec.get("confidence_level", 0.95)
+
+    correlate = stats.pearsonr if kind == "pearson" else stats.spearmanr
+    observed = float(correlate(x, y)[0])
+
+    # Seeded so a rerun reproduces the interval exactly (§44, §124).
+    rng = np.random.default_rng(int(spec.get("random_seed", 0)))
+    values = np.empty(iterations, dtype=float)
+    xv, yv = x.to_numpy(), y.to_numpy()
+    for i in range(iterations):
+        idx = rng.integers(0, n, n)
+        # A resample can be degenerate (all identical rows); those are undefined,
+        # not zero, and are excluded rather than counted as a sign flip.
+        with np.errstate(invalid="ignore"):
+            r = correlate(xv[idx], yv[idx])[0]
+        values[i] = r
+    usable = values[~np.isnan(values)]
+    if usable.size < iterations * 0.5:
+        raise AnalysisError("Too many degenerate resamples to assess stability.")
+
+    lower = float(np.percentile(usable, 100 * (1 - confidence) / 2))
+    upper = float(np.percentile(usable, 100 * (1 - (1 - confidence) / 2)))
+    sign_agreement = float(np.mean(np.sign(usable) == np.sign(observed))) if observed != 0 else 0.0
+    excludes_zero = bool((lower > 0 and upper > 0) or (lower < 0 and upper < 0))
+
+    stable = sign_agreement >= 0.95 and excludes_zero
+    return _finalise(StatisticalResult(
+        method="bootstrap_correlation",
+        method_rationale=spec.get("method_rationale")
+            or "Resampling shows whether the association depends on a few observations.",
+        sample_size=n, estimate=observed, estimate_name=f"{kind}_r",
+        ci_low=lower, ci_high=upper, confidence_level=confidence,
+        effect_size=EffectSize(name="pearson_r" if kind == "pearson" else "spearman_rho",
+                               value=observed, ci_low=lower, ci_high=upper),
+        assumptions=[AssumptionCheck(
+            name="bootstrap_stability", outcome="passed" if stable else "violated",
+            description="Sign agreement and percentile interval across resamples",
+            statistic=sign_agreement, severity="serious",
+            detail=(f"{sign_agreement:.1%} of {usable.size} resamples kept the observed sign; "
+                    f"{confidence:.0%} interval [{lower:.4f}, {upper:.4f}] "
+                    f"{'excludes' if excludes_zero else 'includes'} zero."),
+        )],
+        limitations=["Bootstrap assesses stability, not correctness of the model."],
+        extra={"iterations": int(usable.size), "sign_agreement": sign_agreement,
+               "excludes_zero": excludes_zero, "stable": stable,
+               "dropped_rows": dropped, "correlation": kind},
+    ))

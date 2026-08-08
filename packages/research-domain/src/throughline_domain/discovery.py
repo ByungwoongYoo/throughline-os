@@ -1,0 +1,385 @@
+"""Connection discovery (§48) — and §49's insistence that it not be brute force.
+
+Correlating every column against every other column is the fastest way to
+manufacture false discoveries: with 20 columns there are 190 pairs, and at
+α = 0.05 roughly ten will look significant by chance alone. §49 therefore
+prescribes a pipeline, and this module implements it in order:
+
+  1. classify variables            — from the Phase 1 semantic profile
+  2. identify compatible pairs     — a test that fits both variables' types
+  3. eliminate invalid comparisons — identifiers, constants, personal fields
+  4. generate candidate tests
+  5. choose appropriate methods    — parametric or rank-based, from the profile
+  6. run computation               — in the sandbox, one analysis run each
+  7. correct for multiple testing  — Benjamini-Hochberg across the whole family
+  8. evaluate robustness           — §51, in validation.py
+  9. rank results                  — §50, on a composite, never on p alone
+ 10. send candidates to validation
+
+Steps 1–5, 7 and 9 live here. Step 6 delegates to the Phase 2 sandbox and step 8
+to `validation.py`.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Iterable, Sequence
+
+from .ids import new_id
+
+#: Semantic types that must never enter a candidate pair. Correlating a patient
+#: identifier against an outcome produces a number and no knowledge.
+EXCLUDED_SEMANTIC_TYPES = frozenset({"identifier"})
+
+#: Types treated as continuous for the purpose of choosing a test.
+CONTINUOUS_TYPES = frozenset({"continuous", "measurement", "age", "exposure"})
+CATEGORICAL_TYPES = frozenset({"categorical", "binary", "sex", "treatment",
+                               "outcome", "geography"})
+
+#: Above this many levels, a categorical variable is closer to an identifier than
+#: to a grouping, and group-comparison tests stop being meaningful.
+MAX_CATEGORY_LEVELS = 12
+
+#: Absolute skew beyond which a rank-based method is preferred (§49 step 5).
+SKEW_THRESHOLD = 1.0
+
+MIN_ROWS_FOR_TEST = 12
+
+
+class DiscoveryError(RuntimeError):
+    pass
+
+
+# ---------------------------------------------------------------------------
+# Steps 1–5: candidate generation
+# ---------------------------------------------------------------------------
+
+
+def _usable(column: dict[str, Any], row_count: int) -> tuple[bool, str]:
+    """Whether a column can take part in discovery at all (§49 step 3)."""
+    semantic = column["semantic_type"]
+    if semantic in EXCLUDED_SEMANTIC_TYPES:
+        return False, "identifier"
+    if column["sensitivity"] != "unclassified":
+        # Personal fields are flagged at profiling; mining them is a separate,
+        # deliberate act rather than something discovery does by default.
+        return False, "possibly_personal"
+    if column["unique_count"] <= 1:
+        return False, "constant"
+    present = row_count - column["missing_count"]
+    if present < MIN_ROWS_FOR_TEST:
+        return False, "too_few_observations"
+    if semantic in CATEGORICAL_TYPES and column["unique_count"] > MAX_CATEGORY_LEVELS:
+        return False, "too_many_levels"
+    if semantic not in CONTINUOUS_TYPES | CATEGORICAL_TYPES:
+        # Dates need temporal methods, which arrive with time-series analysis.
+        return False, f"unsupported_semantic_type:{semantic}"
+    return True, ""
+
+
+def _is_continuous(column: dict[str, Any]) -> bool:
+    return (column["semantic_type"] in CONTINUOUS_TYPES
+            and column["physical_type"] == "number")
+
+
+def _skewed(column: dict[str, Any]) -> bool:
+    skew = (column["statistics"] or {}).get("skew")
+    return skew is not None and abs(float(skew)) > SKEW_THRESHOLD
+
+
+def choose_method(left: dict[str, Any], right: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
+    """§49 steps 2 and 5: is this pair comparable, and by which test?
+
+    Returns (method, variables) or None when no test fits — which is a valid and
+    common answer, not a failure.
+    """
+    left_continuous, right_continuous = _is_continuous(left), _is_continuous(right)
+
+    if left_continuous and right_continuous:
+        # Rank-based when either distribution is skewed: Pearson would report a
+        # linear association that the data does not support.
+        rank_based = _skewed(left) or _skewed(right)
+        method = "spearman_correlation" if rank_based else "pearson_correlation"
+        return method, {"x": left["name"], "y": right["name"]}
+
+    if left_continuous != right_continuous:
+        value = left if left_continuous else right
+        group = right if left_continuous else left
+        levels = int(group["unique_count"])
+        if levels < 2:
+            return None
+        rank_based = _skewed(value)
+        if levels == 2:
+            method = "mann_whitney" if rank_based else "t_test"
+        else:
+            method = "kruskal_wallis" if rank_based else "anova"
+        return method, {"value": value["name"], "group": group["name"]}
+
+    # Both categorical.
+    if int(left["unique_count"]) >= 2 and int(right["unique_count"]) >= 2:
+        return "chi_square", {"x": left["name"], "y": right["name"]}
+    return None
+
+
+def plan_candidates(cur, *, dataset_version_id: str) -> dict[str, Any]:
+    """Produce the candidate test family for one dataset version."""
+    cur.execute(
+        "SELECT dv.row_count, dv.dataset_id FROM dataset_versions dv WHERE dv.id = %s",
+        (dataset_version_id,),
+    )
+    version = cur.fetchone()
+    if not version:
+        raise DiscoveryError(f"Unknown dataset version: {dataset_version_id}")
+    row_count = int(version["row_count"])
+
+    cur.execute(
+        "SELECT name, physical_type, semantic_type, unit, missing_count, unique_count, "
+        "statistics, sensitivity FROM dataset_columns WHERE dataset_version_id = %s "
+        "ORDER BY ordinal",
+        (dataset_version_id,),
+    )
+    columns = [dict(row) for row in cur.fetchall()]
+
+    usable: list[dict[str, Any]] = []
+    exclusions: dict[str, str] = {}
+    for column in columns:
+        ok, reason = _usable(column, row_count)
+        if ok:
+            usable.append(column)
+        else:
+            exclusions[column["name"]] = reason
+
+    candidates: list[dict[str, Any]] = []
+    skipped_pairs = 0
+    for i, left in enumerate(usable):
+        for right in usable[i + 1:]:
+            choice = choose_method(left, right)
+            if choice is None:
+                skipped_pairs += 1
+                continue
+            method, variables = choice
+            candidates.append({
+                "left_variable": left["name"],
+                "right_variable": right["name"],
+                "method": method,
+                "variables": variables,
+                "rationale": _rationale(method, left, right),
+            })
+
+    return {
+        "dataset_version_id": dataset_version_id,
+        "row_count": row_count,
+        "columns_total": len(columns),
+        "columns_usable": len(usable),
+        "excluded_columns": exclusions,
+        "pairs_skipped_as_incomparable": skipped_pairs,
+        "candidates": candidates,
+    }
+
+
+def _rationale(method: str, left: dict[str, Any], right: dict[str, Any]) -> str:
+    """Why this test, recorded before it runs (§47)."""
+    if method in {"pearson_correlation", "spearman_correlation"}:
+        basis = ("both variables are continuous and neither is strongly skewed"
+                 if method == "pearson_correlation"
+                 else "both variables are continuous and at least one is skewed, "
+                      "so ranks are more appropriate than raw values")
+        return f"Selected {method} because {basis}."
+    if method in {"t_test", "mann_whitney"}:
+        return (f"Selected {method} to compare a continuous variable across two groups"
+                + ("; ranks used because the values are skewed."
+                   if method == "mann_whitney" else "."))
+    if method in {"anova", "kruskal_wallis"}:
+        return (f"Selected {method} to compare a continuous variable across "
+                f"{max(left['unique_count'], right['unique_count'])} groups"
+                + ("; ranks used because the values are skewed."
+                   if method == "kruskal_wallis" else "."))
+    return "Selected chi-square to test association between two categorical variables."
+
+
+# ---------------------------------------------------------------------------
+# Step 7: multiple-testing correction
+# ---------------------------------------------------------------------------
+
+
+def benjamini_hochberg(p_values: Sequence[float], fdr: float = 0.05) -> list[dict[str, Any]]:
+    """Benjamini-Hochberg FDR control over the whole candidate family.
+
+    Chosen over Bonferroni deliberately: discovery is a screening step, and
+    controlling the false *discovery* rate keeps power for the real signals while
+    still bounding the proportion of spurious ones. Returns q-values in the input
+    order, each with whether it survives at the given FDR.
+    """
+    total = len(p_values)
+    if total == 0:
+        return []
+
+    order = sorted(range(total), key=lambda i: (p_values[i] is None, p_values[i]))
+    q_values: list[float | None] = [None] * total
+    running_min = 1.0
+    # Walk from the largest p-value down, enforcing monotonicity of q.
+    for rank_from_end, index in enumerate(reversed(order), start=1):
+        rank = total - rank_from_end + 1
+        p = p_values[index]
+        if p is None:
+            continue
+        q = min(running_min, float(p) * total / rank)
+        running_min = q
+        q_values[index] = q
+
+    return [
+        {"p_value": p_values[i], "q_value": q_values[i],
+         "survives": q_values[i] is not None and q_values[i] <= fdr}
+        for i in range(total)
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Step 9: ranking
+# ---------------------------------------------------------------------------
+
+#: §50 — relevance, magnitude, credibility and evidence quality, weighted. The
+#: q-value contributes credibility but never dominates: a tiny q on a negligible
+#: effect in a small sample should not outrank a substantial, well-supported one.
+RANK_WEIGHTS = {
+    "effect_magnitude": 0.35,
+    "evidence_quality": 0.25,
+    "statistical_credibility": 0.20,
+    "sample_adequacy": 0.20,
+}
+
+_EVIDENCE_SCORE = {"strong": 1.0, "moderate": 0.65, "weak": 0.3, "insufficient": 0.0}
+
+
+def rank_score(
+    *, effect_size: float | None, evidence_quality: str,
+    q_value: float | None, sample_size: int | None,
+) -> tuple[float, dict[str, float]]:
+    magnitude = min(abs(float(effect_size)), 1.0) if effect_size is not None else 0.0
+    evidence = _EVIDENCE_SCORE.get(evidence_quality, 0.0)
+    if q_value is None:
+        credibility = 0.0
+    else:
+        # Saturating: q = 0.001 and q = 1e-12 are both simply "credible".
+        credibility = max(0.0, min(1.0, 1.0 - (float(q_value) / 0.05))) if q_value <= 0.05 else 0.0
+    adequacy = min(1.0, (sample_size or 0) / 100.0)
+
+    components = {
+        "effect_magnitude": magnitude,
+        "evidence_quality": evidence,
+        "statistical_credibility": credibility,
+        "sample_adequacy": adequacy,
+    }
+    score = sum(RANK_WEIGHTS[k] * v for k, v in components.items())
+    return round(score, 6), components
+
+
+# ---------------------------------------------------------------------------
+# Persistence and the §14 lifecycle
+# ---------------------------------------------------------------------------
+
+CONNECTION_PROMOTION: dict[str, set[str]] = {
+    "candidate": {"exploratory", "rejected"},
+    "exploratory": {"validated", "conflicted", "rejected"},
+    "validated": {"replicated", "conflicted", "rejected"},
+    "replicated": {"conflicted", "rejected"},
+    "conflicted": {"exploratory", "validated", "rejected"},
+    "rejected": set(),
+}
+
+
+class IllegalConnectionTransition(DiscoveryError):
+    pass
+
+
+def create_run(cur, *, project_id: str, dataset_version_id: str, fdr: float = 0.05) -> str:
+    run_id = new_id("disc")
+    cur.execute(
+        "INSERT INTO discovery_runs(id, project_id, dataset_version_id, false_discovery_rate) "
+        "VALUES (%s, %s, %s, %s)",
+        (run_id, project_id, dataset_version_id, fdr),
+    )
+    return run_id
+
+
+def record_connection(
+    cur, *, project_id: str, discovery_run_id: str, candidate: dict[str, Any],
+    analysis_run_id: str | None, result: dict[str, Any], q_value: float | None,
+) -> str:
+    effect = (result.get("effect_size") or {}) if result else {}
+    effect_value = effect.get("value")
+    score, components = rank_score(
+        effect_size=effect_value,
+        evidence_quality=result.get("evidence_quality", "insufficient"),
+        q_value=q_value, sample_size=result.get("sample_size"),
+    )
+    connection_id = new_id("conn")
+    cur.execute(
+        """
+        INSERT INTO connections
+            (id, project_id, discovery_run_id, analysis_run_id, left_variable,
+             right_variable, relationship_type, method, lifecycle_status, estimate,
+             p_value, q_value, effect_size, effect_size_name, sample_size,
+             evidence_quality, rank_score, rank_components)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'candidate', %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (
+            connection_id, project_id, discovery_run_id, analysis_run_id,
+            candidate["left_variable"], candidate["right_variable"],
+            "correlates_with" if "correlation" in candidate["method"] else "associated_with",
+            candidate["method"], result.get("estimate"), result.get("p_value"), q_value,
+            effect_value, effect.get("name", ""), result.get("sample_size"),
+            result.get("evidence_quality", "insufficient"), score, components,
+        ),
+    )
+    cur.execute(
+        "INSERT INTO connection_lifecycle_events(id, connection_id, from_status, to_status, "
+        "reason, actor) VALUES (%s, %s, NULL, 'candidate', %s, 'system:discovery')",
+        (new_id("cle"), connection_id, candidate["rationale"]),
+    )
+    return connection_id
+
+
+def transition(
+    cur, *, connection_id: str, to_status: str, reason: str, actor: str,
+    checks: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """§14 — the connection lifecycle is a state machine, like findings."""
+    cur.execute("SELECT lifecycle_status FROM connections WHERE id = %s FOR UPDATE",
+                (connection_id,))
+    row = cur.fetchone()
+    if not row:
+        raise DiscoveryError(f"Unknown connection: {connection_id}")
+    current = row["lifecycle_status"]
+    allowed = CONNECTION_PROMOTION.get(current, set())
+    if to_status not in allowed:
+        raise IllegalConnectionTransition(
+            f"{current} cannot become {to_status}. "
+            f"Legal transitions: {sorted(allowed) or 'none'}."
+        )
+    cur.execute(
+        "UPDATE connections SET lifecycle_status = %s, updated_at = now() WHERE id = %s",
+        (to_status, connection_id),
+    )
+    cur.execute(
+        "INSERT INTO connection_lifecycle_events(id, connection_id, from_status, to_status, "
+        "reason, checks, actor) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        (new_id("cle"), connection_id, current, to_status, reason, checks or {}, actor),
+    )
+    return {"connection_id": connection_id, "from": current, "to": to_status}
+
+
+def list_connections(
+    cur, *, project_id: str, status: str | None = None, limit: int = 50,
+) -> list[dict[str, Any]]:
+    clauses = ["project_id = %s"]
+    params: list[Any] = [project_id]
+    if status:
+        clauses.append("lifecycle_status = %s")
+        params.append(status)
+    cur.execute(
+        f"SELECT * FROM connections WHERE {' AND '.join(clauses)} "
+        f"ORDER BY rank_score DESC, created_at DESC LIMIT %s",
+        (*params, limit),
+    )
+    return list(cur.fetchall())

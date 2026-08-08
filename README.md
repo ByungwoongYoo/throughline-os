@@ -9,8 +9,9 @@ leaves the machine unless the researcher connects an external service.
 
 ## Status
 
-**Phases 0–2 complete.** See `docs/PHASE_0.md`, `docs/PHASE_1.md` and
-`docs/PHASE_2.md` for exactly what is and is not implemented at each stage. Per §123 of the specification, nothing in this repository is
+**Phases 0–3 complete — the §137 MVP workflow works end to end.** See `docs/PHASE_0.md`, `docs/PHASE_1.md` and
+`docs/PHASE_2.md`, `docs/PHASE_3.md` for exactly what is and is not
+implemented at each stage. Per §123 of the specification, nothing in this repository is
 a placeholder presented as working functionality.
 
 ## Layout (§9)

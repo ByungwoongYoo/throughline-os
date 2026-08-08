@@ -20,7 +20,7 @@ from typing import Any, Iterator
 
 import psycopg
 from psycopg.rows import dict_row
-from psycopg.types.json import JsonbDumper
+from psycopg.types.json import Jsonb, JsonbDumper
 from psycopg_pool import ConnectionPool
 
 _DEFAULT_ROOT = Path(
@@ -60,10 +60,22 @@ def _configure(conn: psycopg.Connection) -> None:
     """Let domain code pass plain dicts for JSONB columns.
 
     Only ``dict`` is registered. Registering ``list`` too would hijack the array
-    adapter that ``= ANY(%s)`` depends on, so JSON arrays are wrapped explicitly
-    at their call sites.
+    adapter that ``= ANY(%s)`` depends on, so JSON arrays must be wrapped with
+    :func:`jsonb` at their call sites.
     """
     conn.adapters.register_dumper(dict, JsonbDumper)
+
+
+def jsonb(value: Any) -> Jsonb:
+    """Wrap a value destined for a JSONB column.
+
+    Required for lists. Passing a bare list gives psycopg no way to tell a JSON
+    array from a Postgres array, and it picks the latter — the insert then fails
+    with ``column "x" is of type jsonb but expression is of type jsonb[]``.
+    Dicts are auto-adapted by :func:`_configure`, but wrapping them is harmless
+    and keeps call sites uniform.
+    """
+    return Jsonb(value)
 
 
 def pool() -> ConnectionPool:

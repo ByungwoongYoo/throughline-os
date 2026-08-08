@@ -122,7 +122,6 @@ VIF multicollinearity, expected cell counts.
 
 ## Next
 
-Phase 3 (§131) — connection discovery, the connection lifecycle, robustness
-validation and the contradiction engine. The §51 checks that `findings.transition`
+Phase 3 (§131) — **now complete**, see PHASE_3.md. The §51 checks that `findings.transition`
 already demands are, as of this phase, computable: the sandbox can run the
 sensitivity and confounder-adjustment analyses those gates require.

@@ -286,3 +286,146 @@ def analysis_run(run: dict[str, Any], cur: Any) -> dict[str, Any]:
 
     return analysis.record_result(cur, run_id=run_id, sandbox=sandbox,
                                   spec_row=spec_row, actor="system:analysis")
+
+
+def _execute_analysis(cur, run_id: str) -> None:
+    """Run one analysis to completion inside the caller's transaction.
+
+    Discovery and validation generate many analyses whose results they need
+    immediately, so they run inline rather than round-tripping through the queue.
+    The sandbox boundary is identical either way — this is the same handler.
+    """
+    analysis_run({"input": {"analysis_run_id": run_id}}, cur)
+
+
+@REGISTRY.register("discovery.run")
+def discovery_run(run: dict[str, Any], cur: Any) -> dict[str, Any]:
+    """§48/§49 — generate candidates, test them, correct, rank, record.
+
+    Every candidate becomes a real sandboxed analysis run, so a discovered
+    connection is traceable to the computation behind it (LAW 1, LAW 2).
+    """
+    from throughline_domain import analysis, discovery
+
+    discovery_run_id = run["input"]["discovery_run_id"]
+    cur.execute("SELECT * FROM discovery_runs WHERE id = %s", (discovery_run_id,))
+    record = cur.fetchone()
+    if not record:
+        raise ValueError(f"Discovery run {discovery_run_id} no longer exists")
+    if record["status"] in {"complete", "failed"}:
+        return {"discovery_run_id": discovery_run_id, "status": record["status"],
+                "skipped": True}
+
+    project_id = record["project_id"]
+    version_id = record["dataset_version_id"]
+    cur.execute("UPDATE discovery_runs SET status = 'running', started_at = now() "
+                "WHERE id = %s", (discovery_run_id,))
+
+    plan = discovery.plan_candidates(cur, dataset_version_id=version_id)
+    candidates = plan["candidates"]
+
+    # Steps 4–6: one sandboxed analysis per surviving candidate.
+    tested: list[dict[str, Any]] = []
+    for candidate in candidates:
+        created = analysis.create_spec(cur, project_id=project_id, spec={
+            "method": candidate["method"],
+            "dataset_version_ids": [version_id],
+            "variables": candidate["variables"],
+            "method_rationale": candidate["rationale"],
+            "research_question": (f"Is {candidate['left_variable']} associated with "
+                                  f"{candidate['right_variable']}?"),
+        }, actor="system:discovery")
+        analysis_run_id = analysis.create_run(cur, project_id=project_id,
+                                              spec_id=created["spec_id"])
+        _execute_analysis(cur, analysis_run_id)
+        finished = analysis.get_run(cur, analysis_run_id)
+        tested.append({"candidate": candidate, "analysis_run_id": analysis_run_id,
+                       "run": finished})
+
+    # Step 7: correct across the whole family that was actually run.
+    completed = [t for t in tested if t["run"]["status"] == "completed"]
+    corrections = discovery.benjamini_hochberg(
+        [(t["run"]["result"] or {}).get("p_value") for t in completed],
+        fdr=float(record["false_discovery_rate"]),
+    )
+
+    connection_ids: list[str] = []
+    for item, correction in zip(completed, corrections):
+        connection_id = discovery.record_connection(
+            cur, project_id=project_id, discovery_run_id=discovery_run_id,
+            candidate=item["candidate"], analysis_run_id=item["analysis_run_id"],
+            result=item["run"]["result"] or {}, q_value=correction["q_value"],
+        )
+        connection_ids.append(connection_id)
+        # Step 10: only survivors of the correction become exploratory. The rest
+        # stay candidates — visible, but not presented as discoveries (§13/§14).
+        if correction["survives"]:
+            discovery.transition(
+                cur, connection_id=connection_id, to_status="exploratory",
+                reason=(f"Survived Benjamini-Hochberg correction at FDR "
+                        f"{record['false_discovery_rate']:.2f} "
+                        f"(q = {correction['q_value']:.4g})."),
+                actor="system:discovery", checks={"multiple_comparison_correction": True},
+            )
+
+    cur.execute(
+        """
+        UPDATE discovery_runs SET status = 'complete', candidates_considered = %s,
+            candidates_excluded = %s, tests_run = %s, exclusion_reasons = %s,
+            finished_at = now()
+        WHERE id = %s
+        """,
+        (len(candidates), len(plan["excluded_columns"]), len(completed),
+         plan["excluded_columns"], discovery_run_id),
+    )
+
+    exploratory = sum(1 for c in corrections if c["survives"])
+    return {
+        "discovery_run_id": discovery_run_id, "status": "complete",
+        "columns_usable": plan["columns_usable"],
+        "excluded_columns": plan["excluded_columns"],
+        "candidates": len(candidates), "tests_run": len(completed),
+        "survived_correction": exploratory, "connection_ids": connection_ids,
+    }
+
+
+@REGISTRY.register("connection.validate")
+def connection_validate(run: dict[str, Any], cur: Any) -> dict[str, Any]:
+    """§51 — try to destroy a connection; promote it only if it survives."""
+    from throughline_domain import discovery, validation
+
+    connection_id = run["input"]["connection_id"]
+    confounders = list(run["input"].get("confounders") or [])
+
+    outcome = validation.validate_connection(
+        cur, connection_id=connection_id,
+        runner=lambda analysis_run_id: _execute_analysis(cur, analysis_run_id),
+        confounders=confounders,
+    )
+
+    cur.execute("SELECT lifecycle_status FROM connections WHERE id = %s", (connection_id,))
+    current = cur.fetchone()["lifecycle_status"]
+    if current == "exploratory":
+        if outcome["passed"]:
+            discovery.transition(cur, connection_id=connection_id, to_status="validated",
+                                 reason=outcome["summary"], actor="system:validation",
+                                 checks=outcome["checks"])
+        else:
+            # Failing validation does not reject the connection — it leaves it
+            # exploratory, which is exactly what it still is.
+            outcome["note"] = ("The connection remains exploratory. Failing a "
+                               "robustness check is information, not a verdict.")
+    return {"connection_id": connection_id, **outcome}
+
+
+@REGISTRY.register("finding.challenge")
+def finding_challenge(run: dict[str, Any], cur: Any) -> dict[str, Any]:
+    """§57 — run the Scientific Critic against a finding."""
+    from throughline_domain import critic
+
+    return critic.challenge_finding(
+        cur, finding_id=run["input"]["finding_id"],
+        runner=lambda analysis_run_id: _execute_analysis(cur, analysis_run_id),
+        actor=run["input"].get("actor") or "system:critic",
+        confounders=tuple(run["input"].get("confounders") or ()),
+    )

@@ -15,7 +15,8 @@ from fastapi import Cookie, Depends, FastAPI, File, HTTPException, Query, Reques
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from throughline_domain import (
-    analysis, auth, embeddings, findings, lineage, objects, retrieval, storage, workflow,
+    analysis, auth, critic, discovery, embeddings, findings, graphs, lineage,
+    objects, retrieval, storage, validation, workflow,
 )
 from throughline_domain.db import connection, transaction
 from throughline_domain.ids import new_id
@@ -517,6 +518,146 @@ def compare_analyses(project_id: str, run_id: list[str] = Query(min_length=2),
             if not run or run["project_id"] != project_id:
                 raise HTTPException(404, f"Analysis run {candidate} not found in this project.")
         return analysis.compare_runs(cur, run_id)
+
+
+# ---------------------------------------------------------------------------
+# Discovery (§48, §51, §57, §61–§63)
+# ---------------------------------------------------------------------------
+
+
+class DiscoveryRequest(BaseModel):
+    dataset_version_id: str
+    false_discovery_rate: float = Field(default=0.05, gt=0, lt=1)
+
+
+class ValidateRequest(BaseModel):
+    confounders: list[str] = Field(default_factory=list)
+
+
+@app.post("/api/projects/{project_id}/discoveries", status_code=202)
+def start_discovery(project_id: str, payload: DiscoveryRequest,
+                    user: dict = Depends(current_user)) -> dict[str, Any]:
+    """§48 — generate, test, correct and rank candidate relationships."""
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        cur.execute(
+            "SELECT d.project_id FROM dataset_versions dv "
+            "JOIN datasets d ON d.id = dv.dataset_id WHERE dv.id = %s",
+            (payload.dataset_version_id,),
+        )
+        row = cur.fetchone()
+        if not row or row["project_id"] != project_id:
+            raise HTTPException(404, "Dataset version not found in this project.")
+        run_id = discovery.create_run(cur, project_id=project_id,
+                                      dataset_version_id=payload.dataset_version_id,
+                                      fdr=payload.false_discovery_rate)
+        workflow.enqueue(cur, workflow_name="discovery.run", project_id=project_id,
+                         payload={"discovery_run_id": run_id},
+                         idempotency_key=f"discovery:{run_id}")
+    return {"discovery_run_id": run_id, "status": "queued"}
+
+
+@app.get("/api/discoveries/{run_id}")
+def get_discovery(run_id: str, user: dict = Depends(current_user)) -> dict[str, Any]:
+    with transaction() as cur:
+        cur.execute("SELECT * FROM discovery_runs WHERE id = %s", (run_id,))
+        run = cur.fetchone()
+        if not run:
+            raise HTTPException(404, "Discovery run not found.")
+        scoped_project(run["project_id"], user)
+        run["connections"] = discovery.list_connections(cur, project_id=run["project_id"])
+        return run
+
+
+@app.get("/api/projects/{project_id}/connections")
+def list_connections(project_id: str, status: str | None = None,
+                     limit: int = Query(50, ge=1, le=200),
+                     user: dict = Depends(current_user)) -> list[dict[str, Any]]:
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        return discovery.list_connections(cur, project_id=project_id, status=status,
+                                          limit=limit)
+
+
+@app.post("/api/connections/{connection_id}/validate", status_code=202)
+def validate_connection(connection_id: str, payload: ValidateRequest,
+                        user: dict = Depends(current_user)) -> dict[str, Any]:
+    """§51 — try to destroy the connection; promote only if it survives."""
+    with transaction() as cur:
+        cur.execute("SELECT project_id FROM connections WHERE id = %s", (connection_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Connection not found.")
+        project_id = scoped_project(row["project_id"], user)
+        workflow.enqueue(
+            cur, workflow_name="connection.validate", project_id=project_id,
+            payload={"connection_id": connection_id, "confounders": payload.confounders},
+            idempotency_key=f"validate:{connection_id}:{','.join(sorted(payload.confounders))}",
+        )
+    return {"connection_id": connection_id, "status": "queued"}
+
+
+@app.get("/api/validations/{report_id}")
+def get_validation(report_id: str, user: dict = Depends(current_user)) -> dict[str, Any]:
+    with transaction() as cur:
+        try:
+            report = validation.report(cur, report_id)
+        except validation.ValidationError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        scoped_project(report["project_id"], user)
+        return report
+
+
+@app.post("/api/findings/{finding_id}/challenge", status_code=202)
+def challenge_finding(finding_id: str, payload: ValidateRequest,
+                      user: dict = Depends(current_user)) -> dict[str, Any]:
+    """§57 — "Challenge This Finding"."""
+    with transaction() as cur:
+        cur.execute("SELECT project_id FROM findings WHERE id = %s", (finding_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Finding not found.")
+        project_id = scoped_project(row["project_id"], user)
+        workflow.enqueue(
+            cur, workflow_name="finding.challenge", project_id=project_id,
+            payload={"finding_id": finding_id, "actor": user["id"],
+                     "confounders": payload.confounders},
+            idempotency_key=f"challenge:{finding_id}:{new_id('c')}",
+        )
+    return {"finding_id": finding_id, "status": "queued"}
+
+
+@app.get("/api/findings/{finding_id}/evidence-graph")
+def finding_evidence_graph(finding_id: str,
+                           user: dict = Depends(current_user)) -> dict[str, Any]:
+    """§62 — why do we believe this?"""
+    with transaction() as cur:
+        cur.execute("SELECT project_id FROM findings WHERE id = %s", (finding_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Finding not found.")
+        scoped_project(row["project_id"], user)
+        return graphs.evidence_graph(cur, finding_id=finding_id)
+
+
+@app.get("/api/projects/{project_id}/knowledge-graph")
+def knowledge_graph(project_id: str, focus: str | None = None,
+                    depth: int = Query(1, ge=1, le=4),
+                    limit: int = Query(200, ge=1, le=300),
+                    user: dict = Depends(current_user)) -> dict[str, Any]:
+    """§61 — what is connected. Bounded and expandable, never a full dump."""
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        return graphs.knowledge_graph(cur, project_id=project_id, focus_object_id=focus,
+                                      depth=depth, limit=limit)
+
+
+@app.get("/api/projects/{project_id}/discovery-map")
+def discovery_map(project_id: str, user: dict = Depends(current_user)) -> dict[str, Any]:
+    """§63 — the project overview and one concrete next action."""
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        return graphs.discovery_map(cur, project_id=project_id)
 
 
 # ---------------------------------------------------------------------------
