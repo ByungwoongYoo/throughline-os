@@ -1,0 +1,19 @@
+[project]
+name = "throughline-api"
+version = "0.1.0"
+description = "HTTP surface for Throughline OS"
+requires-python = ">=3.12"
+dependencies = [
+  "throughline-domain",
+  "throughline-schemas",
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.29",
+  "python-multipart>=0.0.9",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
