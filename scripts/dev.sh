@@ -1,20 +1,36 @@
 #!/usr/bin/env bash
-# Run the API and a worker together. Ctrl-C stops both.
+# Run the whole stack: API, a worker, and the web interface. Ctrl-C stops all.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PORT="${PORT:-8080}"
+WEB_PORT="${WEB_PORT:-3000}"
+export PATH="$HOME/.local/opt/node/bin:$PATH"
 
-# Apply migrations before either process starts. Both would otherwise race a
+# Apply migrations before anything starts. Both processes would otherwise race a
 # fresh database, and the worker would find no tables to poll.
 .venv/bin/python -c "from throughline_domain.migrate import migrate; a=migrate(); print('migrations:', ', '.join(a) if a else 'up to date')"
 
 .venv/bin/python -m throughline_workers &
 WORKER_PID=$!
-trap 'kill "$WORKER_PID" 2>/dev/null || true' EXIT INT TERM
 
-echo "API      http://127.0.0.1:${PORT}"
-echo "Docs     http://127.0.0.1:${PORT}/docs"
-echo "Worker   pid ${WORKER_PID}"
-echo
-.venv/bin/python -m uvicorn throughline_api.app:app --host 127.0.0.1 --port "${PORT}"
+.venv/bin/python -m uvicorn throughline_api.app:app --host 127.0.0.1 --port "${PORT}" &
+API_PID=$!
+
+trap 'kill "$WORKER_PID" "$API_PID" 2>/dev/null || true' EXIT INT TERM
+
+if command -v node >/dev/null 2>&1; then
+  echo
+  echo "  Throughline      http://127.0.0.1:${WEB_PORT}"
+  echo "  API docs         http://127.0.0.1:${PORT}/docs"
+  echo
+  cd apps/web
+  THROUGHLINE_API="http://127.0.0.1:${PORT}" npm run dev -- --port "${WEB_PORT}"
+else
+  # §123 — say plainly that the interface is unavailable rather than pretending.
+  echo
+  echo "  API              http://127.0.0.1:${PORT}"
+  echo "  Web interface    unavailable — Node 20+ is not installed."
+  echo
+  wait "$API_PID"
+fi

@@ -9,10 +9,11 @@ leaves the machine unless the researcher connects an external service.
 
 ## Status
 
-**Phases 0–4 complete — the §137 MVP workflow works end to end, and
-produces real publication figures.** See `docs/PHASE_0.md`, `docs/PHASE_1.md` and
-`docs/PHASE_2.md`, `docs/PHASE_3.md`, `docs/PHASE_4.md` for exactly what is
-and is not implemented at each stage. Per §123 of the specification, nothing in this repository is
+**Phases 0–4 complete, with a working researcher interface.** The §137 MVP
+workflow runs end to end from the browser and produces real publication figures. See `docs/PHASE_0.md`, `docs/PHASE_1.md` and
+`docs/PHASE_2.md`, `docs/PHASE_3.md`, `docs/PHASE_4.md` and
+`docs/PHASE_5_INTERFACE.md` for exactly what is and is not implemented at
+each stage. Per §123 of the specification, nothing in this repository is
 a placeholder presented as working functionality.
 
 ## Layout (§9)
@@ -20,7 +21,7 @@ a placeholder presented as working functionality.
 ```
 apps/
   api/                  FastAPI application — HTTP surface only, no research logic
-  web/                  Next.js researcher interface (requires Node ≥ 20)
+  web/                  Next.js researcher interface (§65, §66, §115)
 packages/
   schemas/              Pydantic domain schemas, versioned (§113)
   research-domain/      The research model: objects, lineage, claims, evidence, findings
@@ -45,7 +46,8 @@ in API route handlers.
 ## Requirements
 
 - Python 3.12+
-- Node 20+ *(only for `apps/web`; the API and workers run without it)*
+- Node 20+ *(for `apps/web`; installed user-locally at `~/.local/opt/node`,
+  and `scripts/dev.sh` finds it. The API and workers run without it.)*
 
 PostgreSQL is **not** a prerequisite — `pgserver` bundles a real PostgreSQL with
 pgvector as a Python wheel and runs it against a local data directory.
