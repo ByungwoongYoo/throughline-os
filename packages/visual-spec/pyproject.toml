@@ -1,0 +1,18 @@
+[project]
+name = "throughline-visual"
+version = "0.1.0"
+description = "ResearchVisualSpec (§73), visual intelligence (§72), critic (§76) and renderers (§74)"
+requires-python = ">=3.12"
+dependencies = [
+  "throughline-schemas",
+  "pydantic>=2.7",
+  "matplotlib>=3.8",
+  "numpy>=1.26",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

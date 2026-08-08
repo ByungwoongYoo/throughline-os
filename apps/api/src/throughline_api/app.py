@@ -9,6 +9,7 @@ entry commit together.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import Cookie, Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
@@ -16,8 +17,9 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from throughline_domain import (
     analysis, auth, critic, discovery, embeddings, findings, graphs, lineage,
-    objects, retrieval, storage, validation, workflow,
+    objects, retrieval, storage, validation, visuals, workflow,
 )
+from throughline_visual.spec import ResearchVisualSpec
 from throughline_domain.db import connection, transaction
 from throughline_domain.ids import new_id
 from throughline_domain.migrate import migrate
@@ -658,6 +660,169 @@ def discovery_map(project_id: str, user: dict = Depends(current_user)) -> dict[s
     scoped_project(project_id, user)
     with transaction() as cur:
         return graphs.discovery_map(cur, project_id=project_id)
+
+
+# ---------------------------------------------------------------------------
+# Visuals (§72, §74, §76, §84)
+# ---------------------------------------------------------------------------
+
+
+class VisualCreate(BaseModel):
+    analysis_run_id: str
+    goal: str = Field(default="show the relationship", max_length=500)
+    audience: str = Field(default="researcher", max_length=200)
+    finding_id: str | None = None
+    #: Override the recommendation. Omit to accept what §72 proposes.
+    spec: dict[str, Any] | None = None
+
+
+class VisualEdit(BaseModel):
+    changes: dict[str, Any]
+
+
+@app.get("/api/analyses/{run_id}/visual-recommendation")
+def visual_recommendation(run_id: str, goal: str = "show the relationship",
+                          audience: str = "researcher",
+                          user: dict = Depends(current_user)) -> dict[str, Any]:
+    """§72 — what figure suits this result, and why."""
+    with transaction() as cur:
+        run = analysis.get_run(cur, run_id)
+        if not run:
+            raise HTTPException(404, "Analysis run not found.")
+        scoped_project(run["project_id"], user)
+        try:
+            recommendation = visuals.recommend_for_run(cur, analysis_run_id=run_id,
+                                                       goal=goal, audience=audience)
+        except visuals.VisualError as exc:
+            raise HTTPException(409, str(exc)) from exc
+    return {
+        "visual_type": str(recommendation["visual_type"]),
+        "reason": recommendation["reason"],
+        "spec": recommendation["spec"].model_dump(mode="json"),
+        "caption": recommendation["spec"].caption,
+        "interpretation": recommendation["interpretation"],
+        "alternatives": [{**a, "visual_type": str(a["visual_type"])}
+                         for a in recommendation["alternatives"]],
+    }
+
+
+@app.post("/api/projects/{project_id}/visuals", status_code=201)
+def create_visual(project_id: str, payload: VisualCreate,
+                  user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Create a figure from an analysis run, critiqued before it is stored."""
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        try:
+            recommendation = visuals.recommend_for_run(
+                cur, analysis_run_id=payload.analysis_run_id,
+                goal=payload.goal, audience=payload.audience,
+            )
+        except visuals.VisualError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+        spec = (ResearchVisualSpec.model_validate(payload.spec) if payload.spec
+                else recommendation["spec"])
+        sample = _visual_sample(cur, spec)
+        try:
+            created = visuals.create_visual(
+                cur, project_id=project_id, spec=spec, actor=user["id"], sample=sample,
+                recommendation=recommendation, finding_id=payload.finding_id,
+            )
+        except visuals.VisualError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    return {"visual_id": created["visual_id"], "object_id": created["object_id"],
+            "publishable": created["publishable"], "critique": created["critique"],
+            "spec": created["spec"].model_dump(mode="json")}
+
+
+@app.get("/api/visuals/{visual_id}")
+def get_visual(visual_id: str, user: dict = Depends(current_user)) -> dict[str, Any]:
+    with transaction() as cur:
+        try:
+            row = visuals.load_visual(cur, visual_id)
+        except visuals.VisualError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        scoped_project(row["project_id"], user)
+        row["renders"] = visuals.stale_renders(cur, visual_id)
+        return row
+
+
+@app.post("/api/visuals/{visual_id}/render")
+def render_visual(visual_id: str, format: str = Query("svg"),
+                  user: dict = Depends(current_user)) -> dict[str, Any]:
+    """§74/§84 — one spec, rendered by whichever backend was asked for."""
+    with transaction() as cur:
+        try:
+            row = visuals.load_visual(cur, visual_id)
+        except visuals.VisualError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        scoped_project(row["project_id"], user)
+        try:
+            return visuals.render_visual(cur, visual_id=visual_id, fmt=format)
+        except visuals.VisualError as exc:
+            # A figure that failed the critic is refused, not quietly drawn.
+            raise HTTPException(409, str(exc)) from exc
+
+
+@app.patch("/api/visuals/{visual_id}")
+def edit_visual(visual_id: str, payload: VisualEdit,
+                user: dict = Depends(current_user)) -> dict[str, Any]:
+    """§78 — presentation edits only; anything data-bearing needs a new analysis."""
+    with transaction() as cur:
+        try:
+            row = visuals.load_visual(cur, visual_id)
+        except visuals.VisualError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        scoped_project(row["project_id"], user)
+        try:
+            edited = visuals.apply_edit(cur, visual_id=visual_id, actor=user["id"],
+                                        changes=payload.changes)
+        except visuals.EditRequiresRecomputation as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except visuals.VisualError as exc:
+            raise HTTPException(422, str(exc)) from exc
+    return {"visual_id": visual_id, "spec": edited["spec"].model_dump(mode="json"),
+            "publishable": edited["publishable"], "critique": edited["critique"]}
+
+
+def _visual_sample(cur, spec: ResearchVisualSpec, limit: int = 500) -> dict[str, Any]:
+    """A bounded sample of the fields a figure draws (§106, §107).
+
+    The browser never receives the dataset; scatter and box plots need points, so
+    a capped sample is read server-side and passed to the renderer.
+    """
+    fields = spec.data_fields()
+    if not fields or not spec.dataset_version_id:
+        return {}
+    cur.execute(
+        """
+        SELECT f.storage_key, f.filename FROM dataset_versions dv
+        JOIN datasets d ON d.id = dv.dataset_id
+        JOIN sources s ON s.id = d.source_id
+        JOIN files f ON f.id = s.file_id
+        WHERE dv.id = %s
+        """,
+        (spec.dataset_version_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        return {}
+
+    import pandas as pd
+    from throughline_ingestion.datasets import read_dataset
+
+    frame, _ = read_dataset(storage.path_for(row["storage_key"]),
+                            suffix=Path(row["filename"] or "").suffix.lower())
+    sample: dict[str, Any] = {}
+    for field_name in fields:
+        if field_name not in frame.columns:
+            continue
+        column = frame[field_name].head(limit)
+        numeric = pd.to_numeric(column, errors="coerce")
+        sample[field_name] = (numeric.tolist() if numeric.notna().all()
+                              else column.astype(str).tolist())
+    return sample
 
 
 # ---------------------------------------------------------------------------

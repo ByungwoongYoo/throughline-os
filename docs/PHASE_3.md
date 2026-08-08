@@ -121,7 +121,4 @@ promote is not a validation engine.
 
 ## Next
 
-Phase 4 (§132) — visual intelligence: `ResearchVisualSpec`, automatic
-visualization recommendation, the visualization critic, and the multi-renderer
-architecture that lets one semantic result become web, publication and slide
-output without duplicating analysis logic.
+Phase 4 (§132) — **now complete**, see PHASE_4.md.

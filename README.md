@@ -9,9 +9,10 @@ leaves the machine unless the researcher connects an external service.
 
 ## Status
 
-**Phases 0–3 complete — the §137 MVP workflow works end to end.** See `docs/PHASE_0.md`, `docs/PHASE_1.md` and
-`docs/PHASE_2.md`, `docs/PHASE_3.md` for exactly what is and is not
-implemented at each stage. Per §123 of the specification, nothing in this repository is
+**Phases 0–4 complete — the §137 MVP workflow works end to end, and
+produces real publication figures.** See `docs/PHASE_0.md`, `docs/PHASE_1.md` and
+`docs/PHASE_2.md`, `docs/PHASE_3.md`, `docs/PHASE_4.md` for exactly what is
+and is not implemented at each stage. Per §123 of the specification, nothing in this repository is
 a placeholder presented as working functionality.
 
 ## Layout (§9)
@@ -25,7 +26,7 @@ packages/
   research-domain/      The research model: objects, lineage, claims, evidence, findings
   workflow-sdk/         Durable workflow contracts and node definitions (§36)
   connector-sdk/        Connector interface and capability model (§32)
-  visual-spec/          ResearchVisualSpec (§73) — Phase 4
+  visual-spec/          ResearchVisualSpec (§73), recommendation, critic, renderers
   motion-spec/          Scientific Motion Grammar (§87) — Phase 8
   types/                Shared TypeScript types for the web app
 services/
