@@ -3,7 +3,7 @@ name = "throughline-workers"
 version = "0.1.0"
 description = "Durable background workers"
 requires-python = ">=3.12"
-dependencies = ["throughline-domain", "throughline-schemas"]
+dependencies = ["throughline-domain", "throughline-schemas", "throughline-ingestion"]
 
 [project.scripts]
 throughline-worker = "throughline_workers.runner:main"

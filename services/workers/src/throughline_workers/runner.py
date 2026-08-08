@@ -66,9 +66,20 @@ class Worker:
         signal.signal(signal.SIGINT, self.request_stop)
         signal.signal(signal.SIGTERM, self.request_stop)
         log.info("worker %s handling: %s", self.worker_id, ", ".join(REGISTRY.names) or "nothing")
+        idle_backoff = 0.0
         while not self._stop:
-            if not self.run_once():
-                time.sleep(self.poll_seconds)
+            try:
+                worked = self.run_once()
+                idle_backoff = 0.0
+            except Exception as exc:  # noqa: BLE001
+                # A worker that exits on the first database hiccup is not durable.
+                # Log, back off, and keep going; the queue is the source of truth.
+                idle_backoff = min(max(idle_backoff * 2, 1.0), 30.0)
+                log.warning("worker loop error (retrying in %.0fs): %s: %s",
+                            idle_backoff, type(exc).__name__, exc)
+                worked = False
+            if not worked:
+                time.sleep(idle_backoff or self.poll_seconds)
 
     def run_once(self) -> bool:
         """Process at most one run. Returns True if work was picked up."""
@@ -114,8 +125,11 @@ def main() -> None:
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s"
     )
+    # The worker may start before the API on a fresh install, so it cannot assume
+    # the schema exists. Migration is idempotent and checksummed.
+    from throughline_domain.migrate import migrate
+
+    applied = migrate()
+    if applied:
+        log.info("applied migrations: %s", ", ".join(applied))
     Worker().run_forever()
-
-
-if __name__ == "__main__":
-    main()

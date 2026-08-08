@@ -1,0 +1,20 @@
+[project]
+name = "throughline-ingestion"
+version = "0.1.0"
+description = "Document parsing and dataset profiling — pure functions, no database"
+requires-python = ">=3.12"
+dependencies = [
+  "throughline-schemas",
+  "PyMuPDF>=1.24",
+  "pandas>=2.0",
+  "numpy>=1.26",
+  "openpyxl>=3.1",
+  "python-docx>=1.1",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

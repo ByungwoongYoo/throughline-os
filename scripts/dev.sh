@@ -5,7 +5,11 @@ cd "$(dirname "$0")/.."
 
 PORT="${PORT:-8080}"
 
-.venv/bin/python -m throughline_workers.runner &
+# Apply migrations before either process starts. Both would otherwise race a
+# fresh database, and the worker would find no tables to poll.
+.venv/bin/python -c "from throughline_domain.migrate import migrate; a=migrate(); print('migrations:', ', '.join(a) if a else 'up to date')"
+
+.venv/bin/python -m throughline_workers &
 WORKER_PID=$!
 trap 'kill "$WORKER_PID" 2>/dev/null || true' EXIT INT TERM
 

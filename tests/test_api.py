@@ -145,3 +145,73 @@ def test_derived_object_without_inputs_is_rejected(client):
 
     provenance = client.get(f"/api/objects/{analysis.json()['object_id']}/provenance").json()
     assert provenance["direct_inputs"][0]["source_artifact_id"] == dataset.json()["object_id"]
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 — ingestion, profiling and search over HTTP
+# ---------------------------------------------------------------------------
+
+
+def _drain_workers() -> None:
+    from throughline_workers.runner import Worker
+
+    while Worker(worker_id="api-test").run_once():
+        pass
+
+
+def test_capabilities_states_what_is_missing(client):
+    """§123 — the interface must be able to tell absence from silence."""
+    body = client.get("/api/system/capabilities").json()
+    assert body["retrieval"]["lexical"] is True
+    assert body["analysis"]["sandbox"] is False
+    assert "Phase 2" in body["analysis"]["note"]
+
+
+def test_dataset_upload_profiles_and_becomes_searchable(client):
+    _account(client)
+    project_id = client.post("/api/projects", json={"name": "AMR"}).json()["id"]
+    csv = (b"country,year,consumption_ddd,resistance_pct\n"
+           b"IND,2019,12.4,31.2\nUSA,2019,9.8,18.6\nGBR,2020,8.1,15.0\n")
+    upload = client.post(f"/api/projects/{project_id}/sources",
+                         files={"file": ("amr.csv", io.BytesIO(csv), "text/csv")})
+    assert upload.status_code == 202
+    source_id = upload.json()["source_id"]
+
+    _drain_workers()
+
+    source = client.get(f"/api/projects/{project_id}/sources/{source_id}").json()
+    assert source["ingestion_status"] == "ready"
+    assert source["dataset"]["row_count"] == 3
+
+    columns = client.get(
+        f"/api/dataset-versions/{source['dataset']['dataset_version_id']}/columns"
+    ).json()
+    by_name = {c["name"]: c for c in columns}
+    assert by_name["country"]["semantic_type"] == "geography"
+    assert by_name["year"]["semantic_type"] == "date"
+
+    found = client.get(f"/api/projects/{project_id}/search",
+                       params={"q": "resistance"}).json()
+    assert found["results"], found
+    assert found["strategy"] in {"hybrid", "lexical"}
+
+    # §30 — the search is auditable afterwards.
+    audit = client.get(f"/api/retrievals/{found['retrieval_event_id']}").json()
+    assert audit["query"] == "resistance"
+    assert len(audit["results"]) == len(found["results"])
+
+
+def test_search_cannot_reach_another_account_project(client):
+    _account(client, "owner2@lab.local")
+    project_id = client.post("/api/projects", json={"name": "Private"}).json()["id"]
+    client.post("/api/auth/logout")
+
+    with connection() as conn, conn.cursor() as cur:
+        from throughline_domain import auth
+
+        auth.create_user(cur, email="third@lab.local", display_name="Third",
+                         password="correct-horse-battery")
+    client.post("/api/auth/login", json={"email": "third@lab.local",
+                                         "password": "correct-horse-battery"})
+    assert client.get(f"/api/projects/{project_id}/search",
+                      params={"q": "anything"}).status_code == 404

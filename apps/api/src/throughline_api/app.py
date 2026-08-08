@@ -11,10 +11,12 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import Cookie, Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
+from fastapi import Cookie, Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from throughline_domain import auth, findings, lineage, objects, storage, workflow
+from throughline_domain import (
+    auth, embeddings, findings, lineage, objects, retrieval, storage, workflow,
+)
 from throughline_domain.db import connection, transaction
 from throughline_domain.ids import new_id
 from throughline_domain.migrate import migrate
@@ -293,6 +295,112 @@ def object_impact(object_id: str, user: dict = Depends(current_user)) -> dict[st
             raise HTTPException(404, "Artifact not found.")
         scoped_project(row["project_id"], user)
         return objects.deletion_impact(cur, object_id)
+
+
+@app.get("/api/projects/{project_id}/sources/{source_id}")
+def get_source(project_id: str, source_id: str,
+               user: dict = Depends(current_user)) -> dict[str, Any]:
+    """A source with whatever ingestion produced from it."""
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        cur.execute("SELECT * FROM sources WHERE id = %s AND project_id = %s",
+                    (source_id, project_id))
+        source = cur.fetchone()
+        if not source:
+            raise HTTPException(404, "Source not found.")
+        cur.execute("SELECT COUNT(*) AS n FROM passages WHERE source_id = %s", (source_id,))
+        source["passage_count"] = cur.fetchone()["n"]
+        cur.execute("SELECT id, title, page_count, object_id FROM papers WHERE source_id = %s",
+                    (source_id,))
+        source["paper"] = cur.fetchone()
+        cur.execute(
+            """
+            SELECT d.id AS dataset_id, dv.id AS dataset_version_id, dv.version,
+                   dv.row_count, dv.column_count, dv.quality_report
+            FROM datasets d JOIN dataset_versions dv ON dv.dataset_id = d.id
+            WHERE d.source_id = %s ORDER BY dv.version DESC LIMIT 1
+            """,
+            (source_id,),
+        )
+        source["dataset"] = cur.fetchone()
+        return source
+
+
+@app.get("/api/dataset-versions/{version_id}/columns")
+def dataset_columns(version_id: str, user: dict = Depends(current_user)) -> list[dict[str, Any]]:
+    """The profiled schema (§20, §26)."""
+    with transaction() as cur:
+        cur.execute(
+            "SELECT d.project_id FROM dataset_versions dv "
+            "JOIN datasets d ON d.id = dv.dataset_id WHERE dv.id = %s",
+            (version_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Dataset version not found.")
+        scoped_project(row["project_id"], user)
+        cur.execute(
+            "SELECT ordinal, name, original_name, physical_type, semantic_type, unit, "
+            "missing_count, unique_count, statistics, sensitivity FROM dataset_columns "
+            "WHERE dataset_version_id = %s ORDER BY ordinal",
+            (version_id,),
+        )
+        return list(cur.fetchall())
+
+
+# ---------------------------------------------------------------------------
+# Search (§29, §30)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/projects/{project_id}/search")
+def search(
+    project_id: str,
+    q: str = Query(min_length=1, max_length=2000),
+    limit: int = Query(10, ge=1, le=100),
+    source_id: list[str] | None = Query(default=None),
+    user: dict = Depends(current_user),
+) -> dict[str, Any]:
+    """Hybrid retrieval. The response names the strategy actually used."""
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        return retrieval.hybrid_search(cur, project_id=project_id, query=q,
+                                       limit=limit, source_ids=source_id)
+
+
+@app.get("/api/retrievals/{event_id}")
+def retrieval_provenance(event_id: str, user: dict = Depends(current_user)) -> dict[str, Any]:
+    """§30 — audit exactly which passages an answer was built from."""
+    with transaction() as cur:
+        cur.execute("SELECT project_id FROM retrieval_events WHERE id = %s", (event_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Retrieval event not found.")
+        scoped_project(row["project_id"], user)
+        return retrieval.retrieval_provenance(cur, event_id)
+
+
+@app.get("/api/system/capabilities")
+def capabilities() -> dict[str, Any]:
+    """What this installation can actually do right now (§123).
+
+    The interface reads this instead of assuming: a missing embedding model
+    means search is lexical, and the researcher is told so rather than being
+    quietly given worse results.
+    """
+    embedder = embeddings.provider()
+    return {
+        "retrieval": {
+            "lexical": True,
+            "semantic": embedder is not None,
+            "model": embedder.name if embedder else None,
+            "note": None if embedder else
+                    "No local embedding model installed — search is lexical only.",
+        },
+        # Stated explicitly so nothing downstream mistakes absence for silence.
+        "analysis": {"sandbox": False, "note": "Scientific compute arrives in Phase 2."},
+        "llm": {"configured": False, "note": "No model provider is configured yet."},
+    }
 
 
 # ---------------------------------------------------------------------------
