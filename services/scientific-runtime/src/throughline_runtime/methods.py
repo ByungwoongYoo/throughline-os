@@ -1,0 +1,596 @@
+"""Statistical methods (§46) with assumption checks (§45, §47).
+
+Every method is a pure function of a DataFrame and a validated specification. No
+database, no network, no model calls — this module is imported *inside the
+sandbox subprocess*, so it must not be able to reach anything.
+
+Methods are registered by name. The registry is a whitelist: an AnalysisSpec can
+only ask for a method that exists here, which is what makes "run an analysis"
+safe without executing arbitrary code.
+"""
+
+from __future__ import annotations
+
+import math
+from typing import Any, Callable
+
+import numpy as np
+import pandas as pd
+from scipy import stats
+
+from .contract import (
+    AssumptionCheck,
+    EffectSize,
+    StatisticalResult,
+    compose_interpretation,
+    describe_practical_significance,
+    grade_evidence,
+)
+
+MethodFn = Callable[[pd.DataFrame, dict[str, Any]], StatisticalResult]
+REGISTRY: dict[str, MethodFn] = {}
+
+#: Below this, normality tests have almost no power and their "pass" is
+#: uninformative rather than reassuring.
+MIN_NORMALITY_N = 8
+#: Above this, they have so much power that they flag departures too small to
+#: affect inference. scipy itself warns that the p-value is unreliable past 5000.
+MAX_NORMALITY_N = 5000
+
+
+def method(name: str) -> Callable[[MethodFn], MethodFn]:
+    def register(fn: MethodFn) -> MethodFn:
+        REGISTRY[name] = fn
+        return fn
+
+    return register
+
+
+class AnalysisError(ValueError):
+    """The data cannot support the requested analysis."""
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+
+def _numeric(frame: pd.DataFrame, column: str) -> pd.Series:
+    if column not in frame.columns:
+        raise AnalysisError(f"Column {column!r} is not present in the dataset.")
+    series = pd.to_numeric(frame[column], errors="coerce")
+    return series
+
+
+def _paired_numeric(frame: pd.DataFrame, x: str, y: str) -> tuple[pd.Series, pd.Series, int]:
+    """Listwise deletion, with the number of dropped rows reported to the caller."""
+    left, right = _numeric(frame, x), _numeric(frame, y)
+    mask = left.notna() & right.notna()
+    dropped = int((~mask).sum())
+    if int(mask.sum()) < 3:
+        raise AnalysisError(
+            f"Only {int(mask.sum())} complete pairs for {x!r} and {y!r}; at least 3 are needed."
+        )
+    return left[mask], right[mask], dropped
+
+
+def _normality(series: pd.Series, label: str) -> AssumptionCheck:
+    n = len(series)
+    if n < MIN_NORMALITY_N:
+        return AssumptionCheck(
+            name=f"normality[{label}]", outcome="not_testable",
+            description="Shapiro-Wilk test of normality",
+            detail=f"n = {n} is too small for a meaningful normality test.",
+            severity="serious",
+        )
+    if n > MAX_NORMALITY_N:
+        # At large n, Shapiro-Wilk rejects departures too small to matter, while
+        # the central limit theorem makes the mean's sampling distribution
+        # approximately normal anyway. Reporting "violated" here would be
+        # technically true and scientifically misleading.
+        return AssumptionCheck(
+            name=f"normality[{label}]", outcome="not_applicable",
+            description="Shapiro-Wilk test of normality",
+            detail=(f"n = {n}. Formal normality testing is uninformative at this size; "
+                    "the central limit theorem covers inference about the mean. "
+                    f"Sample skew = {float(series.skew()):.3f}."),
+            severity="informational",
+        )
+    statistic, p = stats.shapiro(series.to_numpy())
+    return AssumptionCheck(
+        name=f"normality[{label}]",
+        outcome="passed" if p >= 0.05 else "violated",
+        description="Shapiro-Wilk test of normality",
+        statistic=float(statistic), p_value=float(p),
+        detail=("Consistent with a normal distribution." if p >= 0.05
+                else "Departs from normality; consider a rank-based method."),
+        severity="serious",
+    )
+
+
+def _outliers(series: pd.Series, label: str) -> AssumptionCheck:
+    """Report influential points rather than removing them (LAW 4)."""
+    q1, q3 = np.percentile(series, [25, 75])
+    iqr = q3 - q1
+    if iqr == 0:
+        return AssumptionCheck(name=f"outliers[{label}]", outcome="not_applicable",
+                               description="Interquartile-range outlier scan",
+                               detail="No spread in this variable.")
+    count = int(((series < q1 - 1.5 * iqr) | (series > q3 + 1.5 * iqr)).sum())
+    return AssumptionCheck(
+        name=f"outliers[{label}]",
+        outcome="passed" if count == 0 else "violated",
+        description="Interquartile-range outlier scan",
+        statistic=float(count),
+        detail=(f"{count} point(s) beyond 1.5×IQR. They are reported, not removed — "
+                "excluding them is a transformation and must be explicit."
+                if count else "No points beyond 1.5×IQR."),
+        severity="informational",
+    )
+
+
+def _finalise(result: StatisticalResult) -> StatisticalResult:
+    """Apply the §47 judgements that every method shares."""
+    if result.p_value is not None:
+        result.statistically_significant = result.p_value < (1 - result.confidence_level)
+    result.practical_significance = describe_practical_significance(result.effect_size)
+    result.evidence_quality = grade_evidence(
+        sample_size=result.sample_size, assumptions=result.assumptions,
+        p_value=result.p_value, effect=result.effect_size,
+    )
+    result.interpretation = compose_interpretation(result)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Descriptive
+# ---------------------------------------------------------------------------
+
+
+@method("descriptive")
+def descriptive(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalResult:
+    columns = spec["variables"].get("columns") or []
+    if not columns:
+        raise AnalysisError("descriptive requires at least one column in variables.columns")
+
+    summary: dict[str, Any] = {}
+    total_n = 0
+    for column in columns:
+        series = _numeric(frame, column).dropna()
+        total_n = max(total_n, len(series))
+        if series.empty:
+            summary[column] = {"n": 0, "note": "no numeric values"}
+            continue
+        summary[column] = {
+            "n": int(len(series)),
+            "missing": int(len(frame) - len(series)),
+            "mean": float(series.mean()),
+            "std": float(series.std(ddof=1)) if len(series) > 1 else 0.0,
+            "min": float(series.min()),
+            "p25": float(series.quantile(0.25)),
+            "median": float(series.median()),
+            "p75": float(series.quantile(0.75)),
+            "max": float(series.max()),
+            "skew": float(series.skew()) if len(series) > 2 else None,
+        }
+
+    return _finalise(StatisticalResult(
+        method="descriptive",
+        method_rationale=spec.get("method_rationale") or "Summarise distributions before testing.",
+        sample_size=total_n,
+        confidence_level=spec.get("confidence_level", 0.95),
+        extra={"columns": summary},
+        limitations=["Descriptive only. No hypothesis was tested."],
+    ))
+
+
+# ---------------------------------------------------------------------------
+# Correlation
+# ---------------------------------------------------------------------------
+
+
+def _correlation(frame: pd.DataFrame, spec: dict[str, Any], kind: str) -> StatisticalResult:
+    x_name, y_name = spec["variables"]["x"], spec["variables"]["y"]
+    x, y, dropped = _paired_numeric(frame, x_name, y_name)
+    n = len(x)
+    confidence = spec.get("confidence_level", 0.95)
+
+    if kind == "pearson":
+        r, p = stats.pearsonr(x, y)
+        effect_name = "pearson_r"
+    else:
+        r, p = stats.spearmanr(x, y)
+        effect_name = "spearman_rho"
+    r, p = float(r), float(p)
+
+    # Fisher z confidence interval; undefined at |r| = 1 or n <= 3.
+    ci_low = ci_high = None
+    if n > 3 and abs(r) < 1:
+        z = math.atanh(r)
+        se = 1 / math.sqrt(n - 3)
+        crit = stats.norm.ppf(1 - (1 - confidence) / 2)
+        ci_low, ci_high = math.tanh(z - crit * se), math.tanh(z + crit * se)
+
+    checks = [_outliers(x, x_name), _outliers(y, y_name)]
+    if kind == "pearson":
+        checks += [_normality(x, x_name), _normality(y, y_name)]
+    else:
+        checks.append(AssumptionCheck(
+            name="monotonicity", outcome="not_testable",
+            description="Spearman assumes a monotonic relationship",
+            detail="Inspect the scatter plot; monotonicity is not formally tested.",
+        ))
+
+    limitations = ["Correlation is association, not causation (§52)."]
+    if dropped:
+        limitations.append(f"{dropped} row(s) dropped for missing values in either variable.")
+
+    result = StatisticalResult(
+        method=f"{kind}_correlation",
+        method_rationale=spec.get("method_rationale")
+            or ("Pearson assumes linear association between two continuous variables."
+                if kind == "pearson"
+                else "Spearman ranks are robust to non-normality and monotone nonlinearity."),
+        sample_size=n, estimate=r, estimate_name=effect_name,
+        ci_low=ci_low, ci_high=ci_high, confidence_level=confidence, p_value=p,
+        effect_size=EffectSize(name=effect_name, value=r, ci_low=ci_low, ci_high=ci_high),
+        assumptions=checks, limitations=limitations,
+        extra={"x": x_name, "y": y_name, "dropped_rows": dropped},
+    )
+
+    # §49/§51 — if Pearson's normality assumption fails, say what to run instead.
+    if kind == "pearson" and any(
+        c.outcome == "violated" and c.name.startswith("normality") for c in checks
+    ):
+        result.warnings.append(
+            "Normality is violated. Spearman correlation is the appropriate alternative."
+        )
+    return _finalise(result)
+
+
+@method("pearson_correlation")
+def pearson_correlation(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalResult:
+    return _correlation(frame, spec, "pearson")
+
+
+@method("spearman_correlation")
+def spearman_correlation(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalResult:
+    return _correlation(frame, spec, "spearman")
+
+
+# ---------------------------------------------------------------------------
+# Regression
+# ---------------------------------------------------------------------------
+
+
+@method("linear_regression")
+def linear_regression(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalResult:
+    import statsmodels.api as sm
+    from statsmodels.stats.diagnostic import het_breuschpagan
+    from statsmodels.stats.stattools import durbin_watson
+
+    outcome_name = spec["variables"]["outcome"]
+    predictor_names = list(spec["variables"].get("predictors") or [])
+    if not predictor_names:
+        raise AnalysisError("linear_regression requires variables.predictors")
+
+    columns = [outcome_name, *predictor_names]
+    numeric = pd.DataFrame({c: _numeric(frame, c) for c in columns}).dropna()
+    dropped = len(frame) - len(numeric)
+    if len(numeric) <= len(predictor_names) + 1:
+        raise AnalysisError(
+            f"{len(numeric)} complete rows cannot fit {len(predictor_names)} predictor(s)."
+        )
+
+    y = numeric[outcome_name]
+    X = sm.add_constant(numeric[predictor_names], has_constant="add")
+    model = sm.OLS(y, X).fit()
+    confidence = spec.get("confidence_level", 0.95)
+    intervals = model.conf_int(alpha=1 - confidence)
+
+    coefficients = {
+        name: {
+            "estimate": float(model.params[name]),
+            "std_error": float(model.bse[name]),
+            "t": float(model.tvalues[name]),
+            "p_value": float(model.pvalues[name]),
+            "ci_low": float(intervals.loc[name, 0]),
+            "ci_high": float(intervals.loc[name, 1]),
+        }
+        for name in X.columns
+    }
+
+    residuals = model.resid
+    checks = [_normality(pd.Series(residuals), "residuals")]
+    try:
+        _, bp_p, _, _ = het_breuschpagan(residuals, X)
+        checks.append(AssumptionCheck(
+            name="homoscedasticity", outcome="passed" if bp_p >= 0.05 else "violated",
+            description="Breusch-Pagan test for constant error variance",
+            p_value=float(bp_p), severity="serious",
+            detail=("Error variance looks constant." if bp_p >= 0.05
+                    else "Error variance changes with the fitted values; "
+                         "standard errors may be wrong."),
+        ))
+    except Exception as exc:  # noqa: BLE001
+        checks.append(AssumptionCheck(name="homoscedasticity", outcome="not_testable",
+                                      description="Breusch-Pagan test", detail=str(exc)))
+
+    dw = float(durbin_watson(residuals))
+    checks.append(AssumptionCheck(
+        name="independence", outcome="passed" if 1.5 <= dw <= 2.5 else "violated",
+        description="Durbin-Watson test for autocorrelated residuals",
+        statistic=dw, severity="serious",
+        detail=f"Durbin-Watson = {dw:.3f} (≈2 indicates independence).",
+    ))
+
+    # Multicollinearity matters only with two or more predictors.
+    if len(predictor_names) > 1:
+        from statsmodels.stats.outliers_influence import variance_inflation_factor
+
+        vifs = {}
+        for index, name in enumerate(X.columns):
+            if name == "const":
+                continue
+            try:
+                vifs[name] = float(variance_inflation_factor(X.to_numpy(), index))
+            except Exception:  # noqa: BLE001
+                vifs[name] = float("nan")
+        worst = max((v for v in vifs.values() if not math.isnan(v)), default=0.0)
+        checks.append(AssumptionCheck(
+            name="multicollinearity", outcome="passed" if worst < 5 else "violated",
+            description="Variance inflation factors", statistic=worst, severity="serious",
+            detail=f"Highest VIF = {worst:.2f} (>5 indicates collinear predictors). {vifs}",
+        ))
+
+    r_squared = float(model.rsquared)
+    limitations = ["Regression coefficients are associations, not causal effects (§52)."]
+    if dropped:
+        limitations.append(f"{dropped} row(s) dropped by listwise deletion.")
+
+    return _finalise(StatisticalResult(
+        method="linear_regression",
+        method_rationale=spec.get("method_rationale")
+            or "Ordinary least squares for a continuous outcome.",
+        sample_size=int(model.nobs),
+        estimate=float(model.params[predictor_names[0]]),
+        estimate_name=f"beta[{predictor_names[0]}]",
+        ci_low=float(intervals.loc[predictor_names[0], 0]),
+        ci_high=float(intervals.loc[predictor_names[0], 1]),
+        confidence_level=confidence,
+        p_value=float(model.f_pvalue) if not math.isnan(model.f_pvalue) else None,
+        test_statistic=float(model.fvalue) if not math.isnan(model.fvalue) else None,
+        degrees_of_freedom=float(model.df_resid),
+        effect_size=EffectSize(name="r_squared", value=r_squared,
+                               interpretation="proportion of variance explained"),
+        assumptions=checks,
+        adjustments=[f"Adjusted for: {', '.join(predictor_names[1:])}"]
+                    if len(predictor_names) > 1 else [],
+        limitations=limitations,
+        extra={
+            "outcome": outcome_name, "predictors": predictor_names,
+            "coefficients": coefficients, "r_squared": r_squared,
+            "adjusted_r_squared": float(model.rsquared_adj), "dropped_rows": dropped,
+        },
+    ))
+
+
+# ---------------------------------------------------------------------------
+# Group comparison
+# ---------------------------------------------------------------------------
+
+
+@method("t_test")
+def t_test(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalResult:
+    value_name = spec["variables"]["value"]
+    group_name = spec["variables"]["group"]
+    if group_name not in frame.columns:
+        raise AnalysisError(f"Column {group_name!r} is not present in the dataset.")
+
+    values = _numeric(frame, value_name)
+    working = pd.DataFrame({"value": values, "group": frame[group_name].astype(str)}).dropna()
+    groups = sorted(working["group"].unique())
+    if len(groups) != 2:
+        raise AnalysisError(
+            f"t_test needs exactly 2 groups in {group_name!r}; found {len(groups)}."
+        )
+
+    a = working.loc[working["group"] == groups[0], "value"]
+    b = working.loc[working["group"] == groups[1], "value"]
+    if len(a) < 2 or len(b) < 2:
+        raise AnalysisError("Each group needs at least 2 observations.")
+
+    levene_stat, levene_p = stats.levene(a, b)
+    equal_variance = bool(levene_p >= 0.05)
+    # Welch's correction is the default when variances differ — using Student's
+    # anyway would understate the standard error.
+    statistic, p = stats.ttest_ind(a, b, equal_var=equal_variance)
+
+    pooled = math.sqrt(
+        ((len(a) - 1) * a.var(ddof=1) + (len(b) - 1) * b.var(ddof=1))
+        / max(1, len(a) + len(b) - 2)
+    )
+    d = float((a.mean() - b.mean()) / pooled) if pooled > 0 else 0.0
+
+    checks = [
+        AssumptionCheck(
+            name="equal_variance", outcome="passed" if equal_variance else "violated",
+            description="Levene's test for equality of variances",
+            statistic=float(levene_stat), p_value=float(levene_p), severity="serious",
+            detail=("Variances are comparable; Student's t-test used."
+                    if equal_variance else
+                    "Variances differ; Welch's correction applied automatically."),
+        ),
+        _normality(a, str(groups[0])),
+        _normality(b, str(groups[1])),
+    ]
+
+    result = StatisticalResult(
+        method="welch_t_test" if not equal_variance else "student_t_test",
+        method_rationale=spec.get("method_rationale")
+            or "Compare the means of two independent groups.",
+        sample_size=int(len(a) + len(b)),
+        estimate=float(a.mean() - b.mean()), estimate_name="mean_difference",
+        confidence_level=spec.get("confidence_level", 0.95),
+        p_value=float(p), test_statistic=float(statistic),
+        effect_size=EffectSize(name="cohens_d", value=d),
+        assumptions=checks,
+        adjustments=["Welch's correction for unequal variances"] if not equal_variance else [],
+        extra={
+            "groups": {str(groups[0]): {"n": int(len(a)), "mean": float(a.mean()),
+                                        "std": float(a.std(ddof=1))},
+                       str(groups[1]): {"n": int(len(b)), "mean": float(b.mean()),
+                                        "std": float(b.std(ddof=1))}},
+        },
+    )
+    if any(c.outcome == "violated" and c.name.startswith("normality") for c in checks):
+        result.warnings.append(
+            "Normality is violated. Mann-Whitney U is the appropriate alternative."
+        )
+    return _finalise(result)
+
+
+@method("mann_whitney")
+def mann_whitney(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalResult:
+    value_name, group_name = spec["variables"]["value"], spec["variables"]["group"]
+    values = _numeric(frame, value_name)
+    working = pd.DataFrame({"value": values, "group": frame[group_name].astype(str)}).dropna()
+    groups = sorted(working["group"].unique())
+    if len(groups) != 2:
+        raise AnalysisError(f"mann_whitney needs exactly 2 groups; found {len(groups)}.")
+
+    a = working.loc[working["group"] == groups[0], "value"]
+    b = working.loc[working["group"] == groups[1], "value"]
+    statistic, p = stats.mannwhitneyu(a, b, alternative="two-sided")
+    # Rank-biserial correlation, the effect size natural to this test.
+    rank_biserial = float(1 - (2 * statistic) / (len(a) * len(b)))
+
+    return _finalise(StatisticalResult(
+        method="mann_whitney_u",
+        method_rationale=spec.get("method_rationale")
+            or "Rank-based comparison of two groups; makes no normality assumption.",
+        sample_size=int(len(a) + len(b)),
+        estimate=float(a.median() - b.median()), estimate_name="median_difference",
+        confidence_level=spec.get("confidence_level", 0.95),
+        p_value=float(p), test_statistic=float(statistic),
+        effect_size=EffectSize(name="rank_biserial", value=rank_biserial),
+        assumptions=[AssumptionCheck(
+            name="independent_observations", outcome="not_testable",
+            description="Observations must be independent",
+            detail="Independence follows from the study design, not from the data.",
+        )],
+        extra={"groups": {str(groups[0]): int(len(a)), str(groups[1]): int(len(b))}},
+    ))
+
+
+@method("chi_square")
+def chi_square(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalResult:
+    x_name, y_name = spec["variables"]["x"], spec["variables"]["y"]
+    for name in (x_name, y_name):
+        if name not in frame.columns:
+            raise AnalysisError(f"Column {name!r} is not present in the dataset.")
+
+    table = pd.crosstab(frame[x_name].astype(str), frame[y_name].astype(str))
+    if table.size == 0 or table.shape[0] < 2 or table.shape[1] < 2:
+        raise AnalysisError("chi_square needs at least a 2×2 contingency table.")
+
+    statistic, p, dof, expected = stats.chi2_contingency(table)
+    n = int(table.to_numpy().sum())
+    min_expected = float(expected.min())
+    cramers_v = float(math.sqrt((statistic / n) / (min(table.shape) - 1)))
+
+    return _finalise(StatisticalResult(
+        method="chi_square_independence",
+        method_rationale=spec.get("method_rationale")
+            or "Test association between two categorical variables.",
+        sample_size=n, p_value=float(p), test_statistic=float(statistic),
+        degrees_of_freedom=float(dof),
+        confidence_level=spec.get("confidence_level", 0.95),
+        effect_size=EffectSize(name="cramers_v", value=cramers_v),
+        assumptions=[AssumptionCheck(
+            name="expected_cell_counts",
+            outcome="passed" if min_expected >= 5 else "violated",
+            description="Every expected cell count should be at least 5",
+            statistic=min_expected, severity="serious",
+            detail=(f"Smallest expected count is {min_expected:.2f}."
+                    + ("" if min_expected >= 5 else " Fisher's exact test is more appropriate.")),
+        )],
+        extra={"table": table.to_dict(), "x": x_name, "y": y_name},
+    ))
+
+
+@method("anova")
+def anova(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalResult:
+    value_name, group_name = spec["variables"]["value"], spec["variables"]["group"]
+    values = _numeric(frame, value_name)
+    working = pd.DataFrame({"value": values, "group": frame[group_name].astype(str)}).dropna()
+    groups = [g["value"] for _, g in working.groupby("group")]
+    if len(groups) < 3:
+        raise AnalysisError(
+            f"anova needs at least 3 groups; found {len(groups)}. Use t_test for two."
+        )
+
+    statistic, p = stats.f_oneway(*groups)
+    grand_mean = working["value"].mean()
+    ss_between = sum(len(g) * (g.mean() - grand_mean) ** 2 for g in groups)
+    ss_total = float(((working["value"] - grand_mean) ** 2).sum())
+    eta_squared = float(ss_between / ss_total) if ss_total > 0 else 0.0
+
+    levene_stat, levene_p = stats.levene(*groups)
+    return _finalise(StatisticalResult(
+        method="one_way_anova",
+        method_rationale=spec.get("method_rationale")
+            or "Compare means across three or more independent groups.",
+        sample_size=int(len(working)),
+        confidence_level=spec.get("confidence_level", 0.95),
+        p_value=float(p), test_statistic=float(statistic),
+        effect_size=EffectSize(name="eta_squared", value=eta_squared),
+        assumptions=[
+            AssumptionCheck(
+                name="homogeneity_of_variance",
+                outcome="passed" if levene_p >= 0.05 else "violated",
+                description="Levene's test across groups",
+                statistic=float(levene_stat), p_value=float(levene_p), severity="serious",
+                detail=("Group variances are comparable." if levene_p >= 0.05
+                        else "Group variances differ; Kruskal-Wallis is more appropriate."),
+            ),
+            *[_normality(g, f"group{i}") for i, g in enumerate(groups)],
+        ],
+        limitations=["A significant ANOVA says the groups differ, not which ones."],
+        extra={"group_count": len(groups),
+               "group_sizes": [int(len(g)) for g in groups]},
+    ))
+
+
+@method("kruskal_wallis")
+def kruskal_wallis(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalResult:
+    value_name, group_name = spec["variables"]["value"], spec["variables"]["group"]
+    values = _numeric(frame, value_name)
+    working = pd.DataFrame({"value": values, "group": frame[group_name].astype(str)}).dropna()
+    groups = [g["value"] for _, g in working.groupby("group")]
+    if len(groups) < 3:
+        raise AnalysisError(f"kruskal_wallis needs at least 3 groups; found {len(groups)}.")
+
+    statistic, p = stats.kruskal(*groups)
+    n = int(len(working))
+    epsilon_squared = float((statistic - len(groups) + 1) / (n - len(groups))) if n > len(groups) else 0.0
+
+    return _finalise(StatisticalResult(
+        method="kruskal_wallis",
+        method_rationale=spec.get("method_rationale")
+            or "Rank-based comparison across three or more groups; no normality assumption.",
+        sample_size=n, confidence_level=spec.get("confidence_level", 0.95),
+        p_value=float(p), test_statistic=float(statistic),
+        degrees_of_freedom=float(len(groups) - 1),
+        effect_size=EffectSize(name="epsilon_squared", value=epsilon_squared),
+        assumptions=[AssumptionCheck(
+            name="independent_observations", outcome="not_testable",
+            description="Observations must be independent",
+            detail="Independence follows from the study design, not from the data.",
+        )],
+        extra={"group_count": len(groups)},
+    ))
+
+
+def available_methods() -> list[str]:
+    return sorted(REGISTRY)

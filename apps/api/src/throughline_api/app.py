@@ -15,11 +15,12 @@ from fastapi import Cookie, Depends, FastAPI, File, HTTPException, Query, Reques
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from throughline_domain import (
-    auth, embeddings, findings, lineage, objects, retrieval, storage, workflow,
+    analysis, auth, embeddings, findings, lineage, objects, retrieval, storage, workflow,
 )
 from throughline_domain.db import connection, transaction
 from throughline_domain.ids import new_id
 from throughline_domain.migrate import migrate
+from throughline_runtime.executor import policy_report as sandbox_policy_report
 from throughline_schemas.enums import (
     FindingLifecycle,
     FindingType,
@@ -398,9 +399,124 @@ def capabilities() -> dict[str, Any]:
                     "No local embedding model installed — search is lexical only.",
         },
         # Stated explicitly so nothing downstream mistakes absence for silence.
-        "analysis": {"sandbox": False, "note": "Scientific compute arrives in Phase 2."},
+        "analysis": {
+            "sandbox": True,
+            "methods": sorted(analysis.SUPPORTED_METHODS),
+            # §43 — the honest limits of a desktop process sandbox, stored with
+            # every run and surfaced here rather than glossed over.
+            "isolation": sandbox_policy_report(),
+        },
         "llm": {"configured": False, "note": "No model provider is configured yet."},
     }
+
+
+# ---------------------------------------------------------------------------
+# Analysis (§43, §44, §45)
+# ---------------------------------------------------------------------------
+
+
+class AnalysisSpecRequest(BaseModel):
+    method: str = Field(min_length=1, max_length=80)
+    dataset_version_ids: list[str] = Field(min_length=1, max_length=1)
+    variables: dict[str, Any] = Field(default_factory=dict)
+    research_question: str = Field(default="", max_length=20_000)
+    method_rationale: str = Field(default="", max_length=8000)
+    filters: list[dict[str, Any]] = Field(default_factory=list)
+    confidence_level: float = Field(default=0.95, gt=0, lt=1)
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    random_seed: int = 0
+
+
+class ForkRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=2000)
+    filters: list[dict[str, Any]] | None = None
+    method: str | None = None
+    variables: dict[str, Any] | None = None
+
+
+@app.post("/api/projects/{project_id}/analyses", status_code=202)
+def create_analysis(project_id: str, payload: AnalysisSpecRequest,
+                    user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Validate a spec (§45) and queue it for sandboxed execution (§43)."""
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        try:
+            created = analysis.create_spec(cur, project_id=project_id,
+                                           spec=payload.model_dump(), actor=user["id"])
+        except analysis.SpecInvalid as exc:
+            raise HTTPException(422, str(exc)) from exc
+        run_id = analysis.create_run(cur, project_id=project_id,
+                                     spec_id=created["spec_id"])
+        workflow.enqueue(
+            cur, workflow_name="analysis.run", project_id=project_id,
+            payload={"analysis_run_id": run_id},
+            # §38 — the same spec queued twice runs once.
+            idempotency_key=f"analysis:{run_id}",
+        )
+    return {"analysis_run_id": run_id, "spec_id": created["spec_id"],
+            "spec_content_hash": created["content_hash"], "status": "queued"}
+
+
+@app.get("/api/analyses/{run_id}")
+def get_analysis(run_id: str, user: dict = Depends(current_user)) -> dict[str, Any]:
+    """A run with its result, assumptions and everything §44 needs to reproduce it."""
+    with transaction() as cur:
+        run = analysis.get_run(cur, run_id)
+        if not run:
+            raise HTTPException(404, "Analysis run not found.")
+        scoped_project(run["project_id"], user)
+        return run
+
+
+@app.post("/api/analyses/{run_id}/fork", status_code=202)
+def fork_analysis(run_id: str, payload: ForkRequest,
+                  user: dict = Depends(current_user)) -> dict[str, Any]:
+    """§95 — branch an analysis to test whether a choice changes the conclusion."""
+    with transaction() as cur:
+        run = analysis.get_run(cur, run_id)
+        if not run:
+            raise HTTPException(404, "Analysis run not found.")
+        project_id = run["project_id"]
+        scoped_project(project_id, user)
+
+        spec_row = analysis.load_spec(cur, run["spec_id"])
+        forked = {
+            "method": payload.method or spec_row["method"],
+            "dataset_version_ids": spec_row["dataset_version_ids"],
+            "variables": payload.variables or spec_row["variables"],
+            "research_question": spec_row["research_question"],
+            "method_rationale": payload.reason,
+            "filters": spec_row["filters"] if payload.filters is None else payload.filters,
+            "confidence_level": spec_row["confidence_level"],
+            "parameters": spec_row["parameters"],
+            "random_seed": spec_row["random_seed"],
+        }
+        try:
+            created = analysis.create_spec(cur, project_id=project_id, spec=forked,
+                                           actor=user["id"])
+        except analysis.SpecInvalid as exc:
+            raise HTTPException(422, str(exc)) from exc
+        new_run_id = analysis.create_run(cur, project_id=project_id,
+                                         spec_id=created["spec_id"],
+                                         forked_from_run_id=run_id,
+                                         fork_reason=payload.reason)
+        workflow.enqueue(cur, workflow_name="analysis.run", project_id=project_id,
+                         payload={"analysis_run_id": new_run_id},
+                         idempotency_key=f"analysis:{new_run_id}")
+    return {"analysis_run_id": new_run_id, "forked_from": run_id, "status": "queued"}
+
+
+@app.get("/api/projects/{project_id}/analyses/compare")
+def compare_analyses(project_id: str, run_id: list[str] = Query(min_length=2),
+                     user: dict = Depends(current_user)) -> dict[str, Any]:
+    """§95 — put branches side by side and say whether the conclusion held."""
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        for candidate in run_id:
+            run = analysis.get_run(cur, candidate)
+            if not run or run["project_id"] != project_id:
+                raise HTTPException(404, f"Analysis run {candidate} not found in this project.")
+        return analysis.compare_runs(cur, run_id)
 
 
 # ---------------------------------------------------------------------------

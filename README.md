@@ -9,8 +9,8 @@ leaves the machine unless the researcher connects an external service.
 
 ## Status
 
-**Phase 0 — System Foundation.** See `docs/PHASE_0.md` for exactly what is and
-is not implemented. Per §123 of the specification, nothing in this repository is
+**Phases 0–2 complete.** See `docs/PHASE_0.md`, `docs/PHASE_1.md` and
+`docs/PHASE_2.md` for exactly what is and is not implemented at each stage. Per §123 of the specification, nothing in this repository is
 a placeholder presented as working functionality.
 
 ## Layout (§9)

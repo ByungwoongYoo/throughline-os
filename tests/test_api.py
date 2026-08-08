@@ -163,8 +163,15 @@ def test_capabilities_states_what_is_missing(client):
     """§123 — the interface must be able to tell absence from silence."""
     body = client.get("/api/system/capabilities").json()
     assert body["retrieval"]["lexical"] is True
-    assert body["analysis"]["sandbox"] is False
-    assert "Phase 2" in body["analysis"]["note"]
+    assert body["llm"]["configured"] is False
+
+    # The sandbox exists, and reports its real limits rather than claiming
+    # isolation it does not have.
+    assert body["analysis"]["sandbox"] is True
+    assert "pearson_correlation" in body["analysis"]["methods"]
+    isolation = body["analysis"]["isolation"]
+    assert isolation["enforced"]["no_application_secrets"] is True
+    assert isolation["best_effort"]["network_egress_disabled"] == "python_level_only"
 
 
 def test_dataset_upload_profiles_and_becomes_searchable(client):

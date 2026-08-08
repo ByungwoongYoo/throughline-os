@@ -1,3 +1,3 @@
-from . import auth, corpus, db, embeddings, events, findings, ids, lineage, migrate, objects, retrieval, storage, trust, workflow
+from . import analysis, auth, corpus, db, embeddings, events, findings, ids, lineage, migrate, objects, retrieval, storage, trust, workflow
 
-__all__ = ["auth", "corpus", "db", "embeddings", "events", "findings", "ids", "lineage", "migrate", "objects", "retrieval", "storage", "trust", "workflow"]
+__all__ = ["analysis", "auth", "corpus", "db", "embeddings", "events", "findings", "ids", "lineage", "migrate", "objects", "retrieval", "storage", "trust", "workflow"]

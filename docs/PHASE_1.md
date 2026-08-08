@@ -86,5 +86,4 @@ found in the previous codebase, and they are called out for that reason.
 
 ## Next
 
-Phase 2 (§130) is the scientific compute sandbox. It is the gate on LAW 2 and on
-everything in §46–§47, and it must land before any LLM-authored analysis runs.
+Phase 2 (§130) is the scientific compute sandbox — **now complete**, see PHASE_2.md.

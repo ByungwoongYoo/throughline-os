@@ -220,3 +220,69 @@ def _ingest_dataset(
         "quality_report": profile.quality_report, "embedding": embedding,
         "summary": f"{profile.row_count} rows, {profile.column_count} columns",
     }
+
+
+@REGISTRY.register("analysis.run")
+def analysis_run(run: dict[str, Any], cur: Any) -> dict[str, Any]:
+    """Execute one analysis in the sandbox and commit its provenance (§43, §44).
+
+    The dataset file is located here, in the parent, and handed to the executor
+    as a path. The sandbox process is never told where the object store is, and
+    never receives database credentials.
+    """
+    from throughline_domain import analysis, storage
+    from throughline_runtime.executor import SandboxPolicy, SandboxTimeout, run_analysis
+
+    run_id = run["input"]["analysis_run_id"]
+    cur.execute("SELECT project_id, spec_id, status FROM analysis_runs WHERE id = %s", (run_id,))
+    record = cur.fetchone()
+    if not record:
+        raise ValueError(f"Analysis run {run_id} no longer exists")
+    if record["status"] in {"completed", "failed"}:
+        # §38 — a retry must not recompute a terminal run.
+        return {"analysis_run_id": run_id, "status": record["status"], "skipped": True}
+
+    spec_row = dict(analysis.load_spec(cur, record["spec_id"]))
+    version_ids = spec_row["dataset_version_ids"]
+    cur.execute(
+        """
+        SELECT f.storage_key, f.filename, dv.content_hash, dv.row_count
+        FROM dataset_versions dv
+        JOIN datasets d ON d.id = dv.dataset_id
+        JOIN sources s ON s.id = d.source_id
+        JOIN files f ON f.id = s.file_id
+        WHERE dv.id = %s
+        """,
+        (version_ids[0],),
+    )
+    location = cur.fetchone()
+    if not location:
+        raise ValueError("The dataset version has no stored file to analyse.")
+
+    spec_row["_dataset"] = {"content_hash": location["content_hash"],
+                            "row_count": location["row_count"]}
+    spec_payload = {
+        "method": spec_row["method"], "variables": spec_row["variables"],
+        "filters": spec_row["filters"], "confidence_level": spec_row["confidence_level"],
+        "method_rationale": spec_row["method_rationale"],
+        "random_seed": spec_row["random_seed"], "parameters": spec_row["parameters"],
+    }
+
+    cur.execute("UPDATE analysis_runs SET status = 'running', started_at = now() "
+                "WHERE id = %s", (run_id,))
+
+    try:
+        sandbox = run_analysis(
+            spec=spec_payload,
+            input_path=storage.path_for(location["storage_key"]),
+            input_suffix=Path(location["filename"] or "").suffix.lower() or ".csv",
+            policy=SandboxPolicy(),
+        )
+    except SandboxTimeout as exc:
+        from throughline_runtime.executor import SandboxResult, policy_report
+
+        sandbox = SandboxResult(ok=False, payload={"error": str(exc)},
+                                policy=policy_report())
+
+    return analysis.record_result(cur, run_id=run_id, sandbox=sandbox,
+                                  spec_row=spec_row, actor="system:analysis")
