@@ -127,10 +127,19 @@ def validate_connection(
     outlier_checks = [c for c in base_run["assumption_checks"]
                       if c["name"].startswith("outliers")]
     flagged = [c for c in outlier_checks if c["outcome"] == "violated"]
-    checks["outliers"] = not flagged
+    # Outliers are reported, never removed — and their mere presence is not a
+    # failure. Real measurements contain extreme values; a rule that fails
+    # validation whenever any exist would refuse almost every genuine dataset
+    # and teach the researcher to ignore the verdict.
+    #
+    # What matters is whether the conclusion depends on them, and that is the
+    # sensitivity check immediately below, which re-runs the analysis with the
+    # outlying rows excluded and compares the estimate. This check records what
+    # was found; the sensitivity check is the one that can fail.
+    checks["outliers"] = True
     record_check(
         cur, report_id=report_id, name="outliers",
-        outcome="passed" if not flagged else "violated",
+        outcome="passed" if not flagged else "noted",
         detail=("No influential points beyond 1.5×IQR."
                 if not flagged else
                 f"{len(flagged)} variable(s) contain outliers; the sensitivity check "

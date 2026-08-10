@@ -688,7 +688,50 @@ def list_sources(project_id: str, user: dict = Depends(current_user)) -> list[di
             "WHERE project_id = %s ORDER BY created_at DESC",
             (project_id,),
         )
-        return list(cur.fetchall())
+        sources = [dict(row) for row in cur.fetchall()]
+
+        # What ingestion actually produced, attached to the source that
+        # produced it. Without this the list can say a source is "ready"
+        # while giving the interface nothing to open — and "ready" with
+        # nothing behind it is the least useful true statement available.
+        #
+        # Both are always present as keys, null when absent, so a caller
+        # never has to distinguish "no dataset" from "this endpoint does
+        # not report datasets".
+        for source in sources:
+            source["paper"] = None
+            source["dataset"] = None
+
+            cur.execute(
+                "SELECT id, title, page_count FROM papers WHERE source_id = %s",
+                (source["id"],))
+            paper = cur.fetchone()
+            if paper:
+                source["paper"] = dict(paper)
+                cur.execute(
+                    "SELECT COUNT(*) AS n FROM passages WHERE source_id = %s",
+                    (source["id"],))
+                source["passage_count"] = cur.fetchone()["n"]
+
+            # The latest version, not the first: a re-upload supersedes, and a
+            # list showing the original would point at data nobody is using.
+            cur.execute(
+                """
+                SELECT d.id AS dataset_id, dv.id AS dataset_version_id,
+                       dv.version, dv.row_count, dv.column_count,
+                       dv.quality_report
+                FROM datasets d
+                JOIN dataset_versions dv ON dv.dataset_id = d.id
+                WHERE d.source_id = %s
+                ORDER BY dv.version DESC
+                LIMIT 1
+                """,
+                (source["id"],))
+            dataset = cur.fetchone()
+            if dataset:
+                source["dataset"] = dict(dataset)
+
+        return sources
 
 
 @app.post("/api/projects/{project_id}/objects", status_code=201)
@@ -2825,6 +2868,9 @@ def compare_analyses(project_id: str, run_id: list[str] = Query(min_length=2),
 class DiscoveryRequest(BaseModel):
     dataset_version_id: str
     false_discovery_rate: float = Field(default=0.05, gt=0, lt=1)
+    #: Run again over data that has not changed. A decision, never a default.
+    force: bool = False
+
 
 
 class ValidateRequest(BaseModel):
@@ -2845,13 +2891,43 @@ def start_discovery(project_id: str, payload: DiscoveryRequest,
         row = cur.fetchone()
         if not row or row["project_id"] != project_id:
             raise HTTPException(404, "Dataset version not found in this project.")
+
+        # A second run over unchanged data is refused, and the existing run is
+        # handed back instead.
+        #
+        # Each run is its own multiple-testing family. Running again re-tests
+        # the same pairs and corrects them within a separate family of the same
+        # size, so the connections table ends up showing every pair twice at the
+        # same q-value. That reads as replication, and it is the opposite: it is
+        # the same evidence counted twice. Refusing by default is what keeps the
+        # correction meaning what it says.
+        if not payload.force:
+            cur.execute(
+                "SELECT id FROM discovery_runs "
+                "WHERE project_id = %s AND dataset_version_id = %s "
+                "  AND status <> 'failed' "
+                "ORDER BY created_at DESC LIMIT 1",
+                (project_id, payload.dataset_version_id))
+            existing = cur.fetchone()
+            if existing:
+                return {
+                    "discovery_run_id": existing["id"],
+                    "status": "queued",
+                    "reused": True,
+                    "note": ("This dataset has already been searched. Running "
+                             "again would test the same pairs a second time and "
+                             "correct them in a separate family, which shows "
+                             "every pair twice at the same q-value and reads as "
+                             "replication. Pass force to run it anyway."),
+                }
+
         run_id = discovery.create_run(cur, project_id=project_id,
                                       dataset_version_id=payload.dataset_version_id,
                                       fdr=payload.false_discovery_rate)
         workflow.enqueue(cur, workflow_name="discovery.run", project_id=project_id,
                          payload={"discovery_run_id": run_id},
                          idempotency_key=f"discovery:{run_id}")
-    return {"discovery_run_id": run_id, "status": "queued"}
+    return {"discovery_run_id": run_id, "status": "queued", "reused": False}
 
 
 @app.get("/api/discoveries/{run_id}")
@@ -2892,6 +2968,37 @@ def validate_connection(connection_id: str, payload: ValidateRequest,
             idempotency_key=f"validate:{connection_id}:{','.join(sorted(payload.confounders))}",
         )
     return {"connection_id": connection_id, "status": "queued"}
+
+
+@app.get("/api/connections/{connection_id}/validations")
+def list_validations(connection_id: str,
+                     user: dict = Depends(current_user)) -> list[dict[str, Any]]:
+    """
+    Every validation report for a connection, newest first.
+
+    Reachable from the connection rather than only by report id, because that is
+    how a reader arrives: they are looking at an association and want to know
+    what was done to try to break it. A report that can only be found if you
+    already know its id is a report nobody reads.
+
+    An empty list is a real answer — the connection has not been challenged yet
+    — and is returned as such rather than as a 404, which would be
+    indistinguishable from the connection not existing.
+    """
+    with transaction() as cur:
+        cur.execute("SELECT project_id FROM connections WHERE id = %s",
+                    (connection_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Connection not found.")
+        scoped_project(row["project_id"], user)
+
+        cur.execute(
+            "SELECT id FROM validation_reports WHERE connection_id = %s "
+            "ORDER BY created_at DESC",
+            (connection_id,))
+        ids = [r["id"] for r in cur.fetchall()]
+        return [validation.report(cur, report_id) for report_id in ids]
 
 
 @app.get("/api/validations/{report_id}")

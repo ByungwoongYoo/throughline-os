@@ -26,7 +26,12 @@ import re
 from typing import Any
 
 from .base import Connector, ConnectorError, SourceRecord
-from .sources import CONNECTORS
+from .more_sources import MORE_CONNECTORS
+from .sources import CONNECTORS as CORE_CONNECTORS
+
+#: Every source, core and extended, in one map so `build` and `capabilities`
+#: cannot disagree about which sources exist.
+CONNECTORS: dict[str, type[Connector]] = {**CORE_CONNECTORS, **MORE_CONNECTORS}
 
 #: Which source to believe, per field, and why.
 #:
@@ -35,16 +40,31 @@ from .sources import CONNECTORS
 #: normalisation and the only citation counts, arXiv is definitive about its own
 #: identifiers and PDFs, PubMed about biomedical indexing.
 FIELD_PRECEDENCE: dict[str, tuple[str, ...]] = {
-    "title": ("crossref", "pubmed", "openalex", "arxiv"),
-    "authors": ("openalex", "crossref", "pubmed", "arxiv"),
+    "title": ("crossref", "pubmed", "europepmc", "openalex", "doaj",
+              "semanticscholar", "openaire", "arxiv", "biorxiv", "zotero"),
+    "authors": ("openalex", "crossref", "pubmed", "europepmc",
+                "semanticscholar", "doaj", "openaire", "arxiv", "biorxiv",
+                "zotero"),
     # The version of record, not the preprint. A researcher citing this needs
     # the year a reviewer will find.
-    "year": ("crossref", "pubmed", "openalex", "arxiv"),
-    "venue": ("crossref", "pubmed", "openalex", "arxiv"),
-    "abstract": ("pubmed", "openalex", "arxiv", "crossref"),
-    "cited_by": ("openalex", "crossref"),
-    "pdf_url": ("arxiv", "openalex", "pubmed"),
-    "open_access": ("openalex", "arxiv", "pubmed"),
+    # The version of record, so a preprint server never sets the year when a
+    # publisher has one. `biorxiv` is last for exactly that reason.
+    "year": ("crossref", "pubmed", "europepmc", "openalex", "doaj",
+             "openaire", "semanticscholar", "arxiv", "biorxiv", "zotero"),
+    "venue": ("crossref", "pubmed", "europepmc", "doaj", "openalex",
+              "openaire", "semanticscholar", "arxiv", "biorxiv"),
+    "abstract": ("pubmed", "europepmc", "openalex", "semanticscholar",
+                 "doaj", "arxiv", "biorxiv", "openaire", "crossref"),
+    "cited_by": ("openalex", "semanticscholar", "europepmc", "crossref"),
+    "pdf_url": ("arxiv", "europepmc", "doaj", "biorxiv", "openalex", "pubmed"),
+    "open_access": ("openalex", "europepmc", "doaj", "arxiv", "biorxiv",
+                    "pubmed"),
+    # Sources that state review status explicitly outrank ones that imply it.
+    # `biorxiv` is authoritative here precisely because it is always False.
+    "peer_reviewed": ("europepmc", "doaj", "biorxiv", "crossref", "pubmed",
+                      "semanticscholar"),
+    "has_full_text": ("europepmc", "arxiv", "doaj"),
+    "superseded_by": ("biorxiv", "crossref"),
 }
 
 _PUNCTUATION = re.compile(r"[^a-z0-9]+")

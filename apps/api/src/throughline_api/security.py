@@ -20,6 +20,7 @@ import time
 from collections import defaultdict, deque
 from dataclasses import dataclass
 
+from fastapi.responses import JSONResponse
 from fastapi import HTTPException, Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -154,13 +155,24 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             _limiter.check(key=client_key(request), route=route_path)
             if rate_limiting_enabled() else (True, 0))
         if not allowed:
-            # 429 with Retry-After, so a well-behaved client backs off rather
-            # than retrying immediately and making the situation worse.
-            raise HTTPException(
-                429,
-                f"Too many requests to {route_path}. Try again in {retry_after}s.",
+            # Returned, not raised.
+            #
+            # An HTTPException raised inside BaseHTTPMiddleware never reaches
+            # FastAPI's exception handlers — it propagates as an unhandled error
+            # and the caller sees 500. A rate limiter that reports a server
+            # fault is worse than none: 500 tells a well-behaved client the
+            # server is broken, so it retries immediately and makes the load it
+            # was being asked to reduce.
+            #
+            # Retry-After is the whole point of answering 429 at all.
+            throttled = JSONResponse(
+                status_code=429,
+                content={"detail": f"Too many requests to {route_path}. "
+                                   f"Try again in {retry_after}s."},
                 headers={"Retry-After": str(retry_after)},
             )
+            _apply_headers(throttled)
+            return throttled
 
         response: Response = await call_next(request)
         _apply_headers(response)

@@ -282,8 +282,14 @@ def parse_plain_text(path: Path) -> ParsedDocument:
                           title=path.stem, metadata={"parser": "plain-text"})
 
 
-def parse_document(path: Path) -> ParsedDocument:
-    suffix = path.suffix.lower()
+def parse_document(path: Path, *, suffix: str | None = None) -> ParsedDocument:
+    """Parse a document.
+
+    ``suffix`` is passed explicitly because files are stored content-addressed:
+    the path on disk is a hash with no extension, so the format must come from
+    the original filename recorded at upload.
+    """
+    suffix = (suffix or path.suffix).lower()
     if suffix == ".pdf":
         return parse_pdf(path)
     if suffix == ".docx":

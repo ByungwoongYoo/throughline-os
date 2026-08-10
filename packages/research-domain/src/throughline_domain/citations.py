@@ -180,6 +180,22 @@ def resolve(cur, citation_id: str) -> dict[str, Any]:
 # Entailment
 # ---------------------------------------------------------------------------
 
+#: Locators, removed before any number is read out of a sentence.
+#:
+#: "As shown in Table 3, the estimate was 0.42" contains two numbers and only
+#: one claim. Counting the 3 would let a citation appear to support a claim of
+#: 3 that nothing in the source ever stated — and worse, it would do so on
+#: exactly the well-written prose that names its figures, so the failure would
+#: look like carelessness by the author rather than a bug here.
+#:
+#: Only the locator is dropped, never the value beside it.
+_LABEL = re.compile(
+    r"(?:[§#]\s*\d[\d.]*"
+    r"|\b(?:figure|fig\.?|table|tbl\.?|section|sect\.?|eq\.?|equation|"
+    r"appendix|chapter|chap\.?|step|panel|row|column|col\.?|page|p{1,2}\.?)"
+    r"\s*\d[\d.]*)",
+    re.IGNORECASE)
+
 # Numbers as they appear in prose, including exponent and thousands forms.
 _NUMBER = re.compile(r"-?\d[\d,]*\.?\d*(?:\s*[eE]\s*[-+]?\d+)?")
 
@@ -357,6 +373,59 @@ def _fmt_list(values: list[float]) -> str:
 # Project-level integrity
 # ---------------------------------------------------------------------------
 
+def check_artifact(cur, artifact_id: str) -> dict[str, Any]:
+    """
+    Check every citation in an artifact against the block it is attached to.
+
+    The verdict is written to the (block, citation) pair rather than to the
+    citation, because that is what the question means: one citation attached to
+    a numeric sentence, an interpretation and a framing sentence has three
+    different answers, and writing them all to the citation row leaves whichever
+    ran last.
+
+    **The block's template is checked, not its rendered text.** A number that
+    arrived through `{{ref:...}}` was read out of a recorded analysis run at
+    render time — it cannot disagree with the run, because there is nowhere else
+    it could have come from. Checking the resolved text would re-derive that
+    guarantee as an entailment judgement and report it as merely `supported`.
+    Literal numbers typed into the template are the ones that need checking, and
+    they are exactly what remains once the references are left unresolved.
+    """
+    cur.execute(
+        """
+        SELECT b.id AS block_id, b.template, bc.citation_id
+        FROM artifact_blocks b
+        JOIN block_citations bc ON bc.block_id = b.id
+        WHERE b.artifact_id = %s
+        ORDER BY b.sequence
+        """,
+        (artifact_id,))
+    pairs = [dict(row) for row in cur.fetchall()]
+
+    counts: dict[str, int] = {}
+    for pair in pairs:
+        verdict = check_entailment(cur, pair["citation_id"], pair["template"])
+        cur.execute(
+            "UPDATE block_citations SET entailment = %s, entailment_detail = %s, "
+            "checked_at = now() WHERE block_id = %s AND citation_id = %s",
+            (verdict["entailment"], verdict["detail"],
+             pair["block_id"], pair["citation_id"]))
+        counts[verdict["entailment"]] = counts.get(verdict["entailment"], 0) + 1
+
+    return {
+        "artifact_id": artifact_id,
+        "checked": len(pairs),
+        "by_entailment": counts,
+        "unsupported": counts.get(UNSUPPORTED, 0),
+        "note": (
+            f"{counts.get(UNSUPPORTED, 0)} of {len(pairs)} claim-citation pairs "
+            "state a number the cited source does not contain."
+            if counts.get(UNSUPPORTED) else
+            f"No claim in this artifact states a number its citation does not "
+            f"contain ({len(pairs)} pairs checked)."),
+    }
+
+
 def verify_project(cur, project_id: str) -> dict[str, Any]:
     """
     Re-check every citation in a project.
@@ -444,7 +513,7 @@ def format_reference(citation: dict[str, Any]) -> str:
 
 
 __all__ = [
-    "CitationError", "DanglingCitation", "check_entailment", "create_citation",
+    "CitationError", "DanglingCitation", "check_artifact", "check_entailment", "create_citation",
     "for_block", "format_reference", "resolve", "verify_project",
     "NOT_CHECKABLE", "SUPPORTED", "UNSUPPORTED", "UNVERIFIED",
 ]

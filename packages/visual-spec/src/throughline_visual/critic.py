@@ -90,6 +90,40 @@ def critique(
     return report
 
 
+def _comparable_scales(spec, data, report: CritiqueReport) -> None:
+    """A coefficient plot puts every predictor on one axis.
+
+    Raw regression coefficients are in the units of their predictor, so a
+    variable measured in tens of thousands gets a coefficient near zero and its
+    interval collapses to an invisible dot beside a predictor measured in units.
+    The reader sees "no effect" when the truth may be "different units".
+    """
+    if spec.visual_type is not VisualType.FOREST or len(data.y_values) < 2:
+        report.critiques.append(Critique(
+            check="comparable_scales", outcome="passed", severity="serious",
+            detail="Not a multi-estimate plot; no shared-axis comparison is implied.",
+        ))
+        return
+
+    magnitudes = [abs(float(v)) for v in data.y_values if v]
+    if not magnitudes:
+        return
+    spread = max(magnitudes) / min(magnitudes)
+    if spread > 100:
+        report.critiques.append(Critique(
+            check="comparable_scales", outcome="violated", severity="serious",
+            detail=(f"Coefficients span {spread:.0f}× on one axis, so the smallest "
+                    "intervals are invisible and read as 'no effect' when they may "
+                    "simply be in different units. Report standardized coefficients, "
+                    "or facet the predictors by scale."),
+        ))
+    else:
+        report.critiques.append(Critique(
+            check="comparable_scales", outcome="passed", severity="serious",
+            detail=f"Coefficients span {spread:.1f}×, comparable on a shared axis.",
+        ))
+
+
 def _axis_integrity(spec: ResearchVisualSpec, report: CritiqueReport, autofix: bool) -> None:
     """Bar length encodes magnitude; a truncated baseline exaggerates differences."""
     if spec.visual_type not in {VisualType.BAR, VisualType.HISTOGRAM}:

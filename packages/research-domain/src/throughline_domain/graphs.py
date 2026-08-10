@@ -75,14 +75,38 @@ def knowledge_graph(
     )
     nodes = list(cur.fetchall())
 
+    # Two kinds of edge, one graph.
+    #
+    # `research_edges` holds asserted relationships between objects; lineage
+    # holds what was derived from what. Both are how two objects in this
+    # project relate, and a graph that shows only the first answers "what is
+    # connected to this?" without the connection a reader most often wants —
+    # where it came from. They were separate queries and only the first was
+    # drawn, so provenance was invisible in the view built to show it.
+    #
+    # Lineage carries no confidence or evidence: it is recorded fact, not an
+    # assertion that could be wrong, so those come back null rather than
+    # invented.
     cur.execute(
         f"""
         SELECT e.id, e.source_object_id, e.target_object_id, e.relationship_type,
                e.confidence, e.status, e.evidence_id
         FROM research_edges e
         WHERE {where} AND e.source_object_id = ANY(%s) AND e.target_object_id = ANY(%s)
+
+        UNION ALL
+
+        SELECT l.id, l.source_artifact_id AS source_object_id,
+               l.target_artifact_id AS target_object_id,
+               l.lineage_type AS relationship_type,
+               NULL::double precision AS confidence,
+               'recorded' AS status,
+               NULL::text AS evidence_id
+        FROM artifact_lineage_edges l
+        WHERE l.project_id = %s
+          AND l.source_artifact_id = ANY(%s) AND l.target_artifact_id = ANY(%s)
         """,
-        (*params, ids, ids),
+        (*params, ids, ids, project_id, ids, ids),
     )
     edges = list(cur.fetchall())
 

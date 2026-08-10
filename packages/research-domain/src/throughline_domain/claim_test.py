@@ -954,8 +954,38 @@ def locate_claims(cur, *, project_id: str, source_id: str,
     return {**header, "claims": recorded, "verdict": None, "note": located.note}
 
 
+def stored_claims(cur, source_id: str) -> list[dict[str, Any]]:
+    """
+    The claims currently recorded for a paper, in the order they were read.
+
+    Returned with the model and prompt version that produced them. Two
+    extractions of the same paper can disagree — a different model, or the same
+    model at a different prompt version, will locate different claims — and when
+    they do, the disagreement has to be attributable rather than argued about.
+    Without those fields the only available answer is "the system said so once
+    and says otherwise now", which is not an answer.
+
+    Ordered by `ordinal` so the sequence is the one the reader saw, not
+    whatever the planner returns.
+    """
+    cur.execute(
+        """
+        SELECT id, project_id, source_id, claim_id, statement, exposure, outcome,
+               direction, claimed_design, claimed_effect, claimed_interval,
+               estimand, outcome_definition, population, period, locator,
+               choice_confidence, model, prompt_name, prompt_version, ordinal,
+               created_at
+        FROM located_claims
+        WHERE source_id = %s
+        ORDER BY ordinal, created_at
+        """,
+        (source_id,))
+    return [dict(row) for row in cur.fetchall()]
+
+
 __all__ = [
     "ClaimTestError", "DEFAULT_BENCHMARK", "assess_testability",
     "check_circularity", "locate_claims", "minimum_detectable_r",
-    "normalise_design", "parse_claimed_effect", "test_claim",
+    "normalise_design", "parse_claimed_effect", "stored_claims",
+    "test_claim",
 ]

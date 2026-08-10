@@ -377,9 +377,21 @@ def list_connections(
     if status:
         clauses.append("lifecycle_status = %s")
         params.append(status)
+    # The dataset version is carried through from the run that produced the
+    # connection. The confounder picker reaches the schema through this field:
+    # without it the only way to offer real column names is to ask the caller
+    # to remember which dataset a connection came from, and a typo there is
+    # silently recorded as "confounder not tested" — which reads on the report
+    # as though the adjustment was considered and skipped.
+    #
+    # Left joined, because a connection created outside a discovery run has no
+    # dataset version and must still be listed rather than disappearing.
     cur.execute(
-        f"SELECT * FROM connections WHERE {' AND '.join(clauses)} "
-        f"ORDER BY rank_score DESC, created_at DESC LIMIT %s",
+        f"SELECT c.*, dr.dataset_version_id "
+        f"FROM connections c "
+        f"LEFT JOIN discovery_runs dr ON dr.id = c.discovery_run_id "
+        f"WHERE {' AND '.join('c.' + clause for clause in clauses)} "
+        f"ORDER BY c.rank_score DESC, c.created_at DESC LIMIT %s",
         (*params, limit),
     )
     return list(cur.fetchall())

@@ -82,6 +82,16 @@ class SourceRecord:
     open_access: bool | None = None
     cited_by: int | None = None
     source: str = ""
+    #: True for a version of record, False for a preprint, None when the source
+    #: does not say. The three are genuinely different, and collapsing None into
+    #: False labels indexed work as unreviewed.
+    peer_reviewed: bool | None = None
+    #: Whether open-access full text can be retrieved, not merely an abstract.
+    #: A claim can be described from an abstract but not tested against one.
+    has_full_text: bool = False
+    #: For a preprint since published: the DOI of the version of record. A
+    #: superseded preprint should not be cited as the newest thing.
+    superseded_by: str | None = None
     provenance: dict[str, str] = field(default_factory=dict)
     disagreements: dict[str, dict[str, Any]] = field(default_factory=dict)
 
@@ -102,6 +112,9 @@ class SourceRecord:
             "abstract": self.abstract, "venue": self.venue, "url": self.url,
             "pdf_url": self.pdf_url, "open_access": self.open_access,
             "cited_by": self.cited_by, "source": self.source,
+            "peer_reviewed": self.peer_reviewed,
+            "has_full_text": self.has_full_text,
+            "superseded_by": self.superseded_by,
             "provenance": self.provenance, "disagreements": self.disagreements,
         }
 
@@ -196,6 +209,14 @@ class Connector:
                     break
                 time.sleep((2 ** attempt) + random.random())
 
+        # Throttled and unreachable must not read alike: one is fixed by
+        # waiting or adding a key, the other is the source being down.
+        if isinstance(last, urllib.error.HTTPError) and last.code == 429:
+            raise RateLimited(
+                f"{self.name} is rate-limiting this request"
+                + (" — adding an API key raises the limit considerably."
+                   if not self.api_key else ".")
+                + " Other sources are unaffected.") from last
         raise ConnectorError(
             f"{self.name} could not be reached ({last}). Other sources are "
             "unaffected.")
