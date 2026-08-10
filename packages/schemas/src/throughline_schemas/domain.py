@@ -1,4 +1,4 @@
-"""Versioned domain schemas (§113).
+"""Versioned domain schemas.
 
 Every schema carries ``schema_version`` so a future migration can tell what
 shape it is reading. These are the transport and validation types; persistence
@@ -13,20 +13,20 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from .enums import (
-    CausalStatus,
-    ClaimStatus,
-    ClaimType,
-    EvidenceDirection,
-    EvidenceType,
-    FindingLifecycle,
-    FindingType,
-    IngestionStatus,
-    LineageType,
-    ObjectType,
-    ResearchEdgeType,
-    SourceType,
-    TrustLevel,
-    WorkflowState,
+CausalStatus,
+ClaimStatus,
+ClaimType,
+EvidenceDirection,
+EvidenceType,
+FindingLifecycle,
+FindingType,
+IngestionStatus,
+LineageType,
+ObjectType,
+ResearchEdgeType,
+SourceType,
+TrustLevel,
+WorkflowState,
 )
 
 SCHEMA_VERSION = 1
@@ -49,7 +49,7 @@ class Project(DomainModel):
 
 
 class ResearchObject(DomainModel):
-    """§10 — the universal addressable unit."""
+    """ — the universal addressable unit."""
 
     id: str
     project_id: str
@@ -69,7 +69,7 @@ class ResearchObject(DomainModel):
 
 
 class ArtifactLineageEdge(DomainModel):
-    """§11 — how was this made?"""
+    """ — how was this made?"""
 
     id: str
     project_id: str
@@ -81,7 +81,7 @@ class ArtifactLineageEdge(DomainModel):
 
 
 class Source(DomainModel):
-    """§18."""
+    """."""
 
     id: str
     project_id: str
@@ -101,7 +101,7 @@ class Source(DomainModel):
 
 
 class EvidenceLocation(DomainModel):
-    """§16 — where exactly the evidence sits.
+    """ — where exactly the evidence sits.
 
     A location that cannot be resolved back to source text is not evidence.
     """
@@ -122,7 +122,7 @@ class EvidenceLocation(DomainModel):
 
 
 class Claim(DomainModel):
-    """§15."""
+    """."""
 
     id: str
     project_id: str
@@ -136,7 +136,7 @@ class Claim(DomainModel):
 
 
 class Evidence(DomainModel):
-    """§16."""
+    """."""
 
     id: str
     project_id: str
@@ -152,7 +152,7 @@ class Evidence(DomainModel):
 
 
 class Finding(DomainModel):
-    """§17 — links to claims, evidence, analyses and contradictions."""
+    """ — links to claims, evidence, analyses and contradictions."""
 
     id: str
     project_id: str
@@ -171,7 +171,7 @@ class Finding(DomainModel):
 
 
 class ResearchEdge(DomainModel):
-    """§60."""
+    """."""
 
     id: str
     project_id: str
@@ -186,7 +186,7 @@ class ResearchEdge(DomainModel):
 
 
 class WorkflowRun(DomainModel):
-    """§36/§37."""
+    """/."""
 
     id: str
     project_id: str | None

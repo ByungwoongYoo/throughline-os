@@ -5,3 +5,17 @@ __pycache__/
 .pytest_cache/
 
 .DS_Store
+
+# Build output and local state — never the source of truth.
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+data/
+*.log
+.env
+.env.local
+dist/
+build/
+coverage/
+.vitest/

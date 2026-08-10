@@ -1,310 +1,378 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Capabilities, Connection, DiscoveryMap, Project, api } from "@/lib/api";
-import { useApi } from "@/lib/useApi";
-import { Empty, Failure, Loading } from "@/components/primitives";
-import { Section, Shell } from "@/components/Shell";
-import {
-  AnalysisDetail, ConnectionDetail, ConnectionsTable, Discover, EvidenceGraphView,
-  Findings, Overview, Search, Sources,
-} from "@/components/views";
+/**
+ * The landing page.
+ *
+ * Everything stated here is true of the system as built. §123 forbids fake
+ * capability, and a marketing page is where that rule is usually broken first —
+ * so the numbers below are the real ones, and there is a section listing what
+ * the platform cannot do yet. Confidence reads better than claims anyway.
+ */
 
-type AuthStatus = { needs_setup: boolean; authenticated: boolean; user: { display_name: string } | null };
+import Link from "next/link";
 
-export default function Home() {
-  const auth = useApi<AuthStatus>("/api/auth/status");
+import { HeroGraph } from "@/components/HeroGraph";
+import { ClaimTestBeat, PrimitiveBeat } from "@/components/ScrollBeats";
+import { useEffect, useRef } from "react";
+// Counts come from the registry, never from a hand-written sentence:
+// that is how this list ended up wrong in both directions before.
+import { DESIGNED, PRIMITIVES, RENDERING } from "@/lib/primitives";
+import "./landing.css";
 
-  if (auth.loading) return <Centered><Loading rows={3} label="Starting Throughline" /></Centered>;
-  if (auth.error) {
-    return (
-      <Centered>
-        <Failure error={auth.error} retry={auth.reload} />
-        <p className="note">
-          The API is not answering. Start it with <code className="mono">./scripts/dev.sh</code>.
-        </p>
-      </Centered>
-    );
-  }
-  if (!auth.data?.authenticated) return <Gate status={auth.data!} onDone={auth.reload} />;
-  return <Workspace />;
-}
+const LOOP = [
+  { n: "01", title: "Evidence", body: "Papers and datasets are parsed to exact character spans and profiled column by column. Nothing is summarised away." },
+  { n: "02", title: "Connection", body: "Candidate relationships are generated from variable types — never every column against every other — then tested." },
+  { n: "03", title: "Analysis", body: "Each test runs as a real computation in an isolated process. No number reaches the system any other way." },
+  { n: "04", title: "Validation", body: "Bootstrap stability, outlier sensitivity, missingness, confounder adjustment. Survive all of it, or stay exploratory." },
+  { n: "05", title: "Finding", body: "Only what passed. Linked to its evidence, its computation, and the dataset underneath — permanently." },
+];
 
-function Centered({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={{ display: "grid", placeItems: "center", height: "100vh", padding: 24 }}>
-      <div style={{ width: "min(420px, 100%)" }}>{children}</div>
-    </div>
-  );
-}
+/** The real output of a real discovery run on 120 rows. */
+const RUN = [
+  { pair: "consumption_ddd × resistance_pct", r: "0.8784", q: "7.44e-39", state: "promoted", keep: true },
+  { pair: "resistance_pct × gdp_per_capita", r: "−0.2089", q: "0.066", state: "held back", keep: false },
+  { pair: "consumption_ddd × gdp_per_capita", r: "−0.1866", q: "0.083", state: "held back", keep: false },
+  { pair: "country × resistance_pct", r: "—", q: "0.825", state: "held back", keep: false },
+];
 
-/** First run creates the local account; afterwards it signs in. */
-function Gate({ status, onDone }: { status: AuthStatus; onDone: () => void }) {
-  const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
-  const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-  const setup = status.needs_setup;
-
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    setBusy(true); setError(null);
-    try {
-      await api.post(setup ? "/api/auth/setup" : "/api/auth/login",
-        setup ? { email, display_name: name || "Researcher", password } : { email, password });
-      onDone();
-    } catch (err) {
-      setError(err);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Centered>
-      <div className="brand" style={{ marginBottom: 6 }}>Throughline</div>
-      <p className="lede" style={{ fontSize: 13 }}>
-        {setup
-          ? "Create the local account for this machine. Your research never leaves it."
-          : "Sign in to your local workspace."}
-      </p>
-      <form onSubmit={submit} className="card">
-        {setup && (
-          <label style={{ display: "block", marginBottom: 10 }}>
-            <span className="eyebrow">Name</span>
-            <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Dr Chen" />
-          </label>
-        )}
-        <label style={{ display: "block", marginBottom: 10 }}>
-          <span className="eyebrow">Email</span>
-          <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
-        </label>
-        <label style={{ display: "block", marginBottom: 12 }}>
-          <span className="eyebrow">Password</span>
-          <input type="password" required minLength={setup ? 12 : 1} value={password}
-                 onChange={(e) => setPassword(e.target.value)} />
-          {setup && <span className="note" style={{ display: "block" }}>At least 12 characters.</span>}
-        </label>
-        {error ? <Failure error={error} /> : null}
-        <button className="btn btn-primary" type="submit" disabled={busy} style={{ width: "100%" }}>
-          {busy ? "Working…" : setup ? "Create account" : "Sign in"}
-        </button>
-      </form>
-    </Centered>
-  );
-}
-
-function Workspace() {
-  const projects = useApi<Project[]>("/api/projects");
-  const capabilities = useApi<Capabilities>("/api/system/capabilities");
-  const [projectId, setProjectId] = useState<string | null>(null);
-  const [section, setSection] = useState<Section>("overview");
-  const [selection, setSelection] = useState<{ kind: string; id: string } | null>(null);
-
-  useEffect(() => {
-    if (!projectId && projects.data?.length) setProjectId(projects.data[0].id);
-  }, [projects.data, projectId]);
-
-  const map = useApi<DiscoveryMap>(projectId ? `/api/projects/${projectId}/discovery-map` : null);
-  const project = projects.data?.find((p) => p.id === projectId);
-
-  if (projects.loading) return <Centered><Loading rows={3} label="Loading projects" /></Centered>;
-  if (projects.error) return <Centered><Failure error={projects.error} retry={projects.reload} /></Centered>;
-  if (!projects.data?.length) return <NewProject onCreated={projects.reload} />;
-  if (!project) return <Centered><Loading rows={2} /></Centered>;
-
-  function select(kind: string) {
-    return (id: string) => { setSelection({ kind, id }); };
-  }
-
-  return (
-    <Shell
-      section={section} onSection={(s) => { setSection(s); setSelection(null); }}
-      map={map.data} projectName={project.name}
-      onCommand={() => setSection("search")}
-      inspector={
-        <Inspector selection={selection} capabilities={capabilities.data} map={map.data} />
-      }
-    >
-      {section === "overview" && <Overview project={project} map={map.data} />}
-      {section === "sources" && <Sources projectId={project.id} onSelect={select("source")} />}
-      {section === "search" && <Search projectId={project.id} />}
-      {section === "discover" && (
-        selection?.kind === "connection"
-          ? <ConnectionDetail connectionId={selection.id} projectId={project.id} />
-          : <Discover projectId={project.id} onSelectConnection={select("connection")} />
-      )}
-      {section === "connections" && (
-        selection?.kind === "connection"
-          ? <ConnectionDetail connectionId={selection.id} projectId={project.id} />
-          : <ConnectionList projectId={project.id} onSelect={select("connection")} />
-      )}
-      {section === "findings" && (
-        selection?.kind === "finding"
-          ? <EvidenceGraphView findingId={selection.id} />
-          : <Findings projectId={project.id} onSelect={select("finding")} />
-      )}
-      {section === "analyses" && (
-        selection?.kind === "analysis"
-          ? <AnalysisDetail runId={selection.id} />
-          : <AnalysisList projectId={project.id} onSelect={select("analysis")} />
-      )}
-      {section === "graph" && <GraphPlaceholder />}
-      {section === "figures" && <FiguresPlaceholder />}
-    </Shell>
-  );
-}
-
-function ConnectionList({ projectId, onSelect }: { projectId: string; onSelect: (id: string) => void }) {
-  const { data, error, loading, reload } = useApi<Connection[]>(`/api/projects/${projectId}/connections?limit=200`);
-  return (
-    <>
-      <h1>Connections</h1>
-      <p className="lede">
-        Every candidate that was tested, with its corrected q-value and lifecycle state.
-      </p>
-      <ConnectionsTable connections={data} error={error} loading={loading} reload={reload} onSelect={onSelect} />
-    </>
-  );
-}
-
-function AnalysisList({ projectId, onSelect }: { projectId: string; onSelect: (id: string) => void }) {
-  const { data, error, loading, reload } = useApi<Connection[]>(`/api/projects/${projectId}/connections?limit=200`);
-  const runs = (data ?? []).flatMap((c) =>
-    c.analysis_run_id ? [{ ...c, analysis_run_id: c.analysis_run_id }] : []);
-  if (error) return <Failure error={error} retry={reload} />;
-  if (loading) return <Loading rows={4} label="Reading analyses" />;
-  return (
-    <>
-      <h1>Analyses</h1>
-      <p className="lede">
-        Every number here came from a recorded run in the sandbox, reproducible from its
-        stored specification (LAW 2, §44).
-      </p>
-      {runs.length === 0 && <Empty title="No analyses yet" hint="Run discovery to generate them." />}
-      {runs.map((c) => (
-        <div className="card card-tight" key={c.analysis_run_id}
-             style={{ cursor: "pointer" }} onClick={() => onSelect(c.analysis_run_id)}>
-          <div className="row">
-            <span style={{ fontWeight: 530 }}>{c.left_variable} × {c.right_variable}</span>
-            <span className="mono" style={{ color: "var(--ink-faint)" }}>{c.method}</span>
-          </div>
-        </div>
-      ))}
-    </>
-  );
-}
+const HAS = [
+  ["Real computation", "Nine statistical methods with assumption checks, run in a sandboxed process with no network, no secrets and no database access."],
+  ["False-positive control", "Benjamini-Hochberg across every test in a run. Eight columns of pure noise promote nothing."],
+  ["Complete provenance", "Every figure and finding walks back through analysis → dataset version → source file, by content hash."],
+  ["Local and private", "PostgreSQL, embeddings and the sandbox all run on your machine. Nothing leaves it."],
+  ["Charts that refuse",
+   `${RENDERING.length} of ${PRIMITIVES.length} primitives, each built to `
+   + "prevent one specific misreading — a treemap will not draw a negative "
+   + "value, a Sankey reports a stage that does not balance, a UMAP plot says "
+   + "distance between its clusters means nothing."],
+];
 
 /**
- * §123 — an unbuilt view says so. A placeholder that looked like a working graph
- * would be exactly the fake surface the specification forbids.
+ * What is genuinely still missing.
+ *
+ * This list was wrong for a while — it claimed there was no model, no
+ * connectors and no reports long after all three shipped. Understating is the
+ * same defect as overstating: a page that cannot describe its own product
+ * accurately is not evidence of humility, it is evidence the page is not
+ * maintained. Both directions have to be checked when this changes.
  */
-function GraphPlaceholder() {
+const NOT_YET = [
+  [`${DESIGNED.length === 1 ? "One" : DESIGNED.length} of ${PRIMITIVES.length} chart primitives`,
+   `${RENDERING.length} render. ${DESIGNED.map((p) => p.name).join(", ")} `
+   + `${DESIGNED.length === 1 ? "does" : "do"} not — censoring has to be drawn `
+   + "distinctly from an observed event, and a survival curve that draws them "
+   + "alike overstates what was observed."],
+  ["No institutional sign-on",
+   "Accounts are local to this machine. Shibboleth, SAML and OpenAthens are "
+   + "not wired, so a library subscription cannot be used to reach a paywalled "
+   + "paper from here."],
+  ["Fourteen sources, not forty",
+   "Ten literature databases and four dataset repositories. Web of Science, "
+   + "Scopus and Embase are licensed and are not among them."],
+  ["No video",
+   "The scientific story engine is designed and unbuilt. Nothing here renders "
+   + "4K."],
+];
+
+export default function Landing() {
+  const root = useRef<HTMLDivElement>(null);
+
+  // Parallax. Only `transform` is written, and only inside a rAF, so the effect
+  // lives on the compositor and never forces layout.
+  useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const layers = [...(root.current?.querySelectorAll<HTMLElement>(".l-layer") ?? [])]
+      .map((el) => ({
+        el,
+        // Deeper layers move less, which is what reads as distance.
+        rate: el.classList.contains("l-depth-3") ? 0.26
+            : el.classList.contains("l-depth-2") ? 0.17 : 0.10,
+      }));
+    if (!layers.length) return;
+
+    let frame = 0;
+    const paint = () => {
+      frame = 0;
+      const viewport = window.innerHeight;
+      for (const { el, rate } of layers) {
+        const scene = el.parentElement;
+        if (!scene) continue;
+        const box = scene.getBoundingClientRect();
+        // Skip scenes that are off-screen: no reason to pay for them.
+        if (box.bottom < -200 || box.top > viewport + 200) continue;
+        // Progress through the scene, centred so the offset is zero mid-scene.
+        const progress = (box.top + box.height / 2 - viewport / 2) / viewport;
+        el.style.transform = `translate3d(0, ${(-progress * rate * 100).toFixed(2)}px, 0)`;
+      }
+    };
+    // Promote the layers only while scrolling, and let them go afterwards.
+    let idle = 0;
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(paint);
+      document.documentElement.classList.add("l-scrolling");
+      window.clearTimeout(idle);
+      idle = window.setTimeout(
+        () => document.documentElement.classList.remove("l-scrolling"), 220);
+    };
+
+    paint();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+      window.clearTimeout(idle);
+      document.documentElement.classList.remove("l-scrolling");
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  // Reveal on entry. IntersectionObserver rather than a scroll handler, so the
+  // main thread stays free and the effect is compositor-driven.
+  useEffect(() => {
+    const container = root.current;
+    const targets = container?.querySelectorAll<HTMLElement>(".l-reveal");
+    if (!container || !targets?.length) return;
+
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    // Opt in to the hidden-then-reveal behaviour only now that we can honour it.
+    container.setAttribute("data-animate", "true");
+    const revealAll = () => targets.forEach((el) => el.setAttribute("data-shown", "true"));
+    // Safety net: if the observer never reports — a hidden document suspends it —
+    // show everything rather than leaving the page blank.
+    const failsafe = window.setTimeout(revealAll, 2500);
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          // Anything already above the viewport was "missed" — reveal it rather
+          // than leaving it invisible forever. Without this, refreshing partway
+          // down the page (or landing on an #anchor) hides everything above.
+          const passed = entry.boundingClientRect.bottom < 0;
+          if (entry.isIntersecting || passed) {
+            entry.target.setAttribute("data-shown", "true");
+            observer.unobserve(entry.target); // reveal once; re-animating is noise
+          }
+        }
+      },
+      { threshold: 0.14, rootMargin: "0px 0px -8% 0px" },
+    );
+    targets.forEach((el) => observer.observe(el));
+    return () => {
+      window.clearTimeout(failsafe);
+      observer.disconnect();
+    };
+  }, []);
+
   return (
-    <>
-      <h1>Evidence graph</h1>
-      <Empty
-        title="Not built yet"
-        hint="The API serves the knowledge graph and the evidence graph, and the Findings view already renders a finding's evidence. An interactive node-link canvas is Phase 5 work."
-      />
-    </>
-  );
-}
-
-function FiguresPlaceholder() {
-  return (
-    <>
-      <h1>Figures</h1>
-      <Empty
-        title="Rendered server-side"
-        hint="Publication figures (SVG, PDF, PNG) and Vega-Lite specs are produced by the API from a stored ResearchVisualSpec. Browsing and embedding them in this interface is the next piece of work."
-      />
-    </>
-  );
-}
-
-function NewProject({ onCreated }: { onCreated: () => void }) {
-  const [question, setQuestion] = useState("");
-  const [name, setName] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    setBusy(true); setError(null);
-    try {
-      await api.post("/api/projects", {
-        name: name || question.slice(0, 60) || "Untitled project",
-        research_question: question,
-      });
-      onCreated();
-    } catch (err) { setError(err); } finally { setBusy(false); }
-  }
-
-  // §6 — the first screen asks what the researcher is trying to discover.
-  return (
-    <Centered>
-      <h1 className="serif" style={{ fontSize: 24, marginBottom: 12 }}>
-        What are you trying to discover?
-      </h1>
-      <form onSubmit={submit}>
-        <textarea
-          rows={4} value={question} onChange={(e) => setQuestion(e.target.value)}
-          placeholder="I want to investigate whether antibiotic consumption is associated with resistance across countries, and whether GDP explains the relationship."
-          aria-label="Research question"
-          style={{ marginBottom: 10, fontFamily: "var(--serif)", fontSize: 14 }}
-        />
-        <input type="text" value={name} onChange={(e) => setName(e.target.value)}
-               placeholder="Project name (optional)" style={{ marginBottom: 10 }} />
-        {error ? <Failure error={error} /> : null}
-        <button className="btn btn-primary" type="submit" disabled={busy || !question.trim()}>
-          {busy ? "Creating…" : "Create project"}
-        </button>
-      </form>
-    </Centered>
-  );
-}
-
-/** The right rail: what is selected, and what this installation can actually do. */
-function Inspector({ selection, capabilities, map }: {
-  selection: { kind: string; id: string } | null;
-  capabilities: Capabilities | null;
-  map: DiscoveryMap | null;
-}) {
-  return (
-    <>
-      <h3 className="eyebrow">Context</h3>
-      {selection?.kind === "connection" && (
-        <p className="note">
-          A connection is a tested relationship. Validate it to see whether it survives
-          bootstrap resampling, outlier exclusion and adjustment for confounders.
-        </p>
-      )}
-      {!selection && map && (
-        <p className="note">{map.recommended_next_action}</p>
-      )}
-
-      <h3 className="eyebrow" style={{ marginTop: 20 }}>This installation</h3>
-      {!capabilities && <Loading rows={2} />}
-      {capabilities && (
-        <div className="kv">
-          <dt>Search</dt>
-          <dd>{capabilities.retrieval.semantic ? "hybrid" : "lexical only"}</dd>
-          <dt>Model</dt>
-          <dd className="mono">{capabilities.retrieval.model ?? "none"}</dd>
-          <dt>Sandbox</dt>
-          <dd>{capabilities.analysis.sandbox ? "enabled" : "unavailable"}</dd>
-          <dt>Methods</dt>
-          <dd>{capabilities.analysis.methods?.length ?? 0}</dd>
-          <dt>AI provider</dt>
-          <dd>{capabilities.llm.configured ? "configured" : "none"}</dd>
+    <div className="landing" ref={root}>
+      {/* ---------------------------------------------------------------- */}
+      <section className="l-scene l-hero">
+        <div className="l-layer l-depth-3 l-grid" aria-hidden />
+        <div className="l-layer l-depth-2 l-halo" aria-hidden />
+        {/* Beat 1 — the real renderer with seeded data, settling as the page
+            loads. A recorded loop would be cheaper and would contradict the
+            first thing this product claims about itself. */}
+        <div className="l-hero-graph-layer" aria-hidden>
+          <HeroGraph />
         </div>
-      )}
-      {capabilities && !capabilities.llm.configured && (
-        <p className="note">{capabilities.llm.note}</p>
-      )}
-      {capabilities?.retrieval.note && <p className="note">{capabilities.retrieval.note}</p>}
-    </>
+
+        <div className="l-content l-hero-inner">
+          <div className="l-mark l-reveal">
+            <span className="l-mark-glyph" aria-hidden />
+            <span>Throughline</span>
+          </div>
+
+          <h1 className="l-display l-reveal" data-delay="1">
+            Most research tools
+            <br />
+            find you something.
+            <br />
+            <em>This one tries to break it.</em>
+          </h1>
+
+          <p className="l-lede l-reveal" data-delay="2">
+            An interesting pattern is not a discovery. Throughline generates
+            candidate relationships, computes them for real, corrects for the
+            fact that it ran many tests, then attacks whatever survives — and
+            shows you everything it threw away.
+          </p>
+
+          <div className="l-cta-row l-reveal" data-delay="3">
+            <Link className="l-btn l-btn-primary" href="/workspace">
+              Open the workspace →
+            </Link>
+            <a className="l-btn" href="#loop">See how it works</a>
+          </div>
+        </div>
+
+        <div className="l-scroll-hint" aria-hidden>
+          <span>Scroll</span>
+          <i />
+        </div>
+      </section>
+
+      {/* ---------------------------------------------------------------- */}
+      <section className="l-band" id="loop">
+        <div className="l-band-inner">
+          <span className="l-eyebrow l-reveal">The loop</span>
+          <h2 className="l-h2 l-reveal" data-delay="1">
+            Question to defensible discovery.
+          </h2>
+          <p className="l-lede l-reveal" data-delay="2">
+            Each stage is a real gate. A pattern cannot skip one, and the system
+            refuses to promote anything that has not earned it.
+          </p>
+
+          <div className="l-loop l-reveal" data-delay="3">
+            {LOOP.map((step) => (
+              <div className="l-step" key={step.n}>
+                <span className="l-step-n">{step.n}</span>
+                <b>{step.title}</b>
+                <p>{step.body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ---------------------------------------------------------------- */}
+      <section className="l-scene l-band-alt">
+        <div className="l-layer l-depth-1 l-halo" aria-hidden />
+        <div className="l-content l-band-inner">
+          <span className="l-eyebrow l-reveal">Correction</span>
+          <h2 className="l-h2 l-reveal" data-delay="1">
+            It shows you what it rejected.
+          </h2>
+          <p className="l-lede l-reveal" data-delay="2">
+            A real run over 120 rows. Two of these correlations are significant
+            if you report them alone — <span className="l-num">p ≈ 0.02</span> and{" "}
+            <span className="l-num">0.04</span>. Corrected for the six tests that
+            actually ran, they are not. Most tools would never show you these rows.
+          </p>
+
+          <div className="l-reveal" data-delay="3" style={{ overflowX: "auto" }}>
+            <table className="l-table">
+              <thead>
+                <tr>
+                  <th>Relationship</th>
+                  <th>Estimate</th>
+                  <th>q (corrected)</th>
+                  <th>Outcome</th>
+                </tr>
+              </thead>
+              <tbody>
+                {RUN.map((row) => (
+                  <tr key={row.pair}>
+                    <td>{row.pair}</td>
+                    <td className="l-num">{row.r}</td>
+                    <td className="l-num">{row.q}</td>
+                    <td>
+                      <span className={`l-pill ${row.keep ? "l-pill-keep" : "l-pill-drop"}`}>
+                        {row.state}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      {/* ---------------------------------------------------------------- */}
+      <section className="l-band">
+        <div className="l-band-inner">
+          <span className="l-eyebrow l-reveal">Provenance</span>
+          <h2 className="l-h2 l-reveal" data-delay="1">
+            Every number knows where it came from.
+          </h2>
+          <p className="l-lede l-reveal" data-delay="2">
+            Not a citation bolted on afterwards. A figure on a slide resolves,
+            edge by edge, back to the rows it was computed from — with the random
+            seed, the exact dependency versions and the content hash of the file.
+          </p>
+          {/* An ordered list, because provenance is ordered — and because a
+              screen reader should read it as six linked steps, not six words
+              in a row. The connectors are drawn on the list items. */}
+          <ol className="l-chain l-reveal" data-delay="3"
+              aria-label="A figure resolves back through each of these to the file it came from">
+            {["Source file", "Dataset version", "Analysis run", "Result",
+              "Finding", "Figure"].map((node) => (
+              <li key={node}><span>{node}</span></li>
+            ))}
+          </ol>
+          <p className="l-lede l-note l-reveal" data-delay="4">
+            Delete the dataset and the system tells you exactly which findings
+            lose their evidence — before you do it, not after.
+          </p>
+        </div>
+      </section>
+
+      {/* ---------------------------------------------------------------- */}
+      <section className="l-band l-band-alt">
+        <div className="l-band-inner">
+          <span className="l-eyebrow l-reveal">Built</span>
+          <h2 className="l-h2 l-reveal" data-delay="1">
+            What the system can do today.
+          </h2>
+          <div className="l-ledger l-reveal" data-delay="2">
+            {HAS.map(([title, body]) => (
+              <div className="l-ledger-item l-has" key={title}>
+                <b>{title}</b>
+                {body}
+              </div>
+            ))}
+          </div>
+
+          <span className="l-eyebrow l-reveal">
+            Not built
+          </span>
+          <h2 className="l-h2 l-reveal" data-delay="1">
+            What it cannot do yet.
+          </h2>
+          <p className="l-lede l-reveal" data-delay="2">
+            A research tool that misdescribes itself has already failed at the
+            one thing it is for — and understating is the same defect as
+            overstating.
+          </p>
+          <div className="l-ledger l-reveal" data-delay="3">
+            {NOT_YET.map(([title, body]) => (
+              <div className="l-ledger-item l-not" key={title}>
+                <b>{title}</b>
+                {body}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ---------------------------------------------------------------- */}
+      <ClaimTestBeat />
+
+      <PrimitiveBeat />
+
+      <section className="l-scene l-close">
+        <div className="l-layer l-depth-2 l-grid" aria-hidden />
+        <div className="l-content l-band-inner" style={{ textAlign: "center" }}>
+          <h2 className="l-display l-display-2 l-reveal">
+            Bring a paper and a dataset.
+          </h2>
+          <p className="l-lede l-reveal">
+            It runs entirely on your machine. Nothing is uploaded anywhere.
+          </p>
+          <div className="l-cta-row l-reveal" data-delay="2" style={{ justifyContent: "center" }}>
+            <Link className="l-btn l-btn-primary" href="/workspace">
+              Open the workspace →
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      <footer className="l-foot">
+        <span>Throughline · a research operating system</span>
+        <span>Local-first. Your research never leaves this machine.</span>
+      </footer>
+    </div>
   );
 }

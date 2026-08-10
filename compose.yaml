@@ -1,0 +1,59 @@
+# Throughline OS.
+#
+# The default service needs nothing else: PostgreSQL is embedded and the model
+# is optional. The two extras are opt-in profiles rather than dependencies,
+# because a researcher should be able to run this on a laptop without operating
+# a fleet.
+
+services:
+  throughline:
+    build: .
+    ports:
+      - "3000:3000"   # interface
+      - "8080:8080"   # API
+    volumes:
+      # Named, not bind-mounted: research that disappears with `docker compose
+      # down` is the loss this whole arrangement exists to prevent.
+      - throughline-data:/data
+    environment:
+      THROUGHLINE_HOME: /data
+      THROUGHLINE_LOG_LEVEL: info
+      # Both optional. Absent, the workspace says so rather than pretending.
+      OLLAMA_HOST: ${OLLAMA_HOST:-}
+      THROUGHLINE_NEO4J_URI: ${THROUGHLINE_NEO4J_URI:-}
+      THROUGHLINE_NEO4J_USER: ${THROUGHLINE_NEO4J_USER:-neo4j}
+      THROUGHLINE_NEO4J_PASSWORD: ${THROUGHLINE_NEO4J_PASSWORD:-}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 90s
+    restart: unless-stopped
+
+  # ADR 0002 — a derived projection. Never the source of a fact, so it carries
+  # no volume worth backing up: it is rebuilt from PostgreSQL.
+  neo4j:
+    profiles: ["graph"]
+    image: neo4j:5-community
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/${THROUGHLINE_NEO4J_PASSWORD:-throughline-local}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    profiles: ["model"]
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+
+volumes:
+  throughline-data:
+  ollama-models:

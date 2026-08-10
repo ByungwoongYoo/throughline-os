@@ -138,3 +138,49 @@ def test_deprecated_is_terminal(cur, project):
     with pytest.raises(findings.IllegalTransition):
         findings.transition(cur, finding_id=fid, to_status=FindingLifecycle.EXPLORATORY,
                             reason="revive", actor="test")
+
+
+@pytest.fixture()
+def client():
+    from fastapi.testclient import TestClient
+    from throughline_api.app import app
+
+    with TestClient(app) as test_client:
+        yield test_client
+    from throughline_domain.db import connection
+
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM users")
+
+
+def test_findings_can_be_listed_for_a_project(client):
+    """
+    Regression, found by reading the browser's network log.
+
+    The list route did not exist. The interface had been calling it since the
+    Findings screen was built and receiving 405 on every load, so the workspace
+    reported "0 findings" — an error that renders as absence, which is the worst
+    kind this system can have because it is indistinguishable from the truth.
+    """
+    client.post("/api/auth/setup", json={
+        "email": "list@lab.local", "display_name": "Dr List",
+        "password": "correct-horse-battery"})
+    project_id = client.post("/api/projects", json={
+        "name": "Listing", "research_question": "q"}).json()["id"]
+
+    empty = client.get(f"/api/projects/{project_id}/findings")
+    assert empty.status_code == 200
+    assert empty.json() == []
+
+    created = client.post(f"/api/projects/{project_id}/findings", json={
+        "title": "Consumption tracks resistance",
+        "finding_type": "statistical",
+        "statement": "Higher consumption is associated with higher resistance.",
+    })
+    assert created.status_code == 201
+
+    listed = client.get(f"/api/projects/{project_id}/findings").json()
+    assert len(listed) == 1
+    assert listed[0]["title"] == "Consumption tracks resistance"
+    # LAW 3 — supporting and contradicting counts travel with the finding.
+    assert "evidence" in listed[0]

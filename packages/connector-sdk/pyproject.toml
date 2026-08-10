@@ -1,0 +1,16 @@
+[project]
+name = "throughline-connectors"
+version = "0.1.0"
+description = "Literature source connectors for Throughline OS"
+requires-python = ">=3.12"
+# Deliberately no HTTP library. urllib is in the standard library, these are
+# four simple GET APIs, and a local-first desktop install should not carry a
+# dependency it does not need.
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

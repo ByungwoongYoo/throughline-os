@@ -27,6 +27,7 @@ class UnsupportedFormat(ValueError):
 #: Formats the pipeline genuinely handles today. Anything else is refused loudly
 #: rather than silently producing an empty document.
 SUPPORTED_DOCUMENT_SUFFIXES = frozenset({".pdf", ".docx", ".txt", ".md", ".markdown"})
+SUPPORTED_DATASET_SUFFIXES = frozenset({".csv", ".tsv", ".xlsx", ".xlsm", ".json"})
 
 
 @dataclass(slots=True)
@@ -54,7 +55,7 @@ class ParsedDocument:
     def verify_anchors(self) -> list[int]:
         """Return the ordinals of any passage whose offsets do not match `text`.
 
-        LAW 1 depends on those offsets being real. This is cheap and runs after every
+        LAW 1 depends on offsets being真 real. This is cheap and runs after every
         parse so a bad anchor is caught at ingestion rather than discovered later
         by a researcher inspecting a citation.
         """
@@ -276,14 +277,8 @@ def parse_plain_text(path: Path) -> ParsedDocument:
                           title=path.stem, metadata={"parser": "plain-text"})
 
 
-def parse_document(path: Path, *, suffix: str | None = None) -> ParsedDocument:
-    """Parse a document.
-
-    ``suffix`` is passed explicitly because files are stored content-addressed:
-    the path on disk is a hash with no extension, so the format must come from
-    the original filename recorded at upload.
-    """
-    suffix = (suffix or path.suffix).lower()
+def parse_document(path: Path) -> ParsedDocument:
+    suffix = path.suffix.lower()
     if suffix == ".pdf":
         return parse_pdf(path)
     if suffix == ".docx":

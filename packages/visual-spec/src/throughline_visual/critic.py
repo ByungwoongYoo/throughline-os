@@ -13,7 +13,7 @@ to happen quietly.
 from __future__ import annotations
 
 import re
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from .spec import ResearchVisualSpec, Scale, UncertaintyDisplay, VisualData, VisualType
@@ -62,8 +62,7 @@ class CritiqueReport:
     def to_dict(self) -> dict[str, Any]:
         return {
             "publishable": self.publishable,
-            # asdict, not __dict__: these are slots dataclasses.
-            "critiques": [asdict(c) for c in self.critiques],
+            "critiques": [c.__dict__ for c in self.critiques],
         }
 
 
@@ -82,7 +81,6 @@ def critique(
     _category_overload(spec, data, report)
     _scale_choice(spec, data, report)
     _accessibility(spec, data, report)
-    _comparable_scales(spec, data, report)
     _misleading_encoding(spec, data, report)
     _overstatement(spec, analysis, report)
 
@@ -238,40 +236,6 @@ def _accessibility(spec, data, report: CritiqueReport) -> None:
         report.critiques.append(Critique(
             check="accessibility", outcome="passed", severity="advisory",
             detail="No colour-only encoding of groups.",
-        ))
-
-
-def _comparable_scales(spec, data, report: CritiqueReport) -> None:
-    """A coefficient plot puts every predictor on one axis (§76).
-
-    Raw regression coefficients are in the units of their predictor, so a
-    variable measured in tens of thousands gets a coefficient near zero and its
-    interval collapses to an invisible dot beside a predictor measured in units.
-    The reader sees "no effect" when the truth may be "different units".
-    """
-    if spec.visual_type is not VisualType.FOREST or len(data.y_values) < 2:
-        report.critiques.append(Critique(
-            check="comparable_scales", outcome="passed", severity="serious",
-            detail="Not a multi-estimate plot; no shared-axis comparison is implied.",
-        ))
-        return
-
-    magnitudes = [abs(float(v)) for v in data.y_values if v]
-    if not magnitudes:
-        return
-    spread = max(magnitudes) / min(magnitudes)
-    if spread > 100:
-        report.critiques.append(Critique(
-            check="comparable_scales", outcome="violated", severity="serious",
-            detail=(f"Coefficients span {spread:.0f}× on one axis, so the smallest "
-                    "intervals are invisible and read as 'no effect' when they may "
-                    "simply be in different units. Report standardized coefficients, "
-                    "or facet the predictors by scale."),
-        ))
-    else:
-        report.critiques.append(Critique(
-            check="comparable_scales", outcome="passed", severity="serious",
-            detail=f"Coefficients span {spread:.1f}×, comparable on a shared axis.",
         ))
 
 

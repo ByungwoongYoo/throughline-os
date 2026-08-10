@@ -35,10 +35,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   get: <T>(path: string) => request<T>(path),
+  put: <T>(path: string, body: unknown) =>
+    request<T>(path, { method: "PUT", body: JSON.stringify(body) }),
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) }),
   patch: <T>(path: string, body: unknown) =>
     request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
+  // `delete` is a reserved word, so the method is `del`.
+  del: <T>(path: string) => request<T>(path, { method: "DELETE" }),
   upload: <T>(path: string, file: File) => {
     const form = new FormData();
     form.append("file", file);
@@ -77,6 +81,29 @@ export type Source = {
   } | null;
 };
 
+/**
+ * The §24 ingestion pipeline, in order.
+ *
+ * Mirrors IngestionStatus in throughline_schemas.enums. Keeping the real stage
+ * names means the interface can say "parsing, step 5 of 9" instead of a spinner
+ * — a true statement of position, not an invented percentage.
+ */
+export const INGESTION_STAGES = [
+  "uploaded", "validated", "scanned", "extracting",
+  "parsing", "structuring", "indexing", "enriching", "ready",
+] as const;
+
+/** In flight means: started, and neither finished nor failed. */
+export function isIngesting(status: string): boolean {
+  return status !== "ready" && status !== "failed";
+}
+
+/** 1-based position in the pipeline, or null for a status outside it. */
+export function ingestionStep(status: string): number | null {
+  const index = (INGESTION_STAGES as readonly string[]).indexOf(status);
+  return index < 0 ? null : index + 1;
+}
+
 export type Connection = {
   id: string;
   left_variable: string;
@@ -92,6 +119,8 @@ export type Connection = {
   evidence_quality: string;
   rank_score: number;
   analysis_run_id: string | null;
+  /** Null when the connection did not come from a discovery run. */
+  dataset_version_id: string | null;
 };
 
 export type Finding = {
@@ -189,12 +218,36 @@ export type AnalysisRun = {
 
 export type ValidationReport = {
   id: string;
+  status: string;
   passed: boolean | null;
   summary: string;
+  created_at: string;
   checks: Record<string, boolean>;
   check_details: Array<{
     name: string; outcome: string; detail: string; analysis_run_id: string | null;
   }>;
+};
+
+/**
+ * The profiled schema (§20, §26).
+ *
+ * The confounder picker is built from this rather than from a text field. Asking
+ * a researcher to type a column name means asking them to remember whether the
+ * header was `gdp_per_capita` or `GDP per capita` — and a typo there is silently
+ * recorded as "confounder not tested", which reads on the report as though the
+ * adjustment was considered and skipped.
+ */
+export type DatasetColumn = {
+  ordinal: number;
+  name: string;
+  original_name: string;
+  physical_type: string;
+  semantic_type: string;
+  unit: string | null;
+  missing_count: number;
+  unique_count: number;
+  statistics: Record<string, number | null>;
+  sensitivity: string;
 };
 
 export type EvidenceItem = {
@@ -224,4 +277,69 @@ export type Provenance = {
   artifact: { id: string; object_type: string; title: string; created_at: string };
   direct_inputs: Array<{ source_artifact_id: string; lineage_type: string }>;
   ancestors: Array<{ artifact_id: string; depth: number; object_type: string; title: string }>;
+};
+
+// --- Phase 5: communication (§79) and citation integrity (§58) -------------
+
+export type Citation = {
+  id: string;
+  locator: string;
+  entailment: "unverified" | "supported" | "unsupported" | "not_checkable";
+  entailment_detail: string;
+  target_kind: "passage" | "source" | "analysis_run";
+  target: Record<string, unknown>;
+};
+
+export type ArtifactBlock = {
+  id: string;
+  sequence: number;
+  block_type: string;
+  text: string;
+  notes: string;
+  resolved: Record<string, unknown>;
+  /** Where each displayed value was read from, at render time (LAW 1). */
+  value_provenance: Array<{ name: string; source: string; path: string }>;
+  citations: Citation[];
+};
+
+export type Integrity = {
+  publishable: boolean;
+  blocks_checked: number;
+  problems: Array<{ block_id: string; kind: string; detail: string }>;
+  warnings: Array<{ block_id: string; kind: string; detail: string }>;
+};
+
+export type Artifact = {
+  id: string;
+  artifact_type: string;
+  title: string;
+  purpose: string;
+  status: string;
+  version: number;
+  blocks: ArtifactBlock[];
+  findings: Array<{ id: string; title: string; lifecycle_status: string }>;
+  integrity: Integrity;
+  renders: Array<{
+    id: string; fmt: string; storage_key: string; byte_size: number;
+    resolved_hash: string; artifact_version: number; created_at: string;
+  }>;
+};
+
+export type ArtifactSummary = {
+  id: string;
+  artifact_type: string;
+  title: string;
+  status: string;
+  version: number;
+  block_count: number;
+  render_count: number;
+  created_at: string;
+};
+
+export type CitationReport = {
+  total: number;
+  resolved: number;
+  dangling: Array<{ citation_id: string; reason: string }>;
+  by_entailment: Record<string, number>;
+  note: string;
 };

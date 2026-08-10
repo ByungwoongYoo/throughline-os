@@ -123,14 +123,22 @@ def validate_connection(
         evidence={"dropped_rows": dropped, "rows_used": used, "fraction": fraction},
     )
 
-    # --- sensitivity: does the conclusion survive excluding outliers? --------
-    # This runs before the outlier check, because the scientific question is not
-    # "are there outliers" — real data always has some — but "does the
-    # conclusion depend on them". The re-analysis is what answers that.
+    # --- outliers ------------------------------------------------------------
     outlier_checks = [c for c in base_run["assumption_checks"]
                       if c["name"].startswith("outliers")]
     flagged = [c for c in outlier_checks if c["outcome"] == "violated"]
-    drift_value: float | None = None
+    checks["outliers"] = not flagged
+    record_check(
+        cur, report_id=report_id, name="outliers",
+        outcome="passed" if not flagged else "violated",
+        detail=("No influential points beyond 1.5×IQR."
+                if not flagged else
+                f"{len(flagged)} variable(s) contain outliers; the sensitivity check "
+                "below re-runs the analysis without them."),
+        evidence={"flagged": [c["name"] for c in flagged]},
+    )
+
+    # --- sensitivity: does the conclusion survive excluding outliers? --------
     sensitivity_run_id = None
     if flagged and method in {"pearson_correlation", "spearman_correlation"}:
         bounds = _outlier_bounds(cur, version_ids[0], [variables["x"], variables["y"]])
@@ -147,11 +155,11 @@ def validate_connection(
             "method_rationale": "Sensitivity: same test with outlying rows excluded.",
         }, runner=runner)
         sensitivity = get_run(cur, sensitivity_run_id)
-        drift_value, passed = _drift(base_estimate, (sensitivity["result"] or {}).get("estimate"))
+        drift, passed = _drift(base_estimate, (sensitivity["result"] or {}).get("estimate"))
         detail = (f"Excluding outliers moved {base_result.get('estimate_name', 'the estimate')} "
                   f"from {base_estimate:.4g} to "
                   f"{(sensitivity['result'] or {}).get('estimate', float('nan')):.4g} "
-                  f"({drift_value:.1%} relative change)."
+                  f"({drift:.1%} relative change)."
                   if sensitivity["status"] == "completed" else
                   f"The sensitivity analysis failed: {sensitivity['error']}")
         if sensitivity["status"] != "completed":
@@ -161,38 +169,7 @@ def validate_connection(
     checks["sensitivity"] = passed
     record_check(cur, report_id=report_id, name="sensitivity",
                  outcome="passed" if passed else "violated", detail=detail,
-                 analysis_run_id=sensitivity_run_id,
-                 evidence={"relative_drift": drift_value,
-                           "threshold": MAX_ESTIMATE_DRIFT})
-
-    # --- outliers: presence is expected; dependence on them is not -----------
-    # A handful of points beyond 1.5×IQR occurs in any real sample. Treating
-    # their mere existence as a validation failure would make every genuine
-    # dataset unvalidatable forever, so the check is detection *plus* impact.
-    if not flagged:
-        outlier_passed = True
-        outlier_detail = "No influential points beyond 1.5×IQR."
-    elif checks["sensitivity"]:
-        outlier_passed = True
-        outlier_detail = (
-            f"{len(flagged)} variable(s) contain points beyond 1.5×IQR, but excluding "
-            f"them left the estimate essentially unchanged"
-            + (f" ({drift_value:.1%} relative change)." if drift_value is not None else ".")
-        )
-    else:
-        outlier_passed = False
-        outlier_detail = (
-            f"{len(flagged)} variable(s) contain points beyond 1.5×IQR, and excluding "
-            "them changed the conclusion. The result depends on a few observations."
-        )
-    checks["outliers"] = outlier_passed
-    record_check(
-        cur, report_id=report_id, name="outliers",
-        outcome="passed" if outlier_passed else "violated", detail=outlier_detail,
-        analysis_run_id=sensitivity_run_id,
-        evidence={"flagged_variables": [c["name"] for c in flagged],
-                  "relative_drift": drift_value},
-    )
+                 analysis_run_id=sensitivity_run_id)
 
     # --- robustness: bootstrap stability ------------------------------------
     robustness_run_id = None

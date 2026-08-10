@@ -29,8 +29,51 @@ export function Empty({ title, hint, action }: { title: string; hint?: string; a
   );
 }
 
+/**
+ * Turn anything that was thrown into a sentence a person can act on.
+ *
+ * `String(error)` on a FastAPI validation payload yields `[object Object]`,
+ * which is what this screen showed for a real 422 — the researcher learns
+ * nothing, and neither does anyone they report it to. FastAPI's shape is
+ * predictable enough to render properly, and the fallback is JSON rather than
+ * a cast, because unreadable detail still beats none.
+ */
+function describe(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object") {
+    const body = error as Record<string, unknown>;
+    const detail = body.detail ?? body.message ?? body.error;
+
+    if (typeof detail === "string") return detail;
+
+    // FastAPI validation errors: [{loc: [...], msg: "..."}]
+    if (Array.isArray(detail)) {
+      const parts = detail
+        .map((item) => {
+          if (typeof item === "string") return item;
+          const entry = item as Record<string, unknown>;
+          const where = Array.isArray(entry.loc)
+            ? entry.loc.filter((p) => p !== "body" && p !== "query").join(".")
+            : "";
+          const msg = String(entry.msg ?? "");
+          return where ? `${where}: ${msg}` : msg;
+        })
+        .filter(Boolean);
+      if (parts.length) return parts.join("; ");
+    }
+
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return "An error that could not be read.";
+    }
+  }
+  return String(error);
+}
+
 export function Failure({ error, retry }: { error: unknown; retry?: () => void }) {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = describe(error);
   return (
     <div className="error" role="alert">
       <div style={{ fontWeight: 600, marginBottom: 3 }}>That did not work</div>
@@ -52,6 +95,22 @@ export function Status({ value }: { value: string }) {
 export function Stat({ label, value }: { label: string; value: number | string }) {
   return (
     <div className="stat">
+      <b>{value}</b>
+      <span>{label}</span>
+    </div>
+  );
+}
+
+/**
+ * One cell of the overview readout.
+ *
+ * A zero is rendered dimmer than a count, because "0 findings" and "3 findings"
+ * are different facts and a scan of the strip should tell them apart without
+ * reading. It is still the digit, never an absence.
+ */
+export function Meter({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="meter" data-zero={value === 0}>
       <b>{value}</b>
       <span>{label}</span>
     </div>

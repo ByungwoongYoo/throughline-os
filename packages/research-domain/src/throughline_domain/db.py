@@ -20,7 +20,7 @@ from typing import Any, Iterator
 
 import psycopg
 from psycopg.rows import dict_row
-from psycopg.types.json import Jsonb, JsonbDumper
+from psycopg.types.json import Jsonb, JsonbBinaryDumper
 from psycopg_pool import ConnectionPool
 
 _DEFAULT_ROOT = Path(
@@ -30,6 +30,31 @@ _DEFAULT_ROOT = Path(
 _lock = threading.Lock()
 _pool: ConnectionPool | None = None
 _server: Any = None
+
+
+# Adapt a bare dict to jsonb everywhere.
+#
+# Postgres has no default mapping from a Python dict, so psycopg raises
+# "cannot adapt type 'dict'" at execute time — a long way from the code that
+# built the value. Registering it once means every query that stores a JSON
+# document works whether or not the caller remembered to wrap it, and the
+# explicit `jsonb()` below stays available for readability at the call site.
+#
+# Only `dict` is registered. A `list` is deliberately left alone, because a
+# Python list is how this codebase passes Postgres array parameters, and
+# adapting those to jsonb would silently change their column type.
+psycopg.adapters.register_dumper(dict, JsonbBinaryDumper)
+
+
+def jsonb(value: Any) -> Jsonb:
+    """
+    Adapt a Python value for a jsonb column.
+
+    Wrapped rather than passed as a dict: psycopg will not infer jsonb for a
+    plain dict or list, and the failure is a type error at execute time rather
+    than anywhere near the code that built the value.
+    """
+    return Jsonb(value)
 
 
 def data_root() -> Path:
@@ -56,28 +81,6 @@ def database_url() -> str:
     return _start_embedded_server()
 
 
-def _configure(conn: psycopg.Connection) -> None:
-    """Let domain code pass plain dicts for JSONB columns.
-
-    Only ``dict`` is registered. Registering ``list`` too would hijack the array
-    adapter that ``= ANY(%s)`` depends on, so JSON arrays must be wrapped with
-    :func:`jsonb` at their call sites.
-    """
-    conn.adapters.register_dumper(dict, JsonbDumper)
-
-
-def jsonb(value: Any) -> Jsonb:
-    """Wrap a value destined for a JSONB column.
-
-    Required for lists. Passing a bare list gives psycopg no way to tell a JSON
-    array from a Postgres array, and it picks the latter — the insert then fails
-    with ``column "x" is of type jsonb but expression is of type jsonb[]``.
-    Dicts are auto-adapted by :func:`_configure`, but wrapping them is harmless
-    and keeps call sites uniform.
-    """
-    return Jsonb(value)
-
-
 def pool() -> ConnectionPool:
     global _pool
     with _lock:
@@ -87,7 +90,6 @@ def pool() -> ConnectionPool:
                 min_size=1,
                 max_size=int(os.environ.get("THROUGHLINE_DB_POOL", "8")),
                 kwargs={"row_factory": dict_row, "autocommit": False},
-                configure=_configure,
                 open=True,
             )
         return _pool

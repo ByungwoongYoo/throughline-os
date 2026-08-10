@@ -9,23 +9,80 @@
  * the analysis that produced it.
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
-  AnalysisRun, Connection, DiscoveryMap, EvidenceGraph, Finding, Provenance,
-  SearchResult, Source, api,
+  AnalysisRun, Connection, DatasetColumn, DiscoveryMap, EvidenceGraph, Finding,
+  INGESTION_STAGES, Provenance, SearchResult, Source, ValidationReport, api,
+  ingestionStep, isIngesting,
 } from "@/lib/api";
-import { useApi } from "@/lib/useApi";
-import { Empty, Failure, Loading, Num, Stat, Status } from "./primitives";
+import { ApiState, useApi } from "@/lib/useApi";
+import { Section } from "./Shell";
+import { PlainSummary, ResultCard } from "./ResultCard";
+import { Empty, Failure, Loading, Meter, Num, Stat, Status } from "./primitives";
 
 // ---------------------------------------------------------------------------
 // Overview (§70)
 // ---------------------------------------------------------------------------
 
-export function Overview({ project, map }: {
+export function Overview({ project, map, onGo }: {
   project: { name: string; research_question: string };
   map: DiscoveryMap | null;
+  onGo: (section: Section) => void;
 }) {
   if (!map) return <Loading rows={4} label="Reading the project" />;
+
+  const connections = Object.values(map.connections).reduce((a, b) => a + b, 0);
+  const findings = Object.values(map.findings).reduce((a, b) => a + b, 0);
+  const validated = (map.connections.validated ?? 0) + (map.connections.replicated ?? 0);
+
+  /*
+   * The research loop as a checklist against real state (§70).
+   *
+   * A dashboard of six zeroes tells a new researcher nothing about what to do.
+   * Each step here is ticked from the project's actual counts, so the list is
+   * both an explanation of the method and the place you start the next step —
+   * and it can never claim progress the database does not have.
+   */
+  const steps: Array<{ done: boolean; label: string; hint: string; go: Section }> = [
+    {
+      done: map.counts.sources > 0,
+      label: "Add sources",
+      hint: "Drop a dataset and the papers around it. Files never leave this machine.",
+      go: "sources",
+    },
+    {
+      done: map.counts.datasets > 0,
+      label: "Profile a dataset",
+      hint: "Discovery works from the profiled schema, so it needs tabular data.",
+      go: "sources",
+    },
+    {
+      done: connections > 0,
+      label: "Generate and test candidates",
+      hint: "Every pair is tested, then corrected for how many tests ran.",
+      go: "discover",
+    },
+    {
+      done: validated > 0,
+      label: "Try to destroy what survived",
+      hint: "Bootstrap, outliers, missingness, confounders. Promotion is earned.",
+      go: "connections",
+    },
+    {
+      done: findings > 0,
+      label: "Record a finding",
+      hint: "A finding must carry both the evidence for it and the evidence against it.",
+      go: "findings",
+    },
+    {
+      done: (map.counts.reports ?? 0) > 0,
+      label: "Communicate it",
+      hint: "A report references its evidence rather than copying it, so the two cannot drift apart.",
+      go: "reports",
+    },
+  ];
+  const next = steps.find((s) => !s.done);
+
   return (
     <>
       <h1>{project.name}</h1>
@@ -33,19 +90,42 @@ export function Overview({ project, map }: {
         {project.research_question || "No research question has been stated yet."}
       </p>
 
-      <div className="grid-2" style={{ marginBottom: 18 }}>
-        <Stat label="Sources" value={map.counts.sources} />
-        <Stat label="Datasets" value={map.counts.datasets} />
-        <Stat label="Analyses" value={map.counts.analyses} />
-        <Stat label="Connections" value={Object.values(map.connections).reduce((a, b) => a + b, 0)} />
-        <Stat label="Findings" value={Object.values(map.findings).reduce((a, b) => a + b, 0)} />
-        <Stat label="Contradictions" value={map.counts.contradictions} />
+      {/*
+        One readout strip rather than six bordered cards. Six numbers deserve
+        one glance, not six hundred pixels of chrome — and a card per integer
+        is the dashboard reflex this deliberately avoids.
+      */}
+      <div className="meters">
+        <Meter label="Sources" value={map.counts.sources} />
+        <Meter label="Datasets" value={map.counts.datasets} />
+        <Meter label="Analyses" value={map.counts.analyses} />
+        <Meter label="Connections" value={connections} />
+        <Meter label="Findings" value={findings} />
+        <Meter label="Contradictions" value={map.counts.contradictions} />
       </div>
 
-      {/* §70 — one concrete next action, chosen from the project's real state. */}
       <div className="card">
-        <h3 className="eyebrow">Recommended next</h3>
-        <p style={{ color: "var(--ink)", margin: 0 }}>{map.recommended_next_action}</p>
+        <h2>The loop</h2>
+        <ol className="steps">
+          {steps.map((step) => (
+            <li key={step.label} data-done={step.done} data-next={step === next}>
+              <button onClick={() => onGo(step.go)}>
+                <span className="step-tick" aria-hidden />
+                <span>
+                  <b>{step.label}</b>
+                  <em>{step.hint}</em>
+                </span>
+                {/* Never colour alone (§118): the state is also a word. */}
+                <span className="step-state">
+                  {step.done ? "done" : step === next ? "next" : "waiting"}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ol>
+        {/* §70 — the server's own recommendation, which knows things the
+            checklist does not, such as which connection ranks highest. */}
+        <p className="note" style={{ marginBottom: 0 }}>{map.recommended_next_action}</p>
       </div>
 
       <LifecycleBreakdown title="Connections" counts={map.connections} />
@@ -80,40 +160,44 @@ function LifecycleBreakdown({ title, counts }: { title: string; counts: Record<s
 // Sources (§24, §26)
 // ---------------------------------------------------------------------------
 
-export function Sources({ projectId, onSelect }: {
-  projectId: string;
+export function Sources({ sources, onSelect, upload, uploading, uploadError }: {
+  /*
+   * The list is owned by the workspace, not fetched here.
+   *
+   * This view used to call useApi for the same path the workspace already
+   * fetched, which meant two independent copies of the same list and two
+   * independent refresh paths. After an upload the workspace refreshed its copy
+   * and this one kept showing the old rows: files landed on disk, were ingested,
+   * and never appeared on screen. One owner, one refresh.
+   */
+  sources: ApiState<Source[]>;
   onSelect: (id: string) => void;
+  upload: (files: FileList | null) => void;
+  uploading: boolean;
+  uploadError: unknown;
 }) {
-  const { data, error, loading, reload } = useApi<Source[]>(`/api/projects/${projectId}/sources`);
-  const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState<unknown>(null);
+  const { data, error, loading, reload } = sources;
 
-  async function upload(files: FileList | null) {
-    if (!files?.length) return;
-    setUploading(true);
-    setUploadError(null);
-    try {
-      for (const file of Array.from(files)) {
-        await api.upload(`/api/projects/${projectId}/sources`, file);
-      }
-      // Ingestion is asynchronous; poll briefly so the states are visible moving.
-      for (let i = 0; i < 12; i++) {
-        await new Promise((r) => setTimeout(r, 1500));
-        reload();
-      }
-    } catch (err) {
-      setUploadError(err);
-    } finally {
-      setUploading(false);
-    }
-  }
+  /*
+   * Ingestion is asynchronous, so the list has to move on its own or a source
+   * sits at "queued" until the researcher thinks to refresh. Polling stops once
+   * nothing is in flight — a workspace left open overnight should not keep
+   * hitting the API.
+   */
+  const settling = (data ?? []).some((s) => isIngesting(s.ingestion_status));
+
+  useEffect(() => {
+    if (!settling && !uploading) return;
+    const timer = setInterval(reload, 1500);
+    return () => clearInterval(timer);
+  }, [settling, uploading, reload]);
 
   return (
     <>
       <div className="row" style={{ marginBottom: 14 }}>
         <div>
           <h1>Sources</h1>
-          <p style={{ margin: 0 }}>Papers and datasets. Everything here is untrusted data (§35).</p>
+          <p style={{ margin: 0 }}>Papers and datasets. Everything here is treated as untrusted until parsed.</p>
         </div>
         <label className="btn btn-primary" style={{ display: "inline-block" }}>
           {uploading ? "Uploading…" : "Add sources"}
@@ -132,7 +216,7 @@ export function Sources({ projectId, onSelect }: {
       {data && data.length === 0 && (
         <Empty
           title="No sources yet"
-          hint="Add a PDF and a CSV. The dataset is what discovery needs; the paper is what gives it context."
+          hint="Drop files anywhere in this window, or use Add sources. A dataset is what discovery needs; a paper is what gives it context."
         />
       )}
 
@@ -155,8 +239,21 @@ export function Sources({ projectId, onSelect }: {
                     {source.source_type} · {source.trust_level}
                   </span>
                 </td>
-                <td><Status value={source.ingestion_status} /></td>
+                <td>
+                  <Status value={source.ingestion_status} />
+                  {/* The bar shows position in the §24 pipeline, which the worker
+                      genuinely reports. It is not a time estimate, and it never
+                      invents a percentage from one. */}
+                  {isIngesting(source.ingestion_status) && (
+                    <Ingesting status={source.ingestion_status} />
+                  )}
+                </td>
                 <td style={{ color: "var(--ink-soft)" }}>
+                  {isIngesting(source.ingestion_status) && (
+                    <span style={{ color: "var(--ink-faint)" }}>
+                      {source.ingestion_detail || "Waiting for a worker to pick it up…"}
+                    </span>
+                  )}
                   {source.dataset && (
                     <span className="numeric">
                       {source.dataset.row_count} rows · {source.dataset.column_count} columns
@@ -178,6 +275,130 @@ export function Sources({ projectId, onSelect }: {
   );
 }
 
+/**
+ * What ingestion actually made of a file (§24, §26).
+ *
+ * Clicking a source used to do nothing, which taught the researcher that the
+ * row was the whole truth. It is not: a dataset row hides a profiled schema, and
+ * that profile is what every later method choice depends on.
+ */
+export function SourceDetail({ projectId, sourceId, onDiscover }: {
+  projectId: string;
+  sourceId: string;
+  onDiscover: (datasetVersionId: string) => void;
+}) {
+  const { data, error, loading, reload } =
+    useApi<Source>(`/api/projects/${projectId}/sources/${sourceId}`);
+  const columns = useApi<DatasetColumn[]>(
+    data?.dataset ? `/api/dataset-versions/${data.dataset.dataset_version_id}/columns` : null,
+  );
+
+  if (error) return <Failure error={error} retry={reload} />;
+  if (loading || !data) return <Loading rows={5} label="Reading the source" />;
+
+  return (
+    <>
+      <h1 style={{ wordBreak: "break-word" }}>{data.title}</h1>
+      <div className="row" style={{ marginBottom: 16 }}>
+        <Status value={data.ingestion_status} />
+        <span className="mono" style={{ color: "var(--ink-faint)" }}>
+          {data.source_type} · trust: {data.trust_level}
+        </span>
+      </div>
+
+      {data.ingestion_status === "failed" && (
+        <div className="error">{data.ingestion_detail || "Ingestion failed with no detail recorded."}</div>
+      )}
+
+      {data.paper && (
+        <div className="grid-2" style={{ marginBottom: 16 }}>
+          <Stat label="pages" value={data.paper.page_count} />
+          <Stat label="passages indexed" value={data.passage_count ?? 0} />
+        </div>
+      )}
+
+      {data.dataset && (
+        <>
+          <div className="grid-2" style={{ marginBottom: 16 }}>
+            <Stat label="rows" value={data.dataset.row_count} />
+            <Stat label="columns" value={data.dataset.column_count} />
+            <Stat label="version" value={data.dataset.version} />
+          </div>
+
+          <div className="card">
+            <div className="row" style={{ marginBottom: 8 }}>
+              <h2 style={{ margin: 0 }}>Profiled schema</h2>
+              <button
+                className="btn btn-primary"
+                onClick={() => onDiscover(data.dataset!.dataset_version_id)}
+              >
+                Discover connections
+              </button>
+            </div>
+            <p style={{ marginTop: 0 }}>
+              Every candidate relationship, and every method chosen to test one, follows
+              from these types.
+            </p>
+
+            {columns.loading && <Loading rows={4} label="Reading the profile" />}
+            {columns.error ? <Failure error={columns.error} retry={columns.reload} /> : null}
+            {columns.data && (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Column</th><th>Type</th><th style={{ textAlign: "right" }}>Missing</th>
+                    <th style={{ textAlign: "right" }}>Distinct</th><th>Sensitivity</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {columns.data.map((column) => (
+                    <tr key={column.name}>
+                      <td className="mono" style={{ color: "var(--ink)" }}>{column.name}</td>
+                      <td style={{ color: "var(--ink-soft)" }}>
+                        {column.semantic_type || column.physical_type}
+                        {column.unit ? ` · ${column.unit}` : ""}
+                      </td>
+                      <td className="numeric" style={{ textAlign: "right" }}>{column.missing_count}</td>
+                      <td className="numeric" style={{ textAlign: "right" }}>{column.unique_count}</td>
+                      <td style={{ color: "var(--ink-soft)" }}>{column.sensitivity}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </>
+      )}
+
+      {!data.paper && !data.dataset && data.ingestion_status === "ready" && (
+        <Empty
+          title="Nothing structured was extracted"
+          hint="The file was read, but it produced neither a paper nor a dataset."
+        />
+      )}
+    </>
+  );
+}
+
+/** Where a source has got to in the §24 pipeline, stated rather than spun. */
+function Ingesting({ status }: { status: string }) {
+  const step = ingestionStep(status);
+  const total = INGESTION_STAGES.length;
+  return (
+    <span
+      className="progress"
+      role="progressbar"
+      aria-valuemin={1}
+      aria-valuemax={total}
+      aria-valuenow={step ?? undefined}
+      aria-label={`Ingesting: ${status}`}
+      style={step ? { ["--at" as string]: `${(step / total) * 100}%` } : undefined}
+      data-known={step !== null}
+      title={step ? `${status} — step ${step} of ${total}` : status}
+    />
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Search (§29, §30)
 // ---------------------------------------------------------------------------
@@ -192,8 +413,8 @@ export function Search({ projectId }: { projectId: string }) {
     <>
       <h1>Search</h1>
       <p className="lede">
-        Keyword and meaning together (§29). Every search is recorded so an answer built
-        on it can be audited later (§30).
+        Keyword and meaning together. Every search is recorded, so an answer built on
+        one can be traced back to the passages it came from.
       </p>
 
       <form
@@ -241,22 +462,56 @@ export function Search({ projectId }: { projectId: string }) {
 // Discovery (§48, §49)
 // ---------------------------------------------------------------------------
 
-export function Discover({ projectId, onSelectConnection }: {
+export function Discover({ projectId, sources, onSelectConnection, startWith, onStarted }: {
   projectId: string;
+  /** Owned by the workspace — see the note on Sources. */
+  sources: ApiState<Source[]>;
   onSelectConnection: (id: string) => void;
+  /** Set when the researcher pressed "Discover connections" on a source. */
+  startWith?: string | null;
+  onStarted?: () => void;
 }) {
-  const sources = useApi<Source[]>(`/api/projects/${projectId}/sources`);
   const connections = useApi<Connection[]>(`/api/projects/${projectId}/connections?limit=100`);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const [reused, setReused] = useState<string | null>(null);
 
   const datasets = (sources.data ?? []).filter((s) => s.dataset);
 
-  async function discover(versionId: string) {
+  /*
+   * Carry the intent across the navigation, so pressing the button on a source
+   * starts the run instead of landing on a screen with the same button again.
+   *
+   * The ref is load-bearing, not defensive noise: React's development StrictMode
+   * mounts every component twice, which fires this effect twice and submitted
+   * two discovery runs. The server now refuses the duplicate as well, but the
+   * client should not be sending it.
+   */
+  const started = useRef<string | null>(null);
+  useEffect(() => {
+    if (!startWith || started.current === startWith) return;
+    started.current = startWith;
+    onStarted?.();
+    void discover(startWith);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startWith]);
+
+  async function discover(versionId: string, force = false) {
     setRunning(true);
     setError(null);
+    setReused(null);
     try {
-      await api.post(`/api/projects/${projectId}/discoveries`, { dataset_version_id: versionId });
+      const started = await api.post<{ reused: boolean; note?: string }>(
+        `/api/projects/${projectId}/discoveries`,
+        { dataset_version_id: versionId, force },
+      );
+      // §123 — if the server declined to start a second run, say so. A button
+      // that appears to work and quietly does nothing is worse than an error.
+      if (started.reused) {
+        setReused(started.note ?? "A run already exists for this dataset version.");
+        connections.reload();
+        return;
+      }
       for (let i = 0; i < 16; i++) {
         await new Promise((r) => setTimeout(r, 2000));
         connections.reload();
@@ -273,11 +528,26 @@ export function Discover({ projectId, onSelectConnection }: {
       <h1>Discovery</h1>
       <p className="lede">
         Candidate relationships are generated from the profiled schema, tested in the
-        sandbox, then corrected across the whole family (§49). Rejected candidates stay
+        sandbox, then corrected for how many tests ran. Rejected candidates stay
         visible — they were tested, they are simply not discoveries.
       </p>
 
       {error ? <Failure error={error} /> : null}
+
+      {reused && (
+        <div className="notice" role="status">
+          <span>{reused}</span>
+          <button
+            className="btn"
+            onClick={() => {
+              const only = datasets[0];
+              if (only) void discover(only.dataset!.dataset_version_id, true);
+            }}
+          >
+            Run it again anyway
+          </button>
+        </div>
+      )}
 
       {datasets.length === 0 && (
         <Empty title="No dataset to search" hint="Discovery needs tabular data. Add a CSV or spreadsheet." />
@@ -375,7 +645,7 @@ export function Findings({ projectId, onSelect }: {
       <h1>Findings</h1>
       <p className="lede">
         A finding must link to supporting and contradicting evidence before it can be
-        promoted past candidate (LAW 3).
+        promoted past candidate.
       </p>
       {findings.loading && <Loading rows={3} label="Reading findings" />}
       {findings.error && <Failure error={findings.error} retry={findings.reload} />}
@@ -565,23 +835,41 @@ export function ConnectionDetail({ connectionId, projectId }: {
 }) {
   const connections = useApi<Connection[]>(`/api/projects/${projectId}/connections?limit=200`);
   const connection = connections.data?.find((c) => c.id === connectionId);
-  const [confounders, setConfounders] = useState("");
+  const reports = useApi<ValidationReport[]>(`/api/connections/${connectionId}/validations`);
+  // Approved display names, so no raw column name reaches the card.
+  const variables = useApi<{ labels: Record<string, string> }>(
+    `/api/projects/${projectId}/variables`);
+  // The stored reading. GET never generates — a card that fired a model call on
+  // render would make every list of results cost inferences to look at.
+  const summary = useApi<PlainSummary>(
+    connection?.analysis_run_id
+      ? `/api/analyses/${connection.analysis_run_id}/plain-summary` : null);
+
+  const [chosen, setChosen] = useState<string[]>([]);
   const [validating, setValidating] = useState(false);
   const [error, setError] = useState<unknown>(null);
+
+  // The profiled schema, so confounders are picked rather than typed.
+  const columns = useApi<DatasetColumn[]>(
+    connection?.dataset_version_id
+      ? `/api/dataset-versions/${connection.dataset_version_id}/columns`
+      : null,
+  );
 
   async function validate() {
     setValidating(true); setError(null);
     try {
-      const list = confounders.split(",").map((s) => s.trim()).filter(Boolean);
-      await api.post(`/api/connections/${connectionId}/validate`, { confounders: list });
-      // The suite runs several sandboxed analyses; give it time, then read the report.
-      for (let i = 0; i < 20; i++) {
+      await api.post(`/api/connections/${connectionId}/validate`, { confounders: chosen });
+      // The suite runs several sandboxed analyses. Poll for the report rather
+      // than for the lifecycle state: a connection that fails validation keeps
+      // its state, and watching the state would hang until the timeout.
+      for (let i = 0; i < 24; i++) {
         await new Promise((r) => setTimeout(r, 2000));
-        const refreshed = await api.get<Connection[]>(`/api/projects/${projectId}/connections?limit=200`);
-        const updated = refreshed.find((c) => c.id === connectionId);
-        if (updated && updated.lifecycle_status !== connection?.lifecycle_status) break;
+        const latest = await api.get<ValidationReport[]>(`/api/connections/${connectionId}/validations`);
+        if (latest.some((r) => r.status !== "running")) break;
       }
       connections.reload();
+      reports.reload();
     } catch (err) {
       setError(err);
     } finally {
@@ -589,43 +877,210 @@ export function ConnectionDetail({ connectionId, projectId }: {
     }
   }
 
-  if (connections.loading && !connection) return <Loading rows={4} />;
+  if (connections.loading && !connection) return <Loading rows={4} label="Reading the connection" />;
   if (!connection) return <Empty title="Connection not found" />;
+
+  // Adjusting a variable for itself is not a confounder test; it is a mistake
+  // the interface should make impossible rather than report afterwards.
+  const candidates = (columns.data ?? []).filter(
+    (c) => c.name !== connection.left_variable && c.name !== connection.right_variable,
+  );
+
+  function toggle(name: string) {
+    setChosen((current) =>
+      current.includes(name) ? current.filter((n) => n !== name) : [...current, name]);
+  }
+
+  const labels = variables.data?.labels ?? {};
+  const left = labels[connection.left_variable] ?? connection.left_variable;
+  const right = labels[connection.right_variable] ?? connection.right_variable;
 
   return (
     <>
-      <h1>{connection.left_variable} × {connection.right_variable}</h1>
-      <div className="row" style={{ marginBottom: 14 }}>
-        <Status value={connection.lifecycle_status} />
-        <span className="mono" style={{ color: "var(--ink-faint)" }}>{connection.method}</span>
-      </div>
+      {/* Canonical names, never raw columns (Part C). */}
+      <h1>{left} and {right}</h1>
 
-      <div className="grid-2" style={{ marginBottom: 14 }}>
-        <Stat label={connection.effect_size_name || "estimate"} value={connection.estimate?.toFixed(4) ?? "—"} />
-        <Stat label="q-value (corrected)" value={connection.q_value?.toExponential(2) ?? "—"} />
-        <Stat label="sample size" value={connection.sample_size ?? "—"} />
-        <Stat label="evidence" value={connection.evidence_quality} />
-      </div>
+      {/* The result card carries the sentence, the labelled numbers and the
+          permanent provenance strip. It replaced four bare stat tiles, which
+          made a reader decode `q = 5.17e-66` before learning what was found. */}
+      <ResultCard
+        connection={connection}
+        labels={labels}
+        summary={summary.data ?? null}
+        sourceCount={{ sources: 0, datasets: connection.dataset_version_id ? 1 : 0 }}
+      />
+
+      <EvidenceGrade
+        runId={connection.analysis_run_id}
+        quality={connection.evidence_quality}
+      />
 
       <div className="card">
-        <h2>Try to destroy it (§51)</h2>
+        <h2>Try to destroy it</h2>
         <p>
           Bootstrap stability, sensitivity to outliers, missingness, and adjustment for
-          confounders. Naming no confounders is recorded as untested, not as clean.
+          confounders. Naming no confounders is recorded as <b>not tested</b> — not as clean.
         </p>
-        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-          <input
-            type="text" value={confounders} onChange={(e) => setConfounders(e.target.value)}
-            placeholder="candidate confounders, comma separated"
-            aria-label="Candidate confounders"
-          />
+
+        <h3 className="eyebrow" style={{ marginTop: 16 }}>
+          Adjust for {chosen.length > 0 && <span className="mono">· {chosen.length} selected</span>}
+        </h3>
+
+        {columns.loading && <Loading rows={2} label="Reading the dataset schema" />}
+        {columns.error ? <Failure error={columns.error} retry={columns.reload} /> : null}
+
+        {!connection.dataset_version_id && (
+          <p className="note">
+            This connection is not linked to a discovery run, so its dataset schema
+            cannot be resolved. Validation can still run without adjustment.
+          </p>
+        )}
+
+        {candidates.length > 0 && (
+          <div className="picker">
+            {candidates.map((column) => (
+              <label className="pick" key={column.name} data-on={chosen.includes(column.name)}>
+                <input
+                  type="checkbox"
+                  checked={chosen.includes(column.name)}
+                  onChange={() => toggle(column.name)}
+                />
+                <span className="pick-name">
+                  {(variables.data?.labels ?? {})[column.name] ?? column.name}
+                </span>
+                {/* The profile is shown because it is what makes a column a
+                    plausible confounder — type, spread, and how much is missing. */}
+                <span className="pick-meta">
+                  {column.semantic_type || column.physical_type}
+                  {column.unit ? ` · ${column.unit}` : ""}
+                  {column.missing_count > 0 ? ` · ${column.missing_count} missing` : ""}
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
+
+        <div className="row" style={{ marginTop: 14 }}>
+          <span className="note" style={{ margin: 0 }}>
+            {chosen.length === 0
+              ? "No adjustment — the report will say so."
+              : `Adjusting for ${chosen.join(", ")}.`}
+          </span>
           <button className="btn btn-primary" onClick={validate} disabled={validating}>
             {validating ? "Running checks…" : "Validate"}
           </button>
         </div>
+
         {error ? <div style={{ marginTop: 10 }}><Failure error={error} /></div> : null}
-        {validating && <div style={{ marginTop: 12 }}><Loading rows={2} label="Running robustness checks in the sandbox" /></div>}
+        {validating && (
+          <div style={{ marginTop: 12 }}>
+            <Loading rows={2} label="Running robustness checks in the sandbox" />
+          </div>
+        )}
       </div>
+
+      <ValidationReports reports={reports} />
+    </>
+  );
+}
+
+/**
+ * Why the evidence grade is what it is (§47).
+ *
+ * This is the screen's most confusing moment and its most important one. An
+ * association can read r = 0.90 at q = 5e-66 and still be graded *weak*, because
+ * §47 grades evidence from the assumptions the method needed — not from the
+ * p-value. Shown as a bare word next to a huge correlation, that looks like a
+ * bug; a researcher's first instinct is to distrust the tool rather than the
+ * result. So the grade is never shown without the checks that produced it.
+ */
+function EvidenceGrade({ runId, quality }: { runId: string | null; quality: string }) {
+  const { data, error, loading } = useApi<AnalysisRun>(runId ? `/api/analyses/${runId}` : null);
+
+  if (!runId) return null;
+  if (loading) return <Loading rows={2} label="Reading the assumption checks" />;
+  if (error || !data) return null;
+
+  const violated = data.assumption_checks.filter((c) => c.outcome === "violated");
+  if (violated.length === 0) return null;
+
+  return (
+    <div className="card card-tight">
+      <h3 className="eyebrow">Why the evidence is graded {quality}</h3>
+      <p style={{ margin: "6px 0 8px", color: "var(--ink-soft)", fontSize: 12.5 }}>
+        The grade comes from the assumptions the method required, not from the
+        q-value. A very small q-value with violated assumptions is still weak
+        evidence — which are four separate judgements and are kept separate here.
+      </p>
+      <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none", display: "grid", gap: 5 }}>
+        {violated.map((check) => (
+          <li key={check.name} style={{ display: "flex", gap: 9, alignItems: "baseline" }}>
+            <Status value={check.outcome} />
+            <span className="mono" style={{ fontSize: 11.5 }}>{check.name}</span>
+            <span style={{ color: "var(--ink-soft)", fontSize: 12 }}>{check.detail}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * The §51 report, which until now the interface ran but never showed.
+ *
+ * A lifecycle state that changes with no visible reasoning is an unaccountable
+ * verdict. Each check cites the analysis run that produced it, so the claim
+ * "this survived outlier exclusion" is itself traceable (LAW 1).
+ */
+function ValidationReports({ reports }: {
+  reports: { data: ValidationReport[] | null; error: unknown; loading: boolean; reload: () => void };
+}) {
+  if (reports.error) return <Failure error={reports.error} retry={reports.reload} />;
+  if (reports.loading && !reports.data) return <Loading rows={3} label="Reading validation reports" />;
+  if (!reports.data?.length) {
+    return (
+      <Empty
+        title="Not validated yet"
+        hint="Nothing has tried to break this connection. Until something does, it stays a candidate."
+      />
+    );
+  }
+
+  return (
+    <>
+      {reports.data.map((report) => (
+        <div className="card" key={report.id}>
+          <div className="row" style={{ marginBottom: 8 }}>
+            <h2 style={{ margin: 0 }}>Validation report</h2>
+            <Status value={report.passed === null ? report.status : report.passed ? "passed" : "violated"} />
+          </div>
+          {report.summary && <p style={{ color: "var(--ink)" }}>{report.summary}</p>}
+
+          {report.check_details.length > 0 && (
+            <table>
+              <thead>
+                <tr><th style={{ width: "22%" }}>Check</th><th style={{ width: "14%" }}>Outcome</th><th>Detail</th><th style={{ width: "18%" }}>Computed by</th></tr>
+              </thead>
+              <tbody>
+                {report.check_details.map((check) => (
+                  <tr key={check.name}>
+                    <td className="mono">{check.name.replace(/_/g, " ")}</td>
+                    <td><Status value={check.outcome} /></td>
+                    <td style={{ color: "var(--ink-soft)" }}>{check.detail}</td>
+                    <td className="mono" style={{ color: "var(--ink-faint)" }}>
+                      {check.analysis_run_id ?? "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <p className="note">
+            A check recorded as <b>not tested</b> is not a pass. It means nothing was
+            supplied for it to test.
+          </p>
+        </div>
+      ))}
     </>
   );
 }

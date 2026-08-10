@@ -1,0 +1,276 @@
+"use client";
+
+/**
+ * Side-by-side comparison of several papers.
+ *
+ * This is the most persuasive artifact the product makes, and persuasive is
+ * exactly what a wrong synthesis is. A grid of *Method · Population · Results ·
+ * Limitations* across five papers reads as five facts per row, and nobody
+ * re-opens five PDFs to check it.
+ *
+ * So the screen is built to keep the reader honest with themselves:
+ *
+ * **What cannot be compared is shown above the table, not below it.** A
+ * synthesis that opens with its agreements has buried the reason to doubt them.
+ *
+ * **Every cell is a quotation, marked as one, with its locator.** A cell is
+ * never a summary. If it reads like prose the system wrote, it would be
+ * unfalsifiable — and it is the sentence that ends up in a manuscript.
+ *
+ * **Two kinds of blank, never merged.** "This paper does not state it" is a
+ * fact about the paper. "The extractor proposed a sentence that is not in the
+ * paper, so it was discarded" is a fact about the extraction. Rendering both as
+ * an empty cell throws away the more important one.
+ */
+
+import { useState } from "react";
+import { Source, api } from "@/lib/api";
+import { Empty, Failure, Loading } from "./primitives";
+
+type Cell = {
+  source_id: string;
+  quote: string | null;
+  locator: string | null;
+  absent_because: string | null;
+};
+
+type Row = { field: string; label: string; cells: Cell[]; stated_by: number };
+
+type Pair = {
+  left_title: string;
+  right_title: string;
+  outcome: string;
+  outcome_name: string;
+  family: string;
+  sentence: string;
+};
+
+type Cluster = { members: string[]; size: number; note: string };
+
+type Matrix = {
+  cannot_be_compared: Pair[];
+  needs_review: Pair[];
+  non_independent_clusters: Cluster[];
+  papers: Array<{ source_id: string; title: string; rejected: number }>;
+  rows: Row[];
+  pairs: Pair[];
+  missing_extraction: string[];
+  multiplicity: { papers: number; pairwise_comparisons: number; note: string };
+  accuracy: string;
+};
+
+export function Synthesis({ projectId, sources }: {
+  projectId: string;
+  sources: Source[];
+}) {
+  const papers = sources.filter((s) => !s.dataset);
+  const [chosen, setChosen] = useState<string[]>([]);
+  const [matrix, setMatrix] = useState<Matrix | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
+
+  async function read(sourceId: string) {
+    setBusy(`Reading ${sourceId}`);
+    setError(null);
+    try {
+      await api.post(`/api/sources/${sourceId}/extract?project_id=${projectId}`,
+                     {});
+    } catch (err) { setError(err); } finally { setBusy(null); }
+  }
+
+  async function build(ids: string[]) {
+    if (ids.length < 2) return;
+    setBusy("Comparing"); setError(null); setMatrix(null);
+    try {
+      setMatrix(await api.post<Matrix>(
+        `/api/projects/${projectId}/synthesis`, { source_ids: ids }));
+    } catch (err) { setError(err); } finally { setBusy(null); }
+  }
+
+  function toggle(id: string) {
+    const next = chosen.includes(id)
+      ? chosen.filter((c) => c !== id)
+      : [...chosen, id];
+    setChosen(next);
+    setMatrix(null);
+  }
+
+  if (papers.length < 2) {
+    return (
+      <Empty
+        title="Two papers are needed"
+        hint="Add another paper and their methods, results and limitations can be laid out side by side — every cell quoted from the paper it came from."
+      />
+    );
+  }
+
+  return (
+    <>
+      <p className="lede">
+        Pick the papers to compare. Each is read once and the reading is kept, so
+        the table is the same every time you open it. Every cell is a sentence
+        copied from its paper and checked against that paper&rsquo;s text.
+      </p>
+
+      <div className="cmp-picker">
+        {papers.map((source) => (
+          <button
+            key={source.id}
+            className="cmp-choice"
+            data-chosen={chosen.includes(source.id)}
+            onClick={() => toggle(source.id)}
+          >
+            <span className="cmp-name">{source.title}</span>
+            <span className="cmp-meta">paper</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="syn-actions">
+        <button
+          className="nj-primary"
+          disabled={chosen.length < 2 || busy !== null}
+          onClick={() => void build(chosen)}
+        >
+          {busy === "Comparing" ? "Comparing…"
+            : `Compare ${chosen.length || ""} papers`}
+        </button>
+        <span className="nb-hint">
+          Papers must be read first — use “Read this paper” if one is missing.
+        </span>
+      </div>
+
+      {error ? <Failure error={error} /> : null}
+      {busy && <Loading rows={3} label={busy} />}
+
+      {matrix && (
+        <>
+          {matrix.missing_extraction.length > 0 && (
+            <div className="notice">
+              <span>
+                Not yet read: {matrix.missing_extraction.join(", ")}. The table
+                is built only from verified readings, never from a fresh guess.
+              </span>
+              {matrix.missing_extraction.map((title) => {
+                const source = papers.find((p) => p.title === title);
+                return source ? (
+                  <button key={source.id} className="btn"
+                          onClick={() => void read(source.id)}>
+                    Read {title}
+                  </button>
+                ) : null;
+              })}
+            </div>
+          )}
+
+          {/* Above the table, always. */}
+          <Objections matrix={matrix} />
+
+          <section className="syn-section">
+            <h2>Side by side</h2>
+            <div className="syn-scroll">
+              <table className="syn-table">
+                <thead>
+                  <tr>
+                    <th scope="col" className="syn-corner">Field</th>
+                    {matrix.papers.map((paper) => (
+                      <th key={paper.source_id} scope="col">
+                        {paper.title}
+                        {paper.rejected > 0 && (
+                          <span className="syn-rejected">
+                            {paper.rejected} discarded
+                          </span>
+                        )}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {matrix.rows.map((row) => (
+                    <tr key={row.field}>
+                      <th scope="row">
+                        {row.label}
+                        <span className="syn-stated">
+                          {row.stated_by}/{matrix.papers.length}
+                        </span>
+                      </th>
+                      {row.cells.map((cell) => (
+                        <td key={cell.source_id}>
+                          {cell.quote ? (
+                            <>
+                              {/* Marked as a quotation, because that is what it
+                                  is and what makes it checkable. */}
+                              <blockquote>{cell.quote}</blockquote>
+                              {cell.locator && (
+                                <cite className="syn-locator">{cell.locator}</cite>
+                              )}
+                            </>
+                          ) : (
+                            <span className="syn-absent">
+                              {cell.absent_because}
+                            </span>
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <p className="pat-foot">
+            {matrix.accuracy} {matrix.multiplicity.note}
+          </p>
+        </>
+      )}
+    </>
+  );
+}
+
+/** Everything arguing against reading the table straight down its columns. */
+function Objections({ matrix }: { matrix: Matrix }) {
+  const nothing = matrix.cannot_be_compared.length === 0
+    && matrix.needs_review.length === 0
+    && matrix.non_independent_clusters.length === 0;
+
+  if (nothing) {
+    return (
+      <p className="syn-clear">
+        All {matrix.multiplicity.pairwise_comparisons} pairs were checked and
+        none was found incommensurable or non-independent. That is not the same
+        as agreement — it means the columns can be read against each other.
+      </p>
+    );
+  }
+
+  return (
+    <section className="syn-objections">
+      <h2>Before you read across</h2>
+
+      {matrix.non_independent_clusters.map((cluster, i) => (
+        <article key={i} className="syn-objection syn-review">
+          <h3>Not separate evidence</h3>
+          <p>{cluster.members.join(" · ")}</p>
+          <p className="syn-why">{cluster.note}</p>
+        </article>
+      ))}
+
+      {matrix.cannot_be_compared.map((pair, i) => (
+        <article key={i} className="syn-objection syn-blocked">
+          <h3>{pair.outcome_name}</h3>
+          <p>{pair.left_title} · {pair.right_title}</p>
+          <p className="syn-why">{pair.sentence}</p>
+        </article>
+      ))}
+
+      {matrix.needs_review.map((pair, i) => (
+        <article key={i} className="syn-objection syn-review">
+          <h3>{pair.outcome_name}</h3>
+          <p>{pair.left_title} · {pair.right_title}</p>
+          <p className="syn-why">{pair.sentence}</p>
+        </article>
+      ))}
+    </section>
+  );
+}

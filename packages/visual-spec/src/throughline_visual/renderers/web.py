@@ -1,11 +1,11 @@
-"""Web renderer (§74) — emits a Vega-Lite specification.
+"""Web renderer — emits a Vega-Lite specification.
 
 The second backend consuming the *same* `(ResearchVisualSpec, VisualData)` pair.
-It exists to prove the §74 claim concretely: two very different outputs, one
+It exists to prove the claim concretely: two very different outputs, one
 semantic description, and no analysis logic duplicated between them.
 
 The emitted spec carries its data inline because `VisualData` is already a
-bounded, chart-ready sample (§106, §107) — the browser never receives the
+bounded, chart-ready sample — the browser never receives the
 dataset.
 """
 
@@ -30,25 +30,102 @@ def render(spec: ResearchVisualSpec, data: VisualData) -> dict[str, Any]:
         VisualType.BAR: _bar,
         VisualType.HISTOGRAM: _histogram,
         VisualType.HEATMAP: _heatmap,
-    }
+        }
     builder = builders.get(spec.visual_type)
     if builder is None:
         raise WebRenderError(f"No web renderer for {spec.visual_type}")
 
     chart = builder(spec, data)
+    chart = _make_interactive(chart, spec, data)
     chart["$schema"] = VEGA_LITE_SCHEMA
     chart["title"] = {"text": spec.title, "subtitle": spec.subtitle or None,
-                      "anchor": "start"}
-    # LAW 5 — the rendered figure keeps its link to the computation behind it.
+                                "anchor": "start"}
+    # the rule — the rendered figure keeps its link to the computation behind it.
     chart["usermeta"] = {
-        "analysis_run_id": spec.analysis_run_id,
-        "dataset_version_id": spec.dataset_version_id,
-        "caption": spec.caption,
-        "citations": spec.citations,
-        "statistics": data.statistics,
-        "sample_size": data.sample_size,
-        "interaction": spec.interaction,
-    }
+                           "analysis_run_id": spec.analysis_run_id,
+                              "dataset_version_id": spec.dataset_version_id,
+                   "caption": spec.caption,
+                     "citations": spec.citations,
+                      "statistics": data.statistics,
+                       "sample_size": data.sample_size,
+                       "interaction": spec.interaction,
+                       }
+    return chart
+
+
+def _make_interactive(chart: dict[str, Any], spec: ResearchVisualSpec,
+data: VisualData) -> dict[str, Any]:
+    """
+    Add interaction, centrally rather than per chart type.
+
+    Applied here so a new chart builder inherits hover, zoom, brush and the
+    underlying-data view without remembering to. A capability that each builder
+    must opt into is a capability half the builders will lack.
+
+    On motion, and point the same way and it is worth being explicit:
+        the transitions configured here are *semantic*. They exist so that when data
+        changes under a chart — a filter applied, a confounder adjusted — marks move
+        to their new positions instead of being replaced, and the reader can follow
+        an individual point through the change. That is object constancy, and it is
+        the one kind of chart animation that carries information.
+
+        What is deliberately absent is entrance animation. A chart that draws itself
+        on load delays reading by half a second, communicates nothing, and is the
+        "gratuitous animation" names. Motion that argues belongs in the
+        communication surface ('s primitives, for video and presentation), not in
+        the instrument a researcher is reading.
+        """
+    layers = chart.get("layer")
+    target = layers[0] if layers else chart
+
+    # Hover, and a tooltip carrying every encoded field rather than one value.
+    if isinstance(target, dict) and "mark" in target:
+        mark = target["mark"]
+        if isinstance(mark, str):
+            mark = {"type": mark}
+            target["mark"] = mark
+        mark.setdefault("tooltip", {"content": "data"})
+        # Object constancy: marks move rather than being torn down and rebuilt.
+        mark.setdefault("cursor", "pointer")
+
+    params: list[dict[str, Any]] = []
+
+    # Zoom and pan on continuous axes only. On an ordinal axis it does nothing
+    # useful and makes the chart feel broken when it refuses to move.
+    encoding = target.get("encoding", {}) if isinstance(target, dict) else {}
+    continuous = {"quantitative", "temporal"}
+    if (encoding.get("x", {}).get("type") in continuous
+            and encoding.get("y", {}).get("type") in continuous):
+        params.append({"name": "view", "select": "interval",
+                               "bind": "scales"})
+
+    # Brush selection: the reader marks a region and reads what is in it.
+    params.append({
+                "name": "brush",
+                  "select": {"type": "interval", "encodings": ["x", "y"]},
+                  })
+
+    # Legend as a filter, when there are groups to filter by ( cross-filter).
+    if data.group_values:
+        params.append({
+                    "name": "group_filter",
+                      "select": {"type": "point", "fields": ["group"]},
+                    "bind": "legend",
+                    })
+        if isinstance(target, dict):
+            target.setdefault("encoding", {}).setdefault("opacity", {
+                             "condition": {"param": "group_filter", "value": 1},
+                         "value": 0.15,
+                         })
+
+    if isinstance(target, dict):
+        existing = target.get("params", [])
+        target["params"] = existing + params
+
+    #  — an interactive chart still needs a described, tabular fallback.
+    chart["description"] = (
+        f"{spec.title}. {spec.caption}" if spec.caption else spec.title)
+
     return chart
 
 
@@ -66,27 +143,27 @@ def _scatter(spec, data: VisualData) -> dict[str, Any]:
             row["group"] = group
 
     encoding: dict[str, Any] = {
-        "x": {"field": "x", "type": "quantitative", "title": _label(spec.x),
-              "scale": {"zero": bool(spec.x and spec.x.include_zero)}},
-        "y": {"field": "y", "type": "quantitative", "title": _label(spec.y),
-              "scale": {"zero": bool(spec.y and spec.y.include_zero)}},
-    }
+             "x": {"field": "x", "type": "quantitative", "title": _label(spec.x),
+                       "scale": {"zero": bool(spec.x and spec.x.include_zero)}},
+             "y": {"field": "y", "type": "quantitative", "title": _label(spec.y),
+                       "scale": {"zero": bool(spec.y and spec.y.include_zero)}},
+                       }
     if data.group_values:
-        # §118 — shape as well as colour, so the figure survives greyscale.
+        #  — shape as well as colour, so the figure survives greyscale.
         encoding["color"] = {"field": "group", "type": "nominal"}
         encoding["shape"] = {"field": "group", "type": "nominal"}
 
     layers: list[dict[str, Any]] = [
         {"mark": {"type": "point", "filled": True, "opacity": 0.75},
-         "encoding": encoding}
-    ]
+                     "encoding": encoding}
+                     ]
     if any(a.kind == "regression_line" for a in spec.annotations):
         layers.append({
-            "mark": {"type": "line", "color": "#333333", "strokeDash": [4, 3]},
-            "transform": [{"regression": "y", "on": "x"}],
-            "encoding": {"x": {"field": "x", "type": "quantitative"},
-                         "y": {"field": "y", "type": "quantitative"}},
-        })
+                    "mark": {"type": "line", "color": "#333333", "strokeDash": [4, 3]},
+                         "transform": [{"regression": "y", "on": "x"}],
+                        "encoding": {"x": {"field": "x", "type": "quantitative"},
+                              "y": {"field": "y", "type": "quantitative"}},
+                              })
     return {"data": {"values": rows}, "layer": layers}
 
 
@@ -95,37 +172,37 @@ def _forest(spec, data: VisualData) -> dict[str, Any]:
         {"predictor": name, "estimate": estimate, "low": low, "high": high}
         for name, estimate, low, high in zip(
             data.categories, data.y_values, data.ci_low, data.ci_high)
-    ]
+            ]
     return {
-        "data": {"values": rows},
-        "layer": [
+                "data": {"values": rows},
+                 "layer": [
             {"mark": {"type": "rule", "color": "#999999", "strokeDash": [2, 2]},
-             "encoding": {"x": {"datum": 0}}},
+                         "encoding": {"x": {"datum": 0}}},
             {"mark": {"type": "rule", "size": 1.5},
-             "encoding": {"y": {"field": "predictor", "type": "nominal", "title": None},
-                          "x": {"field": "low", "type": "quantitative",
-                                "title": _label(spec.x)},
-                          "x2": {"field": "high"}}},
+                         "encoding": {"y": {"field": "predictor", "type": "nominal", "title": None},
+                               "x": {"field": "low", "type": "quantitative",
+                                         "title": _label(spec.x)},
+                                "x2": {"field": "high"}}},
             {"mark": {"type": "point", "filled": True, "size": 60},
-             "encoding": {"y": {"field": "predictor", "type": "nominal"},
-                          "x": {"field": "estimate", "type": "quantitative"}}},
-        ],
-    }
+                         "encoding": {"y": {"field": "predictor", "type": "nominal"},
+                               "x": {"field": "estimate", "type": "quantitative"}}},
+                               ],
+                               }
 
 
 def _box(spec, data: VisualData) -> dict[str, Any]:
     rows = [{"group": g, "value": v}
             for g, v in zip(data.group_values, data.y_values)]
     return {
-        "data": {"values": rows},
-        "mark": {"type": "boxplot", "extent": 1.5},
-        "encoding": {
-            "x": {"field": "group", "type": "nominal", "title": _label(spec.x)},
-            "y": {"field": "value", "type": "quantitative", "title": _label(spec.y),
-                  "scale": {"zero": bool(spec.y and spec.y.include_zero)}},
-            "color": {"field": "group", "type": "nominal", "legend": None},
-        },
-    }
+                "data": {"values": rows},
+                "mark": {"type": "boxplot", "extent": 1.5},
+                    "encoding": {
+                 "x": {"field": "group", "type": "nominal", "title": _label(spec.x)},
+                 "y": {"field": "value", "type": "quantitative", "title": _label(spec.y),
+                           "scale": {"zero": bool(spec.y and spec.y.include_zero)}},
+                     "color": {"field": "group", "type": "nominal", "legend": None},
+                     },
+                     }
 
 
 def _bar(spec, data: VisualData) -> dict[str, Any]:
@@ -137,35 +214,35 @@ def _bar(spec, data: VisualData) -> dict[str, Any]:
         rows.append(row)
 
     layers: list[dict[str, Any]] = [{
-        "mark": "bar",
-        "encoding": {
-            "x": {"field": "category", "type": "nominal", "title": _label(spec.x)},
-            # §76 — bar length encodes magnitude, so the scale includes zero.
-            "y": {"field": "value", "type": "quantitative", "title": _label(spec.y),
-                  "scale": {"zero": True}},
-        },
-    }]
+                "mark": "bar",
+                    "encoding": {
+                 "x": {"field": "category", "type": "nominal", "title": _label(spec.x)},
+            #  — bar length encodes magnitude, so the scale includes zero.
+                 "y": {"field": "value", "type": "quantitative", "title": _label(spec.y),
+                           "scale": {"zero": True}},
+                           },
+                           }]
     if data.ci_low and spec.uncertainty is not UncertaintyDisplay.NONE:
         layers.append({
-            "mark": {"type": "rule", "color": "#333333"},
-            "encoding": {"x": {"field": "category", "type": "nominal"},
-                         "y": {"field": "low", "type": "quantitative"},
-                         "y2": {"field": "high"}},
-        })
+                    "mark": {"type": "rule", "color": "#333333"},
+                        "encoding": {"x": {"field": "category", "type": "nominal"},
+                              "y": {"field": "low", "type": "quantitative"},
+                               "y2": {"field": "high"}},
+                               })
     return {"data": {"values": rows}, "layer": layers}
 
 
 def _histogram(spec, data: VisualData) -> dict[str, Any]:
     return {
-        "data": {"values": [{"value": v} for v in data.y_values]},
-        "mark": "bar",
-        "encoding": {
-            "x": {"field": "value", "type": "quantitative", "bin": True,
-                  "title": _label(spec.x)},
-            "y": {"aggregate": "count", "type": "quantitative", "title": "count",
-                  "scale": {"zero": True}},
-        },
-    }
+                "data": {"values": [{"value": v} for v in data.y_values]},
+                "mark": "bar",
+                    "encoding": {
+                 "x": {"field": "value", "type": "quantitative", "bin": True,
+                           "title": _label(spec.x)},
+                 "y": {"aggregate": "count", "type": "quantitative", "title": "count",
+                           "scale": {"zero": True}},
+                           },
+                           }
 
 
 def _heatmap(spec, data: VisualData) -> dict[str, Any]:
@@ -173,18 +250,18 @@ def _heatmap(spec, data: VisualData) -> dict[str, Any]:
         {"x": column, "y": row, "value": data.matrix[row_index][column_index]}
         for row_index, row in enumerate(data.group_values)
         for column_index, column in enumerate(data.categories)
-    ]
+        ]
     return {
-        "data": {"values": rows},
-        "layer": [
+                "data": {"values": rows},
+                 "layer": [
             {"mark": "rect",
-             "encoding": {"x": {"field": "x", "type": "nominal", "title": _label(spec.x)},
-                          "y": {"field": "y", "type": "nominal", "title": _label(spec.y)},
-                          "color": {"field": "value", "type": "quantitative"}}},
+                         "encoding": {"x": {"field": "x", "type": "nominal", "title": _label(spec.x)},
+                               "y": {"field": "y", "type": "nominal", "title": _label(spec.y)},
+                                   "color": {"field": "value", "type": "quantitative"}}},
             # The number is printed, so meaning does not rest on colour alone.
             {"mark": {"type": "text", "fontSize": 10},
-             "encoding": {"x": {"field": "x", "type": "nominal"},
-                          "y": {"field": "y", "type": "nominal"},
-                          "text": {"field": "value", "type": "quantitative"}}},
-        ],
-    }
+                         "encoding": {"x": {"field": "x", "type": "nominal"},
+                               "y": {"field": "y", "type": "nominal"},
+                                  "text": {"field": "value", "type": "quantitative"}}},
+                                  ],
+                                  }

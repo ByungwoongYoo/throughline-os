@@ -56,3 +56,19 @@ def project(cur) -> str:
         (project_id, user_id, "Test project", "Does X associate with Y?"),
     )
     return project_id
+
+@pytest.fixture(autouse=True)
+def _fresh_model_provider():
+    """
+    Re-probe the model provider around every test.
+
+    The provider is cached deliberately (probing costs a round trip), but that
+    cache is process-global: one test pinning the provider to "none" would
+    otherwise silently disable inference for every test that ran after it, in
+    file order. Cheap to reset, and the alternative is an order-dependent suite.
+    """
+    import throughline_model
+
+    throughline_model.provider(refresh=True)
+    yield
+    throughline_model.provider(refresh=True)

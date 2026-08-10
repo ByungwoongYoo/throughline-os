@@ -14,7 +14,11 @@ export PATH="$HOME/.local/opt/node/bin:$PATH"
 .venv/bin/python -m throughline_workers &
 WORKER_PID=$!
 
-.venv/bin/python -m uvicorn throughline_api.app:app --host 127.0.0.1 --port "${PORT}" &
+# --reload so the API tracks edits the way the web dev server already does.
+# Without it the two halves of the stack disagree about which code is running,
+# which is a confusing way to lose an afternoon.
+.venv/bin/python -m uvicorn throughline_api.app:app --host 127.0.0.1 --port "${PORT}" \
+  --reload --reload-dir apps/api/src --reload-dir packages &
 API_PID=$!
 
 trap 'kill "$WORKER_PID" "$API_PID" 2>/dev/null || true' EXIT INT TERM

@@ -11,9 +11,9 @@ MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 
 _BOOTSTRAP = """
 CREATE TABLE IF NOT EXISTS schema_migrations (
-    version     TEXT PRIMARY KEY,
-    checksum    TEXT NOT NULL,
-    applied_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+version     TEXT PRIMARY KEY,
+checksum    TEXT NOT NULL,
+applied_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 """
 
@@ -44,12 +44,12 @@ def migrate() -> list[str]:
                     raise RuntimeError(
                         f"Migration {version} changed after it was applied. "
                         "Add a new migration instead of editing this one."
-                    )
+                        )
                 continue
             cur.execute(sql)
             cur.execute(
                 "INSERT INTO schema_migrations(version, checksum) VALUES (%s, %s)",
                 (version, checksum),
-            )
+                )
             applied.append(version)
     return applied

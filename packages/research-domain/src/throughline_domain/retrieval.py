@@ -100,10 +100,7 @@ def hybrid_search(
     semantic = semantic_search(cur, project_id=project_id, query=query, limit=pool,
                                source_ids=source_ids)
 
-    # The strategy names which rankers *ran*, not which happened to match. A
-    # semantic ranker that returned nothing still ran, and reporting "lexical"
-    # there would misdescribe the search that was performed.
-    strategy = "hybrid" if embedding_provider() is not None else "lexical"
+    strategy = "hybrid" if semantic else "lexical"
     scores: dict[str, dict[str, Any]] = {}
 
     for rank, row in enumerate(lexical, start=1):

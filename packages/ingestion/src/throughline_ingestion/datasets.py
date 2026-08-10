@@ -22,13 +22,14 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+# Re-exported rather than redefined: the parser that reads these files and the
+# router that decides which parser to use must agree on the list, and two
+# copies of a suffix set drift the moment one format is added.
+from .documents import SUPPORTED_DATASET_SUFFIXES  # noqa: F401
+
 
 class UnsupportedDataset(ValueError):
-    """§25 — do not show unsupported formats as functional."""
-
-
-#: Tabular formats the profiler genuinely handles today.
-SUPPORTED_DATASET_SUFFIXES = frozenset({".csv", ".tsv", ".xlsx", ".xlsm", ".json"})
+    pass
 
 
 #: §20 semantic types.
@@ -53,16 +54,9 @@ _NAME_HINTS: list[tuple[str, re.Pattern[str]]] = [
 
 # §26 — flag fields that may carry personal data so downstream sharing and
 # export can respect them. Flagging is not redaction; nothing is removed.
-# A qualifier prefix is allowed so `patient_name` and `respondent_email` are
-# caught, but structural words are excluded so `column_name` is not. Over-
-# flagging is the safe direction here: this raises a flag, it never redacts.
 _SENSITIVE_HINTS = re.compile(
-    r"^(?!(?:column|field|variable|file|table|dataset|study|method|model|test|"
-    r"group|category|species|gene|protein|drug|country|region|city|site)[_\.])"
-    r"(?:[a-z0-9]+[_\.])?"
-    r"(name|full_?name|first_?name|last_?name|surname|email|e_?mail|phone|mobile|"
-    r"telephone|address|postcode|post_?code|zip|zipcode|ssn|nhs_?number|mrn|"
-    r"dob|date_?of_?birth|nric|passport|patient_?id|participant_?id|subject_?id)$",
+    r"^(name|full_?name|first_?name|last_?name|surname|email|phone|mobile|address|"
+    r"postcode|zip|ssn|nhs_?number|mrn|patient_?id|dob|date_?of_?birth|nric|passport)$",
     re.I,
 )
 
@@ -102,16 +96,14 @@ def sniff_delimiter(path: Path) -> str:
         return ","
 
 
-def read_dataset(path: Path, *, suffix: str | None = None) -> tuple[pd.DataFrame, str]:
+def read_dataset(path: Path) -> tuple[pd.DataFrame, str]:
     """Load a dataset without coercing anything.
 
     ``dtype=str`` and ``keep_default_na=False`` mean the profiler observes the
     file's literal contents — including the strings people use for missingness —
     instead of pandas' interpretation of them.
     """
-    # Content-addressed storage means the path is a hash with no extension, so
-    # the caller supplies the format from the original filename.
-    suffix = (suffix or path.suffix).lower()
+    suffix = path.suffix.lower()
     if suffix in {".csv", ".tsv"}:
         delimiter = "\t" if suffix == ".tsv" else sniff_delimiter(path)
         frame = pd.read_csv(
@@ -225,14 +217,6 @@ def _semantic_type(
 
     hinted = next((label for label, pattern in _NAME_HINTS if pattern.match(clean_name)), None)
 
-    # A bare year column is physically a number but means a date. This is very
-    # common in research data, and typing it "continuous" would let it be
-    # correlated against outcomes as if it were a measurement.
-    if hinted == "date" and physical_type == "number":
-        low, high = stats.get("min"), stats.get("max")
-        if low is not None and high is not None and 1500 <= low and high <= 2200:
-            return "date"
-
     # An identifier must actually be near-unique, whatever it is called.
     if hinted == "identifier":
         if total and unique_count >= 0.95 * max(1, len(present)):
@@ -267,9 +251,8 @@ def _semantic_type(
     return "measurement"
 
 
-def profile_dataset(path: Path, *, suffix: str | None = None,
-                    row_limit: int = 500_000) -> DatasetProfile:
-    frame, fmt = read_dataset(path, suffix=suffix)
+def profile_dataset(path: Path, *, row_limit: int = 500_000) -> DatasetProfile:
+    frame, fmt = read_dataset(path)
     original_rows = len(frame)
     sampled = original_rows > row_limit
     if sampled:

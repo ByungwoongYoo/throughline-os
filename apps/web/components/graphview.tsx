@@ -1,0 +1,174 @@
+"use client";
+
+/**
+ * The graph section: data, the canvas, and the accessible equivalent.
+ *
+ * Canvas gives 60fps and takes away the DOM, so the same objects are rendered
+ * as a real table beneath it. That is not a token gesture — it is the keyboard
+ * and screen-reader path, and it stays in sync because both read one array.
+ */
+
+import { useCallback, useMemo, useState } from "react";
+
+import { useApi } from "@/lib/useApi";
+import { Empty, Failure, Loading } from "./primitives";
+import { GraphEdge, GraphNode, KnowledgeGraph } from "./KnowledgeGraph";
+import { NodeJournal } from "./NodeJournal";
+
+/**
+ * The API's shape, which is not the renderer's.
+ *
+ * Edges arrive as `source_object_id`/`target_object_id`. The renderer wants
+ * `source`/`target`, and the mismatch failed silently — every lookup returned
+ * undefined and was skipped, so the HUD counted 115 links while none were drawn
+ * and no attraction acted on the layout. Normalising here, at the boundary,
+ * keeps the renderer independent of the transport.
+ */
+type ApiEdge = {
+  id: string;
+  source_object_id: string;
+  target_object_id: string;
+  relationship_type: string;
+  confidence: number | null;
+  edge_kind: "semantic" | "lineage";
+};
+
+type GraphPayload = {
+  nodes: GraphNode[];
+  edges: ApiEdge[];
+  total_objects: number;
+  truncated: boolean;
+  note?: string | null;
+};
+
+export function GraphView({ projectId, onSelect }: {
+  projectId: string;
+  onSelect: (id: string) => void;
+}) {
+  const [limit, setLimit] = useState(120);
+  const graph = useApi<GraphPayload>(
+    `/api/projects/${projectId}/knowledge-graph?limit=${limit}`, [limit]);
+  const [selected, setSelected] = useState<GraphNode | null>(null);
+  // The node the journal is open on. Kept as an id rather than a node, so a
+  // provenance link can open something the current view has not laid out.
+  const [journalOn, setJournalOn] = useState<string | null>(null);
+
+  // Double-click expands the neighbourhood. With no per-node expansion endpoint
+  // yet, this raises the bound — honest, and it keeps the gesture live rather
+  // than dead until the endpoint exists.
+  const expand = useCallback(() => {
+    setLimit((current) => Math.min(current * 2, 2000));
+  }, []);
+
+  const edges: GraphEdge[] = useMemo(
+    () => (graph.data?.edges ?? []).map((e) => ({
+      source: e.source_object_id,
+      target: e.target_object_id,
+      relationship_type: e.relationship_type,
+      // Lineage is a definite relationship — this really was calculated from
+      // that — so it pulls harder than an inferred semantic edge.
+      similarity: e.edge_kind === "lineage" ? 0.8 : (e.confidence ?? 0.5),
+    })),
+    [graph.data],
+  );
+
+  const nodes = useMemo(
+    () => (graph.data?.nodes ?? []).map((n) => ({
+      ...n,
+      // Degree stands in for citation count until one is recorded: it is the
+      // honest available proxy for how connected an object is.
+      importance: edges.filter(
+        (e) => e.source === n.id || e.target === n.id).length,
+    })),
+    [graph.data, edges],
+  );
+
+  if (graph.error) return <Failure error={graph.error} retry={graph.reload} />;
+  if (graph.loading && !graph.data) {
+    return <Loading rows={5} label="Laying out the research graph" />;
+  }
+  if (!nodes.length) {
+    return (
+      <>
+        <h1>Research graph</h1>
+        <Empty
+          title="Nothing to lay out yet"
+          hint="Add sources and run discovery — every object and relationship in the project appears here."
+        />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <h1>Research graph</h1>
+      <p className="lede">
+        Every object in this project and the relationships between them. Proximity
+        means similarity, size means how connected something is. Drag a node and the
+        neighbourhood responds; double-click to pull in more.
+      </p>
+
+      <div className="kg-with-panel" data-open={journalOn !== null}>
+        <div className="kg-canvas-slot">
+          <KnowledgeGraph
+            nodes={nodes}
+            edges={edges}
+            selectedId={journalOn ?? selected?.id ?? null}
+            onSelect={(node) => {
+              setSelected(node);
+              // Selecting opens the journal. The graph is a place to write, and
+              // a click that only highlights teaches the opposite.
+              setJournalOn(node.id);
+              onSelect(node.id);
+            }}
+            onExpand={expand}
+          />
+        </div>
+
+        {journalOn && (
+          <NodeJournal
+            key={journalOn}
+            projectId={projectId}
+            objectId={journalOn}
+            onClose={() => setJournalOn(null)}
+            onOpen={(id) => setJournalOn(id)}
+          />
+        )}
+      </div>
+
+      {graph.data?.truncated && (
+        <div className="notice">
+          <span>{graph.data.note}</span>
+          <button className="btn" onClick={expand}>Load more</button>
+        </div>
+      )}
+
+      {/* Part P — the graph's contents as a real table. The canvas has no DOM,
+          so without this the whole view is invisible to a screen reader and
+          unreachable by keyboard. */}
+      <details className="kg-table">
+        <summary>Objects in this graph ({nodes.length})</summary>
+        <table>
+          <thead>
+            <tr><th style={{ width: "58%" }}>Object</th><th>Type</th>
+                <th style={{ textAlign: "right" }}>Links</th></tr>
+          </thead>
+          <tbody>
+            {nodes.map((node) => (
+              <tr key={node.id} style={{ cursor: "pointer" }}
+                  onClick={() => {
+                    setSelected(node); setJournalOn(node.id); onSelect(node.id);
+                  }}>
+                <td>{node.title}</td>
+                <td className="mono">{node.object_type.replace(/_/g, " ")}</td>
+                <td className="numeric" style={{ textAlign: "right" }}>
+                  {node.importance}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
+    </>
+  );
+}

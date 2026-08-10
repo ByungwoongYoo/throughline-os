@@ -58,16 +58,9 @@ _resolved = False
 
 
 def model_dir() -> Path:
-    """Where the local embedding model lives.
-
-    Deliberately *not* under THROUGHLINE_HOME: that directory is per-instance
-    state (a test run overrides it to isolate its database), while a downloaded
-    model is a shared machine-level asset. Tying them together would make every
-    isolated instance silently lose semantic search.
-    """
-    override = os.environ.get("THROUGHLINE_MODEL_DIR")
-    root = Path(override) if override else Path.home() / ".throughline-os" / "models"
-    return root / DEFAULT_MODEL
+    return Path(
+        os.environ.get("THROUGHLINE_MODEL_DIR", data_root() / "models")
+    ) / DEFAULT_MODEL
 
 
 def provider() -> EmbeddingProvider | None:

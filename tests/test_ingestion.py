@@ -218,3 +218,62 @@ def test_real_pdf_ingests_end_to_end_with_lineage(committed_project):
         cur.execute("SELECT object_id FROM papers WHERE source_id = %s", (source_id,))
         paper_object = cur.fetchone()["object_id"]
         assert lineage.ancestors(cur, paper_object)
+
+
+# ---------------------------------------------------------------------------
+# Titles
+# ---------------------------------------------------------------------------
+
+def test_a_paper_is_never_titled_with_its_content_hash(cur, project):
+    """
+    Regression, found by opening a node in the graph and trying to read it.
+
+    Uploads are stored under their content hash, and the plain-text and DOCX
+    parsers fall back to the storage filename when a document declares no title.
+    Every paper in the knowledge graph was therefore named `b9590d6e361c…` —
+    technically a string, useless to a reader, and invisible until someone
+    looked at a node rather than a list.
+    """
+    from types import SimpleNamespace
+
+    from throughline_domain import corpus
+    from throughline_domain.ids import new_id
+
+    source_id = new_id("src")
+    cur.execute(
+        "INSERT INTO sources(id, project_id, source_type, title, ingestion_status) "
+        "VALUES (%s, %s, 'upload', 'consumption_resistance.md', 'ready')",
+        (source_id, project))
+
+    parsed = SimpleNamespace(
+        title="b9590d6e361c2d39db01571f09034abe2cbe815fee35b4196e242bb34f20949f",
+        page_count=1, metadata={"parser": "plain-text"})
+    stored = corpus.store_paper(cur, project_id=project, source_id=source_id,
+                                parsed=parsed, actor="usr_1")
+
+    cur.execute("SELECT title FROM research_objects WHERE id = %s",
+                (stored["object_id"],))
+    assert cur.fetchone()["title"] == "consumption_resistance.md"
+
+
+def test_a_real_parsed_title_is_preferred_over_the_filename(cur, project):
+    from types import SimpleNamespace
+
+    from throughline_domain import corpus
+    from throughline_domain.ids import new_id
+
+    source_id = new_id("src")
+    cur.execute(
+        "INSERT INTO sources(id, project_id, source_type, title, ingestion_status) "
+        "VALUES (%s, %s, 'upload', 'download (3).pdf', 'ready')",
+        (source_id, project))
+
+    parsed = SimpleNamespace(
+        title="Antibiotic consumption and resistance in European hospitals",
+        page_count=8, metadata={"parser": "pymupdf"})
+    stored = corpus.store_paper(cur, project_id=project, source_id=source_id,
+                                parsed=parsed, actor="usr_1")
+
+    cur.execute("SELECT title FROM research_objects WHERE id = %s",
+                (stored["object_id"],))
+    assert cur.fetchone()["title"].startswith("Antibiotic consumption")

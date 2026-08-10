@@ -90,10 +90,15 @@ Two rail items say plainly that they are not built:
 Per §123 these are stated in the view itself, not disguised with a plausible
 placeholder.
 
-Also absent: the command bar is a affordance that routes to Search rather than a
-real command palette (§69 needs intent parsing, which needs a model provider);
-project switching; and the light theme is defined but the app follows the system
-preference without a toggle.
+Also absent: project switching, and a light-theme toggle (the theme is defined;
+the app follows the system preference).
+
+The command bar (⌘K) is now a real palette over every source, connection,
+finding and section, with subsequence matching — `cddres` finds
+`consumption_ddd × resistance_pct`. What it still cannot do is §69's actual
+subject, parsing a question written in words, because that needs a model
+provider. The palette says so in its own footer rather than leaving you to
+discover it by typing a sentence.
 
 ## Running it
 
@@ -106,3 +111,53 @@ preference without a toggle.
 One caveat worth knowing: do not run `npm run build` while `npm run dev` is
 running — they share `.next` and the dev server will start returning 500s. Stop
 the stack, `rm -rf apps/web/.next`, and restart.
+
+
+## The UX pass
+
+Six things were wrong when a researcher, rather than a curl script, drove this.
+
+**The Discovery screen could never find a dataset.** `GET /sources` returned bare
+source rows with no paper or dataset attached, so the filter that looks for
+tabular data always came back empty and the screen said "no dataset to search"
+for a project that had one. The list now joins in what ingestion produced.
+
+**Validation ran but its report was unreachable.** There was no route from a
+connection to its §51 report, so a connection changed lifecycle state and the
+reasoning was invisible. `GET /api/connections/{id}/validations` closes that, and
+the report renders every check — including the ones recorded `not_tested`, which
+is not a pass.
+
+**Confounders were free text.** You had to remember whether the column was
+`gdp_per_capita` or `GDP per capita`, and a typo was silently recorded as
+"confounder not tested" — which reads on the report as though adjustment had been
+considered. It is now a picker built from the profiled schema, with the two
+variables under test excluded, because adjusting a variable for itself is a
+mistake the interface should make impossible rather than report afterwards.
+
+**Repeat discovery quietly duplicated the correction family.** The idempotency
+key was `discovery:{run_id}`, generated after the row was inserted and therefore
+unique by construction — it never collided and never prevented anything. Each
+extra run re-tested the same pairs and corrected them within a *separate* family
+of the same size, so the table showed every pair twice at the same q-value, which
+reads as replication and is not. A second run over unchanged data is now refused
+unless `force` is passed, and the screen says why instead of appearing to work.
+
+**A grade of `weak` next to r = 0.90 looked like a bug.** It is not: §47 grades
+evidence from the assumptions the method needed, and this association violates
+normality on both variables. That is the product's whole argument, so the grade
+now always renders with the checks that produced it.
+
+**Two components fetched the same list.** `Sources` and the shell each called
+`GET /sources`, so an upload refreshed one copy and the other kept showing the
+old rows — files landed, were ingested, and never appeared. The shell owns the
+list now.
+
+Smaller, in the same spirit: drop files anywhere in the window; clicking a source
+opens its profiled schema; every detail view has a breadcrumb and answers Escape;
+the overview is a checklist ticked from real counts rather than six large cards
+of integers; and the ingestion bar shows position in the real nine-stage §24
+pipeline instead of an invented percentage.
+
+Two of these were found only by driving the screen, which is the argument for
+doing so.

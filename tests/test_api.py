@@ -159,11 +159,21 @@ def _drain_workers() -> None:
         pass
 
 
-def test_capabilities_states_what_is_missing(client):
+def test_capabilities_states_what_is_missing(client, monkeypatch):
     """§123 — the interface must be able to tell absence from silence."""
+    # Pinned, because this assertion is about honest *reporting* and not about
+    # what happens to be installed on the machine running the suite. Left to the
+    # environment it passed on a laptop with no Ollama and failed on one with,
+    # which tests nothing either way.
+    import throughline_model
+
+    monkeypatch.setenv("THROUGHLINE_MODEL_PROVIDER", "none")
+    throughline_model.provider(refresh=True)
+
     body = client.get("/api/system/capabilities").json()
     assert body["retrieval"]["lexical"] is True
     assert body["llm"]["configured"] is False
+    assert body["llm"]["note"], "absence must be explained, not left blank"
 
     # The sandbox exists, and reports its real limits rather than claiming
     # isolation it does not have.
@@ -222,3 +232,166 @@ def test_search_cannot_reach_another_account_project(client):
                                          "password": "correct-horse-battery"})
     assert client.get(f"/api/projects/{project_id}/search",
                       params={"q": "anything"}).status_code == 404
+
+
+def test_sources_list_carries_what_ingestion_produced(client):
+    """
+    The list must say what each source became, not just its filename.
+
+    It used to return bare source rows, so the client could not tell a dataset
+    from a paper — which meant the Discovery screen, whose whole job is to find
+    tabular data, reported "no dataset to search" for a project that had one.
+    """
+    _account(client, "listing@lab.local")
+    project_id = client.post("/api/projects", json={"name": "Listing"}).json()["id"]
+    csv = b"country,consumption_ddd,resistance_pct\nIND,12.4,31.2\nUSA,9.8,18.6\nGBR,8.1,15.0\n"
+    client.post(f"/api/projects/{project_id}/sources",
+                files={"file": ("amr.csv", io.BytesIO(csv), "text/csv")})
+    _drain_workers()
+
+    listed = client.get(f"/api/projects/{project_id}/sources").json()
+    assert len(listed) == 1
+    assert listed[0]["dataset"] is not None
+    assert listed[0]["dataset"]["row_count"] == 3
+    assert listed[0]["dataset"]["dataset_version_id"]
+    assert listed[0]["paper"] is None
+
+
+def test_repeat_discovery_on_unchanged_data_is_refused_by_default(client):
+    """
+    §49 — each run is its own multiple-testing family.
+
+    A second run over the same dataset re-tests the same pairs and corrects them
+    within a separate family of the same size. The connections table then shows
+    every pair twice at the same q-value, which reads as replication and is not.
+    So the duplicate is refused unless it is asked for explicitly.
+    """
+    _account(client, "rerun@lab.local")
+    project_id = client.post("/api/projects", json={"name": "Rerun"}).json()["id"]
+    rows = b"a,b,c\n" + b"".join(
+        f"{i},{i * 2},{(i * 7) % 11}\n".encode() for i in range(1, 41))
+    client.post(f"/api/projects/{project_id}/sources",
+                files={"file": ("d.csv", io.BytesIO(rows), "text/csv")})
+    _drain_workers()
+
+    source = client.get(f"/api/projects/{project_id}/sources").json()[0]
+    version_id = source["dataset"]["dataset_version_id"]
+
+    first = client.post(f"/api/projects/{project_id}/discoveries",
+                        json={"dataset_version_id": version_id})
+    assert first.status_code == 202
+    assert first.json()["reused"] is False
+    run_id = first.json()["discovery_run_id"]
+    _drain_workers()
+    after_one = len(client.get(f"/api/projects/{project_id}/connections",
+                               params={"limit": 200}).json())
+    assert after_one > 0
+
+    # The same request again changes nothing and says so.
+    again = client.post(f"/api/projects/{project_id}/discoveries",
+                        json={"dataset_version_id": version_id})
+    assert again.json()["reused"] is True
+    assert again.json()["discovery_run_id"] == run_id
+    _drain_workers()
+    assert len(client.get(f"/api/projects/{project_id}/connections",
+                          params={"limit": 200}).json()) == after_one
+
+    # Asking for it explicitly is allowed — it is a decision, not an accident.
+    forced = client.post(f"/api/projects/{project_id}/discoveries",
+                         json={"dataset_version_id": version_id, "force": True})
+    assert forced.json()["reused"] is False
+    assert forced.json()["discovery_run_id"] != run_id
+
+
+def test_connections_carry_their_dataset_version(client):
+    """The confounder picker needs the schema, and reaches it through this field."""
+    _account(client, "dsv@lab.local")
+    project_id = client.post("/api/projects", json={"name": "Schema"}).json()["id"]
+    rows = b"a,b,c\n" + b"".join(
+        f"{i},{i * 2},{(i * 7) % 11}\n".encode() for i in range(1, 41))
+    client.post(f"/api/projects/{project_id}/sources",
+                files={"file": ("d.csv", io.BytesIO(rows), "text/csv")})
+    _drain_workers()
+    version_id = client.get(
+        f"/api/projects/{project_id}/sources").json()[0]["dataset"]["dataset_version_id"]
+    client.post(f"/api/projects/{project_id}/discoveries",
+                json={"dataset_version_id": version_id})
+    _drain_workers()
+
+    connections = client.get(f"/api/projects/{project_id}/connections",
+                             params={"limit": 200}).json()
+    assert connections
+    assert all(c["dataset_version_id"] == version_id for c in connections)
+
+
+def test_validation_reports_are_reachable_from_the_connection(client):
+    """
+    LAW 3 — a lifecycle change must be accountable.
+
+    Validation could be started but its report could not be read back, so a
+    connection changed state with no way to see which check survived and which
+    did not.
+    """
+    _account(client, "vrep@lab.local")
+    project_id = client.post("/api/projects", json={"name": "Reports"}).json()["id"]
+    rows = b"a,b,c\n" + b"".join(
+        f"{i},{i * 2 + (i % 3)},{(i * 7) % 11}\n".encode() for i in range(1, 61))
+    client.post(f"/api/projects/{project_id}/sources",
+                files={"file": ("d.csv", io.BytesIO(rows), "text/csv")})
+    _drain_workers()
+    version_id = client.get(
+        f"/api/projects/{project_id}/sources").json()[0]["dataset"]["dataset_version_id"]
+    client.post(f"/api/projects/{project_id}/discoveries",
+                json={"dataset_version_id": version_id})
+    _drain_workers()
+
+    connection_id = client.get(f"/api/projects/{project_id}/connections",
+                               params={"limit": 200}).json()[0]["id"]
+    assert client.get(f"/api/connections/{connection_id}/validations").json() == []
+
+    client.post(f"/api/connections/{connection_id}/validate", json={"confounders": ["c"]})
+    _drain_workers()
+
+    reports = client.get(f"/api/connections/{connection_id}/validations").json()
+    assert len(reports) == 1
+    names = {check["name"] for check in reports[0]["check_details"]}
+    # Every §51 check is present, including the ones that did not pass.
+    assert "confounder_adjustment" in names
+    assert "robustness" in names
+
+
+def test_estimates_never_include_a_pair_with_no_coefficient(client):
+    """
+    Regression, found by opening the Figures screen.
+
+    A categorical pair tested for association has no coefficient and no
+    interval. One of those in the response crashed the entire Figures view —
+    a figure must never be the thing that takes the workspace down — and it also
+    had no business on a forest plot in the first place.
+
+    The exclusion is reported rather than silent: a reader who counts the rows
+    and finds fewer than the run tested is entitled to know why.
+    """
+    from throughline_domain.db import transaction
+    from throughline_domain.ids import new_id
+
+    client.post("/api/auth/setup", json={
+        "email": "figures@lab.local", "display_name": "Dr Figures",
+        "password": "correct-horse-battery"})
+    project_id = client.post("/api/projects", json={
+        "name": "Figures", "research_question": "q"}).json()["id"]
+
+    with transaction() as cur:
+        cur.execute(
+            "INSERT INTO connections(id, project_id, relationship_type, method, "
+            "left_variable, right_variable, estimate, q_value, p_value, "
+            "sample_size, effect_size_name, lifecycle_status) "
+            "VALUES (%s, %s, 'association', 'chi_square', 'country', "
+            "'gdp_per_capita', NULL, 0.87, 0.87, 160, 'cramers_v', 'candidate')",
+            (new_id("conn"), project_id))
+
+    body = client.get(f"/api/projects/{project_id}/estimates").json()
+
+    assert all(e["estimate"] is not None for e in body["estimates"])
+    assert body["excluded_without_estimate"] == 1
+    assert "no coefficient" in body["note"]

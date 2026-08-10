@@ -26,3 +26,16 @@ export function useApi<T>(path: string | null, deps: unknown[] = []) {
   const reload = useCallback(() => setNonce((n) => n + 1), []);
   return { data, error, loading, reload, setData };
 }
+
+/**
+ * What useApi returns.
+ *
+ * Named so a view can take a caller-owned request as a prop rather than firing
+ * its own duplicate — two hooks on one path means two copies that drift.
+ */
+export type ApiState<T> = {
+  data: T | null;
+  error: unknown;
+  loading: boolean;
+  reload: () => void;
+};

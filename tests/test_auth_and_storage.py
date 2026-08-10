@@ -96,3 +96,86 @@ def test_stored_bytes_can_be_reverified_against_the_cited_hash(cur):
 def test_storage_key_cannot_escape_the_object_store(cur):
     with pytest.raises(storage.StorageError):
         storage.path_for("../../../../etc/passwd")
+
+
+# ---------------------------------------------------------------------------
+# Adding people, and changing a password
+# ---------------------------------------------------------------------------
+
+def test_a_second_account_can_be_created(cur):
+    from throughline_domain import auth
+
+    first = auth.create_user(cur, email="chen@lab.local", display_name="Chen",
+                             password="correct-horse-battery")
+    second = auth.create_user(cur, email="okafor@lab.local",
+                              display_name="Okafor",
+                              password="another-long-passphrase",
+                              is_admin=False)
+
+    assert second["id"] != first["id"]
+    assert second["is_admin"] is False
+
+
+def test_changing_a_password_signs_out_every_other_session(cur):
+    """
+    A password change is usually a response to the suspicion that someone else
+    has the old one. Leaving their session alive is the single thing that would
+    make the change pointless.
+    """
+    from throughline_domain import auth
+
+    user = auth.create_user(cur, email="chen@lab.local", display_name="Chen",
+                            password="correct-horse-battery")
+    mine = auth.create_session(cur, user_id=user["id"])
+    theirs = auth.create_session(cur, user_id=user["id"])
+
+    auth.set_password(cur, user_id=user["id"], password="a-brand-new-passphrase")
+    auth.destroy_other_sessions(cur, user_id=user["id"], keep_token=mine)
+
+    assert auth.resolve_session(cur, mine) is not None, "my own session survives"
+    assert auth.resolve_session(cur, theirs) is None, "theirs is gone"
+
+
+def test_the_old_password_stops_working(cur):
+    from throughline_domain import auth
+
+    user = auth.create_user(cur, email="chen@lab.local", display_name="Chen",
+                            password="correct-horse-battery")
+    auth.set_password(cur, user_id=user["id"], password="a-brand-new-passphrase")
+
+    assert auth.authenticate(cur, email="chen@lab.local",
+                             password="correct-horse-battery") is None
+    assert auth.authenticate(cur, email="chen@lab.local",
+                             password="a-brand-new-passphrase") is not None
+
+
+def test_a_short_password_is_refused_on_change(cur):
+    """
+    Twelve, not eight: this protects an entire research corpus and is typed once
+    on a machine the researcher already controls.
+    """
+    from throughline_domain import auth
+
+    user = auth.create_user(cur, email="chen@lab.local", display_name="Chen",
+                            password="correct-horse-battery")
+
+    with pytest.raises(auth.AuthError, match="12 characters"):
+        auth.set_password(cur, user_id=user["id"], password="short")
+
+
+def test_a_new_password_is_salted_afresh(cur):
+    """
+    Reusing the salt would make two hashes for one account comparable, which
+    leaks whether the password actually changed.
+    """
+    from throughline_domain import auth
+
+    user = auth.create_user(cur, email="chen@lab.local", display_name="Chen",
+                            password="correct-horse-battery")
+    cur.execute("SELECT password_salt FROM users WHERE id = %s", (user["id"],))
+    before = cur.fetchone()["password_salt"]
+
+    auth.set_password(cur, user_id=user["id"], password="correct-horse-battery")
+    cur.execute("SELECT password_salt FROM users WHERE id = %s", (user["id"],))
+
+    assert cur.fetchone()["password_salt"] != before
