@@ -1,4 +1,4 @@
-"""Artifact lineage (§11) — the system that answers "How was this made?".
+"""Artifact lineage — the system that answers "How was this made?".
 
 LAW 1 says no result without provenance. In practice that means: an artifact is
 created *together with* the edges that explain it, in one transaction. A helper
@@ -32,7 +32,7 @@ def add_edge(
     """Record that ``target`` was produced from ``source``.
 
     Idempotent on (source, target, type) so a workflow retry cannot duplicate
-    lineage (§38).
+    lineage.
     """
     if source_artifact_id == target_artifact_id:
         raise LineageError("An artifact cannot derive from itself")
@@ -70,7 +70,7 @@ def record_derivation(
     """Attach every input that contributed to a derived artifact."""
     if not inputs:
         raise LineageError(
-            "A derived artifact must record at least one input (LAW 1). "
+            "A derived artifact must record at least one input. "
             "If it genuinely has no antecedent it is a source, not a derivation."
         )
     return [
@@ -117,7 +117,7 @@ def ancestors(cur, artifact_id: str, *, max_depth: int = 32) -> list[dict[str, A
 
 
 def descendants(cur, artifact_id: str, *, max_depth: int = 32) -> list[dict[str, Any]]:
-    """Everything made from this artifact — the blast radius for §101 and §102."""
+    """Everything made from this artifact — the blast radius for  and ."""
     cur.execute(
         """
         WITH RECURSIVE walk(artifact_id, depth, path) AS (
@@ -143,7 +143,7 @@ def descendants(cur, artifact_id: str, *, max_depth: int = 32) -> list[dict[str,
 
 
 def provenance_chain(cur, artifact_id: str) -> dict[str, Any]:
-    """The §93 traceability payload for one artifact."""
+    """The  traceability payload for one artifact."""
     cur.execute(
         "SELECT id, project_id, object_type, title, created_at, version "
         "FROM research_objects WHERE id = %s",

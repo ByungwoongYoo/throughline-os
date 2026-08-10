@@ -1,7 +1,7 @@
-"""Turn an analysis result into chart-ready data — exactly once (§74, §107).
+"""Turn an analysis result into chart-ready data — exactly once.
 
-This is the seam that makes the multi-renderer architecture honest. §74 says the
-analysis logic must not be recreated per output, and §58 evaluates whether a
+This is the seam that makes the multi-renderer architecture honest.  says the
+analysis logic must not be recreated per output, and  evaluates whether a
 figure faithfully represents the underlying values. Both are satisfied by having
 one function build `VisualData` from the recorded run, which every renderer then
 draws without recomputing anything.
@@ -28,7 +28,7 @@ def prepare(
     """Build the figure's data from the recorded result, plus a bounded sample.
 
     ``sample`` carries the raw points a scatter or box plot needs. It is a
-    *bounded* sample drawn server-side (§106, §107) — never the whole dataset —
+    *bounded* sample drawn server-side — never the whole dataset —
     and every statistic on the figure comes from ``analysis_result``, not from
     recomputing over the sample.
     """

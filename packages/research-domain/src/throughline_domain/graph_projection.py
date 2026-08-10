@@ -19,8 +19,7 @@ uploads is a different object from a current one, and a silently stale number is
 worse than no number at all.
 
 **Absence is a stated capability, not an error.** With no Neo4j configured the
-workspace runs exactly as before, minus four query types, each of which says so
-(§123).
+workspace runs exactly as before, minus four query types, each of which says so.
 """
 
 from __future__ import annotations
@@ -83,7 +82,7 @@ def _session() -> Iterator[Any]:
 
 def capability() -> dict[str, Any]:
     """
-    What the projection can do right now, for §123.
+    What the projection can do right now, for .
 
     Reports unreachable as unavailable rather than as an error, because from the
     interface's point of view a graph database that is down and one that was

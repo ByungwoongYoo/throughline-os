@@ -1,8 +1,8 @@
-"""The Scientific Critic (§57) — "Challenge This Finding".
+"""The Scientific Critic — "Challenge This Finding".
 
 The critic's job is to try to destroy a finding, and to report honestly when it
-cannot. Its verdict is one of §57's five outcomes, and it may *demote* a finding
-through the §13 lifecycle — a validation engine that can only promote is not a
+cannot. Its verdict is one of 's five outcomes, and it may *demote* a finding
+through the  lifecycle — a validation engine that can only promote is not a
 validation engine.
 
 Every probe here is either a recorded computation or an inspection of recorded
@@ -19,7 +19,7 @@ from .findings import evidence_summary, transition
 from .ids import new_id
 from .validation import validate_connection
 
-#: §57 verdicts.
+#:  verdicts.
 HOLDS = "holds"
 WEAKENS = "weakens"
 UNCERTAIN = "uncertain"
@@ -35,7 +35,7 @@ def challenge_finding(
     cur, *, finding_id: str, runner: Callable[[str], None], actor: str,
     confounders: tuple[str, ...] = (),
 ) -> dict[str, Any]:
-    """Probe a finding from every angle §57 lists, then report a verdict."""
+    """Probe a finding from every angle  lists, then report a verdict."""
     cur.execute("SELECT * FROM findings WHERE id = %s", (finding_id,))
     finding = cur.fetchone()
     if not finding:
@@ -136,10 +136,10 @@ def _apply_verdict(
     cur, *, finding_id: str, current: str, verdict: str, actor: str,
     probes: list[dict[str, Any]],
 ) -> str:
-    """Move the finding if the challenge warrants it (§13).
+    """Move the finding if the challenge warrants it.
 
     Only demotions happen here. A finding that survives a challenge has not
-    thereby earned promotion — that still requires the §51 checks through
+    thereby earned promotion — that still requires the robustness checks through
     `findings.transition`.
     """
     target: FindingLifecycle | None = None

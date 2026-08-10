@@ -1,4 +1,0 @@
-throughline-schemas
-pydantic>=2.7
-matplotlib>=3.8
-numpy>=1.26

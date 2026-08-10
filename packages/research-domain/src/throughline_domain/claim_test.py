@@ -496,7 +496,7 @@ def test_claim(cur, *, project_id: str, claim: dict[str, Any],
 
     Refuses before it computes, and never runs its own hypothesis test: one that
     did would sit outside the discovery run's correction family and quietly
-    inflate the false-discovery rate (§49). It reads a result already computed
+    inflate the false-discovery rate. It reads a result already computed
     under correction, or reports that the pair has not been tested.
     """
     testability = assess_testability(
@@ -618,7 +618,7 @@ def test_claim(cur, *, project_id: str, claim: dict[str, Any],
         outcome_code=code, reason_code=reason, confidence=0.85, evidence_refs=refs,
         facts={},
         caveats=caveats + [
-            "Agreement with one dataset is corroboration, not replication (§47), "
+            "Agreement with one dataset is corroboration, not replication, "
             "under "
             + causal.describe(testability["dataset"]["design"])["description"] + ".",
             f"Magnitudes were called {'the same' if code == 'P1' else 'different'} "
@@ -655,7 +655,7 @@ def locate_claims(cur, *, project_id: str, source_id: str,
     """
     Read a paper and record the empirical claims a dataset could test (P13).
 
-    Passages are handed to the model as untrusted data (§35): a paper is a
+    Passages are handed to the model as untrusted data: a paper is a
     document, and a sentence inside it addressed to an AI is content to report
     on, never an instruction to follow.
     """
@@ -695,7 +695,7 @@ def locate_claims(cur, *, project_id: str, source_id: str,
 
     recorded: list[dict[str, Any]] = []
     for found in located.claims:
-        # A Claim in the §15 sense — a literature interpretation, kept distinct
+        # A Claim in the  sense — a literature interpretation, kept distinct
         # from a calculated result so the two can never be merged.
         claim_id = new_id("clm")
         cur.execute(

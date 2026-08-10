@@ -136,7 +136,7 @@ def extract(cur, *, project_id: str, source_id: str, limit: int = 60,
         extracted, completion = provider().generate_structured(
             schema=PaperExtraction,
             instructions=template.render(),
-            # Fenced as data (§35): a paper is a document, and a sentence inside
+            # Fenced as data: a paper is a document, and a sentence inside
             # it addressed to an AI is content to report on, not an instruction.
             untrusted_context="\n\n".join(
                 f"[{p['locator']}] {p['content']}" for p in passages),

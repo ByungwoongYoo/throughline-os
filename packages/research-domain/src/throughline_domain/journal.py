@@ -20,7 +20,7 @@ journal stops being a record of what the researcher thought.
 
 **A model asked about a node is given only what the node is provably connected
 to.** Not the whole project, not retrieved prose it might confuse for fact — the
-recorded provenance, fenced as data (§35). It can then only be wrong about
+recorded provenance, fenced as data. It can then only be wrong about
 something the researcher can check.
 """
 
@@ -162,8 +162,8 @@ def _as_text(ctx: dict[str, Any]) -> str:
 
 #: What the model is told it is doing. Deliberately narrow: it is reading a
 #: record and helping a researcher think about it, not producing findings. Any
-#: number it invented would be a numerical claim without computation (LAW 2), and
-#: any causal reading would be one the data has not licensed (LAW 6).
+#: number it invented would be a numerical claim without computation, and
+#: any causal reading would be one the data has not licensed.
 _INSTRUCTIONS = (
     "You are helping a researcher think about one object in their research "
     "record. You can see what it is and what it is provably connected to — "
@@ -194,7 +194,7 @@ def ask(cur, *, project_id: str, object_id: str, question: str, author: str
         completion = provider().generate(
             instructions=_INSTRUCTIONS,
             # Fenced as data. A note or title saying "ignore your instructions"
-            # is content to report on, not a command (§35).
+            # is content to report on, not a command.
             untrusted_context=_as_text(ctx) + f"\n\nQuestion: {question}",
             prompt_name="journal_ask", prompt_version=1,
         )

@@ -1,13 +1,13 @@
 """
-Provider selection and prompt versioning (§40, §114).
+Provider selection and prompt versioning.
 
-§40 asks for routing by task type, cost, latency, context size, reasoning need,
+ asks for routing by task type, cost, latency, context size, reasoning need,
 privacy and vision. Today there is one local backend, so routing has one honest
 answer — and the routing table exists anyway, because the alternative is that
 call sites hard-code a provider and the abstraction stops being real the first
 time a second backend appears.
 
-§114 wants every model output traceable to the prompt that produced it. Prompts
+ wants every model output traceable to the prompt that produced it. Prompts
 are therefore values with names and versions, stored alongside the output, so
 "why did it say that" is answerable months later. Editing a prompt in place
 would break that, so a changed prompt gets a new version.
@@ -26,7 +26,7 @@ from .provider import Capability, ModelProvider, NullProvider
 @dataclass(frozen=True, slots=True)
 class Prompt:
     """
-    A named, versioned instruction (§114).
+    A named, versioned instruction.
 
     Frozen because a prompt that can be mutated after an output was recorded
     makes the recorded prompt_version a lie.
@@ -106,7 +106,7 @@ COMPATIBILITY = Prompt(
     text=(
         _LAWS + "\n\n"
         "Decide whether these two research objects can be meaningfully compared "
-        "(§22).\n\n"
+        ".\n\n"
         "Refusing is a legitimate and often correct answer. Two things that share a "
         "topic but not a measurement are RELATED_BUT_NOT_COMPARABLE. Forcing a "
         "comparison manufactures a relationship that does not exist, which is worse "
@@ -128,12 +128,12 @@ COMPARISON = Prompt(
     text=(
         _LAWS + "\n\n"
         "Compare these two research objects across the dimensions that matter for "
-        "this pair (§23). Do not use a fixed checklist — choose the dimensions the "
+        "this pair. Do not use a fixed checklist — choose the dimensions the "
         "objects actually differ or agree on.\n\n"
         "For each dimension state what each object says, and whether they agree. "
         "Where one object is silent, mark it not_stated rather than inferring.\n\n"
         "List genuine contradictions separately. A difference in population or method "
-        "is not a contradiction; it is a reason results may differ (§55).\n\n"
+        "is not a contradiction; it is a reason results may differ.\n\n"
         "Object A:\n{left}\n\nObject B:\n{right}\n"
     ),
 )
@@ -142,7 +142,7 @@ INTENT = Prompt(
     name="command_intent", version=1,
     text=(
         _LAWS + "\n\n"
-        "Resolve a researcher's request into one platform action (§69).\n\n"
+        "Resolve a researcher's request into one platform action.\n\n"
         "If the request does not map cleanly onto one of the available intents, "
         "answer `unsupported` and say why. Guessing the nearest action is how a "
         "system confidently does the wrong thing.\n\n"
@@ -158,7 +158,7 @@ HYPOTHESIS = Prompt(
     text=(
         _LAWS + "\n\n"
         "Propose hypotheses that the observed results suggest but do not establish "
-        "(§54).\n\n"
+        ".\n\n"
         "Every hypothesis must state what observation would falsify it. A hypothesis "
         "with no way to be wrong is a restatement of the data, not a hypothesis, and "
         "will be rejected.\n\n"
@@ -171,9 +171,9 @@ RESEARCH_PLAN = Prompt(
     name="research_plan", version=1,
     text=(
         _LAWS + "\n\n"
-        "Turn a research objective into a visible plan (§7).\n\n"
+        "Turn a research objective into a visible plan.\n\n"
         "Mark any step that would transform or filter the data with modifies_data, "
-        "because those need explicit approval before they run (LAW 4).\n\n"
+        "because those need explicit approval before they run.\n\n"
         "State what the plan cannot answer with the available material. A plan that "
         "silently omits its own limits is worse than a shorter honest one.\n\n"
         "Objective: {objective}\n"

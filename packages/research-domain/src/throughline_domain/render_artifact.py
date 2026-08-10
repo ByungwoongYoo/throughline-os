@@ -1,9 +1,9 @@
 """
-Renderers for communication artifacts (§74, §82, §83, §84).
+Renderers for communication artifacts.
 
 Four output formats, one input: an artifact whose blocks are already resolved.
 No renderer reads a dataset, recomputes a statistic or reformats a value on its
-own — they receive finished text and lay it out. §74 asks for exactly this, and
+own — they receive finished text and lay it out.  asks for exactly this, and
 the reason is fidelity: a number that were re-derived per format could differ
 between the DOCX and the slides, and the reader would have no way to know which
 was right.
@@ -35,7 +35,7 @@ def render(cur, *, artifact_id: str, fmt: str) -> dict[str, Any]:
     Render an artifact, refusing if its integrity check found problems.
 
     The refusal carries the problems rather than a generic failure, because
-    §104 wants the researcher told what is wrong and what was preserved — and
+     wants the researcher told what is wrong and what was preserved — and
     because "3 blocks reference an analysis run that no longer exists" is
     actionable in a way that "export failed" is not.
     """
@@ -112,7 +112,7 @@ def _provenance_lines(artifact: dict[str, Any]) -> list[str]:
     """
     Where every displayed number came from.
 
-    This is the §93 traceability trail in text form, and it is not optional
+    This is the  traceability trail in text form, and it is not optional
     decoration: it is what makes the exported file auditable once it has left
     the application, which is precisely when LAW 5 is hardest to honour.
     """
@@ -240,7 +240,7 @@ def _html(artifact: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# DOCX (§82)
+# DOCX
 # ---------------------------------------------------------------------------
 
 def _docx(artifact: dict[str, Any]) -> bytes:
@@ -299,15 +299,15 @@ def _docx(artifact: dict[str, Any]) -> bytes:
 
 
 # ---------------------------------------------------------------------------
-# PPTX (§83)
+# PPTX
 # ---------------------------------------------------------------------------
 
 def _pptx(artifact: dict[str, Any]) -> bytes:
     """
-    One idea per slide (§83).
+    One idea per slide.
 
     Blocks are grouped so a `heading` or `slide_title` opens a slide and the
-    following blocks become its bullets. §83 forbids pasting manuscript
+    following blocks become its bullets. the system forbids pasting manuscript
     paragraphs onto slides, so prose is truncated with an ellipsis and the full
     text goes to the speaker notes, where it belongs.
     """
@@ -354,7 +354,7 @@ def _pptx(artifact: dict[str, Any]) -> bytes:
         if block["notes"]:
             notes.append(block["notes"])
 
-        # §83 — a slide carries a message, not a paragraph.
+        #  — a slide carries a message, not a paragraph.
         shown = text if len(text) <= 220 else text[:217].rstrip() + "…"
         if len(text) > 220:
             notes.append(text)

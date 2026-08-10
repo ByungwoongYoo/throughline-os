@@ -1,4 +1,4 @@
-"""Content-addressed object storage (§12).
+"""Content-addressed object storage.
 
 Files are stored under the SHA-256 of their bytes and never modified. Two
 consequences matter:

@@ -1,4 +1,4 @@
-"""The durable worker loop (§37).
+"""The durable worker loop.
 
 A worker is deliberately dumb: it leases a run, dispatches it to a registered
 handler, and records the outcome. All durability lives in the database, so

@@ -1,11 +1,11 @@
-"""Analysis specifications, runs and computational provenance (§44, §45).
+"""Analysis specifications, runs and computational provenance.
 
 LAW 2 in practice: a number reaches the rest of the system only as a field of a
 recorded `analysis_run`, produced by the sandbox from a validated spec against a
 named dataset version. There is no path by which a number enters the research
 model without a run behind it.
 
-Validation happens *before* execution (§45) and against the real profiled schema,
+Validation happens *before* execution and against the real profiled schema,
 so a spec naming a column that does not exist, or a method that does not exist,
 fails at specification time rather than halfway through a computation.
 """
@@ -54,7 +54,7 @@ class AnalysisError(RuntimeError):
 
 
 class SpecInvalid(AnalysisError):
-    """§45 — every AnalysisSpec is validated before execution."""
+    """ — every AnalysisSpec is validated before execution."""
 
 
 def _columns_for(cur, dataset_version_id: str) -> dict[str, dict[str, Any]]:
@@ -89,7 +89,7 @@ def validate_spec(cur, *, project_id: str, spec: dict[str, Any]) -> dict[str, An
     """Validate a specification against the real dataset schema.
 
     Returns the normalised spec. Raises `SpecInvalid` with a specific reason —
-    §104 forbids a generic failure here as much as anywhere else.
+    the system forbids a generic failure here as much as anywhere else.
     """
     method = str(spec.get("method") or "")
     if method not in SUPPORTED_METHODS:
@@ -99,11 +99,11 @@ def validate_spec(cur, *, project_id: str, spec: dict[str, Any]) -> dict[str, An
 
     version_ids = list(spec.get("dataset_version_ids") or [])
     if len(version_ids) != 1:
-        # Multi-dataset analysis needs the §21 harmonization layer, which does
+        # Multi-dataset analysis needs the  harmonization layer, which does
         # not exist yet. Refusing is better than joining on a guess.
         raise SpecInvalid(
             "Exactly one dataset_version_id is required. Analysing across datasets "
-            "needs variable harmonization (§21), which is not implemented yet."
+            "needs variable harmonization, which is not implemented yet."
         )
 
     cur.execute(
@@ -233,7 +233,7 @@ def create_run(
 def record_result(
     cur, *, run_id: str, sandbox: Any, spec_row: dict[str, Any], actor: str,
 ) -> dict[str, Any]:
-    """Persist a completed run and commit its provenance (§44, LAW 1).
+    """Persist a completed run and commit its provenance .
 
     The analysis becomes a research object derived from the dataset version, so
     anything later built on this number can be traced back to the rows and the
@@ -300,7 +300,7 @@ def record_result(
         ),
     )
 
-    # §45/§47 — assumption checks are first-class rows, queryable on their own.
+    # / — assumption checks are first-class rows, queryable on their own.
     for check in result.get("assumptions") or []:
         cur.execute(
             """
@@ -345,7 +345,7 @@ def get_run(cur, run_id: str) -> dict[str, Any] | None:
 
 
 def compare_runs(cur, run_ids: Sequence[str]) -> dict[str, Any]:
-    """§95 — put forked analyses side by side.
+    """ — put forked analyses side by side.
 
     Sensitivity analysis is exactly this: same question, different defensible
     choices, and an honest look at whether the conclusion survives.

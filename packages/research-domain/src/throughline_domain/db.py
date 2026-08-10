@@ -1,6 +1,6 @@
 """Database access for the local-first deployment.
 
-PostgreSQL is the specification's database (§8) and stays the database here, but
+PostgreSQL is the specification's database and stays the database here, but
 a desktop researcher must never be asked to install one. ``pgserver`` ships a
 real PostgreSQL build (with pgvector) as a Python wheel and runs it against a
 local data directory, so the SQL dialect, the extensions and the migration path
@@ -107,7 +107,7 @@ def transaction() -> Iterator[psycopg.Cursor]:
     Domain services take a cursor rather than opening their own connection so
     that a single research operation — write the object, write the lineage edge,
     write the audit entry — either lands completely or not at all. Provenance
-    that can be lost by a partial commit is not provenance (LAW 1).
+    that can be lost by a partial commit is not provenance.
     """
     with connection() as conn:
         with conn.cursor() as cur:

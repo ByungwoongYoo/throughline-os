@@ -1,6 +1,6 @@
-"""The sandbox executor (§43) — parent side.
+"""The sandbox executor — parent side.
 
-§43 is non-negotiable: analysis code must not execute inside the main
+ is non-negotiable: analysis code must not execute inside the main
 application process. This module spawns the runtime as a separate process and
 constrains it.
 
@@ -12,7 +12,7 @@ constrains it.
   Python.
 * Isolated working directory, destroyed after the run.
 * Read-only input — the source is copied in and chmod'd `0o444`, so an analysis
-  cannot mutate the data it describes (§26).
+  cannot mutate the data it describes.
 * Wall-clock timeout, killed by process group so children die too.
 * CPU-seconds and address-space limits via `setrlimit`.
 * No shell: the child is exec'd with an argument vector.
@@ -24,7 +24,7 @@ constrains it.
   quietly calling home but is not a kernel boundary.
 
 `policy_report()` returns exactly which controls are enforced on this platform.
-It is stored with every run (§44) and is what `require_full_isolation` checks
+It is stored with every run and is what `require_full_isolation` checks
 before it will run untrusted code — so the honest limits of a desktop sandbox
 are recorded rather than assumed away.
 """
@@ -92,7 +92,7 @@ def scrub_environment() -> dict[str, str]:
         for key, value in os.environ.items()
         if key in _ENV_ALLOWLIST and not any(marker in key.upper() for marker in _SECRET_MARKERS)
     }
-    env["PYTHONHASHSEED"] = "0"          # determinism (§124)
+    env["PYTHONHASHSEED"] = "0"          # determinism
     env["PYTHONDONTWRITEBYTECODE"] = "1"  # keep the working directory clean
     env["MPLBACKEND"] = "Agg"             # no display access
     # Deterministic single-threaded BLAS: thread scheduling otherwise perturbs
@@ -104,7 +104,7 @@ def scrub_environment() -> dict[str, str]:
 
 
 def policy_report(policy: SandboxPolicy | None = None) -> dict[str, Any]:
-    """Which §43 controls this platform actually enforces."""
+    """Which  controls this platform actually enforces."""
     policy = policy or SandboxPolicy()
     return {
         "platform": platform.system(),
@@ -187,7 +187,7 @@ def run_analysis(
     workdir = Path(tempfile.mkdtemp(prefix="throughline-sandbox-"))
     try:
         # Copy the input in and make it read-only: an analysis describes data, it
-        # does not alter it (§26, LAW 4).
+        # does not alter it .
         sandbox_input = workdir / f"input{input_suffix or '.csv'}"
         shutil.copy2(input_path, sandbox_input)
         sandbox_input.chmod(0o444)
@@ -243,5 +243,5 @@ def run_analysis(
             exit_code=process.returncode, duration_ms=duration, policy=report,
         )
     finally:
-        # §43 — destroy the environment after execution.
+        #  — destroy the environment after execution.
         shutil.rmtree(workdir, ignore_errors=True)

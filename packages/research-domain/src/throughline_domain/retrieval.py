@@ -1,6 +1,6 @@
-"""Hybrid retrieval (§29) with recorded provenance (§30).
+"""Hybrid retrieval with recorded provenance.
 
-§29 is explicit: "Do not rely entirely on embeddings." Lexical search finds the
+ is explicit: "Do not rely entirely on embeddings." Lexical search finds the
 exact term a researcher typed — a gene name, a country code, a specific metric —
 which embeddings blur. Semantic search finds the passage that means the same
 thing in different words. Neither is sufficient alone.
@@ -11,7 +11,7 @@ scale, and normalising them against each other would invent a comparability that
 does not exist; RRF needs no such assumption.
 
 Every retrieval writes a `retrieval_event` plus per-result scores, so an answer
-built on these passages can be audited later (§30).
+built on these passages can be audited later.
 """
 
 from __future__ import annotations
@@ -168,7 +168,7 @@ def _record(
 
 
 def retrieval_provenance(cur, event_id: str) -> dict[str, Any]:
-    """§30 — reconstruct exactly what an answer was built from."""
+    """ — reconstruct exactly what an answer was built from."""
     cur.execute("SELECT * FROM retrieval_events WHERE id = %s", (event_id,))
     event = cur.fetchone()
     if not event:

@@ -37,3 +37,44 @@ __pycache__/
 # OS/editor temporary files
 *.swp
 *.swo
+
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Node dependencies
+node_modules/
+
+# Build/cache
+.next/
+dist/
+build/
+.cache/
+.parcel-cache/
+coverage/
+tmp/
+temp/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Generated Python package metadata
+*.egg-info/
+
+# Environment/secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/

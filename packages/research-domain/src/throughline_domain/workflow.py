@@ -1,8 +1,8 @@
-"""Durable workflow engine (§36, §37, §38).
+"""Durable workflow engine.
 
 The specification is explicit that complex work must not be uncontrolled agents
 chatting: it runs as durable workflows whose state survives a worker restart.
-Redis is not a reasonable dependency for a desktop install, and §8 sanctions the
+Redis is not a reasonable dependency for a desktop install, and  sanctions the
 alternative directly — "implement workflow state durably in PostgreSQL".
 
 Durability here means three things:
@@ -11,7 +11,7 @@ Durability here means three things:
   process dies, the lease expires and another worker picks the run up; nothing
   is lost and nothing is double-executed while the lease holds.
 * **Idempotency keys.** Enqueuing the same logical operation twice returns the
-  original run (§38), so a retried request cannot produce a second finding or a
+  original run, so a retried request cannot produce a second finding or a
   second connector sync.
 * **Node-level state.** Progress within a run is recorded per node, so a restart
   resumes after the last completed node instead of redoing paid work.
@@ -38,7 +38,7 @@ class WorkflowError(RuntimeError):
 
 
 class CostLimitExceeded(WorkflowError):
-    """§36 — a workflow node carries a cost limit and must respect it."""
+    """ — a workflow node carries a cost limit and must respect it."""
 
 
 def enqueue(
@@ -214,7 +214,7 @@ def fail_node(cur, *, run_id: str, node_name: str, error: str) -> None:
 
 
 def approve_node(cur, *, run_id: str, node_name: str, actor: str) -> None:
-    """§36 — human approval releases a gated node."""
+    """ — human approval releases a gated node."""
     cur.execute(
         "UPDATE workflow_nodes SET approved_by = %s, approved_at = now(), state = %s "
         "WHERE run_id = %s AND node_name = %s",
@@ -228,7 +228,7 @@ def approve_node(cur, *, run_id: str, node_name: str, actor: str) -> None:
 
 
 def record_cost(cur, *, run_id: str, usd: float) -> None:
-    """§110 — accumulate spend and stop the run at its ceiling."""
+    """ — accumulate spend and stop the run at its ceiling."""
     cur.execute(
         "UPDATE workflow_runs SET cost_spent_usd = cost_spent_usd + %s, updated_at = now() "
         "WHERE id = %s RETURNING cost_spent_usd, cost_limit_usd",

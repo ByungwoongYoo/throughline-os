@@ -1,8 +1,8 @@
-"""Publication renderer (§84) — SVG, PDF and high-DPI PNG from one spec.
+"""Publication renderer — SVG, PDF and high-DPI PNG from one spec.
 
 Consumes `(ResearchVisualSpec, VisualData)` and draws. It computes nothing: every
 statistic printed on the figure comes from `data.statistics`, which came from the
-recorded analysis run. That is what makes §58's "visualization fidelity" check
+recorded analysis run. That is what makes 's "visualization fidelity" check
 answerable — the figure cannot disagree with the analysis because it never had
 its own opinion.
 """
@@ -21,7 +21,7 @@ import numpy as np  # noqa: E402
 
 from ..spec import ResearchVisualSpec, Scale, UncertaintyDisplay, VisualData, VisualType  # noqa: E402
 
-#: §84 — journal-style defaults. Restrained, legible at column width.
+#:  — journal-style defaults. Restrained, legible at column width.
 PUBLICATION_STYLE: dict[str, Any] = {
     "figure.figsize": (6.5, 4.2),
     "figure.dpi": 100,
@@ -40,7 +40,7 @@ PUBLICATION_STYLE: dict[str, Any] = {
 
 SUPPORTED_FORMATS = ("svg", "pdf", "png")
 
-#: Colourblind-safe (Okabe-Ito). §118 — colour is never the only encoder, so
+#: Colourblind-safe (Okabe-Ito).  — colour is never the only encoder, so
 #: markers vary too.
 PALETTE = ["#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9"]
 MARKERS = ["o", "s", "^", "D", "v", "P"]
@@ -175,7 +175,7 @@ def _bar(spec, data: VisualData, axes) -> None:
                       fmt="none", ecolor="#333333", capsize=3, linewidth=1)
     axes.set_xticks(positions)
     axes.set_xticklabels([str(c) for c in data.categories])
-    # §76 — bar length encodes magnitude, so the baseline is zero. The critic
+    #  — bar length encodes magnitude, so the baseline is zero. The critic
     # sets include_zero; honouring it here is what makes the fix real.
     if spec.y is not None and spec.y.include_zero:
         axes.set_ylim(bottom=min(0.0, float(np.min(data.y_values))))
@@ -195,7 +195,7 @@ def _heatmap(spec, data: VisualData, axes) -> None:
     axes.set_xticklabels([str(c) for c in data.categories], rotation=30, ha="right")
     axes.set_yticks(np.arange(len(data.group_values)))
     axes.set_yticklabels([str(g) for g in data.group_values])
-    # §118 — the value is printed, so the figure does not rely on colour alone.
+    #  — the value is printed, so the figure does not rely on colour alone.
     for row in range(matrix.shape[0]):
         for column in range(matrix.shape[1]):
             value = matrix[row, column]
@@ -222,7 +222,7 @@ def _decorate(spec: ResearchVisualSpec, data: VisualData, figure, axes) -> None:
         axes.set_title(title, loc="left")
 
     if spec.caption:
-        # §84 — the caption travels with the figure, not in a separate document.
+        #  — the caption travels with the figure, not in a separate document.
         figure.text(0.0, -0.06, _wrap(spec.caption), fontsize=7.5,
                     color="#333333", ha="left", va="top", wrap=True)
     if spec.citations:

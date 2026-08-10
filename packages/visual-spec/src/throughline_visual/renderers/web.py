@@ -1,11 +1,11 @@
-"""Web renderer (§74) — emits a Vega-Lite specification.
+"""Web renderer — emits a Vega-Lite specification.
 
 The second backend consuming the *same* `(ResearchVisualSpec, VisualData)` pair.
-It exists to prove the §74 claim concretely: two very different outputs, one
+It exists to prove the  claim concretely: two very different outputs, one
 semantic description, and no analysis logic duplicated between them.
 
 The emitted spec carries its data inline because `VisualData` is already a
-bounded, chart-ready sample (§106, §107) — the browser never receives the
+bounded, chart-ready sample — the browser never receives the
 dataset.
 """
 
@@ -56,13 +56,13 @@ def render(spec: ResearchVisualSpec, data: VisualData) -> dict[str, Any]:
 def _make_interactive(chart: dict[str, Any], spec: ResearchVisualSpec,
                       data: VisualData) -> dict[str, Any]:
     """
-    Add §77 interaction, centrally rather than per chart type.
+    Add  interaction, centrally rather than per chart type.
 
     Applied here so a new chart builder inherits hover, zoom, brush and the
     underlying-data view without remembering to. A capability that each builder
     must opt into is a capability half the builders will lack.
 
-    On motion, §116 and §87 point the same way and it is worth being explicit:
+    On motion,  and  point the same way and it is worth being explicit:
     the transitions configured here are *semantic*. They exist so that when data
     changes under a chart — a filter applied, a confounder adjusted — marks move
     to their new positions instead of being replaced, and the reader can follow
@@ -71,8 +71,8 @@ def _make_interactive(chart: dict[str, Any], spec: ResearchVisualSpec,
 
     What is deliberately absent is entrance animation. A chart that draws itself
     on load delays reading by half a second, communicates nothing, and is the
-    "gratuitous animation" §116 names. Motion that argues belongs in the
-    communication surface (§87's primitives, for video and presentation), not in
+    "gratuitous animation"  names. Motion that argues belongs in the
+    communication surface , not in
     the instrument a researcher is reading.
     """
     layers = chart.get("layer")
@@ -105,7 +105,7 @@ def _make_interactive(chart: dict[str, Any], spec: ResearchVisualSpec,
         "select": {"type": "interval", "encodings": ["x", "y"]},
     })
 
-    # Legend as a filter, when there are groups to filter by (§77 cross-filter).
+    # Legend as a filter, when there are groups to filter by .
     if data.group_values:
         params.append({
             "name": "group_filter",
@@ -122,7 +122,7 @@ def _make_interactive(chart: dict[str, Any], spec: ResearchVisualSpec,
         existing = target.get("params", [])
         target["params"] = existing + params
 
-    # §118 — an interactive chart still needs a described, tabular fallback.
+    #  — an interactive chart still needs a described, tabular fallback.
     chart["description"] = (
         f"{spec.title}. {spec.caption}" if spec.caption else spec.title)
 
@@ -149,7 +149,7 @@ def _scatter(spec, data: VisualData) -> dict[str, Any]:
               "scale": {"zero": bool(spec.y and spec.y.include_zero)}},
     }
     if data.group_values:
-        # §118 — shape as well as colour, so the figure survives greyscale.
+        #  — shape as well as colour, so the figure survives greyscale.
         encoding["color"] = {"field": "group", "type": "nominal"}
         encoding["shape"] = {"field": "group", "type": "nominal"}
 
@@ -217,7 +217,7 @@ def _bar(spec, data: VisualData) -> dict[str, Any]:
         "mark": "bar",
         "encoding": {
             "x": {"field": "category", "type": "nominal", "title": _label(spec.x)},
-            # §76 — bar length encodes magnitude, so the scale includes zero.
+            #  — bar length encodes magnitude, so the scale includes zero.
             "y": {"field": "value", "type": "quantitative", "title": _label(spec.y),
                   "scale": {"zero": True}},
         },

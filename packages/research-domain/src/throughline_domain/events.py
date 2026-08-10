@@ -1,4 +1,4 @@
-"""Domain events (§112) and the audit trail (§99).
+"""Domain events and the audit trail.
 
 Events describe what happened to the research, not what happened to the UI. They
 are append-only and carry a monotonic sequence so a client can resume a stream

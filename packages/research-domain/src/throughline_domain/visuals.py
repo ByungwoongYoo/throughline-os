@@ -4,7 +4,7 @@ LAW 5 is the whole point of this module: a figure is created *from* an analysis
 run and linked to it by lineage, so a chart on a slide can always be resolved
 back to the computation and the dataset underneath.
 
-§78 is enforced here too. A natural-language edit that changes what the figure
+ is enforced here too. A natural-language edit that changes what the figure
 *means* — different rows, different variables — is not a re-plot; it requires a
 new analysis. `apply_edit` refuses those rather than redrawing and letting the
 figure quietly disagree with its own statistics.
@@ -38,7 +38,7 @@ class VisualError(RuntimeError):
 
 
 class EditRequiresRecomputation(VisualError):
-    """§78 — "If a request changes the underlying analysis: rerun computation."."""
+    """ — "If a request changes the underlying analysis: rerun computation."."""
 
 
 #: Spec fields whose change alters *what is being shown*, not how it looks.
@@ -63,7 +63,7 @@ def recommend_for_run(
     cur, *, analysis_run_id: str, goal: str = "show the relationship",
     audience: str = "researcher",
 ) -> dict[str, Any]:
-    """§72 — recommend a figure for a completed analysis."""
+    """ — recommend a figure for a completed analysis."""
     run = get_run(cur, analysis_run_id)
     if not run:
         raise VisualError(f"Unknown analysis run: {analysis_run_id}")
@@ -87,7 +87,7 @@ def create_visual(
     recommendation: dict[str, Any] | None = None,
     finding_id: str | None = None, autofix: bool = True,
 ) -> dict[str, Any]:
-    """Prepare, critique and store a figure, with its lineage (LAW 5)."""
+    """Prepare, critique and store a figure, with its lineage."""
     run = get_run(cur, spec.analysis_run_id)
     if not run:
         raise VisualError(f"Unknown analysis run: {spec.analysis_run_id}")
@@ -157,7 +157,7 @@ def load_visual(cur, visual_id: str) -> dict[str, Any]:
 
 
 def render_visual(cur, *, visual_id: str, fmt: str) -> dict[str, Any]:
-    """Render a stored figure. §84 formats plus the web spec, from one source."""
+    """Render a stored figure.  formats plus the web spec, from one source."""
     row = load_visual(cur, visual_id)
     if not row["publishable"]:
         blocking = [c["check"] for c in (row["critique"].get("critiques") or [])
@@ -205,7 +205,7 @@ def render_visual(cur, *, visual_id: str, fmt: str) -> dict[str, Any]:
 def apply_edit(
     cur, *, visual_id: str, changes: dict[str, Any], actor: str,
 ) -> dict[str, Any]:
-    """Edit a figure's presentation. Refuses edits that change its meaning (§78).
+    """Edit a figure's presentation. Refuses edits that change its meaning.
 
     "Never visually fake a different answer": changing which rows or variables a
     figure draws is a new analysis, and this raises rather than silently
@@ -246,7 +246,7 @@ def apply_edit(
 
 
 def stale_renders(cur, visual_id: str) -> list[dict[str, Any]]:
-    """§102 — renders whose spec has moved on are marked, not silently served."""
+    """ — renders whose spec has moved on are marked, not silently served."""
     row = load_visual(cur, visual_id)
     cur.execute(
         "SELECT id, format, spec_hash, created_at FROM visual_renders WHERE visual_id = %s",

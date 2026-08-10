@@ -25,7 +25,7 @@ The wording never lets those merge.
 
 **The candidate covariates come from the researcher, not from a search.** A
 system that chose which variables to adjust for would be making the causal
-judgement the whole design refuses to make (LAW 6). It runs the combinations of
+judgement the whole design refuses to make. It runs the combinations of
 what it is given.
 """
 

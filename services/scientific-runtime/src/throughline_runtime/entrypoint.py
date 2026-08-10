@@ -63,7 +63,7 @@ def main(argv: list[str]) -> int:
     started = time.time()
     captured: list[str] = []
     try:
-        # Seed every source of randomness we control, and record it (§44).
+        # Seed every source of randomness we control, and record it.
         seed = int(spec.get("random_seed", 0))
         random.seed(seed)
         import numpy as np
@@ -124,7 +124,7 @@ def main(argv: list[str]) -> int:
         return _emit({
             "ok": False,
             "error": f"{type(exc).__name__}: {exc}",
-            # The traceback goes to the run's logs, not to the researcher: §104
+            # The traceback goes to the run's logs, not to the researcher: 
             # wants a useful explanation, and this is what makes one possible.
             "traceback": traceback.format_exc()[-4000:],
             "duration_ms": int((time.time() - started) * 1000),

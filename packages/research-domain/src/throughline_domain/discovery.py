@@ -1,8 +1,8 @@
-"""Connection discovery (§48) — and §49's insistence that it not be brute force.
+"""Connection discovery — and 's insistence that it not be brute force.
 
 Correlating every column against every other column is the fastest way to
 manufacture false discoveries: with 20 columns there are 190 pairs, and at
-α = 0.05 roughly ten will look significant by chance alone. §49 therefore
+α = 0.05 roughly ten will look significant by chance alone.  therefore
 prescribes a pipeline, and this module implements it in order:
 
   1. classify variables            — from the Phase 1 semantic profile
@@ -12,8 +12,8 @@ prescribes a pipeline, and this module implements it in order:
   5. choose appropriate methods    — parametric or rank-based, from the profile
   6. run computation               — in the sandbox, one analysis run each
   7. correct for multiple testing  — Benjamini-Hochberg across the whole family
-  8. evaluate robustness           — §51, in validation.py
-  9. rank results                  — §50, on a composite, never on p alone
+  8. evaluate robustness           — , in validation.py
+  9. rank results                  — , on a composite, never on p alone
  10. send candidates to validation
 
 Steps 1–5, 7 and 9 live here. Step 6 delegates to the Phase 2 sandbox and step 8
@@ -39,7 +39,7 @@ CATEGORICAL_TYPES = frozenset({"categorical", "binary", "sex", "treatment",
 #: to a grouping, and group-comparison tests stop being meaningful.
 MAX_CATEGORY_LEVELS = 12
 
-#: Absolute skew beyond which a rank-based method is preferred (§49 step 5).
+#: Absolute skew beyond which a rank-based method is preferred .
 SKEW_THRESHOLD = 1.0
 
 MIN_ROWS_FOR_TEST = 12
@@ -55,7 +55,7 @@ class DiscoveryError(RuntimeError):
 
 
 def _usable(column: dict[str, Any], row_count: int) -> tuple[bool, str]:
-    """Whether a column can take part in discovery at all (§49 step 3)."""
+    """Whether a column can take part in discovery at all ."""
     semantic = column["semantic_type"]
     if semantic in EXCLUDED_SEMANTIC_TYPES:
         return False, "identifier"
@@ -87,7 +87,7 @@ def _skewed(column: dict[str, Any]) -> bool:
 
 
 def choose_method(left: dict[str, Any], right: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
-    """§49 steps 2 and 5: is this pair comparable, and by which test?
+    """ steps 2 and 5: is this pair comparable, and by which test?
 
     Returns (method, variables) or None when no test fits — which is a valid and
     common answer, not a failure.
@@ -177,7 +177,7 @@ def plan_candidates(cur, *, dataset_version_id: str) -> dict[str, Any]:
 
 
 def _rationale(method: str, left: dict[str, Any], right: dict[str, Any]) -> str:
-    """Why this test, recorded before it runs (§47)."""
+    """Why this test, recorded before it runs."""
     if method in {"pearson_correlation", "spearman_correlation"}:
         basis = ("both variables are continuous and neither is strongly skewed"
                  if method == "pearson_correlation"
@@ -237,7 +237,7 @@ def benjamini_hochberg(p_values: Sequence[float], fdr: float = 0.05) -> list[dic
 # Step 9: ranking
 # ---------------------------------------------------------------------------
 
-#: §50 — relevance, magnitude, credibility and evidence quality, weighted. The
+#:  — relevance, magnitude, credibility and evidence quality, weighted. The
 #: q-value contributes credibility but never dominates: a tiny q on a negligible
 #: effect in a small sample should not outrank a substantial, well-supported one.
 RANK_WEIGHTS = {
@@ -274,7 +274,7 @@ def rank_score(
 
 
 # ---------------------------------------------------------------------------
-# Persistence and the §14 lifecycle
+# Persistence and the  lifecycle
 # ---------------------------------------------------------------------------
 
 CONNECTION_PROMOTION: dict[str, set[str]] = {
@@ -344,7 +344,7 @@ def transition(
     cur, *, connection_id: str, to_status: str, reason: str, actor: str,
     checks: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """§14 — the connection lifecycle is a state machine, like findings."""
+    """ — the connection lifecycle is a state machine, like findings."""
     cur.execute("SELECT lifecycle_status FROM connections WHERE id = %s FOR UPDATE",
                 (connection_id,))
     row = cur.fetchone()

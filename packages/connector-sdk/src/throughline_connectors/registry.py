@@ -177,7 +177,7 @@ def _reconcile(group: list[SourceRecord]) -> SourceRecord:
 
 def capabilities(*, mailto: str = "",
                  api_keys: dict[str, str] | None = None) -> list[dict[str, Any]]:
-    """What every connector can do right now (§123)."""
+    """What every connector can do right now."""
     api_keys = api_keys or {}
     return [build(name, mailto=mailto, api_key=api_keys.get(name, "")).capability()
             for name in sorted(CONNECTORS)]

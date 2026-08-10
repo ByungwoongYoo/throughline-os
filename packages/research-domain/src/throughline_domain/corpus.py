@@ -1,8 +1,8 @@
-"""Persisting parsed papers and profiled datasets (§19, §20).
+"""Persisting parsed papers and profiled datasets.
 
 This is the seam between the pure parsers in `throughline_ingestion` and the
 research model. Everything written here also writes its lineage, because a
-passage, a paper and a dataset version are all derived artifacts (LAW 1).
+passage, a paper and a dataset version are all derived artifacts.
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ def embed_passages(cur, *, project_id: str, source_id: str, batch: int = 256) ->
     """Compute and store embeddings for a source's passages.
 
     Reports honestly when no local model is installed rather than leaving the
-    caller to assume semantic search will work (§123).
+    caller to assume semantic search will work.
     """
     embedder = embedding_provider()
     if embedder is None:
@@ -109,7 +109,7 @@ def store_dataset(
     cur, *, project_id: str, source_id: str, name: str, profile: Any,
     content_hash: str, storage_key: str | None, actor: str,
 ) -> dict[str, Any]:
-    """Create dataset, an immutable version, and its profiled columns (§20)."""
+    """Create dataset, an immutable version, and its profiled columns."""
     source_object_id = _source_object(cur, project_id=project_id, source_id=source_id, actor=actor)
     dataset_object_id = create_object(
         cur, project_id=project_id, object_type=ObjectType.DATASET, title=name,

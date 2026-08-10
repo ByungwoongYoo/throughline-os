@@ -1,4 +1,4 @@
-"""Research objects (§10), sources (§18) and the immutability rule (§12).
+"""Research objects, sources and the immutability rule.
 
 Raw source artifacts are never overwritten. ``update_object`` refuses to mutate
 an object that other artifacts were derived from; it creates a new version and
@@ -29,7 +29,7 @@ class ObjectError(RuntimeError):
 
 
 class ImmutableArtifact(ObjectError):
-    """§12 — raw sources and artifacts with descendants are append-only."""
+    """ — raw sources and artifacts with descendants are append-only."""
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +89,7 @@ def advance_ingestion(
     to_status: IngestionStatus,
     detail: str = "",
 ) -> dict[str, Any]:
-    """Move a source along the §24 state machine.
+    """Move a source along the  state machine.
 
     Only forward moves and FAILED are legal. A retry that rewound a source from
     READY back to PARSING would strand every artifact already derived from it.
@@ -213,7 +213,7 @@ def new_version(
     content_hash: str | None = None,
     reason: str = "",
 ) -> str:
-    """Supersede an object with a new version (§12).
+    """Supersede an object with a new version.
 
     The previous version is left untouched and linked as the new version's
     ancestor, so evidence that cited it still resolves to what it described.
@@ -314,7 +314,7 @@ def update_object(
 
 
 def deletion_impact(cur, object_id: str) -> dict[str, Any]:
-    """§101 — what breaks if this goes away."""
+    """ — what breaks if this goes away."""
     from .lineage import descendants
 
     rows = descendants(cur, object_id)

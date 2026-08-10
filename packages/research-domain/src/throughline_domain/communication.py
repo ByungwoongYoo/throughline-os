@@ -1,5 +1,5 @@
 """
-Communication artifacts (§79, §80, §133).
+Communication artifacts.
 
 The whole design turns on one decision: **a block never stores a number.**
 
@@ -11,7 +11,7 @@ computed value that might have drifted; it *is* the computed value, read at
 render time.
 
 That converts numerical fidelity from something to be audited into something
-that cannot fail. It also gives §102 invalidation for free: re-run the analysis
+that cannot fail. It also gives  invalidation for free: re-run the analysis
 and the document either shows the new number or refuses to render, depending on
 whether the reference still resolves. There is no third state where it displays
 the old one.
@@ -63,7 +63,7 @@ def create_artifact(
     purpose: str = "",
     finding_ids: list[str] | None = None,
 ) -> str:
-    """Create an artifact and bind it to the findings it communicates (§80)."""
+    """Create an artifact and bind it to the findings it communicates."""
     artifact_id = new_id("art")
     cur.execute(
         "INSERT INTO communication_artifacts(id, project_id, artifact_type, title, "
@@ -129,7 +129,7 @@ def add_block(
             f"This template states a result directly: {stray.group(0)!r}. "
             "Statistics must be written as {{ref:name}} and resolved from a recorded "
             "analysis run, so that the page cannot disagree with the computation "
-            "(LAW 2)."
+            "."
         )
 
     refs = value_refs or {}
@@ -308,7 +308,7 @@ def resolved_hash(artifact: dict[str, Any]) -> str:
 
     Comparing this against a stored render's hash answers "is this document
     still showing what the analyses currently say" exactly, rather than by
-    timestamp heuristics (§102).
+    timestamp heuristics.
     """
     payload = [
         {"block": b["id"], "resolved": b.get("resolved", {})}
@@ -324,7 +324,7 @@ def resolved_hash(artifact: dict[str, Any]) -> str:
 
 def check_integrity(cur, artifact_id: str) -> dict[str, Any]:
     """
-    Everything that must hold before an artifact may be published (LAW 5).
+    Everything that must hold before an artifact may be published.
 
     Returns `publishable` only when nothing is broken. The three failure kinds
     are kept apart because they are different problems: an unresolved value is a
@@ -379,7 +379,7 @@ def check_integrity(cur, artifact_id: str) -> dict[str, Any]:
                                "supports the sentence has not been established."),
                 })
 
-    # §13 — an artifact should not present a candidate as a result.
+    #  — an artifact should not present a candidate as a result.
     cur.execute(
         "SELECT f.id, f.title, f.lifecycle_status FROM artifact_findings af "
         "JOIN findings f ON f.id = af.finding_id WHERE af.artifact_id = %s",

@@ -1,6 +1,6 @@
-"""ResearchVisualSpec — the canonical visual grammar (§73).
+"""ResearchVisualSpec — the canonical visual grammar.
 
-One semantic description of a figure, rendered by many backends (§74). The point
+One semantic description of a figure, rendered by many backends. The point
 is that analysis logic is never re-implemented per output: the spec references
 the analysis run that produced the numbers, `prepare.py` turns that into
 chart-ready data exactly once, and every renderer consumes the same structure.
@@ -21,9 +21,9 @@ SPEC_VERSION = 1
 
 
 class VisualType(StrEnum):
-    """The subset of §75 that the current analyses can actually produce.
+    """The subset of  that the current analyses can actually produce.
 
-    Absent members are absent deliberately (§123): a chart type with no data
+    Absent members are absent deliberately: a chart type with no data
     path behind it would be a menu entry that cannot draw anything.
     """
 
@@ -72,14 +72,14 @@ class Annotation(BaseModel):
 
 
 class ResearchVisualSpec(BaseModel):
-    """§73. Versioned, because a stored figure must survive schema change (§113)."""
+    """. Versioned, because a stored figure must survive schema change."""
 
     model_config = ConfigDict(extra="forbid")
 
     spec_version: int = SPEC_VERSION
     visual_type: VisualType
 
-    # --- provenance: not optional (LAW 5) ------------------------------------
+    # --- provenance: not optional ------------------------------------
     analysis_run_id: str
     dataset_version_id: str | None = None
 
@@ -103,8 +103,8 @@ class ResearchVisualSpec(BaseModel):
 
     # --- behaviour -----------------------------------------------------------
     interaction: list[str] = Field(default_factory=list)
-    #: §87 motion primitives, declared here and consumed by the video renderer
-    #: in Phase 8. Storing the intent now costs nothing and keeps §136's
+    #:  motion primitives, declared here and consumed by the video renderer
+    #: in Phase 8. Storing the intent now costs nothing and keeps 's
     #: requirement that the data model exists before that phase.
     animation_semantics: list[str] = Field(default_factory=list)
 
@@ -114,11 +114,11 @@ class ResearchVisualSpec(BaseModel):
 
 
 class VisualData(BaseModel):
-    """Chart-ready values, computed once and shared by every renderer (§74, §107).
+    """Chart-ready values, computed once and shared by every renderer.
 
-    Renderers never see the dataset. §107 forbids shipping raw rows around, and
+    Renderers never see the dataset. the system forbids shipping raw rows around, and
     more importantly a renderer that could re-aggregate could disagree with the
-    analysis — which is exactly the fidelity failure §58 evaluates for.
+    analysis — which is exactly the fidelity failure  evaluates for.
     """
 
     model_config = ConfigDict(extra="forbid")

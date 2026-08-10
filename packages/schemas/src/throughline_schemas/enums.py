@@ -12,7 +12,7 @@ from enum import StrEnum
 
 
 class ObjectType(StrEnum):
-    """§10 — every addressable thing in a research project."""
+    """ — every addressable thing in a research project."""
 
     PAPER = "paper"
     DATASET = "dataset"
@@ -50,7 +50,7 @@ class ObjectType(StrEnum):
 
 
 class LineageType(StrEnum):
-    """§11 — how a derived artifact relates to what produced it."""
+    """ — how a derived artifact relates to what produced it."""
 
     DERIVED_FROM = "derived_from"
     TRANSFORMED_FROM = "transformed_from"
@@ -63,7 +63,7 @@ class LineageType(StrEnum):
 
 
 class FindingLifecycle(StrEnum):
-    """§13 — a pattern is not a finding. Order matters; see FINDING_PROMOTION."""
+    """ — a pattern is not a finding. Order matters; see FINDING_PROMOTION."""
 
     CANDIDATE = "candidate"
     EXPLORATORY = "exploratory"
@@ -73,8 +73,8 @@ class FindingLifecycle(StrEnum):
     DEPRECATED = "deprecated"
 
 
-#: Legal lifecycle transitions (§13). A candidate may never jump to validated:
-#: promotion past EXPLORATORY requires the §51 robustness checks, which are
+#: Legal lifecycle transitions. A candidate may never jump to validated:
+#: promotion past EXPLORATORY requires the  robustness checks, which are
 #: enforced by the domain service rather than by the caller.
 FINDING_PROMOTION: dict[FindingLifecycle, set[FindingLifecycle]] = {
     FindingLifecycle.CANDIDATE: {FindingLifecycle.EXPLORATORY, FindingLifecycle.DEPRECATED},
@@ -99,7 +99,7 @@ FINDING_PROMOTION: dict[FindingLifecycle, set[FindingLifecycle]] = {
 
 
 class ConnectionLifecycle(StrEnum):
-    """§14 — discovered relationships carry the same discipline as findings."""
+    """ — discovered relationships carry the same discipline as findings."""
 
     CANDIDATE = "candidate"
     EXPLORATORY = "exploratory"
@@ -110,7 +110,7 @@ class ConnectionLifecycle(StrEnum):
 
 
 class ClaimType(StrEnum):
-    """§15 — never merge these categories.
+    """ — never merge these categories.
 
     The distinction between SOURCE_FACT, CALCULATED_RESULT and AI_INTERPRETATION
     is what makes LAW 2 auditable.
@@ -134,7 +134,7 @@ class ClaimStatus(StrEnum):
 
 
 class EvidenceDirection(StrEnum):
-    """§16."""
+    """."""
 
     SUPPORTS = "supports"
     CONTRADICTS = "contradicts"
@@ -153,7 +153,7 @@ class EvidenceType(StrEnum):
 
 
 class FindingType(StrEnum):
-    """§17."""
+    """."""
 
     LITERATURE = "literature"
     STATISTICAL = "statistical"
@@ -168,7 +168,7 @@ class FindingType(StrEnum):
 
 
 class CausalStatus(StrEnum):
-    """§17/§52 — association is not causation, and the model says so."""
+    """/ — association is not causation, and the model says so."""
 
     NOT_ASSESSED = "not_assessed"
     ASSOCIATION_ONLY = "association_only"
@@ -179,7 +179,7 @@ class CausalStatus(StrEnum):
 
 
 class SourceType(StrEnum):
-    """§18."""
+    """."""
 
     UPLOAD = "upload"
     CONNECTOR = "connector"
@@ -189,7 +189,7 @@ class SourceType(StrEnum):
 
 
 class IngestionStatus(StrEnum):
-    """§24 — the ingestion state machine. FAILED preserves completed work."""
+    """ — the ingestion state machine. FAILED preserves completed work."""
 
     UPLOADED = "uploaded"
     VALIDATED = "validated"
@@ -203,7 +203,7 @@ class IngestionStatus(StrEnum):
     FAILED = "failed"
 
 
-#: Forward progression of §24. A stage may only advance to the next stage or to
+#: Forward progression of . A stage may only advance to the next stage or to
 #: FAILED; this prevents a retry from silently rewinding published state.
 INGESTION_PROGRESSION: list[IngestionStatus] = [
     IngestionStatus.UPLOADED,
@@ -219,7 +219,7 @@ INGESTION_PROGRESSION: list[IngestionStatus] = [
 
 
 class WorkflowState(StrEnum):
-    """§37 — must survive a worker restart."""
+    """ — must survive a worker restart."""
 
     QUEUED = "queued"
     RUNNING = "running"
@@ -241,7 +241,7 @@ TERMINAL_WORKFLOW_STATES = {
 
 
 class ResearchEdgeType(StrEnum):
-    """§60 — the research graph vocabulary."""
+    """ — the research graph vocabulary."""
 
     SUPPORTS = "supports"
     CONTRADICTS = "contradicts"
@@ -262,7 +262,7 @@ class ResearchEdgeType(StrEnum):
 
 
 class TrustLevel(StrEnum):
-    """§35 — the prompt-injection boundary.
+    """ — the prompt-injection boundary.
 
     Content carries its trust level with it. UNTRUSTED content may never be
     interpreted as instructions, regardless of what it says about itself.

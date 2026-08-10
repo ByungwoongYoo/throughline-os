@@ -1,11 +1,11 @@
-"""Knowledge graph (§61), evidence graph (§62) and Discovery Map (§63).
+"""Knowledge graph, evidence graph and Discovery Map.
 
-§61 and §62 answer different questions and must not be conflated:
+ and  answer different questions and must not be conflated:
 
 * the **knowledge graph** answers *what is connected?*
 * the **evidence graph** answers *why do we believe this?*
 
-Both are served from PostgreSQL edges (§60) with progressive expansion — §61 is
+Both are served from PostgreSQL edges with progressive expansion —  is
 explicit that 20,000 nodes must never be dumped into a browser, so every query
 here is bounded and expands from a focus node outward.
 """
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
-#: §61 — a hard ceiling, not a suggestion.
+#:  — a hard ceiling, not a suggestion.
 MAX_NODES = 300
 
 
@@ -86,7 +86,7 @@ def knowledge_graph(
     )
     edges = list(cur.fetchall())
 
-    # §61 — say when the view is partial rather than implying completeness.
+    #  — say when the view is partial rather than implying completeness.
     cur.execute("SELECT COUNT(*) AS n FROM research_objects WHERE project_id = %s",
                 (project_id,))
     total = int(cur.fetchone()["n"])
@@ -97,7 +97,7 @@ def knowledge_graph(
 
 
 def evidence_graph(cur, *, finding_id: str) -> dict[str, Any]:
-    """Why do we believe this? (§62)
+    """Why do we believe this?
 
     Returns the finding with its claims, the evidence for and against each, the
     analyses that produced them, and the sources underneath — the whole chain a
@@ -192,7 +192,7 @@ def evidence_graph(cur, *, finding_id: str) -> dict[str, Any]:
 
 
 def discovery_map(cur, *, project_id: str) -> dict[str, Any]:
-    """§63 — the project overview: what has been found, and what needs attention."""
+    """ — the project overview: what has been found, and what needs attention."""
     counts: dict[str, Any] = {}
 
     for label, query in (

@@ -1,8 +1,0 @@
-pyproject.toml
-src/throughline_ingestion/datasets.py
-src/throughline_ingestion/documents.py
-src/throughline_ingestion.egg-info/PKG-INFO
-src/throughline_ingestion.egg-info/SOURCES.txt
-src/throughline_ingestion.egg-info/dependency_links.txt
-src/throughline_ingestion.egg-info/requires.txt
-src/throughline_ingestion.egg-info/top_level.txt

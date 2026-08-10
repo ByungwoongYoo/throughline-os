@@ -1,8 +1,8 @@
 """
-The model provider interface (§40, §41, §42).
+The model provider interface.
 
 Every capability the platform needs from a language model is declared here, and
-nothing above this layer may import a vendor SDK. §40 asks for swappable models;
+nothing above this layer may import a vendor SDK.  asks for swappable models;
 the way you get that is by making the abstraction the only thing anyone codes
 against, so a second backend is an addition rather than a migration.
 
@@ -10,16 +10,16 @@ Three rules shape this file more than anything else:
 
 **LAW 2 — a model may never produce a numerical result.** So there is no method
 here that returns a number. `generate_structured` validates against a schema you
-supply, and the schemas that matter (§41) carry *references* to recorded
+supply, and the schemas that matter carry *references* to recorded
 computations rather than values. A model may say which analysis to run and how
 to describe the outcome; the outcome comes from the sandbox.
 
-**§35 — retrieved content is untrusted data.** `generate_text` takes trusted
+** — retrieved content is untrusted data.** `generate_text` takes trusted
 instructions and untrusted context as separate arguments, and they are separated
 in the assembled prompt too. A caller cannot accidentally concatenate a paper
 into its own instructions, because there is no argument that would let it.
 
-**§42 — never expose private chain-of-thought.** Responses carry a short
+** — never expose private chain-of-thought.** Responses carry a short
 operational summary, not reasoning. Where a model emits thinking tags, they are
 stripped before the text is returned.
 """
@@ -43,7 +43,7 @@ class ModelError(RuntimeError):
 class ModelUnavailable(ModelError):
     """No provider is configured or reachable.
 
-    Distinct from other failures because §123 wants "this installation has no
+    Distinct from other failures because  wants "this installation has no
     model" said plainly, not surfaced as a generic error.
     """
 
@@ -54,7 +54,7 @@ class StructuredOutputInvalid(ModelError):
 
 @dataclass(slots=True)
 class Usage:
-    """What a call cost (§110)."""
+    """What a call cost."""
     prompt_tokens: int = 0
     completion_tokens: int = 0
     duration_ms: int = 0
@@ -66,20 +66,20 @@ class Usage:
 
 @dataclass(slots=True)
 class Completion:
-    """A model response, with everything §114 needs to reproduce it."""
+    """A model response, with everything  needs to reproduce it."""
     text: str
     model: str
     prompt_name: str
     prompt_version: int
     usage: Usage = field(default_factory=Usage)
-    # §42 — what the model *did*, in one line, for the researcher to read.
+    #  — what the model *did*, in one line, for the researcher to read.
     operational_summary: str = ""
     finish_reason: str = "stop"
 
 
 @dataclass(slots=True)
 class Capability:
-    """What a configured provider can actually do (§123)."""
+    """What a configured provider can actually do."""
     name: str
     model: str
     text: bool = True
@@ -88,12 +88,12 @@ class Capability:
     vision: bool = False
     tools: bool = False
     context_tokens: int = 0
-    # A local model is a privacy guarantee, not a performance note (§40).
+    # A local model is a privacy guarantee, not a performance note.
     local: bool = True
     note: str = ""
 
 
-# Thinking tags emitted by reasoning models. Stripped rather than shown: §42 is
+# Thinking tags emitted by reasoning models. Stripped rather than shown:  is
 # explicit that private chain-of-thought must not reach the researcher, and a
 # half-formed hypothesis presented as output is worse than no output.
 _THINKING = re.compile(r"<(think|thinking|reasoning)>.*?</\1>", re.DOTALL | re.IGNORECASE)
@@ -109,7 +109,7 @@ class ModelProvider(ABC):
 
     Implementations raise `ModelUnavailable` when unreachable rather than
     returning empty output, so a caller can distinguish "no model here" from
-    "the model had nothing to say" — a distinction §123 turns on.
+    "the model had nothing to say" — a distinction  turns on.
     """
 
     name: str
@@ -132,8 +132,7 @@ class ModelProvider(ABC):
         """
         Free text.
 
-        `instructions` is trusted; `untrusted_context` is anything retrieved
-        (§35). They are never concatenated by the caller — the provider fences
+        `instructions` is trusted; `untrusted_context` is anything retrieved. They are never concatenated by the caller — the provider fences
         the untrusted part, so the boundary is enforced at the one place that
         builds the prompt rather than at every call site.
         """
@@ -151,10 +150,10 @@ class ModelProvider(ABC):
         max_attempts: int = 3,
     ) -> tuple[T, Completion]:
         """
-        A validated object (§41).
+        A validated object.
 
         Malformed output is rejected and retried, and after `max_attempts` this
-        raises. It does not fall back to parsing prose: §41 is explicit that
+        raises. It does not fall back to parsing prose:  is explicit that
         critical product state must not be read out of arbitrary text, and a
         lenient parser is how that rule gets broken quietly.
         """

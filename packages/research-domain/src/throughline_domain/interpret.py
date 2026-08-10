@@ -1,9 +1,9 @@
 """
-Plain-language readings of results (§105, §115, §126).
+Plain-language readings of results.
 
 The rigorous surface is correct and hard to read. A q-value of 5.17e-66 sitting
-beside an evidence grade of `weak` is exactly right under §47 and looks like a
-malfunction to anyone who has not met §47. §126 requires that a researcher who
+beside an evidence grade of `weak` is exactly right under  and looks like a
+malfunction to anyone who has not met .  requires that a researcher who
 does not know statistics can still use this platform; that cannot be met by
 making the expert view friendlier, because the expert view is doing its job.
 
@@ -95,7 +95,7 @@ def summarise_run(cur, *, run_id: str, refresh: bool = False) -> dict[str, Any]:
     if not run:
         raise InterpretationError(
             f"{run_id} is not a completed analysis run. A result is only "
-            "interpretable once it has been computed (LAW 2)."
+            "interpretable once it has been computed."
         )
 
     if not refresh:
@@ -146,7 +146,7 @@ def summarise_run(cur, *, run_id: str, refresh: bool = False) -> dict[str, Any]:
             prompt_name=template.name, prompt_version=template.version,
         )
     except ModelUnavailable as exc:
-        # §123 — say what is missing, do not approximate it.
+        #  — say what is missing, do not approximate it.
         raise InterpretationError(str(exc)) from exc
 
     # The schema asks for no numbers; this checks that it got none. A model that
@@ -159,7 +159,7 @@ def summarise_run(cur, *, run_id: str, refresh: bool = False) -> dict[str, Any]:
             raise SummaryContainedNumbers(
                 f"The model wrote {found.group(0)!r} into {field}. A plain-language "
                 "summary must carry no figures: the exact values are shown beside it "
-                "and must not be restated where they could drift (LAW 2)."
+                "and must not be restated where they could drift."
             )
 
     payload = summary.model_dump()
@@ -181,7 +181,7 @@ def summarise_run(cur, *, run_id: str, refresh: bool = False) -> dict[str, Any]:
         "cached": False,
         "model": completion.model,
         "prompt": f"{completion.prompt_name} v{completion.prompt_version}",
-        # §42 — an operational summary, not reasoning.
+        #  — an operational summary, not reasoning.
         "operational_summary": (
             f"Read the recorded result, its assumption checks and its validation "
             f"report, and restated them in plain language without figures."),

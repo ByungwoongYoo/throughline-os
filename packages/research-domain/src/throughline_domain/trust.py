@@ -1,4 +1,4 @@
-"""The prompt-injection security boundary (§35).
+"""The prompt-injection security boundary.
 
 Everything the platform retrieves — papers, datasets, web pages, Drive
 documents, connector responses — is UNTRUSTED DATA. A document may contain text
@@ -45,7 +45,7 @@ class TrustBoundaryError(RuntimeError):
 #: Phrases that, appearing inside retrieved content, indicate an attempt to
 #: address the system rather than describe research. Their presence never
 #: changes how the content is handled — it is already untrusted — but it is
-#: surfaced to the researcher and the audit log (§99).
+#: surfaced to the researcher and the audit log.
 _INJECTION_SIGNALS = re.compile(
     r"(?:ignore|disregard|forget)\s+(?:all\s+|any\s+|the\s+|your\s+|previous\s+|prior\s+)*"
     r"(?:instruction|prompt|rule|direction|system)"

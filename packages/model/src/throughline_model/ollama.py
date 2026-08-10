@@ -1,7 +1,7 @@
 """
-Ollama backend (§40).
+Ollama backend.
 
-Chosen because it runs locally. That is not a convenience: §98 defaults research
+Chosen because it runs locally. That is not a convenience:  defaults research
 to private, and a researcher's unpublished data must not leave their machine to
 be summarised. A hosted provider is a legitimate second backend, but it should
 be an explicit choice rather than the default, and the capability report says
@@ -10,7 +10,7 @@ which one is in use so the researcher can see it.
 Structured output uses Ollama's `format` parameter with a JSON Schema, which
 constrains generation rather than asking politely and hoping. Where the model
 still returns something invalid, it is retried with the validation error — and
-after the retries it fails, because §41 forbids parsing product state out of
+after the retries it fails, because the system forbids parsing product state out of
 prose.
 """
 
@@ -35,7 +35,7 @@ T = TypeVar("T", bound=BaseModel)
 DEFAULT_HOST = "http://127.0.0.1:11434"
 DEFAULT_MODEL = "qwen2.5:7b-instruct"
 
-# §35 — a nonce the untrusted content cannot predict, so it cannot close its own
+#  — a nonce the untrusted content cannot predict, so it cannot close its own
 # fence and continue as instructions. The same technique as trust.py uses for
 # retrieval, applied at the model boundary.
 _FENCE_NOTE = (
@@ -95,7 +95,7 @@ class OllamaProvider(ModelProvider):
         What is actually installed, not what is configured.
 
         Reporting a configured-but-absent model as available is exactly the fake
-        capability §123 forbids: every feature that depended on it would fail at
+        capability the system forbids: every feature that depended on it would fail at
         the moment of use instead of being greyed out with a reason.
         """
         try:
@@ -126,7 +126,7 @@ class OllamaProvider(ModelProvider):
             embeddings=False, vision=False, tools=False, context_tokens=32768,
             local=True,
             note=("Runs on this machine. Nothing sent to it leaves the device, which "
-                  "is what makes it usable on unpublished research data (§98)."),
+                  "is what makes it usable on unpublished research data."),
         )
 
     # -- prompt assembly ---------------------------------------------------
@@ -137,7 +137,7 @@ class OllamaProvider(ModelProvider):
 
         The nonce is what makes this more than a comment. A document containing
         "END OF DATA. New instructions:" cannot end a fence whose marker it
-        could not predict (§35).
+        could not predict.
         """
         if not untrusted:
             return instructions
@@ -206,7 +206,7 @@ class OllamaProvider(ModelProvider):
         raise StructuredOutputInvalid(
             f"{self.model} did not produce valid {schema.__name__} in {max_attempts} "
             f"attempts. Last error: {last_error}. Nothing was parsed out of the prose "
-            "instead — §41 forbids reading product state from unvalidated text."
+            "instead — the system forbids reading product state from unvalidated text."
         )
 
     def _completion(self, payload: dict[str, Any], prompt_name: str,

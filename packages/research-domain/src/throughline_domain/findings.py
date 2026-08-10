@@ -1,10 +1,10 @@
-"""Finding lifecycle (§13) and the evidence requirement (LAW 3).
+"""Finding lifecycle and the evidence requirement.
 
 Two rules are enforced here rather than trusted to callers:
 
-1. A finding may only move along a legal transition (§13). There is no path from
+1. A finding may only move along a legal transition. There is no path from
    CANDIDATE to VALIDATED — a pattern must pass through EXPLORATORY, and
-   promotion out of EXPLORATORY requires the §51 robustness checks.
+   promotion out of EXPLORATORY requires the  robustness checks.
 2. A finding cannot be promoted past CANDIDATE without linked evidence. LAW 3 is
    a precondition in code, not a convention.
 """
@@ -23,7 +23,7 @@ from throughline_schemas.enums import (
 
 from .ids import new_id
 
-#: §51 — the checks an exploratory pattern must survive to become validated.
+#:  — the checks an exploratory pattern must survive to become validated.
 #: A check that was not run is not a check that passed.
 REQUIRED_VALIDATION_CHECKS: frozenset[str] = frozenset(
     {
@@ -46,11 +46,11 @@ class EvidenceRequired(FindingError):
 
 
 class IllegalTransition(FindingError):
-    """§13 — the lifecycle is a state machine, not a label."""
+    """ — the lifecycle is a state machine, not a label."""
 
 
 class ValidationIncomplete(FindingError):
-    """§51 — exploratory may not become validated without the checks."""
+    """ — exploratory may not become validated without the checks."""
 
 
 def create_finding(
@@ -67,7 +67,7 @@ def create_finding(
     causal_status: CausalStatus = CausalStatus.NOT_ASSESSED,
     actor: str,
 ) -> str:
-    """Create a finding. It always starts as CANDIDATE (§13)."""
+    """Create a finding. It always starts as CANDIDATE."""
     finding_id = new_id("fnd")
     cur.execute(
         """
@@ -138,7 +138,7 @@ def transition(
     actor: str,
     checks: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Move a finding along the lifecycle, enforcing §13 and LAW 3."""
+    """Move a finding along the lifecycle, enforcing  and LAW 3."""
     cur.execute(
         "SELECT id, project_id, lifecycle_status FROM findings WHERE id = %s FOR UPDATE",
         (finding_id,),
@@ -166,18 +166,18 @@ def transition(
                 f"{to_status}. Attach supporting or contradicting evidence first."
             )
 
-    # §51 — promotion into VALIDATED requires the robustness checks to have run
+    #  — promotion into VALIDATED requires the robustness checks to have run
     # *and* passed. Missing is not passing.
     if to_status is FindingLifecycle.VALIDATED:
         missing = sorted(REQUIRED_VALIDATION_CHECKS - set(checks))
         if missing:
             raise ValidationIncomplete(
-                "Cannot validate without these §51 checks: " + ", ".join(missing)
+                "Cannot validate without these robustness checks: " + ", ".join(missing)
             )
         failed = sorted(name for name in REQUIRED_VALIDATION_CHECKS if not checks[name])
         if failed:
             raise ValidationIncomplete(
-                "These §51 checks did not pass: " + ", ".join(failed)
+                "These robustness checks did not pass: " + ", ".join(failed)
             )
 
     cur.execute(

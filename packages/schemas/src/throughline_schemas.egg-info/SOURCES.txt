@@ -1,9 +1,0 @@
-pyproject.toml
-src/throughline_schemas/__init__.py
-src/throughline_schemas/domain.py
-src/throughline_schemas/enums.py
-src/throughline_schemas.egg-info/PKG-INFO
-src/throughline_schemas.egg-info/SOURCES.txt
-src/throughline_schemas.egg-info/dependency_links.txt
-src/throughline_schemas.egg-info/requires.txt
-src/throughline_schemas.egg-info/top_level.txt

@@ -1,11 +1,11 @@
-"""The statistical result contract (§47).
+"""The statistical result contract.
 
-§47 is emphatic: never equate p < 0.05 with important. This module encodes that
+ is emphatic: never equate p < 0.05 with important. This module encodes that
 as structure rather than as advice — a result carries statistical significance,
 effect magnitude, practical significance and evidence quality as four separate
 fields, so a caller cannot collapse them by accident.
 
-Every numeric field here is produced by computation (LAW 2). Nothing in this
+Every numeric field here is produced by computation. Nothing in this
 module accepts a number from a language model.
 """
 
@@ -60,7 +60,7 @@ class StatisticalResult:
     warnings: list[str] = field(default_factory=list)
     extra: dict[str, Any] = field(default_factory=dict)
 
-    # §47 — four distinct judgements, never merged.
+    #  — four distinct judgements, never merged.
     statistically_significant: bool | None = None
     practical_significance: str = "not_assessed"
     evidence_quality: EvidenceQuality = "insufficient"
@@ -80,7 +80,7 @@ def grade_evidence(
     """Grade the evidence behind a result, independently of its p-value.
 
     A tiny sample with a violated assumption is weak evidence however small the
-    p-value is; that is the whole point of §47.
+    p-value is; that is the whole point of .
     """
     if any(a.outcome == "violated" and a.severity == "blocking" for a in assumptions):
         return "insufficient"

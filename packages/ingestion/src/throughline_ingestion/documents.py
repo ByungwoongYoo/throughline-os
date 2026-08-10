@@ -1,10 +1,10 @@
-"""Document parsing (§25, §27).
+"""Document parsing.
 
 Pure functions: bytes on disk in, structured passages out. No database, no
 network, no model calls — which is what makes parsing independently testable and
-keeps research logic out of route handlers (§9).
+keeps research logic out of route handlers.
 
-Every passage carries the location it came from. §27 requires that every
+Every passage carries the location it came from.  requires that every
 retrieved sentence remains traceable to the paper, so `char_start`/`char_end`
 index into the document's reconstructed text and are verified on read.
 """
@@ -21,7 +21,7 @@ import pymupdf
 
 
 class UnsupportedFormat(ValueError):
-    """§25 — do not show unsupported formats as functional."""
+    """ — do not show unsupported formats as functional."""
 
 
 #: Formats the pipeline genuinely handles today. Anything else is refused loudly

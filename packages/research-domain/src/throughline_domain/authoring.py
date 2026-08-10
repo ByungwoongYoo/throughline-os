@@ -1,5 +1,5 @@
 """
-Turning a validated connection into a communication artifact (§80, §133).
+Turning a validated connection into a communication artifact.
 
 This is the "one finding → many outputs" step. It is deliberately templated
 rather than generated: with no model provider configured, prose written by this
@@ -37,10 +37,10 @@ def draft_from_connection(
     """
     Assemble a report from a tested connection and its validation report.
 
-    The narrative order follows §86 in miniature — what was asked, what was
+    The narrative order follows  in miniature — what was asked, what was
     found, what was done to break it, what remains uncertain — because a result
-    presented without the attempt to destroy it is the exact overstatement §76
-    and §120 are meant to catch.
+    presented without the attempt to destroy it is the exact overstatement 
+    and  are meant to catch.
     """
     cur.execute(
         "SELECT c.*, dr.dataset_version_id FROM connections c "
@@ -59,7 +59,7 @@ def draft_from_connection(
         raise AuthoringError(
             "This connection has no analysis run, so there is no recorded computation "
             "to reference. A report cannot be written about a number that was never "
-            "produced (LAW 2)."
+            "produced."
         )
 
     cur.execute("SELECT project_id, research_question FROM projects WHERE id = %s",
@@ -124,7 +124,7 @@ def draft_from_connection(
         citation_ids=[run_citation],
     )
 
-    # §47 keeps these apart, so the report does too.
+    #  keeps these apart, so the report does too.
     block(
         block_type="paragraph",
         template=(
@@ -208,7 +208,7 @@ def draft_from_connection(
               template=("No limitations were recorded on the analysis and no assumption "
                         "check was violated. That is not the same as there being none."))
 
-    # §52 — the causal question, answered by what was actually established.
+    #  — the causal question, answered by what was actually established.
     block(
         block_type="paragraph",
         template=("This is an observational association. Nothing in this analysis "
@@ -221,7 +221,7 @@ def draft_from_connection(
 
 def draft_presentation_from_report(cur, *, project_id: str, report_id: str) -> str:
     """
-    Re-cut an existing report as slides (§80).
+    Re-cut an existing report as slides.
 
     The blocks are *re-referenced*, not copied: each slide's value_refs point at
     the same analysis runs as the report's. If the analysis is re-run, both
@@ -263,7 +263,7 @@ def draft_presentation_from_report(cur, *, project_id: str, report_id: str) -> s
             cur, artifact_id=artifact_id, sequence=sequence, block_type=slide_kind,
             template=block["template"], value_refs=block["value_refs"],
             visual_id=block["visual_id"],
-            # The full prose becomes the speaker note; §83 keeps it off the slide.
+            # The full prose becomes the speaker note;  keeps it off the slide.
             notes=block["template"] if kind == "paragraph" else block["notes"],
             citation_ids=citation_ids,
         )

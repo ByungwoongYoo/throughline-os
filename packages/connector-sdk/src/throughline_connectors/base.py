@@ -215,7 +215,7 @@ class Connector:
 
     def capability(self) -> dict[str, Any]:
         """
-        What this connector can do right now (§123).
+        What this connector can do right now.
 
         `needs_contact` without a contact address is reported as usable but
         impolite rather than as broken: most of these APIs work without it and

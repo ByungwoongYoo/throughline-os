@@ -1,12 +1,12 @@
-"""Local embedding provider (§29, §40).
+"""Local embedding provider.
 
 Local-first means the semantic half of hybrid retrieval cannot depend on an API
 key. `model2vec` static embeddings give real semantics from a ~30 MB local model
 with no torch and no network at query time.
 
-The provider is swappable per §40. If no model is present, retrieval degrades to
+The provider is swappable per . If no model is present, retrieval degrades to
 lexical-only and *says so* in the strategy field rather than silently returning
-worse results (§123).
+worse results.
 """
 
 from __future__ import annotations

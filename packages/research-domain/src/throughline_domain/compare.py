@@ -123,7 +123,7 @@ def _canonical_map(cur, project_id: str, version_id: str) -> dict[str, str]:
     Column → approved canonical name, for one dataset version.
 
     Approved only. An unreviewed suggestion must not be able to declare two
-    datasets comparable — that is exactly the silent merge §21 forbids, arriving
+    datasets comparable — that is exactly the silent merge the system forbids, arriving
     by a different route.
     """
     cur.execute(

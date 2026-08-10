@@ -1,2 +1,0 @@
-throughline-domain
-throughline-schemas

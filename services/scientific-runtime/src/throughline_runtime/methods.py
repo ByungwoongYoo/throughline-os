@@ -1,4 +1,4 @@
-"""Statistical methods (§46) with assumption checks (§45, §47).
+"""Statistical methods with assumption checks.
 
 Every method is a pure function of a DataFrame and a validated specification. No
 database, no network, no model calls — this module is imported *inside the
@@ -109,7 +109,7 @@ def _normality(series: pd.Series, label: str) -> AssumptionCheck:
 
 
 def _outliers(series: pd.Series, label: str) -> AssumptionCheck:
-    """Report influential points rather than removing them (LAW 4)."""
+    """Report influential points rather than removing them."""
     q1, q3 = np.percentile(series, [25, 75])
     iqr = q3 - q1
     if iqr == 0:
@@ -130,7 +130,7 @@ def _outliers(series: pd.Series, label: str) -> AssumptionCheck:
 
 
 def _finalise(result: StatisticalResult) -> StatisticalResult:
-    """Apply the §47 judgements that every method shares."""
+    """Apply the  judgements that every method shares."""
     if result.p_value is not None:
         result.statistically_significant = result.p_value < (1 - result.confidence_level)
     result.practical_significance = describe_practical_significance(result.effect_size)
@@ -221,7 +221,7 @@ def _correlation(frame: pd.DataFrame, spec: dict[str, Any], kind: str) -> Statis
             detail="Inspect the scatter plot; monotonicity is not formally tested.",
         ))
 
-    limitations = ["Correlation is association, not causation (§52)."]
+    limitations = ["Correlation is association, not causation."]
     if dropped:
         limitations.append(f"{dropped} row(s) dropped for missing values in either variable.")
 
@@ -238,7 +238,7 @@ def _correlation(frame: pd.DataFrame, spec: dict[str, Any], kind: str) -> Statis
         extra={"x": x_name, "y": y_name, "dropped_rows": dropped},
     )
 
-    # §49/§51 — if Pearson's normality assumption fails, say what to run instead.
+    # / — if Pearson's normality assumption fails, say what to run instead.
     if kind == "pearson" and any(
         c.outcome == "violated" and c.name.startswith("normality") for c in checks
     ):
@@ -344,7 +344,7 @@ def linear_regression(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalR
         ))
 
     r_squared = float(model.rsquared)
-    limitations = ["Regression coefficients are associations, not causal effects (§52)."]
+    limitations = ["Regression coefficients are associations, not causal effects."]
     if dropped:
         limitations.append(f"{dropped} row(s) dropped by listwise deletion.")
 
@@ -598,7 +598,7 @@ def available_methods() -> list[str]:
 
 @method("bootstrap_correlation")
 def bootstrap_correlation(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalResult:
-    """Resample the association to see whether it is an artefact of a few rows (§51).
+    """Resample the association to see whether it is an artefact of a few rows.
 
     Reports the fraction of resamples keeping the observed sign and a percentile
     interval. Stability is the question here, not significance: a correlation
@@ -615,7 +615,7 @@ def bootstrap_correlation(frame: pd.DataFrame, spec: dict[str, Any]) -> Statisti
     correlate = stats.pearsonr if kind == "pearson" else stats.spearmanr
     observed = float(correlate(x, y)[0])
 
-    # Seeded so a rerun reproduces the interval exactly (§44, §124).
+    # Seeded so a rerun reproduces the interval exactly.
     rng = np.random.default_rng(int(spec.get("random_seed", 0)))
     values = np.empty(iterations, dtype=float)
     xv, yv = x.to_numpy(), y.to_numpy()

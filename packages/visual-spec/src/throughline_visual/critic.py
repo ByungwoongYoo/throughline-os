@@ -1,11 +1,11 @@
-"""The visualization critic (§76).
+"""The visualization critic.
 
 Runs before a figure is published and either fixes the problem or warns. Its
 subject is honesty of encoding, not aesthetics: a truncated bar axis, a hidden
 sample size, an unshown confidence interval and a caption claiming causation are
 all ways a technically-correct number becomes a misleading picture.
 
-The overstatement check is the one that matters most. §52 forbids converting
+The overstatement check is the one that matters most. the system forbids converting
 association into causation, and a caption is exactly where that conversion tends
 to happen quietly.
 """
@@ -56,7 +56,7 @@ class CritiqueReport:
 
     @property
     def publishable(self) -> bool:
-        """§76 — a figure with an unfixed blocking problem must not be published."""
+        """ — a figure with an unfixed blocking problem must not be published."""
         return not self.blocking
 
     def to_dict(self) -> dict[str, Any]:
@@ -121,7 +121,7 @@ def _axis_integrity(spec: ResearchVisualSpec, report: CritiqueReport, autofix: b
 
 
 def _uncertainty(spec, data, analysis, report: CritiqueReport, autofix: bool) -> None:
-    """§76 — if the analysis produced an interval, the figure must show it."""
+    """ — if the analysis produced an interval, the figure must show it."""
     has_interval = (
         analysis.get("ci_low") is not None
         or bool(data.ci_low)
@@ -224,7 +224,7 @@ def _scale_choice(spec, data, report: CritiqueReport) -> None:
 
 
 def _accessibility(spec, data, report: CritiqueReport) -> None:
-    """§118 — colour must not be the only carrier of meaning."""
+    """ — colour must not be the only carrier of meaning."""
     groups = len(set(data.group_values or []))
     if groups > 1 and spec.visual_type in {VisualType.SCATTER, VisualType.LINE}:
         report.critiques.append(Critique(
@@ -263,7 +263,7 @@ def _misleading_encoding(spec, data, report: CritiqueReport) -> None:
 
 
 def _overstatement(spec, analysis: dict[str, Any], report: CritiqueReport) -> None:
-    """§52/§76 — a caption may not upgrade an association into a cause."""
+    """/ — a caption may not upgrade an association into a cause."""
     text = f"{spec.title} {spec.subtitle} {spec.caption}"
     causal = _CAUSAL_LANGUAGE.search(text)
     if not causal:
@@ -292,5 +292,5 @@ def _overstatement(spec, analysis: dict[str, Any], report: CritiqueReport) -> No
         check="overstatement", outcome="violated", severity="blocking",
         detail=(f"The caption claims causation ({causal.group(0)!r}) but the analysis "
                 f"has causal_status = {causal_status}. Rewrite it as an association, "
-                "or assess causality explicitly (§52)."),
+                "or assess causality explicitly."),
     ))

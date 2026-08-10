@@ -1,5 +1,5 @@
 """
-Transport and abuse protections (§99).
+Transport and abuse protections.
 
 Everything here is about the gap between "runs on my laptop" and "reachable by
 anything else". Locally most of it is unnecessary; the moment the API binds to
@@ -126,7 +126,7 @@ def client_key(request: Request) -> str:
 
 
 class SecurityMiddleware(BaseHTTPMiddleware):
-    """Rate limiting plus the response headers a browser needs (§99)."""
+    """Rate limiting plus the response headers a browser needs."""
 
     async def dispatch(self, request: Request, call_next):  # noqa: ANN001
         route = request.scope.get("route")

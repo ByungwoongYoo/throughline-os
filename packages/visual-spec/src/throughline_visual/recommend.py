@@ -1,4 +1,4 @@
-"""Visual intelligence (§72) — the researcher should not need to know chart names.
+"""Visual intelligence — the researcher should not need to know chart names.
 
 Input: an analysis result, the variables it used, and what the figure is for.
 Output: a recommended visual, the reason, a ResearchVisualSpec, a caption, an
@@ -65,7 +65,7 @@ def recommend(
 
 
 def _significance_note(result: dict[str, Any]) -> str:
-    """A caption fragment that keeps §47's separations intact."""
+    """A caption fragment that keeps 's separations intact."""
     parts: list[str] = []
     if result.get("p_value") is not None:
         parts.append(f"p = {result['p_value']:.3g}")
@@ -91,7 +91,7 @@ def _correlation(run_id, version_id, variables, result, audience) -> dict[str, A
         annotations=[Annotation(kind="regression_line",
                                 text="least-squares fit, shown for orientation only")],
         title=f"{y_name.replace('_', ' ')} against {x_name.replace('_', ' ')}",
-        # §52 — the caption must not imply causation from a correlation.
+        #  — the caption must not imply causation from a correlation.
         caption=(f"Association between {x_name} and {y_name}. {_significance_note(result)}. "
                  "Association does not establish causation."),
         interaction=["hover", "brush", "underlying_table"],

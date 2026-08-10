@@ -1,6 +1,6 @@
-"""Robustness validation (§51) — the engine that tries to destroy a finding.
+"""Robustness validation — the engine that tries to destroy a finding.
 
-§51 says a new relationship begins as EXPLORATORY and is promoted only after
+ says a new relationship begins as EXPLORATORY and is promoted only after
 suitable checks. This module runs those checks as *real analyses in the sandbox*
 rather than as assertions about them, so every validation claim is itself
 traceable to a computation (LAW 1 applied to validation).
@@ -72,7 +72,7 @@ def validate_connection(
     cur, *, connection_id: str, runner: Callable[[str], None],
     confounders: Sequence[str] = (),
 ) -> dict[str, Any]:
-    """Run the §51 suite against a discovered connection.
+    """Run the  suite against a discovered connection.
 
     ``runner`` executes one analysis run to completion — injected so this module
     stays free of worker and sandbox imports, and so tests can drive it directly.
@@ -231,7 +231,7 @@ def validate_connection(
 
     all_passed = all(checks.values())
     summary = (
-        "All §51 checks passed; the association survived every test applied."
+        "All robustness checks passed; the association survived every test applied."
         if all_passed else
         "Did not pass: " + ", ".join(name for name, ok in checks.items() if not ok)
     )

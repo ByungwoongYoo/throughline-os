@@ -61,7 +61,7 @@ def available() -> bool:
 
 def capability() -> dict[str, Any]:
     """
-    Which parser will read a document, and what that costs (§123).
+    Which parser will read a document, and what that costs.
 
     Reported rather than assumed, because the answer changes what downstream
     extraction can find.

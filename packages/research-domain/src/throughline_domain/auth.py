@@ -1,7 +1,7 @@
 """Local-first authentication.
 
 A desktop install has one researcher, but the account still exists: it scopes
-projects, signs the audit trail (§99), and means the same code runs unchanged if
+projects, signs the audit trail, and means the same code runs unchanged if
 this is later hosted. Sessions are opaque random tokens stored only as hashes,
 so a stolen database file does not yield usable credentials.
 """
@@ -133,7 +133,7 @@ def purge_expired_sessions(cur) -> int:
 
 
 def owns_project(cur, *, user_id: str, project_id: str) -> bool:
-    """Project scoping (§97), enforced server-side and never in the client."""
+    """Project scoping, enforced server-side and never in the client."""
     cur.execute(
         "SELECT 1 FROM projects WHERE id = %s AND owner_user_id = %s", (project_id, user_id)
     )

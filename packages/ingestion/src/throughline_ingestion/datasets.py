@@ -1,6 +1,6 @@
-"""Dataset ingestion and profiling (§20, §26).
+"""Dataset ingestion and profiling.
 
-Raw data is never mutated (§26). Profiling reads, describes and flags; it does
+Raw data is never mutated. Profiling reads, describes and flags; it does
 not clean, impute or coerce. Anything that would change a value is a
 transformation, belongs in Phase 2, and must be visible under LAW 4.
 
@@ -32,7 +32,7 @@ class UnsupportedDataset(ValueError):
     pass
 
 
-#: §20 semantic types.
+#:  semantic types.
 SEMANTIC_TYPES = (
     "identifier", "continuous", "ordinal", "categorical", "binary", "date",
     "time", "geography", "age", "sex", "treatment", "outcome", "exposure",
@@ -52,7 +52,7 @@ _NAME_HINTS: list[tuple[str, re.Pattern[str]]] = [
     ("exposure", re.compile(r"^(exposure|dose|consumption|intake|usage)$", re.I)),
 ]
 
-# §26 — flag fields that may carry personal data so downstream sharing and
+#  — flag fields that may carry personal data so downstream sharing and
 # export can respect them. Flagging is not redaction; nothing is removed.
 _SENSITIVE_HINTS = re.compile(
     r"^(name|full_?name|first_?name|last_?name|surname|email|phone|mobile|address|"
@@ -87,7 +87,7 @@ class DatasetProfile:
 
 
 def sniff_delimiter(path: Path) -> str:
-    """§26 — detect the delimiter rather than assuming a comma."""
+    """ — detect the delimiter rather than assuming a comma."""
     sample = path.read_bytes()[:64_000].decode("utf-8", errors="replace")
     try:
         return csv.Sniffer().sniff(sample, delimiters=",;\t|").delimiter
@@ -173,7 +173,7 @@ def profile_column(ordinal: int, name: str, series: pd.Series) -> ColumnProfile:
                 "p75": float(quantiles.loc[0.75]),
                 "integer_only": bool(np.all(np.equal(np.mod(numbers, 1), 0))),
             })
-            # §26 — suspicious values are reported, never silently corrected.
+            #  — suspicious values are reported, never silently corrected.
             sentinels = [v for v in (-999, -99, -9999, 999, 9999) if float((numbers == v).sum()) > 0]
             if sentinels:
                 stats["possible_sentinel_values"] = sentinels
@@ -282,7 +282,7 @@ def profile_dataset(path: Path, *, row_limit: int = 500_000) -> DatasetProfile:
         "high_missing_columns": high_missing,
         "possibly_personal_columns": sensitive,
         "semantic_type_counts": _counts(c.semantic_type for c in columns),
-        # §26 — the report describes; it never prescribes a mutation.
+        #  — the report describes; it never prescribes a mutation.
         "notice": "Profiling never modifies the source data. Findings here are "
                   "observations for the researcher to act on.",
     }

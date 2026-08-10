@@ -1,9 +1,0 @@
-Metadata-Version: 2.4
-Name: throughline-visual
-Version: 0.1.0
-Summary: ResearchVisualSpec (§73), visual intelligence (§72), critic (§76) and renderers (§74)
-Requires-Python: >=3.12
-Requires-Dist: throughline-schemas
-Requires-Dist: pydantic>=2.7
-Requires-Dist: matplotlib>=3.8
-Requires-Dist: numpy>=1.26

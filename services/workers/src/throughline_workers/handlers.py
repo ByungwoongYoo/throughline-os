@@ -1,6 +1,6 @@
 """Workflow handlers.
 
-Per §123 nothing here is stubbed to look implemented. A handler either does the
+Per  nothing here is stubbed to look implemented. A handler either does the
 work or is absent.
 """
 
@@ -38,11 +38,11 @@ def echo(run: dict[str, Any], cur: Any) -> dict[str, Any]:
 
 @REGISTRY.register("ingest.source")
 def ingest_source(run: dict[str, Any], cur: Any) -> dict[str, Any]:
-    """Walk a source through the §24 ingestion state machine.
+    """Walk a source through the  ingestion state machine.
 
     Each stage records its progress, so a failure partway through shows the
-    researcher exactly how far it got (§104, §105) and leaves the stored file in
-    place for a retry (§24).
+    researcher exactly how far it got and leaves the stored file in
+    place for a retry.
     """
     source_id = run["input"]["source_id"]
     cur.execute(
@@ -78,7 +78,7 @@ def ingest_source(run: dict[str, Any], cur: Any) -> dict[str, Any]:
         objects.advance_ingestion(cur, source_id=source_id,
                                   to_status=IngestionStatus.VALIDATED,
                                   detail=f"Stored file located ({suffix})")
-        # §99 lists malware scanning as architecture. It is not implemented here,
+        #  lists malware scanning as architecture. It is not implemented here,
         # so this stage records that no scan ran rather than implying one did.
         objects.advance_ingestion(cur, source_id=source_id,
                                   to_status=IngestionStatus.SCANNED,
@@ -138,7 +138,7 @@ def _ingest_document(
 
     broken = parsed.verify_anchors()
     if broken:
-        # An anchor that does not resolve is not evidence (LAW 1).
+        # An anchor that does not resolve is not evidence.
         raise PermanentIngestionError(
             f"{len(broken)} passage anchors did not match the source text; "
             "refusing to index unverifiable spans."
@@ -189,7 +189,7 @@ def _ingest_dataset(
                                   name=name, profile=profile, content_hash=content_hash,
                                   storage_key=storage_key, actor=actor)
 
-    # A dataset's searchable surface is its schema, not its rows: §106 forbids
+    # A dataset's searchable surface is its schema, not its rows: the system forbids
     # shipping millions of rows around, and a column description is what a
     # researcher actually searches for. Schema passages describe rather than
     # quote, so they deliberately carry no source span.
@@ -224,7 +224,7 @@ def _ingest_dataset(
 
 @REGISTRY.register("analysis.run")
 def analysis_run(run: dict[str, Any], cur: Any) -> dict[str, Any]:
-    """Execute one analysis in the sandbox and commit its provenance (§43, §44).
+    """Execute one analysis in the sandbox and commit its provenance.
 
     The dataset file is located here, in the parent, and handed to the executor
     as a path. The sandbox process is never told where the object store is, and
@@ -239,7 +239,7 @@ def analysis_run(run: dict[str, Any], cur: Any) -> dict[str, Any]:
     if not record:
         raise ValueError(f"Analysis run {run_id} no longer exists")
     if record["status"] in {"completed", "failed"}:
-        # §38 — a retry must not recompute a terminal run.
+        #  — a retry must not recompute a terminal run.
         return {"analysis_run_id": run_id, "status": record["status"], "skipped": True}
 
     spec_row = dict(analysis.load_spec(cur, record["spec_id"]))
@@ -300,7 +300,7 @@ def _execute_analysis(cur, run_id: str) -> None:
 
 @REGISTRY.register("discovery.run")
 def discovery_run(run: dict[str, Any], cur: Any) -> dict[str, Any]:
-    """§48/§49 — generate candidates, test them, correct, rank, record.
+    """/ — generate candidates, test them, correct, rank, record.
 
     Every candidate becomes a real sandboxed analysis run, so a discovered
     connection is traceable to the computation behind it (LAW 1, LAW 2).
@@ -358,7 +358,7 @@ def discovery_run(run: dict[str, Any], cur: Any) -> dict[str, Any]:
         )
         connection_ids.append(connection_id)
         # Step 10: only survivors of the correction become exploratory. The rest
-        # stay candidates — visible, but not presented as discoveries (§13/§14).
+        # stay candidates — visible, but not presented as discoveries.
         if correction["survives"]:
             discovery.transition(
                 cur, connection_id=connection_id, to_status="exploratory",
@@ -391,7 +391,7 @@ def discovery_run(run: dict[str, Any], cur: Any) -> dict[str, Any]:
 
 @REGISTRY.register("connection.validate")
 def connection_validate(run: dict[str, Any], cur: Any) -> dict[str, Any]:
-    """§51 — try to destroy a connection; promote it only if it survives."""
+    """ — try to destroy a connection; promote it only if it survives."""
     from throughline_domain import discovery, validation
 
     connection_id = run["input"]["connection_id"]
@@ -420,7 +420,7 @@ def connection_validate(run: dict[str, Any], cur: Any) -> dict[str, Any]:
 
 @REGISTRY.register("finding.challenge")
 def finding_challenge(run: dict[str, Any], cur: Any) -> dict[str, Any]:
-    """§57 — run the Scientific Critic against a finding."""
+    """ — run the Scientific Critic against a finding."""
     from throughline_domain import critic
 
     return critic.challenge_finding(

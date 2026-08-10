@@ -1,7 +1,7 @@
-"""HTTP surface (§111).
+"""HTTP surface.
 
 Route handlers are deliberately thin: they authenticate, scope to a project, and
-delegate. No research logic lives here (§9). Every endpoint that mutates state
+delegate. No research logic lives here. Every endpoint that mutates state
 does so inside one transaction so that an object, its lineage and its audit
 entry commit together.
 """
@@ -98,7 +98,7 @@ def current_user(throughline_session: str | None = Cookie(default=None)) -> dict
 
 
 def scoped_project(project_id: str, user: dict[str, Any]) -> str:
-    """Project isolation is checked here, never in the client (§97)."""
+    """Project isolation is checked here, never in the client."""
     with transaction() as cur:
         if not auth.owns_project(cur, user_id=user["id"], project_id=project_id):
             # Not 403: an account should not learn that someone else's project id exists.
@@ -232,7 +232,7 @@ async def upload_source(
         run_id = workflow.enqueue(
             cur, workflow_name="ingest.source", project_id=project_id,
             payload={"source_id": source_id},
-            # §38: the same bytes in the same project ingest once.
+            # : the same bytes in the same project ingest once.
             idempotency_key=f"ingest:{project_id}:{record['content_hash']}",
         )
     return {
@@ -273,7 +273,7 @@ def create_object(project_id: str, payload: ObjectCreate,
 
 @app.get("/api/objects/{object_id}/provenance")
 def object_provenance(object_id: str, user: dict = Depends(current_user)) -> dict[str, Any]:
-    """§93 — "How was this made?" resolved through the lineage graph."""
+    """ — "How was this made?" resolved through the lineage graph."""
     with transaction() as cur:
         cur.execute("SELECT project_id FROM research_objects WHERE id = %s", (object_id,))
         row = cur.fetchone()
@@ -285,7 +285,7 @@ def object_provenance(object_id: str, user: dict = Depends(current_user)) -> dic
 
 @app.get("/api/objects/{object_id}/impact")
 def object_impact(object_id: str, user: dict = Depends(current_user)) -> dict[str, Any]:
-    """§101 — what a deletion would destroy, before it is destroyed."""
+    """ — what a deletion would destroy, before it is destroyed."""
     with transaction() as cur:
         cur.execute("SELECT project_id FROM research_objects WHERE id = %s", (object_id,))
         row = cur.fetchone()
@@ -316,7 +316,7 @@ def create_finding(project_id: str, payload: FindingCreate,
 @app.post("/api/findings/{finding_id}/transition")
 def transition_finding(finding_id: str, payload: FindingTransition,
                        user: dict = Depends(current_user)) -> dict[str, Any]:
-    """§13 — the lifecycle refuses illegal or unearned promotions."""
+    """ — the lifecycle refuses illegal or unearned promotions."""
     with transaction() as cur:
         cur.execute("SELECT project_id FROM findings WHERE id = %s", (finding_id,))
         row = cur.fetchone()
@@ -379,7 +379,7 @@ def approve_workflow_node(run_id: str, node_name: str,
 
 @app.exception_handler(Exception)
 async def unhandled(request: Request, exc: Exception) -> JSONResponse:
-    """§104 — never a bare "something went wrong"."""
+    """ — never a bare "something went wrong"."""
     return JSONResponse(
         status_code=500,
         content={
