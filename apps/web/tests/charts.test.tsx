@@ -17,6 +17,7 @@ import { Ribbon, FlowNode, FlowLink } from "@/components/charts/Ribbon";
 import { SetRegions } from "@/components/charts/SetRegions";
 import { Projection, Projected } from "@/components/charts/Projection";
 import { Radial, Spoke } from "@/components/charts/Radial";
+import { Temporal, TemporalEvent } from "@/components/charts/Temporal";
 import { PRIMITIVES } from "@/lib/primitives";
 
 const positive: TreeNode = {
@@ -210,6 +211,86 @@ describe("P8 radial", () => {
     render(<Radial spokes={spokes} valueLabel="doses" cycleLabel="hour of day" />);
     expect(document.querySelectorAll(".radial-bar").length).toBe(3);
     expect(screen.getByText(/square root of the value/i)).toBeInTheDocument();
+  });
+});
+
+describe("P14 temporal alignment", () => {
+  // Four had the outcome; two left observation without it.
+  const events: TemporalEvent[] = [
+    { id: "a", label: "A", time: 2, observed: true },
+    { id: "b", label: "B", time: 4, observed: false },
+    { id: "c", label: "C", time: 5, observed: true },
+    { id: "d", label: "D", time: 7, observed: false },
+    { id: "e", label: "E", time: 8, observed: true },
+    { id: "f", label: "F", time: 9, observed: true },
+  ];
+
+  const render14 = (extra: Partial<React.ComponentProps<typeof Temporal>> = {}) =>
+    render(<Temporal events={events} unitLabel="months"
+                     originLabel="randomisation"
+                     outcomeLabel="resistance detected" {...extra} />);
+
+  it("draws censoring as a different mark from an observed event", () => {
+    render14();
+    // The distinction is a *shape*, not a colour: colour alone fails for a
+    // colour-blind reader and vanishes in a printed figure, and this is the
+    // one thing on the chart that must never be lost.
+    expect(document.querySelectorAll(".km-censor").length).toBe(2);
+    expect(document.querySelectorAll(".km-event").length).toBeGreaterThan(0);
+  });
+
+  it("says how many were censored rather than only how many had the outcome", () => {
+    render14();
+    expect(screen.getByText(/4 had resistance detected/)).toBeInTheDocument();
+    expect(screen.getByText(/2 left observation without it/)).toBeInTheDocument();
+  });
+
+  it("states that a censored subject is not an outcome", () => {
+    render14();
+    expect(screen.getByText(/censored subject is not an outcome/i))
+      .toBeInTheDocument();
+  });
+
+  it("reports the number still at risk", () => {
+    // A curve resting on three survivors looks identical to one resting on
+    // three hundred; only this line tells them apart.
+    render14();
+    expect(document.querySelector(".km-atrisk")?.textContent)
+      .toMatch(/At risk:/);
+  });
+
+  it("says there is no median rather than inventing one", () => {
+    // Only one of four subjects has the outcome, so survival never reaches 50%.
+    render(<Temporal unitLabel="months" originLabel="entry"
+                     outcomeLabel="relapse"
+                     events={[
+                       { id: "a", label: "A", time: 3, observed: true },
+                       { id: "b", label: "B", time: 5, observed: false },
+                       { id: "c", label: "C", time: 6, observed: false },
+                       { id: "d", label: "D", time: 9, observed: false },
+                     ]} />);
+    expect(screen.getByText(/no median to report/i)).toBeInTheDocument();
+  });
+
+  it("warns when the tail rests on very few subjects", () => {
+    render14();
+    expect(screen.getByText(/should not be read as a precise estimate/i))
+      .toBeInTheDocument();
+  });
+
+  it("does not let a censored observation cause a survival step", () => {
+    // Censoring reduces the risk set without an event. If it stepped the
+    // curve, the estimate would claim more outcomes than were observed.
+    render(<Temporal unitLabel="months" originLabel="entry" outcomeLabel="event"
+                     events={[
+                       { id: "a", label: "A", time: 1, observed: false },
+                       { id: "b", label: "B", time: 2, observed: false },
+                       { id: "c", label: "C", time: 3, observed: false },
+                     ]} />);
+    // No observed events at all, so the curve never steps and no event marks
+    // are drawn.
+    expect(document.querySelectorAll(".km-event").length).toBe(0);
+    expect(document.querySelectorAll(".km-censor").length).toBe(3);
   });
 });
 

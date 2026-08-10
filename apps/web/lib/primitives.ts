@@ -129,11 +129,12 @@ export const PRIMITIVES: Primitive[] = [
           + "chart says a still view of it cannot be read.",
   },
   {
-    id: "temporal", code: "P14", name: "Temporal alignment", status: "designed",
+    id: "temporal", code: "P14", name: "Temporal alignment", status: "renders",
     purpose: "Events on a shared timeline, aligned to a common origin.",
     covers: ["Gantt", "swimlane", "event raster", "survival curve"],
-    guards: "Censoring must be drawn distinctly from an observed event — "
-          + "the reason this one is not shipped as 'nearly done'.",
+    guards: "Censoring is drawn as a tick, never a point, and the number still "
+          + "at risk is shown — a curve resting on three survivors looks "
+          + "identical to one resting on three hundred otherwise.",
   },
 ];
 

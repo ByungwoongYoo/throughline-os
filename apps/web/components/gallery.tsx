@@ -25,6 +25,7 @@ import { SetRegions, NamedSet, SetMember } from "./charts/SetRegions";
 import { Projection, Projected } from "./charts/Projection";
 import { Geographic, Place } from "./charts/Geographic";
 import { Volume, Point3D } from "./charts/Volume";
+import { Temporal, TemporalEvent } from "./charts/Temporal";
 
 const CORPUS: TreeNode = {
   id: "root", label: "Corpus",
@@ -153,6 +154,27 @@ const CLOUD: Point3D[] = Array.from({ length: 260 }, (_, i) => {
   };
 });
 
+/**
+ * A cohort with real censoring: some subjects reach the outcome, others leave
+ * observation without it. Both must appear, or the chart demonstrates nothing.
+ */
+const FOLLOW_UP: TemporalEvent[] = (() => {
+  const out: TemporalEvent[] = [];
+  for (let i = 0; i < 42; i += 1) {
+    // Deterministic, so the gallery looks the same on every load — a figure
+    // that changes between reloads teaches the reader not to trust it.
+    const time = Math.round(2 + ((i * 7) % 23) + (i % 5));
+    out.push({
+      id: `s${i}`,
+      label: `Participant ${i + 1}`,
+      time,
+      // Roughly a third leave observation without the outcome.
+      observed: i % 3 !== 0,
+    });
+  }
+  return out.sort((a, b) => a.time - b.time);
+})();
+
 function Section({ code, children }: { code: string; children: React.ReactNode }) {
   const meta = PRIMITIVES.find((p) => p.code === code);
   return (
@@ -201,7 +223,9 @@ export function Gallery() {
     <div className="gallery">
       <h1>Chart primitives</h1>
       <p className="lede">
-        {rendering} of {PRIMITIVES.length} primitives render. Every named chart
+        {rendering === PRIMITIVES.length
+          ? `All ${PRIMITIVES.length} primitives render.`
+          : `${rendering} of ${PRIMITIVES.length} primitives render.`} Every named chart
         type is one of these with different arguments, which is why there are
         fourteen rather than a hundred — one motion language and one set of
         bugs instead of a hundred of each.
@@ -264,22 +288,16 @@ export function Gallery() {
                 title="Embedding space in three components" />
       </Section>
 
-      <section className="gal-item">
-        <header className="gal-head">
-          <span className="gal-code numeric">P14</span>
-          <h2>Temporal alignment</h2>
-          <p>
-            Designed and not built. Events on a shared timeline aligned to a
-            common origin — Gantt, swimlane, event raster, survival curve.
-          </p>
-          <p className="gal-guard">
-            It is not shipped because censoring has to be drawn distinctly from
-            an observed event, and a survival curve that draws them alike
-            overstates what was observed. That is the whole primitive, so a
-            partial version would be worse than none.
-          </p>
-        </header>
-      </section>
+      <Section code="P14">
+        <Temporal events={FOLLOW_UP} unitLabel="months"
+                  originLabel="first prescription"
+                  outcomeLabel="resistant isolate detected"
+                  title="Time to resistance after first prescription" />
+        <Temporal events={FOLLOW_UP.slice(0, 14)} mode="raster" unitLabel="months"
+                  originLabel="first prescription"
+                  outcomeLabel="resistant isolate detected"
+                  title="The same follow-up, one row per participant" />
+      </Section>
     </div>
   );
 }

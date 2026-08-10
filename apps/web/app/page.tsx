@@ -42,7 +42,7 @@ const HAS = [
   ["Complete provenance", "Every figure and finding walks back through analysis → dataset version → source file, by content hash."],
   ["Local and private", "PostgreSQL, embeddings and the sandbox all run on your machine. Nothing leaves it."],
   ["Charts that refuse",
-   `${RENDERING.length} of ${PRIMITIVES.length} primitives, each built to `
+   `All ${PRIMITIVES.length} primitives, each built to `
    + "prevent one specific misreading — a treemap will not draw a negative "
    + "value, a Sankey reports a stage that does not balance, a UMAP plot says "
    + "distance between its clusters means nothing."],
@@ -58,11 +58,15 @@ const HAS = [
  * maintained. Both directions have to be checked when this changes.
  */
 const NOT_YET = [
-  [`${DESIGNED.length === 1 ? "One" : DESIGNED.length} of ${PRIMITIVES.length} chart primitives`,
-   `${RENDERING.length} render. ${DESIGNED.map((p) => p.name).join(", ")} `
-   + `${DESIGNED.length === 1 ? "does" : "do"} not — censoring has to be drawn `
-   + "distinctly from an observed event, and a survival curve that draws them "
-   + "alike overstates what was observed."],
+  // Generated, so the list cannot outlive the code. The primitives entry
+  // disappears entirely once every one of them renders — a "0 of 14 do not"
+  // row is worse than no row, and leaving a stale claim of incompleteness is
+  // the same defect as a stale claim of capability.
+  ...(DESIGNED.length
+    ? [[`${DESIGNED.length} of ${PRIMITIVES.length} chart primitives`,
+        `${RENDERING.length} render. ${DESIGNED.map((p) => p.name).join(", ")} `
+        + `${DESIGNED.length === 1 ? "does" : "do"} not.`]]
+    : []),
   ["No institutional sign-on",
    "Accounts are local to this machine. Shibboleth, SAML and OpenAthens are "
    + "not wired, so a library subscription cannot be used to reach a paywalled "

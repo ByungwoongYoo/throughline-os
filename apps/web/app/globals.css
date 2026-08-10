@@ -3056,3 +3056,19 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .lit-caps, .lit-status { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .lit-found { display: inline-flex; align-items: center; gap: 4px; }
 .lit-meta .smark { vertical-align: -3px; margin-right: 5px; }
+
+
+/* P14 — temporal alignment.
+   The censoring mark is deliberately a different *shape*, not a different
+   colour: colour alone fails for a colour-blind reader and disappears entirely
+   in a printed figure, and this is the one distinction on the chart that must
+   never be lost. */
+.km-curve { transition: d var(--standard) var(--ease-in-out-quart); }
+.km-censor { stroke: var(--ink-soft); stroke-width: 1.75; }
+.km-event { cursor: pointer; transition: r var(--fast) var(--ease-out-quart); }
+.km-event:hover { r: 5.5; }
+.raster-line { stroke: var(--line-strong); stroke-width: 1; }
+.km-atrisk {
+  margin: 6px 0 0; font-size: 11.5px; color: var(--ink-faint);
+  letter-spacing: 0.01em;
+}
