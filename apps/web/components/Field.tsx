@@ -34,11 +34,23 @@
 
 import { useCallback, useEffect, useRef } from "react";
 
-type Point = { x: number; y: number; vx: number; vy: number; ox: number; oy: number };
+type Point = {
+  x: number; y: number; vx: number; vy: number; ox: number; oy: number;
+  /** 0 = far and soft, 1 = near and sharp. Drives size, opacity and blur. */
+  depth: number;
+  radius: number;
+};
 
-/** Points per megapixel, so a large display does not get a denser field. */
-const DENSITY = 62;
-const MAX_POINTS = 130;
+/**
+ * Points per megapixel, so a large display does not get a denser field.
+ *
+ * Lower than it was. A dense mesh of uniform dots joined by straight lines is
+ * the single most recognisable free-library background on the web, and reading
+ * as a stock effect is worse than having no effect at all. Fewer points, varied
+ * in size and softness, read as depth of field instead of as a wireframe.
+ */
+const DENSITY = 34;
+const MAX_POINTS = 74;
 //: Link radius at the top of the page and at the bottom of the hero.
 //:
 //: It grows as you scroll, so the field *condenses* into a network rather than
@@ -72,9 +84,14 @@ export function Field({ className = "" }: { className?: string }) {
       // `ox`/`oy` is where the point actually lives; `x`/`y` is where it is
       // drawn after the cursor has leaned on it. Keeping them apart means the
       // drift is never corrupted by the interaction.
-      return { x, y, ox: x, oy: y,
-               vx: (Math.random() - 0.5) * DRIFT,
-               vy: (Math.random() - 0.5) * DRIFT };
+      // Depth is what stops this reading as a flat mesh: near points are
+      // larger, brighter and drift faster, exactly as they would through a
+      // lens. A uniform field has no depth cue at all.
+      const depth = Math.random() ** 1.6;
+      return { x, y, ox: x, oy: y, depth,
+               radius: 0.7 + depth * 2.6,
+               vx: (Math.random() - 0.5) * DRIFT * (0.4 + depth),
+               vy: (Math.random() - 0.5) * DRIFT * (0.4 + depth) };
     });
   }, []);
 
@@ -140,8 +157,13 @@ export function Field({ className = "" }: { className?: string }) {
             if (distance > linkDistance) continue;
             // Fades with distance, so the structure emerges and dissolves
             // instead of snapping in and out.
-            const strength = 1 - distance / linkDistance;
-            context.strokeStyle = `rgba(150,164,186,${strength * 0.13})`;
+            // Only points at a similar depth link. Joining a near point to a
+            // far one is what flattens these fields into a single plane.
+            const separation = Math.abs(p.depth - q.depth);
+            if (separation > 0.34) continue;
+            const strength = (1 - distance / linkDistance)
+                             * (1 - separation / 0.34);
+            context.strokeStyle = `rgba(150,164,186,${strength * 0.085})`;
             context.beginPath();
             context.moveTo(p.x, p.y);
             context.lineTo(q.x, q.y);
@@ -151,10 +173,18 @@ export function Field({ className = "" }: { className?: string }) {
       }
     }
 
+    // Points are drawn as soft radial falloffs rather than hard discs, so the
+    // far ones sit *behind* the page instead of on it.
     for (const p of points) {
+      const glow = context.createRadialGradient(p.x, p.y, 0,
+                                                p.x, p.y, p.radius * 3.4);
+      const core = 0.10 + p.depth * 0.34;
+      glow.addColorStop(0, `rgba(196,208,226,${core})`);
+      glow.addColorStop(0.4, `rgba(170,186,208,${core * 0.28})`);
+      glow.addColorStop(1, "rgba(150,164,186,0)");
+      context.fillStyle = glow;
       context.beginPath();
-      context.arc(p.x, p.y, 1.1, 0, Math.PI * 2);
-      context.fillStyle = "rgba(178,190,208,0.30)";
+      context.arc(p.x, p.y, p.radius * 3.4, 0, Math.PI * 2);
       context.fill();
     }
   }, []);

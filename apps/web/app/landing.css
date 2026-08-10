@@ -199,6 +199,18 @@
 
 .l-hero-inner { max-width: 1120px; margin: 0 auto; width: 100%; }
 
+/* The measure is bounded so a long line can never reach the graph beside it.
+   Bounding the text is the reliable half of this: the graph can be masked, but
+   type that runs under it is unreadable however soft the mask. */
+.l-hero-inner .l-display { max-width: 15ch; }
+.l-hero-inner .l-lede { max-width: 44ch; }
+
+/* Below the split there is no room for a companion, so there is no companion. */
+@media (max-width: 900px) {
+  .l-hero-graph-layer { display: none; }
+  .l-hero-inner .l-display { max-width: none; }
+}
+
 .l-mark {
   display: inline-flex;
   align-items: center;
@@ -226,7 +238,10 @@
 
 .l-hero h1 em {
   font-style: normal;
-  color: var(--glow);
+  /* Monochrome. The italic already marks the turn in the sentence, and a
+     saturated line at display size is the single loudest thing a page can do
+     — it is also the accent this system reserves for data. */
+  color: var(--mist);
 }
 
 .l-cta-row {
@@ -546,14 +561,25 @@
   right: 0;
   /* Ends before the text column so the graph is a companion to the headline,
      never a texture underneath it. */
-  left: 46%;
+  left: 52%;
   display: grid;
   place-items: center;
   overflow: hidden;
   pointer-events: none;
   z-index: 0;
-  opacity: 0.55;
-  mask-image: radial-gradient(ellipse at 55% 50%, #000 40%, transparent 76%);
+  opacity: 0.42;
+  /* Two masks, not one. The radial keeps it from meeting the edges; the linear
+     fades its left edge to nothing so it cannot encroach on the measure even
+     when a long line runs close to it. The headline grew and the single radial
+     stopped being enough — labels landed on top of the type. */
+  mask-image:
+    radial-gradient(ellipse at 58% 50%, #000 38%, transparent 74%),
+    linear-gradient(90deg, transparent 0%, #000 26%);
+  mask-composite: intersect;
+  -webkit-mask-image:
+    radial-gradient(ellipse at 58% 50%, #000 38%, transparent 74%),
+    linear-gradient(90deg, transparent 0%, #000 26%);
+  -webkit-mask-composite: source-in;
   -webkit-mask-image: radial-gradient(ellipse at 55% 50%, #000 40%, transparent 76%);
   animation: hero-graph-in 1100ms cubic-bezier(0.16, 1, 0.3, 1) both 260ms;
 }
@@ -847,4 +873,58 @@
 .l-btn-primary:hover::after { transform: translateX(120%); }
 @media (prefers-reduced-motion: reduce) {
   .l-btn-primary::after { display: none; }
+}
+
+
+/* --- surface --------------------------------------------------------------
+ *
+ * Three things that separate a dark page which reads as a *surface* from one
+ * that reads as a wireframe on black.
+ *
+ * **Grain.** A still, very fine noise over everything. It is what makes a dark
+ * screen feel like a photographed material rather than a flat fill, and it
+ * hides the banding that large soft gradients produce on 8-bit displays.
+ * Deliberately static: animated grain is a full-screen repaint every frame for
+ * an effect nobody consciously sees.
+ *
+ * **Atmosphere.** The background is not one colour. A cool lift at the top and
+ * a slightly warmer floor give the page a light direction, which is what the
+ * eye reads as depth.
+ *
+ * **Vignette.** A soft darkening at the edges holds attention in the middle of
+ * the measure. Subtle enough that it is never visible as a shape.
+ */
+.landing {
+  position: relative;
+  background:
+    radial-gradient(120% 70% at 50% -10%, #12171f 0%, transparent 60%),
+    radial-gradient(100% 60% at 50% 108%, #100f0d 0%, transparent 55%),
+    var(--deep);
+}
+
+.landing::before,
+.landing::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 80;
+}
+
+/* Vignette. */
+.landing::before {
+  background: radial-gradient(130% 95% at 50% 45%,
+              transparent 42%, rgba(0, 0, 0, 0.38) 100%);
+}
+
+/* Grain. Inline SVG turbulence so it costs no request and cannot arrive late. */
+.landing::after {
+  opacity: 0.055;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing::after { opacity: 0.03; }
 }
