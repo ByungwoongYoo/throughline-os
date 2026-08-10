@@ -32,7 +32,7 @@ import math
 import re
 from typing import Any
 
-from . import causal, harmonize
+from . import causal, harmonize, vocabulary
 from .ids import new_id
 from .verdicts import RunState, Verdict
 
@@ -130,7 +130,11 @@ def check_circularity(cur, *, source_id: str, dataset_version_id: str
         # Weaker: the dataset is named inside a data availability statement.
         if _AVAILABILITY.search(content):
             overlap = dataset_tokens & _distinctive(content)
-            if len(overlap) >= 2:
+            # Two shared tokens, or one rare enough to stand alone. Real dataset
+            # names are short — `amr_surveillance_2019` yields one usable token
+            # once the year and the three-letter acronym are dropped — so a flat
+            # two-token rule would miss the ordinary case this check exists for.
+            if len(overlap) >= 2 or any(len(t) >= 10 for t in overlap):
                 return {
                     "kind": "availability_statement",
                     # Lower, and said so: prose overlap is suggestive, not proof.
@@ -188,6 +192,58 @@ _DESIGN_SUPPORTS: dict[str, set[str]] = {
     "experiment": {"experiment", "randomised_controlled_trial",
                    "randomized_controlled_trial"},
 }
+
+
+#: Words a paper wraps its design in. Stripped before matching, because a model
+#: reading prose returns what the prose says — "a cross-sectional analysis",
+#: "prospective cohort study" — and rejecting those as unrecognised would refuse
+#: on a formatting difference while calling it a fact about the science.
+_DESIGN_NOISE = re.compile(
+    r"(?i)\b(a|an|the|analysis|analyses|study|studies|design|survey|data|"
+    r"prospective|retrospective|based|of|was|were)\b")
+
+#: Phrases that mean a recognised design under another name.
+_DESIGN_ALIASES = {
+    "crosssectional": "cross_sectional",
+    "rct": "randomised_controlled_trial",
+    "randomised_trial": "randomised_controlled_trial",
+    "randomized_trial": "randomised_controlled_trial",
+    "clinical_trial": "randomised_controlled_trial",
+    "casecontrol": "case_control",
+    "follow_up": "cohort",
+    "repeated_measures": "longitudinal",
+    "time_series": "longitudinal",
+}
+
+
+def normalise_design(text: str | None) -> str:
+    """
+    Reduce a paper's own words to a design this system recognises.
+
+    Deterministic and lossy on purpose: it drops filler, never guesses. Anything
+    that does not reduce to a known design comes back unchanged so the caller
+    reports it as unrecognised rather than silently choosing a neighbour — a
+    wrong design here would license a causal reading the data cannot support.
+    """
+    if not text:
+        return "unknown"
+    cleaned = _DESIGN_NOISE.sub(" ", text.strip().lower())
+    cleaned = re.sub(r"[^a-z]+", "_", cleaned).strip("_")
+    if not cleaned:
+        return "unknown"
+    if cleaned in _DESIGN_SUPPORTS:
+        return cleaned
+    if cleaned in _DESIGN_ALIASES:
+        return _DESIGN_ALIASES[cleaned]
+    # "cohort_panel", "cross_sectional_ecological" — take the first recognised
+    # design named, since a paper listing two is describing the stronger claim
+    # under the weaker structure.
+    for known in ("randomised_controlled_trial", "randomized_controlled_trial",
+                  "case_control", "cross_sectional", "longitudinal", "cohort",
+                  "ecological", "experiment", "observational"):
+        if known in cleaned:
+            return known
+    return cleaned
 
 
 #: Words a paper wraps its design in. Stripped before matching, because a model
@@ -323,6 +379,7 @@ def assess_testability(cur, *, project_id: str, claim: dict[str, Any],
         raise ClaimTestError("That dataset belongs to a different project.")
 
     context: dict[str, Any] = {
+        "project_id": project_id,
         "dataset": {"id": dataset_version_id, "name": dataset["title"],
                     "design": dataset["study_design"],
                     "rows": dataset["row_count"],
@@ -360,6 +417,7 @@ def assess_testability(cur, *, project_id: str, claim: dict[str, Any],
     # meant, which is the silent alteration this rule forbids.
     cur.execute(
         "SELECT dc.id AS column_id, dc.name AS column_name, cv.name AS canonical, "
+        "       cv.id AS canonical_id, "
         "       COALESCE(NULLIF(cv.display_label, ''), cv.name) AS label "
         "FROM variable_mappings vm "
         "JOIN dataset_columns dc ON dc.id = vm.dataset_column_id "
@@ -369,9 +427,19 @@ def assess_testability(cur, *, project_id: str, claim: dict[str, Any],
     available = {row["canonical"]: dict(row) for row in cur.fetchall()}
     by_label = {row["label"].lower(): row for row in available.values()}
 
+    by_canonical_id = {row["canonical_id"]: row for row in available.values()}
+
     def resolve(construct: str) -> dict[str, Any] | None:
         key = (construct or "").strip().lower()
-        return available.get(key.replace(" ", "_")) or by_label.get(key)
+        direct = available.get(key.replace(" ", "_")) or by_label.get(key)
+        if direct:
+            return direct
+        # Then the project's approved vocabulary: a phrase a researcher has
+        # already confirmed names this quantity. Approved routes only — there is
+        # no fuzzy fallback, because being wrong here means answering a question
+        # the paper never asked.
+        named = vocabulary.resolve(cur, project_id=project_id, phrase=construct)
+        return by_canonical_id.get(named["id"]) if named else None
 
     exposure = resolve(claim.get("exposure", ""))
     outcome_column = resolve(claim.get("outcome", ""))
@@ -380,11 +448,28 @@ def assess_testability(cur, *, project_id: str, claim: dict[str, Any],
                 (claim.get("outcome", ""), outcome_column)) if resolved is None]
 
     if missing:
+        # Offer the near misses. This is the one place similarity is used, and
+        # it asks rather than answers: the phrasing is a question to the
+        # researcher, and the verdict stands as *not testable* until they say
+        # otherwise.
+        remedies = []
+        for term in missing:
+            near = vocabulary.candidates(cur, project_id=project_id, phrase=term)
+            if near:
+                remedies.append(
+                    f"Does {term!r} mean "
+                    + " or ".join(repr(c["display_label"] or c["name"])
+                                  for c in near)
+                    + "? Confirm it and this claim becomes testable.")
+            else:
+                remedies.append(
+                    f"If a column here measures {term!r}, map it to that "
+                    "canonical variable and approve the mapping.")
+
         return refuse(Verdict(
             outcome_code="P8", reason_code="construct_not_mapped", confidence=0.95,
             facts={"missing": " and ".join(repr(m) for m in missing)},
-            remedies=[f"If a column here measures {m!r}, map it to that canonical "
-                      "variable and approve the mapping." for m in missing],
+            remedies=remedies,
             still_possible=[
                 "Harmonise this dataset's columns — the claim becomes testable the "
                 "moment the constructs are confirmed present.",
@@ -520,10 +605,7 @@ def test_claim(cur, *, project_id: str, claim: dict[str, Any],
         cur, project_id=project_id, claim=claim,
         dataset_version_id=dataset_version_id, source_id=source_id)
     if not testability["testable"]:
-        _record_in_graph(cur, project_id=project_id, claim=claim,
-                         dataset_version_id=dataset_version_id,
-                         verdict=testability["verdict"])
-        return _result(testability, claim, testability["verdict"])
+        return _result(cur, testability, claim, testability["verdict"])
 
     exposure = testability["exposure_column"]
     outcome_name = testability["outcome_column"]
@@ -537,7 +619,7 @@ def test_claim(cur, *, project_id: str, claim: dict[str, Any],
     connection = cur.fetchone()
 
     if not connection:
-        return _result(testability, claim, Verdict(
+        return _result(cur, testability, claim, Verdict(
             outcome_code="D14", reason_code="not_yet_analysed", confidence=0.99,
             facts={"missing": f"a computed result for {exposure} × {outcome_name}",
                    "left": "the claim", "right": testability["dataset"]["name"]},
@@ -563,6 +645,10 @@ def test_claim(cur, *, project_id: str, claim: dict[str, Any],
         claimed_effect = parse_claimed_effect(claim.get("statement"))
         if claimed_effect is not None:
             claimed_effect_text = f"{claimed_effect} (read from the quoted claim)"
+    if claimed_effect is None:
+        claimed_effect = parse_claimed_effect(claim.get("statement"))
+        if claimed_effect is not None:
+            claimed_effect_text = f"{claimed_effect} (read from the quoted claim)"
     significant = q_value is not None and q_value < 0.05
 
     refs = [*testability["evidence_refs"], connection["id"]]
@@ -574,7 +660,7 @@ def test_claim(cur, *, project_id: str, claim: dict[str, Any],
         benchmark = claimed_effect if claimed_effect is not None else DEFAULT_BENCHMARK
 
         if mde is None or mde > benchmark:
-            return _result(testability, claim, Verdict(
+            return _result(cur, testability, claim, Verdict(
                 outcome_code="P5", reason_code="insufficient_power", confidence=0.9,
                 evidence_refs=refs,
                 facts={"n": f"{n:,}",
@@ -593,7 +679,7 @@ def test_claim(cur, *, project_id: str, claim: dict[str, Any],
                 still_possible=["Report what this data can rule out, rather than "
                                 "what it failed to find."]))
 
-        return _result(testability, claim, Verdict(
+        return _result(cur, testability, claim, Verdict(
             outcome_code="P4", reason_code="null_and_adequately_powered",
             confidence=0.85, evidence_refs=refs, facts={},
             caveats=caveats + [
@@ -603,14 +689,14 @@ def test_claim(cur, *, project_id: str, claim: dict[str, Any],
 
     # --- Significant results ------------------------------------------------
     if claimed in ("unclear", "none"):
-        return _result(testability, claim, Verdict(
+        return _result(cur, testability, claim, Verdict(
             outcome_code="P17", reason_code="direction_unstated_by_paper",
             confidence=0.75, evidence_refs=refs, facts={},
             caveats=caveats + ["The paper states no direction, so only the "
                                "existence of a relationship is corroborated."]))
 
     if claimed != observed:
-        return _result(testability, claim, Verdict(
+        return _result(cur, testability, claim, Verdict(
             outcome_code="P6", reason_code="opposite_sign", confidence=0.9,
             evidence_refs=refs, facts={"observed": observed, "claimed": claimed},
             caveats=caveats,
@@ -621,7 +707,7 @@ def test_claim(cur, *, project_id: str, claim: dict[str, Any],
     # Direction agrees. Magnitude separates P1 from P2, and can only be compared
     # when the paper reported one.
     if claimed_effect is None:
-        return _result(testability, claim, Verdict(
+        return _result(cur, testability, claim, Verdict(
             outcome_code="P17", reason_code="paper_reports_no_variance",
             confidence=0.8, evidence_refs=refs, facts={},
             caveats=caveats + ["The paper reports no effect size, so the two "
@@ -634,7 +720,7 @@ def test_claim(cur, *, project_id: str, claim: dict[str, Any],
     code, reason = (("P1", "direction_and_magnitude_agree") if ratio <= 0.2
                     else ("P2", "direction_agrees_magnitude_differs"))
 
-    return _result(testability, claim, Verdict(
+    return _result(cur, testability, claim, Verdict(
         outcome_code=code, reason_code=reason, confidence=0.85, evidence_refs=refs,
         facts={},
         caveats=caveats + [
@@ -699,9 +785,71 @@ def _record_in_graph(cur, *, project_id: str, claim: dict[str, Any],
     )
 
 
-def _result(testability: dict[str, Any], claim: dict[str, Any],
+def _record_in_graph(cur, *, project_id: str, claim: dict[str, Any],
+                     dataset_version_id: str, verdict: Verdict) -> None:
+    """
+    Put the claim test into the research graph (LAW 5).
+
+    Without this the graph has papers on one side and analyses on the other and
+    nothing between them — a path query from a paper to the finding that tested
+    its claim returns "no connection", which is true of the record and false of
+    the research. The whole point of the product is the throughline, and the
+    throughline has to be an edge.
+
+    Recorded for refusals too. "This paper's claim could not be tested on this
+    data, and here is why" is a result about both objects, and losing it would
+    mean the same dead end gets rediscovered every time someone tries.
+    """
+    from throughline_schemas.enums import LineageType
+
+    from .lineage import add_edge
+
+    source_id = claim.get("source_id")
+    if not source_id:
+        return
+
+    cur.execute(
+        "SELECT o.id FROM research_objects o WHERE o.project_id = %s "
+        "  AND o.source_id = %s AND o.object_type = 'paper' LIMIT 1",
+        (project_id, source_id))
+    paper = cur.fetchone()
+
+    cur.execute(
+        "SELECT d.object_id FROM dataset_versions dv "
+        "JOIN datasets d ON d.id = dv.dataset_id WHERE dv.id = %s",
+        (dataset_version_id,))
+    dataset = cur.fetchone()
+
+    if not (paper and dataset and dataset["object_id"]):
+        return
+
+    add_edge(
+        cur, project_id=project_id,
+        source_artifact_id=dataset["object_id"],
+        target_artifact_id=paper["id"],
+        # `references` rather than `supports`: the edge records that the two
+        # were tested against each other, and a P9 refusal is as much a part of
+        # the record as a P1 agreement.
+        lineage_type=LineageType.REFERENCES,
+        metadata={"claim_test": verdict.outcome_code,
+                  "family": verdict.family.value,
+                  "reason": verdict.reason_code,
+                  "statement": (claim.get("statement") or "")[:500]},
+    )
+
+
+def _result(cur, testability: dict[str, Any], claim: dict[str, Any],
             verdict: Verdict) -> dict[str, Any]:
-    """Assemble the response, with the verdict as the single source of state."""
+    """
+    Assemble the response, with the verdict as the single source of state.
+
+    Also the one place the graph edge is written, so no return path above can
+    forget it — and there are eleven of them.
+    """
+    _record_in_graph(cur, project_id=testability.get("project_id", ""),
+                     claim=claim,
+                     dataset_version_id=testability["dataset"]["id"],
+                     verdict=verdict)
     unchecked = testability.get("unchecked", [])
     body = verdict.to_dict()
     for note in unchecked:

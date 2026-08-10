@@ -12,6 +12,7 @@
 import Link from "next/link";
 
 import { HeroGraph } from "@/components/HeroGraph";
+import { Field } from "@/components/Field";
 import { ClaimTestBeat, PrimitiveBeat } from "@/components/ScrollBeats";
 import { useEffect, useRef } from "react";
 // Counts come from the registry, never from a hand-written sentence:
@@ -167,7 +168,13 @@ export default function Landing() {
   return (
     <div className="landing" ref={root}>
       {/* ---------------------------------------------------------------- */}
+      {/* Orientation on a long page. Compositor-driven, so it cannot jank. */}
+      <div className="l-progress" aria-hidden />
+
       <section className="l-scene l-hero">
+        {/* Ambient texture only — no data behind it, and never under the
+            working canvas, where motion belongs to real values. */}
+        <Field />
         <div className="l-layer l-depth-3 l-grid" aria-hidden />
         <div className="l-layer l-depth-2 l-halo" aria-hidden />
         {/* Beat 1 — the real renderer with seeded data, settling as the page
@@ -183,12 +190,12 @@ export default function Landing() {
             <span>Throughline</span>
           </div>
 
-          <h1 className="l-display l-reveal" data-delay="1">
-            Most research tools
-            <br />
-            find you something.
-            <br />
-            <em>This one tries to break it.</em>
+          {/* One span per line so each can rise from behind its own mask.
+              A line is the unit the eye reads, so it is the unit that moves. */}
+          <h1 className="l-display l-lines l-reveal" data-delay="1">
+            <span><i>Most research tools</i></span>
+            <span><i>find you something.</i></span>
+            <span><i><em>This one tries to break it.</em></i></span>
           </h1>
 
           <p className="l-lede l-reveal" data-delay="2">

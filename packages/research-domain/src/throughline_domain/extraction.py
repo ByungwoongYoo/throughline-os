@@ -150,9 +150,13 @@ def extract(cur, *, project_id: str, source_id: str, limit: int = 60,
     fields: dict[str, Any] = {}
     rejected: list[dict[str, str]] = []
 
-    for name in FIELDS:
-        value = getattr(extracted, name, None)
-        if value is None or not (value.quote or "").strip():
+    for value in extracted.fields:
+        name = value.field
+        if name not in FIELDS or not (value.quote or "").strip():
+            continue
+        # First quote wins. A model that offers two sentences for one field has
+        # not chosen, and taking the later one silently would be choosing for it.
+        if name in fields:
             continue
 
         if not verify_quote(value.quote, source_text):

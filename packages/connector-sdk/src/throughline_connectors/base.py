@@ -248,9 +248,28 @@ def clean_doi(value: Any) -> str | None:
     return match.group(1).lower().rstrip(".") if match else None
 
 
+#: Crossref and PubMed return JATS markup inside titles and abstracts —
+#: `<i>Helicobacter pylori</i>`, `<sub>2</sub>`, `<jats:p>`. Left in, it reaches
+#: a bibliography as literal angle brackets, which is a defect a reviewer sees
+#: before the researcher does.
+_TAG = re.compile(r"<[^>]{1,80}>")
+_ENTITY = {"&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"',
+           "&apos;": "'", "&#39;": "'", "&nbsp;": " "}
+
+
 def clean_text(value: Any) -> str:
-    """Collapse the whitespace that XML and JATS abstracts arrive full of."""
-    return re.sub(r"\s+", " ", str(value or "")).strip()
+    """
+    Strip markup and collapse whitespace.
+
+    Tags are removed rather than rendered: the same string has to work in a
+    bibliography, a PowerPoint slide and a screen reader, and only plain text
+    does all three.
+    """
+    text = str(value or "")
+    text = _TAG.sub(" ", text)
+    for entity, char in _ENTITY.items():
+        text = text.replace(entity, char)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def year_of(value: Any) -> int | None:

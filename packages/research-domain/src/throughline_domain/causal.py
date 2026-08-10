@@ -150,6 +150,34 @@ TERMS_OF_ART = (
 )
 _TERMS = re.compile("|".join(TERMS_OF_ART), re.IGNORECASE)
 
+#: Constructions where a flagged verb is not making a causal claim about the
+#: variables. Checked against the text immediately around the match.
+#:
+#: These came from watching a real model write correct prose and be refused.
+#: "As one increases, the other tends to increase" is the textbook way to
+#: describe a correlation *without* claiming causation — flagging it punishes
+#: exactly the phrasing this law wants. And "weak evidence quality due to
+#: violated assumptions" attributes a methodological property, not one variable
+#: to another. A validator that blocks careful writing is one someone turns off.
+_NON_CAUSAL_CONTEXT = re.compile(
+    r"""(?ix)
+    (?:
+        # Co-movement: "as X increases, Y ..." — the verb is intransitive.
+        \bas\s+(?:\w+\s+){0,3}(?:increas|decreas|ris|fall|grow|declin)
+      | (?:increas|decreas|ris|fall|grow|declin)\w*\s*[,;]\s*(?:the|so|and)
+      | \btends?\s+to\s+(?:increase|decrease|rise|fall)
+      | \bthe\s+other\s+(?:tends\s+to\s+)?(?:increase|decrease)
+        # Attribution of a *methodological* property, not a variable relation.
+      | (?:evidence|quality|confidence|power|precision|grade|rating|weak|strong|
+         limitation|uncertainty|assumption|violation|sample|bias)
+        [^.]{0,40}\b(?:due\s+to|because\s+of|owing\s+to)
+      | \b(?:due\s+to|because\s+of|owing\s+to)\s+
+        (?:violation|the\s+violation|assumption|small|limited|missing|the\s+small|
+         the\s+sample|sampling|measurement|aggregation)
+    )
+    """,
+)
+
 #: Constructions that turn an assertion into a denial, a question or a caveat.
 #: Checked in the ~60 characters before the match.
 _NEGATED = re.compile(
@@ -232,6 +260,11 @@ def check(text: str, *, design: str) -> list[Violation]:
 
             # A term of art is a name, not a claim.
             if _TERMS.search(around):
+                continue
+            # A verb used intransitively, or attributing a methodological
+            # property rather than a relation between the variables.
+            wide = text[max(0, match.start() - 90):min(len(text), match.end() + 40)]
+            if _NON_CAUSAL_CONTEXT.search(wide):
                 continue
             # A denial, a question or a hypothesis is not an assertion.
             if _NEGATED.search(before):

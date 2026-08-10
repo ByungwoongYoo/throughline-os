@@ -7,6 +7,9 @@ passage, a paper and a dataset version are all derived artifacts.
 
 from __future__ import annotations
 
+import pathlib
+import re
+
 from typing import Any, Sequence
 
 from throughline_schemas.enums import LineageType, ObjectType
@@ -78,14 +81,45 @@ def embed_passages(cur, *, project_id: str, source_id: str, batch: int = 256) ->
     return {"embedded": embedded, "model": embedder.name}
 
 
+#: A title that is only hex is not a title.
+#:
+#: Uploads are stored under their content hash, and the plain-text and DOCX
+#: parsers fall back to the *storage* filename when a document declares no title
+#: of its own. The result was every paper in the knowledge graph being named
+#: `b9590d6e361c…` — technically a string, useless to a reader, and invisible
+#: until someone opened a node and tried to read it.
+_LOOKS_LIKE_A_HASH = re.compile(r"^[0-9a-f]{16,}$", re.IGNORECASE)
+
+
+def _readable_title(cur, parsed: Any, source_id: str) -> str:
+    """
+    The best human-readable name for this document.
+
+    Falls back to what the researcher called the file, because that is a name a
+    person chose, and a name a person chose beats any string a parser
+    manufactured.
+    """
+    candidate = (getattr(parsed, "title", "") or "").strip()
+    if candidate and not _LOOKS_LIKE_A_HASH.match(candidate):
+        return candidate
+
+    cur.execute("SELECT title FROM sources WHERE id = %s", (source_id,))
+    source = cur.fetchone()
+    filename = (source["title"] if source else "").strip()
+    if filename and not _LOOKS_LIKE_A_HASH.match(pathlib.Path(filename).stem):
+        return filename
+    return "Untitled paper"
+
+
 def store_paper(
     cur, *, project_id: str, source_id: str, parsed: Any, actor: str,
 ) -> dict[str, Any]:
     """Create the paper record and its research object, with lineage."""
     source_object_id = _source_object(cur, project_id=project_id, source_id=source_id, actor=actor)
+    title = _readable_title(cur, parsed, source_id)
     paper_object_id = create_object(
         cur, project_id=project_id, object_type=ObjectType.PAPER,
-        title=parsed.title or "Untitled paper", actor=actor, source_id=source_id,
+        title=title, actor=actor, source_id=source_id,
         derived_from=[source_object_id], lineage_type=LineageType.DERIVED_FROM,
         metadata={"parser": parsed.metadata.get("parser"), "pages": parsed.page_count},
     )
@@ -99,7 +133,7 @@ def store_paper(
                 metadata = EXCLUDED.metadata
         RETURNING id
         """,
-        (paper_id, project_id, source_id, paper_object_id, parsed.title,
+        (paper_id, project_id, source_id, paper_object_id, title,
          parsed.page_count, parsed.metadata),
     )
     return {"paper_id": cur.fetchone()["id"], "object_id": paper_object_id}

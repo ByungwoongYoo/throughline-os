@@ -11,6 +11,8 @@ index into the document's reconstructed text and are verified on read.
 
 from __future__ import annotations
 
+import logging
+
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -28,6 +30,9 @@ class UnsupportedFormat(ValueError):
 #: rather than silently producing an empty document.
 SUPPORTED_DOCUMENT_SUFFIXES = frozenset({".pdf", ".docx", ".txt", ".md", ".markdown"})
 SUPPORTED_DATASET_SUFFIXES = frozenset({".csv", ".tsv", ".xlsx", ".xlsm", ".json"})
+
+
+_log = logging.getLogger("throughline.ingestion")
 
 
 @dataclass(slots=True)

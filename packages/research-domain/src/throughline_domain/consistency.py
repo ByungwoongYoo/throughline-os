@@ -110,18 +110,25 @@ def _canonical_names(cur, project_id: str, result: dict[str, Any]
 
 
 def _is_stale(cur, result: dict[str, Any]) -> str | None:
-    """Did the data this rests on change after it was computed?"""
-    if not result["dataset_id"]:
+    """
+    Did the data this rests on change after it was computed?
+
+    Asked of version *numbers*, not timestamps. `now()` is transaction-stable in
+    PostgreSQL, so a version written in the same transaction as a result carries
+    an identical timestamp and would never compare as newer — the check would
+    silently pass in exactly the case it exists to catch. The version number is
+    also the more honest question: what matters is that this result used a
+    version that has since been superseded, not when the rows were inserted.
+    """
+    if not result["dataset_id"] or result["version"] is None:
         return None
     cur.execute(
-        "SELECT version, created_at FROM dataset_versions "
-        "WHERE dataset_id = %s AND created_at > %s "
-        "ORDER BY created_at DESC LIMIT 1",
-        (result["dataset_id"], result["created_at"]))
-    newer = cur.fetchone()
-    if newer:
-        return (f"{result['dataset_title']} gained version {newer['version']} "
-                "after this result was computed")
+        "SELECT max(version) AS latest FROM dataset_versions "
+        "WHERE dataset_id = %s", (result["dataset_id"],))
+    latest = (cur.fetchone() or {}).get("latest")
+    if latest is not None and latest > result["version"]:
+        return (f"{result['dataset_title']} is now at version {latest}, and this "
+                f"result used version {result['version']}")
     return None
 
 

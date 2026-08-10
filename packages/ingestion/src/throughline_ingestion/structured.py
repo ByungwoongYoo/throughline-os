@@ -134,6 +134,7 @@ def parse(path: Path) -> ParsedDocument:
         start = cursor
         end = start + len(text)
         passages.append(Passage(
+            ordinal=ordinal,
             content=text,
             locator=f"¶{ordinal}" + (f" · {section}" if section else ""),
             section=section,

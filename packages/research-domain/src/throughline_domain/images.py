@@ -129,6 +129,80 @@ def _transform_hashes(path: str) -> dict[str, int]:
 
 
 # ---------------------------------------------------------------------------
+# I4 — partial overlap, via keypoint matching
+# ---------------------------------------------------------------------------
+
+#: Matched keypoints needed before a shared region is worth mentioning.
+#:
+#: High on purpose. Two micrographs of the same tissue type share a great deal
+#: of local texture without sharing any pixels, and a low bar here would flag
+#: every pair in a paper. The cost of a false positive is a researcher being
+#: asked to defend a figure that is fine.
+MIN_MATCHES = 22
+
+#: Proportion of matches that must agree on one geometric transform. A genuine
+#: shared region produces matches that move together; coincidental texture
+#: matches scatter.
+MIN_INLIER_RATIO = 0.55
+
+
+def shared_region(left_path: str, right_path: str) -> dict[str, Any] | None:
+    """
+    Do these two images contain a common region?
+
+    ORB keypoints plus a RANSAC homography. This is the case a whole-image hash
+    cannot see by construction: a panel spliced into the corner of a larger
+    figure changes every bit of a global hash while sharing a real region.
+
+    Returns evidence or None. Never a conclusion — the caller phrases it as
+    similarity, and a person decides what it means.
+    """
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        # Absent is a capability, not an error: hashing still works and the
+        # interface says which checks did not run.
+        return None
+
+    left = cv2.imread(left_path, cv2.IMREAD_GRAYSCALE)
+    right = cv2.imread(right_path, cv2.IMREAD_GRAYSCALE)
+    if left is None or right is None:
+        return None
+
+    orb = cv2.ORB_create(nfeatures=1500)
+    left_kp, left_desc = orb.detectAndCompute(left, None)
+    right_kp, right_desc = orb.detectAndCompute(right, None)
+    if left_desc is None or right_desc is None:
+        return None
+    if len(left_kp) < MIN_MATCHES or len(right_kp) < MIN_MATCHES:
+        return None
+
+    matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
+    pairs = matcher.knnMatch(left_desc, right_desc, k=2)
+
+    # Lowe's ratio test: a keypoint whose best match is barely better than its
+    # second best has matched texture, not a location.
+    good = [m for m, n in (p for p in pairs if len(p) == 2)
+            if m.distance < 0.72 * n.distance]
+    if len(good) < MIN_MATCHES:
+        return None
+
+    src = np.float32([left_kp[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
+    dst = np.float32([right_kp[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
+    _, mask = cv2.findHomography(src, dst, cv2.RANSAC, 4.0)
+    if mask is None:
+        return None
+
+    inliers = int(mask.sum())
+    ratio = inliers / len(good)
+    if inliers < MIN_MATCHES or ratio < MIN_INLIER_RATIO:
+        return None
+
+    return {"matches": len(good), "inliers": inliers, "ratio": round(ratio, 2)}
+
+
+# ---------------------------------------------------------------------------
 # Comparison
 # ---------------------------------------------------------------------------
 
@@ -201,6 +275,21 @@ def compare(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
                                           "or rescale"},
             caveats=[f"Perceptual distance {distance} of 64."],
             remedies=["Look at both panels side by side and decide."])
+
+    # I4 — a shared region. Checked after the whole-image cases and before
+    # "similar", because a partial overlap is a stronger statement than a
+    # resemblance and a weaker one than a duplicate.
+    overlap = shared_region(left["path"], right["path"])
+    if overlap:
+        return _verdict(
+            "I4", "shared_region", 0.65, titles,
+            caveats=[f"{overlap['inliers']} keypoints in these two images agree "
+                     f"on a single geometric transform ({overlap['ratio']:.0%} "
+                     "of the candidate matches). That is the pattern a common "
+                     "region produces.",
+                     "It states a property of the pixels. What it means about "
+                     "the figures is for you to judge."],
+            remedies=["Open both panels and look at the region they share."])
 
     # I7 — related but not the same.
     if distance <= SIMILAR:
@@ -296,13 +385,32 @@ def compare_many(images: list[dict[str, Any]]) -> dict[str, Any]:
             "pixels; a person decides what that means."),
         "limits": (
             "Perceptual hashing detects reuse, rescaling, rotation and "
-            "flipping. It cannot detect a spliced region, a cloned area, or "
-            "whether two different photographs show the same specimen — those "
-            "need a human eye or a vision model, and this reports neither "
-            "rather than guessing."),
+            "flipping; keypoint matching detects a region two figures share. "
+            "Neither can tell whether two different photographs show the same "
+            "specimen, and neither reads what a figure means — those need a "
+            "human eye or a vision model, and this reports neither rather than "
+            "guessing."),
+        "checks_run": _checks_run(),
     }
 
 
-__all__ = ["IDENTICAL", "MAX_IMAGES", "MIN_DIMENSION", "NEAR_DUPLICATE",
+def _checks_run() -> dict[str, Any]:
+    """Which comparisons were available, so absence is never silent (§123)."""
+    try:
+        import cv2  # noqa: F401
+        keypoints = True
+    except ImportError:
+        keypoints = False
+    return {
+        "perceptual_hash": True,
+        "rigid_transforms": True,
+        "shared_region": keypoints,
+        "note": None if keypoints else (
+            "OpenCV is not installed, so shared-region detection did not run. "
+            "A panel spliced into part of another figure would not be found."),
+    }
+
+
+__all__ = ["IDENTICAL", "MIN_INLIER_RATIO", "MIN_MATCHES", "shared_region", "MAX_IMAGES", "MIN_DIMENSION", "NEAR_DUPLICATE",
            "SIMILAR", "ImageError", "average_hash", "compare", "compare_many",
            "difference_hash", "dimensions", "hamming"]

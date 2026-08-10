@@ -8,6 +8,8 @@ entry commit together.
 
 from __future__ import annotations
 
+import logging
+
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -16,16 +18,19 @@ from fastapi import Cookie, Depends, FastAPI, File, HTTPException, Query, Reques
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from throughline_domain import (
-    analysis, auth, critic, discovery, embeddings, findings, graphs, lineage,
-    objects, retrieval, storage, validation, visuals, workflow,
+    analysis, auth, critic, discovery, embeddings, findings, graphs,
+    harmonize, lineage, objects, observability, retrieval, storage,
+    validation, visuals, workflow,
 )
 from throughline_visual.prepare import prepare as visual_prepare
 from throughline_visual.prepare import prepare as visual_prepare
 from throughline_visual.spec import ResearchVisualSpec
+from throughline_domain import settings as domain_settings
 from throughline_domain.db import connection, jsonb, transaction
 from throughline_domain.ids import new_id
 from throughline_domain.migrate import migrate
 from throughline_runtime.executor import policy_report as sandbox_policy_report
+from .security import SecurityMiddleware, deployment_is_local, session_cookie_kwargs
 from .security import SecurityMiddleware, deployment_is_local, session_cookie_kwargs
 from .security import SecurityMiddleware, deployment_is_local, session_cookie_kwargs
 from throughline_schemas.enums import (
@@ -49,7 +54,7 @@ async def lifespan(_: FastAPI):
     # two runs disagree.
     try:
         with transaction() as cur:
-            domain_settings.apply_model_choice(cur)
+            domain_domain_settings.apply_model_choice(cur)
     except Exception:  # noqa: BLE001 — never let a preference block startup
         logging.getLogger("throughline.api").warning(
             "Could not apply the saved model choice; using the environment "
@@ -61,6 +66,10 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Throughline OS", version=API_VERSION, lifespan=lifespan)
+
+# Rate limiting and security headers (§99). Added as middleware so no endpoint
+# can be written that forgets them.
+app.add_middleware(SecurityMiddleware)
 
 # Rate limiting and security headers. Added as middleware so no endpoint
 # can be written that forgets them.
@@ -241,6 +250,71 @@ def auth_register(payload: RegisterRequest, request: Request,
     return {"user": user, "first_account": first}
 
 
+class RegisterRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    display_name: str = Field(default="", max_length=200)
+    password: str = Field(min_length=12, max_length=1024)
+
+
+def _registration_is_open(request: Request) -> bool:
+    """
+    Whether a stranger may create an account on this installation.
+
+    Open sign-up and a local-first workspace are in genuine tension: anyone who
+    can reach the port could otherwise help themselves to a corpus that lives on
+    someone's laptop. So it is allowed from the machine itself, and off-machine
+    only when the operator has explicitly turned it on.
+
+    That keeps the ordinary case — a researcher installs this and signs up —
+    working exactly as expected, without turning a laptop on café wifi into an
+    open registration server.
+    """
+    with transaction() as cur:
+        if (domain_settings.get(cur, "open_registration") or "").lower() in (
+                "1", "true", "yes", "on"):
+            return True
+    host = (request.client.host if request.client else "") or ""
+    return host in ("127.0.0.1", "::1", "localhost")
+
+
+@app.post("/api/auth/register", status_code=201)
+def auth_register(payload: RegisterRequest, request: Request,
+                  response: Response) -> dict[str, Any]:
+    """
+    Create an account and sign in, in one step.
+
+    A brand-new user could not previously get in at all: `setup` runs once and
+    `accounts` needs an existing session, so the second person to open this
+    installation had no way to create an account.
+
+    The new account owns nothing. Projects are scoped by owner, so a fresh
+    account sees an empty workspace rather than anyone else's corpus — that is
+    a property of the query, not of the interface hiding rows.
+    """
+    if not _registration_is_open(request):
+        raise HTTPException(
+            403,
+            "Sign-up is limited to this machine. This workspace holds a "
+            "researcher's corpus, so accounts can only be created locally "
+            "unless the operator turns on open registration in Settings.")
+
+    with transaction() as cur:
+        cur.execute("SELECT COUNT(*) AS n FROM users")
+        first = cur.fetchone()["n"] == 0
+        try:
+            user = auth.create_user(
+                cur, email=payload.email, display_name=payload.display_name,
+                password=payload.password,
+                # The person who installs it administers it. Nobody after that.
+                is_admin=first)
+        except auth.AuthError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        token = auth.create_session(cur, user_id=user["id"])
+
+    _set_session_cookie(response, token)
+    return {"user": user, "first_account": first}
+
+
 @app.post("/api/auth/login")
 def auth_login(payload: LoginRequest, response: Response) -> dict[str, Any]:
     with transaction() as cur:
@@ -250,6 +324,75 @@ def auth_login(payload: LoginRequest, response: Response) -> dict[str, Any]:
         token = auth.create_session(cur, user_id=user["id"])
     _set_session_cookie(response, token)
     return {"user": user}
+
+
+class NewAccount(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    display_name: str = Field(default="", max_length=200)
+    password: str = Field(min_length=12, max_length=1024)
+
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(min_length=1, max_length=1024)
+    new_password: str = Field(min_length=12, max_length=1024)
+
+
+@app.post("/api/auth/accounts", status_code=201)
+def create_account(payload: NewAccount,
+                   user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Add another researcher to this installation.
+
+    Requires an existing session on purpose. This is a local-first workspace,
+    not a service: anyone who can reach the port is on the machine or the
+    network the researcher chose, and an open registration endpoint would let
+    them help themselves to the corpus.
+    """
+    with transaction() as cur:
+        try:
+            created = auth.create_user(
+                cur, email=payload.email, display_name=payload.display_name,
+                password=payload.password, is_admin=False)
+        except auth.AuthError as exc:
+            raise HTTPException(400, str(exc)) from exc
+    return {"user": created}
+
+
+@app.post("/api/auth/password")
+def change_password(payload: PasswordChange, response: Response,
+                    user: dict = Depends(current_user),
+                    throughline_session: str | None = Cookie(default=None)
+                    ) -> dict[str, Any]:
+    """
+    Change your own password, proving you know the current one.
+
+    Every other session is destroyed. A password change is usually a response to
+    the suspicion that someone else has it, and leaving their session alive is
+    the one thing that would make the change pointless.
+    """
+    with transaction() as cur:
+        confirmed = auth.authenticate(cur, email=user["email"],
+                                      password=payload.current_password)
+        if not confirmed:
+            raise HTTPException(403, "That is not your current password.")
+        try:
+            auth.set_password(cur, user_id=user["id"],
+                              password=payload.new_password)
+        except auth.AuthError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        auth.destroy_other_sessions(cur, user_id=user["id"],
+                                    keep_token=throughline_session)
+    return {"ok": True,
+            "note": "Signed out everywhere else. This session stays open."}
+
+
+@app.get("/api/auth/accounts")
+def list_accounts(user: dict = Depends(current_user)) -> list[dict[str, Any]]:
+    with transaction() as cur:
+        cur.execute(
+            "SELECT id, email, display_name, is_admin, created_at FROM users "
+            "ORDER BY created_at")
+        return [dict(row) for row in cur.fetchall()]
 
 
 class NewAccount(BaseModel):
@@ -373,6 +516,67 @@ def create_project(payload: ProjectCreate, user: dict = Depends(current_user)) -
              payload.description),
         )
         return cur.fetchone()
+
+
+@app.delete("/api/projects/{project_id}", status_code=200)
+def delete_project(project_id: str,
+                   user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Delete a project and everything in it, for real.
+
+    Not archived. Every table referencing a project cascades, so the sources,
+    analyses, findings, figures and notes go with it — a project that vanishes
+    from the list while its rows survive is the kind of half-deletion that
+    later reappears as a foreign-key error nobody can explain.
+
+    **Stored files are collected only when nothing else references them.** The
+    object store is content-addressed: two projects that uploaded the same PDF
+    share one blob. Deleting blobs by project would destroy the other project's
+    evidence while its rows still claimed to have it, so the orphans are
+    computed after the cascade rather than before it.
+    """
+    from throughline_domain import storage
+
+    with transaction() as cur:
+        cur.execute(
+            "SELECT id, name FROM projects WHERE id = %s AND owner_user_id = %s",
+            (project_id, user["id"]))
+        project = cur.fetchone()
+        if not project:
+            # Same answer whether it never existed or belongs to someone else:
+            # distinguishing them would confirm another user's project ids.
+            raise HTTPException(404, "No such project.")
+
+        cur.execute(
+            "SELECT DISTINCT content_hash, storage_key FROM files "
+            "WHERE project_id = %s", (project_id,))
+        candidates = [(r["content_hash"], r["storage_key"])
+                      for r in cur.fetchall()]
+
+        cur.execute("DELETE FROM projects WHERE id = %s", (project_id,))
+
+        # Which of those blobs are now referenced by nothing at all.
+        orphans: list[str] = []
+        for content_hash, key in candidates:
+            cur.execute(
+                "SELECT 1 FROM files WHERE content_hash = %s LIMIT 1",
+                (content_hash,))
+            if not cur.fetchone():
+                orphans.append(key)
+
+    collected = storage.collect(orphans)
+    return {
+        "deleted": project_id,
+        "name": project["name"],
+        "files_removed": collected["removed"],
+        "files_kept_shared": len(candidates) - len(orphans),
+        "note": (
+            f"{project['name']} and everything in it is gone. "
+            + (f"{collected['removed']} stored files were removed; "
+               f"{len(candidates) - len(orphans)} were kept because another "
+               "project uses the same bytes."
+               if candidates else "No stored files were attached.")),
+    }
 
 
 @app.delete("/api/projects/{project_id}", status_code=200)
@@ -1082,6 +1286,121 @@ def import_record(project_id: str, payload: ImportRequest,
                 "already_present": False}
 
 
+class LiteratureSearch(BaseModel):
+    query: str = Field(min_length=2, max_length=400)
+    sources: list[str] = Field(default_factory=list, max_length=8)
+    limit: int = Field(default=20, ge=1, le=50)
+
+
+class ImportRequest(BaseModel):
+    """One record chosen from a search, imported as a source."""
+    title: str
+    doi: str | None = None
+    arxiv_id: str | None = None
+    pmid: str | None = None
+    url: str = ""
+    pdf_url: str = ""
+    authors: list[str] = Field(default_factory=list)
+    year: int | None = None
+    venue: str = ""
+    abstract: str = ""
+    source: str = ""
+    provenance: dict[str, str] = Field(default_factory=dict)
+
+
+@app.get("/api/literature/sources")
+def literature_sources(user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Which literature databases this installation can search, and how politely.
+
+    Reported rather than assumed (§123): a source that wants a contact address
+    still works without one, it simply gets a worse rate limit, and saying so is
+    more useful than either hiding it or refusing.
+    """
+    import throughline_connectors
+
+    with transaction() as cur:
+        contact = domain_settings.get(cur, "contact_email") or ""
+
+    return {
+        "sources": throughline_connectors.capabilities(mailto=contact),
+        "contact_email": contact,
+        "note": ("These are public APIs run on someone else's budget. "
+                 "Throughline rate-limits itself to their published limits and "
+                 "identifies itself when you give it an address to use."),
+    }
+
+
+@app.post("/api/literature/search", status_code=200)
+def search_literature(payload: LiteratureSearch,
+                      user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Search several literature databases at once.
+
+    One source failing never empties the page: results arrive per source with a
+    status, and a failure renders beside the results that did arrive. Records
+    appearing in more than one database are merged on identifier, and where the
+    sources disagree every value is kept rather than silently resolved.
+    """
+    import throughline_connectors
+
+    with transaction() as cur:
+        contact = domain_settings.get(cur, "contact_email") or ""
+
+    try:
+        return throughline_connectors.search(
+            payload.query, sources=payload.sources or None,
+            limit=payload.limit, mailto=contact)
+    except Exception as exc:  # noqa: BLE001 — a search failure is not a crash
+        raise HTTPException(502, f"The search could not be completed ({exc}).")
+
+
+@app.post("/api/projects/{project_id}/literature/import", status_code=201)
+def import_record(project_id: str, payload: ImportRequest,
+                  user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Bring a search result into the project as a source.
+
+    The record's metadata is stored with its field-level provenance intact, so a
+    disagreement between databases about a year or an author list survives into
+    the workspace rather than being flattened on the way in.
+
+    Only metadata is imported. Fetching a PDF is a separate, explicit act: this
+    never routes around a paywall, and an open-access link is offered rather
+    than followed automatically.
+    """
+    scoped_project(project_id, user)
+
+    identifier = payload.doi or payload.arxiv_id or payload.pmid
+    with transaction() as cur:
+        if identifier:
+            cur.execute(
+                "SELECT id, title FROM sources WHERE project_id = %s "
+                "AND external_identifier = %s", (project_id, identifier))
+            existing = cur.fetchone()
+            if existing:
+                # Idempotent: importing the same paper twice from two searches
+                # would double-count it in every synthesis downstream.
+                return {"source_id": existing["id"], "title": existing["title"],
+                        "already_present": True}
+
+        source_id = new_id("src")
+        cur.execute(
+            "INSERT INTO sources(id, project_id, source_type, title, "
+            "original_uri, external_identifier, ingestion_status, metadata) "
+            "VALUES (%s, %s, 'connector', %s, %s, %s, 'ready', %s)",
+            (source_id, project_id, payload.title,
+             payload.url or payload.pdf_url, identifier,
+             jsonb({"authors": payload.authors, "year": payload.year,
+                    "venue": payload.venue, "abstract": payload.abstract,
+                    "doi": payload.doi, "arxiv_id": payload.arxiv_id,
+                    "pmid": payload.pmid, "pdf_url": payload.pdf_url,
+                    "found_via": payload.source,
+                    "field_provenance": payload.provenance})))
+        return {"source_id": source_id, "title": payload.title,
+                "already_present": False}
+
+
 class DatasetSetRequest(BaseModel):
     dataset_version_ids: list[str] = Field(min_length=2, max_length=8)
 
@@ -1150,6 +1469,373 @@ def compare_images(project_id: str, payload: ImageSetRequest,
         return images.compare_many(loaded)
     except images.ImageError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/projects/{project_id}/graph-projection", status_code=201)
+def rebuild_projection(project_id: str,
+                       user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Rebuild this project's Neo4j projection from PostgreSQL (ADR 0002).
+
+    Whole-project rather than incremental on purpose: a projection that is
+    *nearly* right invites exactly the trust a derived store must never be
+    given.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        try:
+            return graph_projection.rebuild(cur, project_id)
+        except graph_projection.ProjectionUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+
+@app.get("/api/projects/{project_id}/graph/path")
+def graph_path(project_id: str, source_id: str = Query(...),
+               target_id: str = Query(...), max_depth: int = Query(8, ge=1, le=15),
+               user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    How are these two objects connected at all?
+
+    Routed to Neo4j because the traversal is variable-length and open-ended,
+    which is where a recursive CTE explores exponentially and Cypher prunes.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        try:
+            return graph_projection.shortest_path(
+                cur, project_id=project_id, source_id=source_id,
+                target_id=target_id, max_depth=max_depth)
+        except graph_projection.ProjectionUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+
+@app.get("/api/projects/{project_id}/graph/centrality")
+def graph_centrality(project_id: str, limit: int = Query(20, ge=1, le=100),
+                     user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Which objects are most connected — a structural fact, not a finding."""
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        try:
+            return graph_projection.centrality(cur, project_id=project_id,
+                                               limit=limit)
+        except graph_projection.ProjectionUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+
+@app.get("/api/projects/{project_id}/graph/communities")
+def graph_communities(project_id: str, max_depth: int = Query(4, ge=1, le=8),
+                      user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Which objects cluster together through recorded relationships."""
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        try:
+            return graph_projection.communities(cur, project_id=project_id,
+                                                max_depth=max_depth)
+        except graph_projection.ProjectionUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+
+@app.get("/api/projects/{project_id}/graph/reachable")
+def graph_reachable(project_id: str, source_id: str = Query(...),
+                    max_depth: int = Query(5, ge=1, le=10),
+                    user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Everything derived from, or contributing to, one object at any depth."""
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        try:
+            return graph_projection.reachable(
+                cur, project_id=project_id, source_id=source_id,
+                max_depth=max_depth)
+        except graph_projection.ProjectionUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+
+class SpecificationCurveRequest(BaseModel):
+    dataset_version_id: str
+    outcome: str
+    exposure: str
+    #: The covariates the *researcher* thinks might belong in the model. The
+    #: system never chooses these: deciding what to adjust for is a causal
+    #: judgement, and making it from the data is exactly what LAW 6 forbids.
+    candidates: list[str] = Field(default_factory=list, max_length=8)
+
+
+@app.post("/api/projects/{project_id}/specification-curve", status_code=201)
+def specification_curve(project_id: str, payload: SpecificationCurveRequest,
+                        user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    P15 — run the relationship across every combination of these covariates.
+
+    Returns the distribution, never a preferred specification. A result that
+    flips sign or significance across reasonable covariate sets is reported as
+    undetermined, because reporting any one of them would be reporting a choice
+    of covariates rather than a finding.
+
+    Every specification goes through the same sandbox, with the same validation
+    and the same policy, as any other analysis — this is not a second path into
+    the compute layer.
+    """
+    scoped_project(project_id, user)
+
+    from throughline_runtime.executor import SandboxPolicy
+    from throughline_runtime.executor import run_analysis as sandbox_run
+
+    with transaction() as cur:
+        cur.execute(
+            "SELECT dv.storage_key, d.project_id, d.format, s.title "
+            "FROM dataset_versions dv JOIN datasets d ON d.id = dv.dataset_id "
+            "JOIN sources s ON s.id = d.source_id WHERE dv.id = %s",
+            (payload.dataset_version_id,))
+        version = cur.fetchone()
+        if not version:
+            raise HTTPException(404, "That dataset version does not exist.")
+        if version["project_id"] != project_id:
+            raise HTTPException(403, "That dataset belongs to a different project.")
+        path = storage.path_for(version["storage_key"])
+        # Stored objects are content-addressed and therefore have no extension.
+        # The sandbox reads the format from the suffix, so it comes from the
+        # recorded format — not from the path, which has none.
+        suffix = (Path(version["title"] or "").suffix.lower()
+                  or f".{(version['format'] or 'csv').lower()}")
+
+    def run_one(spec: dict[str, Any]) -> dict[str, Any]:
+        result = sandbox_run(spec=spec, input_path=path, input_suffix=suffix,
+                             policy=SandboxPolicy())
+        if not result.ok:
+            # The sandbox reports failures in its payload, not on stderr.
+            # Reading stderr produced "the fit failed" for every specification,
+            # which told a researcher nothing about which covariate set broke or
+            # why — and the reason a specification cannot be fitted is exactly
+            # what they need to know.
+            body = result.payload or {}
+            raise RuntimeError(
+                str(body.get("error") or result.stderr or "the fit failed")[:300])
+        return (result.payload or {}).get("result") or {}
+
+    with transaction() as cur:
+        try:
+            return specification.curve(
+                cur, project_id=project_id,
+                dataset_version_id=payload.dataset_version_id,
+                outcome=payload.outcome, exposure=payload.exposure,
+                candidates=payload.candidates, run_analysis=run_one)
+        except specification.SpecificationError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+
+class SynthesisRequest(BaseModel):
+    source_ids: list[str] = Field(min_length=2, max_length=12)
+
+
+@app.post("/api/sources/{source_id}/extract", status_code=201)
+def extract_paper(source_id: str, project_id: str = Query(...),
+                  force: bool = Query(False),
+                  user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Read what a paper says about its own methods, results and limits.
+
+    Every field is a verbatim quotation, verified against the paper's text after
+    generation. A sentence that cannot be found is discarded rather than shown —
+    so a wrong extraction becomes an empty cell with a stated reason, never a
+    plausible fabrication in a comparison table.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        try:
+            return extraction.extract(cur, project_id=project_id,
+                                      source_id=source_id, force=force)
+        except extraction.ExtractionError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+
+@app.get("/api/sources/{source_id}/extract")
+def stored_extraction(source_id: str, project_id: str = Query(...),
+                      user: dict = Depends(current_user)) -> dict[str, Any]:
+    """What was already read out of this paper. Never runs a model."""
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        record = extraction.stored(cur, source_id)
+        if record is None:
+            raise HTTPException(404, "This paper has not been read yet.")
+        return record
+
+
+@app.post("/api/projects/{project_id}/synthesis", status_code=201)
+def compare_papers(project_id: str, payload: SynthesisRequest,
+                   user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Compare several papers side by side.
+
+    Built only from verified readings — never from a fresh extraction — so the
+    table is reproducible and cannot change under the researcher between two
+    glances. Every pair is adjudicated, and what cannot be compared is reported
+    before anything that agrees.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        try:
+            return synthesis.matrix(cur, project_id=project_id,
+                                    source_ids=payload.source_ids)
+        except synthesis.SynthesisError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/projects/{project_id}/synthesis/key-points", status_code=201)
+def synthesis_key_points(project_id: str, payload: SynthesisRequest,
+                         user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    What a set of papers says taken together — counted, never written.
+
+    A generated synthesis of several papers is precisely the artifact a reader
+    cannot check, so these are counts over verified quotations.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        try:
+            return synthesis.key_points(cur, project_id=project_id,
+                                        source_ids=payload.source_ids)
+        except synthesis.SynthesisError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+
+class DatasetSetRequest(BaseModel):
+    dataset_version_ids: list[str] = Field(min_length=2, max_length=8)
+
+
+class ImageSetRequest(BaseModel):
+    source_ids: list[str] = Field(min_length=2, max_length=20)
+
+
+@app.post("/api/projects/{project_id}/dataset-synthesis", status_code=201)
+def compare_datasets(project_id: str, payload: DatasetSetRequest,
+                     user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Compare several datasets side by side.
+
+    Reports the **ceiling** — the weakest pair — rather than an average.
+    Someone planning to pool five datasets needs to know that two of them
+    cannot be compared at all, and a mean across ten pairs hides precisely that.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        try:
+            return synthesis.dataset_matrix(
+                cur, project_id=project_id,
+                version_ids=payload.dataset_version_ids)
+        except synthesis.SynthesisError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/projects/{project_id}/image-comparison", status_code=201)
+def compare_images(project_id: str, payload: ImageSetRequest,
+                   user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Compare figures for reuse, rotation and shared regions.
+
+    Every positive outcome is phrased as similarity and routed to *needs
+    review*. This system never asserts that an image was manipulated: the
+    exposure from a false accusation is asymmetric and severe, and only a person
+    can say what a pixel relationship means.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        loaded = []
+        for source_id in payload.source_ids:
+            cur.execute(
+                "SELECT s.id, s.title, s.content_hash, s.storage_key "
+                "FROM sources s WHERE s.id = %s AND s.project_id = %s",
+                (source_id, project_id))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(
+                    404, f"{source_id} is not a source in this project.")
+            if not row["storage_key"]:
+                raise HTTPException(
+                    400, f"{row['title']} has no stored file to compare.")
+            loaded.append({
+                "id": row["id"], "title": row["title"],
+                "content_hash": row["content_hash"],
+                "path": str(storage.path_for(row["storage_key"])),
+            })
+
+    try:
+        return images.compare_many(loaded)
+    except images.ImageError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+class ReconcileRequest(BaseModel):
+    """Two located claims, as they travel back for reconciliation."""
+    left: ClaimPayload
+    right: ClaimPayload
+
+
+class ReconcilePapersRequest(BaseModel):
+    left_source_id: str
+    right_source_id: str
+
+
+@app.post("/api/projects/{project_id}/reconcile", status_code=201)
+def reconcile_claims(project_id: str, payload: ReconcileRequest,
+                     user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Can these two papers' claims be compared, and if so do they agree? (Pair 3)
+
+    Every citation tool can show that two papers relate. This says why they
+    cannot be compared — different constructs, populations, outcome definitions
+    or estimands — which is the answer a reviewer actually needs and the one
+    nobody offers. Deterministic: a model located the claims; it does not
+    adjudicate them.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        return reconcile.reconcile(
+            cur, project_id=project_id,
+            left=payload.left.model_dump(), right=payload.right.model_dump())
+
+
+@app.post("/api/projects/{project_id}/reconcile-papers", status_code=201)
+def reconcile_papers(project_id: str, payload: ReconcilePapersRequest,
+                     user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Locate the claims in two papers and reconcile every comparable pair.
+
+    The location step needs a model; everything after it does not. A paper with
+    no locatable claim is reported as such (P13) rather than silently producing
+    an empty comparison.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        located = {}
+        for side, source_id in (("left", payload.left_source_id),
+                                ("right", payload.right_source_id)):
+            try:
+                located[side] = claim_test.locate_claims(
+                    cur, project_id=project_id, source_id=source_id)
+            except claim_test.ClaimTestError as exc:
+                raise HTTPException(400, str(exc)) from exc
+
+        pairs = []
+        for left in located["left"]["claims"]:
+            for right in located["right"]["claims"]:
+                pairs.append(reconcile.reconcile(
+                    cur, project_id=project_id,
+                    left={**left, "source_title": located["left"]["source_title"]},
+                    right={**right,
+                           "source_title": located["right"]["source_title"]}))
+
+        return {
+            "left": {"source_id": payload.left_source_id,
+                     "title": located["left"]["source_title"],
+                     "claims": located["left"]["claims"],
+                     "verdict": located["left"].get("verdict")},
+            "right": {"source_id": payload.right_source_id,
+                      "title": located["right"]["source_title"],
+                      "claims": located["right"]["claims"],
+                      "verdict": located["right"].get("verdict")},
+            "reconciliations": pairs,
+            "model": located["left"]["model"],
+        }
 
 
 class ReconcileRequest(BaseModel):
@@ -1372,6 +2058,233 @@ def object_mentions(object_id: str,
         return notebook.object_backlinks(cur, object_id)
 
 
+class NoteBody(BaseModel):
+    body: str
+    object_type: str = "unknown"
+    replies_to: str | None = None
+
+
+class Question(BaseModel):
+    question: str
+
+
+@app.get("/api/projects/{project_id}/objects/{object_id}/journal")
+def object_journal(project_id: str, object_id: str,
+                   user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Everything recorded about one node in the graph, plus its notes.
+
+    Provenance only — there is deliberately no retrieval step here. A model or a
+    reader handed semantically similar prose will treat it as though it were
+    about this object, and a note written on that basis is wrong in a way that
+    looks researched.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        try:
+            return journal.context(cur, project_id=project_id,
+                                   object_id=object_id)
+        except journal.JournalError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+
+@app.post("/api/projects/{project_id}/objects/{object_id}/journal",
+          status_code=201)
+def add_note(project_id: str, object_id: str, payload: NoteBody,
+             user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Write a note on a node. Append-only.
+
+    There is no edit endpoint, and that is deliberate: what a researcher
+    believed at the time is evidence about how they reached a conclusion, and
+    editing it away would rewrite the reasoning while leaving the conclusion
+    standing (LAW 4). Corrections are made by writing another note.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        try:
+            return journal.write(
+                cur, project_id=project_id, object_id=object_id,
+                object_type=payload.object_type, body=payload.body,
+                author=user["id"], replies_to=payload.replies_to)
+        except journal.JournalError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/projects/{project_id}/objects/{object_id}/ask", status_code=201)
+def ask_about_object(project_id: str, object_id: str, payload: Question,
+                     user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Ask the configured model about this node; the answer is recorded as a note.
+
+    Stored as a *model* note, never as the researcher's, and rendered as one
+    forever. The moment those blur, the journal stops being a record of what the
+    researcher thought.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        try:
+            return journal.ask(cur, project_id=project_id, object_id=object_id,
+                               question=payload.question, author=user["id"])
+        except journal.JournalError as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+
+@app.get("/api/projects/{project_id}/journal")
+def project_journal(project_id: str, limit: int = Query(50, ge=1, le=200),
+                    user: dict = Depends(current_user)) -> list[dict[str, Any]]:
+    """The journal as a stream — what has been thought about lately."""
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        return journal.recent(cur, project_id, limit=limit)
+
+
+class ConsistencyRequest(BaseModel):
+    left_connection_id: str
+    right_connection_id: str
+
+
+@app.post("/api/projects/{project_id}/consistency", status_code=201)
+def compare_two_results(project_id: str, payload: ConsistencyRequest,
+                        user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Are these two results consistent, and does that mean anything? (Pair 4)
+
+    Every check reads state only this system holds — which version of a file
+    each used, how a column was harmonised that day, how many comparisons had
+    been made by then. That is why a divergence can arrive already carrying its
+    most likely explanation instead of as a mystery.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        try:
+            return consistency.compare_results(
+                cur, project_id=project_id,
+                left_id=payload.left_connection_id,
+                right_id=payload.right_connection_id)
+        except consistency.ConsistencyError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+
+@app.get("/api/projects/{project_id}/consistency")
+def project_consistency(project_id: str, limit: int = Query(20, ge=1, le=100),
+                        user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Every pair of results in this project worth a second look."""
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        return consistency.inconsistencies(cur, project_id, limit=limit)
+
+
+class NewNote(BaseModel):
+    title: str
+    body: str = ""
+
+
+class NoteEdit(BaseModel):
+    body: str
+
+
+@app.get("/api/projects/{project_id}/notebook")
+def list_notes(project_id: str,
+               user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Every note, plus the links that point at nothing yet."""
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        return {"notes": notebook.listing(cur, project_id),
+                "unresolved": notebook.unresolved(cur, project_id)}
+
+
+@app.post("/api/projects/{project_id}/notebook", status_code=201)
+def create_note(project_id: str, payload: NewNote,
+                user: dict = Depends(current_user)) -> dict[str, Any]:
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        try:
+            return notebook.create(cur, project_id=project_id,
+                                   title=payload.title, body=payload.body,
+                                   author=user["id"])
+        except notebook.NotebookError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+
+@app.get("/api/projects/{project_id}/notebook/today")
+def todays_note(project_id: str,
+                user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Today's page, created if it does not exist.
+
+    A GET that creates is unusual and correct here: the whole point of a daily
+    note is that it is already there, and anything that asks a question before
+    you can type has lost.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        page = notebook.daily(cur, project_id=project_id, author=user["id"])
+        return notebook.get(cur, page["id"])
+
+
+@app.get("/api/notes/{note_id}")
+def read_note(note_id: str, user: dict = Depends(current_user)) -> dict[str, Any]:
+    with transaction() as cur:
+        try:
+            note = notebook.get(cur, note_id)
+        except notebook.NotebookError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        scoped_project(note["project_id"], user)
+        return note
+
+
+@app.patch("/api/notes/{note_id}")
+def edit_note(note_id: str, payload: NoteEdit,
+              user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Revise a notebook page.
+
+    Annotations attached to an object are refused here: those are part of the
+    record and are never edited (LAW 4). A notebook page is a working document.
+    """
+    with transaction() as cur:
+        cur.execute("SELECT project_id FROM notes WHERE id = %s", (note_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "No such note.")
+        scoped_project(row["project_id"], user)
+        try:
+            notebook.update(cur, note_id=note_id, body=payload.body,
+                            author=user["id"])
+        except notebook.NotebookError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return notebook.get(cur, note_id)
+
+
+@app.get("/api/projects/{project_id}/notebook/graph")
+def notebook_graph(project_id: str,
+                   user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    The notebook as a graph, with its edges labelled as asserted.
+
+    Kept separate from the provenance graph so an assertion can never be
+    mistaken for a derivation.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        return notebook.graph(cur, project_id)
+
+
+@app.get("/api/objects/{object_id}/mentions")
+def object_mentions(object_id: str,
+                    user: dict = Depends(current_user)) -> list[dict[str, Any]]:
+    """Notes that mention this object by name."""
+    with transaction() as cur:
+        cur.execute("SELECT project_id FROM research_objects WHERE id = %s",
+                    (object_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "No such object.")
+        scoped_project(row["project_id"], user)
+        return notebook.object_backlinks(cur, object_id)
+
+
 @app.get("/api/projects/{project_id}/patterns")
 def project_patterns(project_id: str,
                      user: dict = Depends(current_user)) -> dict[str, Any]:
@@ -1398,6 +2311,100 @@ def project_key_findings(project_id: str, limit: int = Query(8, ge=1, le=50),
     scoped_project(project_id, user)
     with transaction() as cur:
         return patterns.key_findings(cur, project_id, limit=limit)
+
+
+@app.get("/api/projects/{project_id}/patterns")
+def project_patterns(project_id: str,
+                     user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Structural patterns across everything computed in this project.
+
+    Deterministic and read-only: every number comes from a result already
+    computed inside a correction family. A pattern search that ran its own tests
+    would be the purest form of the multiplicity problem it exists to warn
+    about.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        return patterns.detect(cur, project_id)
+
+
+@app.get("/api/projects/{project_id}/key-findings")
+def project_key_findings(project_id: str, limit: int = Query(8, ge=1, le=50),
+                         user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    The results most worth attention, each with the patterns that argue against
+    it (LAW 3). Ranked by evidence rather than effect size.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        return patterns.key_findings(cur, project_id, limit=limit)
+
+
+class AliasSuggestion(BaseModel):
+    phrase: str
+    canonical_variable_id: str
+    origin: str = "paper"
+    origin_ref: str | None = None
+
+
+class AliasDecision(BaseModel):
+    status: str
+
+
+@app.get("/api/projects/{project_id}/vocabulary")
+def project_vocabulary(project_id: str,
+                       user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    What this project has learned to call things — the one part that improves.
+
+    Reported with its usage count so the claim can be checked rather than
+    believed, and with an explicit statement of what does *not* learn.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        return {"pending": vocabulary.pending(cur, project_id),
+                **vocabulary.learned(cur, project_id)}
+
+
+@app.post("/api/projects/{project_id}/vocabulary", status_code=201)
+def suggest_alias(project_id: str, payload: AliasSuggestion,
+                  user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Propose that a phrase names a canonical variable. Resolves nothing yet."""
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        suggested = vocabulary.suggest(
+            cur, project_id=project_id, phrase=payload.phrase,
+            canonical_variable_id=payload.canonical_variable_id,
+            origin=payload.origin, origin_ref=payload.origin_ref,
+            created_by=user["id"])
+        if suggested is None:
+            raise HTTPException(409, (
+                f"{payload.phrase!r} already has a ruling in this project. A "
+                "rejected term is not re-proposed by the next paper that uses "
+                "it."))
+        return suggested
+
+
+@app.post("/api/vocabulary/{alias_id}/decide")
+def decide_alias(alias_id: str, payload: AliasDecision,
+                 user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Approve or reject an alias — the moment the vocabulary actually changes.
+
+    Attributed and dated, because from here on it silently resolves terms in
+    every future paper, and a reader is entitled to know who decided that.
+    """
+    with transaction() as cur:
+        try:
+            decided = vocabulary.decide(cur, alias_id=alias_id,
+                                        status=payload.status,
+                                        decided_by=user["id"])
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+    return decided
 
 
 class AliasSuggestion(BaseModel):
@@ -1522,6 +2529,109 @@ def choose_model(payload: ModelChoice,
     Refuses a model that is not installed. Accepting one would produce a system
     that looks configured and fails at the moment of use — exactly the fake
     capability  forbids.
+    """
+    import throughline_model
+    from throughline_model.ollama import OllamaProvider
+    from throughline_model.provider import ModelUnavailable
+
+    if payload.provider == "ollama" and payload.model:
+        try:
+            names = {m["name"] for m in OllamaProvider().installed()}
+        except ModelUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+        if payload.model not in names and not any(
+                n.split(":")[0] == payload.model.split(":")[0] for n in names):
+            raise HTTPException(400, (
+                f"{payload.model} is not installed on this machine. Install it "
+                f"with `ollama pull {payload.model}`, or choose one of: "
+                + ", ".join(sorted(names))))
+
+    throughline_model.configure(provider=payload.provider, model=payload.model)
+    capability = throughline_model.provider(refresh=True).capability()
+    with transaction() as cur:
+        domain_settings.set_value(
+            cur, domain_settings.MODEL,
+            {"provider": payload.provider, "model": payload.model},
+            changed_by=user["id"])
+
+    return {"selection": throughline_model.selection(),
+            "active": {"name": capability.name, "model": capability.model,
+                       "usable": capability.text, "note": capability.note}}
+
+
+@app.get("/api/health")
+def health() -> dict[str, Any]:
+    """
+    Liveness and readiness, per dependency.
+
+    Unauthenticated on purpose — an orchestrator has no session — and it
+    deliberately returns 200 while degraded. A workspace with no model can still
+    do every deterministic thing in the system, and restarting it would fix
+    nothing while losing in-flight work. Only an unreachable record is a reason
+    to take the process out of rotation.
+    """
+    report = observability.health()
+    if report["status"] == "unhealthy":
+        return JSONResponse(status_code=503, content=report)
+    return report
+
+
+class ModelChoice(BaseModel):
+    provider: str = "ollama"
+    model: str | None = None
+
+
+@app.get("/api/system/models")
+def available_models(user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Every model this machine can actually run, and which one is selected.
+
+    The whole point of a local-first deployment is that the researcher chooses.
+    A PhD student on a laptop and a lab with a workstation are running the same
+    software against very different hardware, and the system reports what is
+    installed rather than assuming.
+    """
+    import throughline_model
+    from throughline_model.ollama import OllamaProvider
+    from throughline_model.provider import ModelUnavailable
+
+    installed: list[dict[str, Any]] = []
+    note = None
+    try:
+        installed = OllamaProvider().installed()
+    except ModelUnavailable as exc:
+        note = str(exc)
+
+    capability = throughline_model.capability()
+    with transaction() as cur:
+        saved = domain_settings.get(cur, domain_settings.MODEL)
+        changes = domain_settings.history(cur, domain_settings.MODEL, limit=10)
+
+    return {
+        "installed": installed,
+        "selection": throughline_model.selection(),
+        "saved": saved,
+        "active": {"name": capability.name, "model": capability.model,
+                   "usable": capability.text, "local": capability.local,
+                   "structured": capability.structured, "note": capability.note},
+        # Swapping the model changes what the system produces, so the swaps are
+        # part of the audit trail rather than a hidden preference (LAW 4).
+        "history": changes,
+        "note": note,
+        "how_to_install": "ollama pull <model>",
+    }
+
+
+@app.put("/api/system/models")
+def choose_model(payload: ModelChoice,
+                 user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Point the system at a different model, effective immediately and after a
+    restart.
+
+    Refuses a model that is not installed. Accepting one would produce a system
+    that looks configured and fails at the moment of use — exactly the fake
+    capability §123 forbids.
     """
     import throughline_model
     from throughline_model.ollama import OllamaProvider
@@ -2043,6 +3153,88 @@ def test_claim(project_id: str, payload: ClaimTestRequest,
             raise HTTPException(400, str(exc)) from exc
 
 
+class ClaimPayload(BaseModel):
+    """A located claim, as it travels back for adjudication."""
+    statement: str
+    exposure: str
+    outcome: str
+    direction: str = "unclear"
+    claimed_design: str = "unknown"
+    claimed_effect: str = ""
+    population: str = ""
+    locator: str = ""
+    #: The paper the claim came from. Optional, but without it the circularity
+    #: check (P7) cannot run — and that check has to run before any other, since
+    #: a paper tested against its own data produces agreement that means nothing.
+    source_id: str | None = None
+
+
+class ClaimTestRequest(BaseModel):
+    claim: ClaimPayload
+    dataset_version_id: str
+
+
+@app.get("/api/sources/{source_id}/claims")
+def stored_claims(source_id: str, project_id: str = Query(...),
+                  user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    What was already read out of this paper. Never runs a model.
+
+    Separate from the POST on purpose: reading the record and re-reading the
+    paper are different acts, and only one of them can change what every
+    downstream comparison rests on.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        return {"source_id": source_id,
+                "claims": claim_test.stored_claims(cur, source_id)}
+
+
+@app.post("/api/sources/{source_id}/claims", status_code=201)
+def locate_claims(source_id: str, project_id: str = Query(...),
+                  force: bool = Query(False),
+                  user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Read a paper and record the empirical claims a dataset could test (Part I).
+
+    This is the one step of the claim test that needs inference, and it does
+    only location — quoting what the paper asserts and naming its constructs.
+    Whether those constructs exist in any dataset, and whether the design can
+    carry them, are decided afterwards without a model.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        try:
+            return claim_test.locate_claims(
+                cur, project_id=project_id, source_id=source_id, force=force)
+        except claim_test.ClaimTestError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/projects/{project_id}/claim-test", status_code=201)
+def test_claim(project_id: str, payload: ClaimTestRequest,
+               user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Adjudicate one claim from a paper against one dataset (Part I).
+
+    Deterministic end to end, so the verdict is reproducible and available on an
+    installation with inference switched off. It refuses before it reports:
+    a claim whose constructs are not confirmed present, or whose design this
+    data cannot carry, gets an explanation rather than a number that would look
+    like an answer.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        try:
+            return claim_test.test_claim(
+                cur, project_id=project_id,
+                claim=payload.claim.model_dump(),
+                dataset_version_id=payload.dataset_version_id,
+                source_id=payload.claim.source_id)
+        except claim_test.ClaimTestError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+
 @app.get("/api/dataset-versions/{version_id}/density")
 def column_density(version_id: str, column: str = Query(...),
                    user: dict = Depends(current_user)) -> dict[str, Any]:
@@ -2160,6 +3352,77 @@ def column_density(version_id: str, column: str = Query(...),
     parameter, and changing that parameter changes the shape. A browser-side
     smoother would be a second, undocumented analytical choice sitting under a
     figure that claims to show a distribution, so the bandwidth rule is
+    computed server-side and stated with the result.
+    """
+    import numpy as np
+    from scipy import stats
+
+    with transaction() as cur:
+        cur.execute(
+            "SELECT d.project_id FROM dataset_versions dv "
+            "JOIN datasets d ON d.id = dv.dataset_id WHERE dv.id = %s", (version_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Dataset version not found.")
+        project_id = scoped_project(row["project_id"], user)
+
+        cur.execute(
+            "SELECT name, semantic_type FROM dataset_columns "
+            "WHERE dataset_version_id = %s AND name = %s", (version_id, column))
+        meta = cur.fetchone()
+        if not meta:
+            raise HTTPException(404, f"No column {column!r} in this dataset version.")
+        labels = harmonize.labels(cur, project_id)
+
+    values = _column_values(version_id, column)
+    finite = np.asarray([v for v in values if v is not None and np.isfinite(v)],
+                        dtype=float)
+    if finite.size < 10:
+        raise HTTPException(
+            409,
+            f"Only {finite.size} usable values in {column!r}. A density estimate over "
+            "fewer than ten points describes the smoother more than the data.")
+    if float(np.std(finite)) == 0.0:
+        raise HTTPException(
+            409, f"Every value in {column!r} is identical, so it has no distribution "
+                 "to estimate.")
+
+    # Scott's rule: the default, stated rather than hidden, so a reader can
+    # judge how much of the shape is the data and how much is the smoother.
+    kernel = stats.gaussian_kde(finite, bw_method="scott")
+    lo, hi = float(finite.min()), float(finite.max())
+    pad = (hi - lo) * 0.08
+    grid = np.linspace(lo - pad, hi + pad, 160)
+
+    return {
+        "column": column,
+        "label": labels.get(column, column),
+        "x": [float(v) for v in grid],
+        "density": [float(v) for v in kernel(grid)],
+        # The actual observations, for the rug: a density with no rug hides how
+        # much data is behind each bump.
+        "observations": [float(v) for v in finite[:400]],
+        "n": int(finite.size),
+        "bandwidth_rule": "Scott",
+        "bandwidth": float(kernel.factor * float(np.std(finite, ddof=1))),
+        "quartiles": [float(np.percentile(finite, q)) for q in (25, 50, 75)],
+        "note": ("A density curve is a smoothed estimate, not the data. The "
+                 "bandwidth above controls how much smoothing was applied; the "
+                 "rug beneath the curve shows the observations themselves."),
+    }
+
+
+@app.get("/api/dataset-versions/{version_id}/density")
+def column_density(version_id: str, column: str = Query(...),
+                   user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    A kernel density estimate for one column (P3).
+
+    Computed here by executed code, never smoothed in the browser. A density
+    curve is not a picture of the data — it is an *estimate* with a bandwidth
+    parameter, and changing that parameter changes the shape. A browser-side
+    smoother would be a second, undocumented analytical choice sitting under a
+    figure that claims to show a distribution (LAW 2), so the bandwidth rule is
     computed server-side and stated with the result.
     """
     import numpy as np
@@ -2318,6 +3581,77 @@ def column_density(version_id: str, column: str = Query(...),
     parameter, and changing that parameter changes the shape. A browser-side
     smoother would be a second, undocumented analytical choice sitting under a
     figure that claims to show a distribution, so the bandwidth rule is
+    computed server-side and stated with the result.
+    """
+    import numpy as np
+    from scipy import stats
+
+    with transaction() as cur:
+        cur.execute(
+            "SELECT d.project_id FROM dataset_versions dv "
+            "JOIN datasets d ON d.id = dv.dataset_id WHERE dv.id = %s", (version_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Dataset version not found.")
+        project_id = scoped_project(row["project_id"], user)
+
+        cur.execute(
+            "SELECT name, semantic_type FROM dataset_columns "
+            "WHERE dataset_version_id = %s AND name = %s", (version_id, column))
+        meta = cur.fetchone()
+        if not meta:
+            raise HTTPException(404, f"No column {column!r} in this dataset version.")
+        labels = harmonize.labels(cur, project_id)
+
+    values = _column_values(version_id, column)
+    finite = np.asarray([v for v in values if v is not None and np.isfinite(v)],
+                        dtype=float)
+    if finite.size < 10:
+        raise HTTPException(
+            409,
+            f"Only {finite.size} usable values in {column!r}. A density estimate over "
+            "fewer than ten points describes the smoother more than the data.")
+    if float(np.std(finite)) == 0.0:
+        raise HTTPException(
+            409, f"Every value in {column!r} is identical, so it has no distribution "
+                 "to estimate.")
+
+    # Scott's rule: the default, stated rather than hidden, so a reader can
+    # judge how much of the shape is the data and how much is the smoother.
+    kernel = stats.gaussian_kde(finite, bw_method="scott")
+    lo, hi = float(finite.min()), float(finite.max())
+    pad = (hi - lo) * 0.08
+    grid = np.linspace(lo - pad, hi + pad, 160)
+
+    return {
+        "column": column,
+        "label": labels.get(column, column),
+        "x": [float(v) for v in grid],
+        "density": [float(v) for v in kernel(grid)],
+        # The actual observations, for the rug: a density with no rug hides how
+        # much data is behind each bump.
+        "observations": [float(v) for v in finite[:400]],
+        "n": int(finite.size),
+        "bandwidth_rule": "Scott",
+        "bandwidth": float(kernel.factor * float(np.std(finite, ddof=1))),
+        "quartiles": [float(np.percentile(finite, q)) for q in (25, 50, 75)],
+        "note": ("A density curve is a smoothed estimate, not the data. The "
+                 "bandwidth above controls how much smoothing was applied; the "
+                 "rug beneath the curve shows the observations themselves."),
+    }
+
+
+@app.get("/api/dataset-versions/{version_id}/density")
+def column_density(version_id: str, column: str = Query(...),
+                   user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    A kernel density estimate for one column (P3).
+
+    Computed here by executed code, never smoothed in the browser. A density
+    curve is not a picture of the data — it is an *estimate* with a bandwidth
+    parameter, and changing that parameter changes the shape. A browser-side
+    smoother would be a second, undocumented analytical choice sitting under a
+    figure that claims to show a distribution (LAW 2), so the bandwidth rule is
     computed server-side and stated with the result.
     """
     import numpy as np
@@ -2555,6 +3889,77 @@ def column_density(version_id: str, column: str = Query(...),
     parameter, and changing that parameter changes the shape. A browser-side
     smoother would be a second, undocumented analytical choice sitting under a
     figure that claims to show a distribution, so the bandwidth rule is
+    computed server-side and stated with the result.
+    """
+    import numpy as np
+    from scipy import stats
+
+    with transaction() as cur:
+        cur.execute(
+            "SELECT d.project_id FROM dataset_versions dv "
+            "JOIN datasets d ON d.id = dv.dataset_id WHERE dv.id = %s", (version_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Dataset version not found.")
+        project_id = scoped_project(row["project_id"], user)
+
+        cur.execute(
+            "SELECT name, semantic_type FROM dataset_columns "
+            "WHERE dataset_version_id = %s AND name = %s", (version_id, column))
+        meta = cur.fetchone()
+        if not meta:
+            raise HTTPException(404, f"No column {column!r} in this dataset version.")
+        labels = harmonize.labels(cur, project_id)
+
+    values = _column_values(version_id, column)
+    finite = np.asarray([v for v in values if v is not None and np.isfinite(v)],
+                        dtype=float)
+    if finite.size < 10:
+        raise HTTPException(
+            409,
+            f"Only {finite.size} usable values in {column!r}. A density estimate over "
+            "fewer than ten points describes the smoother more than the data.")
+    if float(np.std(finite)) == 0.0:
+        raise HTTPException(
+            409, f"Every value in {column!r} is identical, so it has no distribution "
+                 "to estimate.")
+
+    # Scott's rule: the default, stated rather than hidden, so a reader can
+    # judge how much of the shape is the data and how much is the smoother.
+    kernel = stats.gaussian_kde(finite, bw_method="scott")
+    lo, hi = float(finite.min()), float(finite.max())
+    pad = (hi - lo) * 0.08
+    grid = np.linspace(lo - pad, hi + pad, 160)
+
+    return {
+        "column": column,
+        "label": labels.get(column, column),
+        "x": [float(v) for v in grid],
+        "density": [float(v) for v in kernel(grid)],
+        # The actual observations, for the rug: a density with no rug hides how
+        # much data is behind each bump.
+        "observations": [float(v) for v in finite[:400]],
+        "n": int(finite.size),
+        "bandwidth_rule": "Scott",
+        "bandwidth": float(kernel.factor * float(np.std(finite, ddof=1))),
+        "quartiles": [float(np.percentile(finite, q)) for q in (25, 50, 75)],
+        "note": ("A density curve is a smoothed estimate, not the data. The "
+                 "bandwidth above controls how much smoothing was applied; the "
+                 "rug beneath the curve shows the observations themselves."),
+    }
+
+
+@app.get("/api/dataset-versions/{version_id}/density")
+def column_density(version_id: str, column: str = Query(...),
+                   user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    A kernel density estimate for one column (P3).
+
+    Computed here by executed code, never smoothed in the browser. A density
+    curve is not a picture of the data — it is an *estimate* with a bandwidth
+    parameter, and changing that parameter changes the shape. A browser-side
+    smoother would be a second, undocumented analytical choice sitting under a
+    figure that claims to show a distribution (LAW 2), so the bandwidth rule is
     computed server-side and stated with the result.
     """
     import numpy as np
@@ -2836,6 +4241,77 @@ def column_density(version_id: str, column: str = Query(...),
     parameter, and changing that parameter changes the shape. A browser-side
     smoother would be a second, undocumented analytical choice sitting under a
     figure that claims to show a distribution, so the bandwidth rule is
+    computed server-side and stated with the result.
+    """
+    import numpy as np
+    from scipy import stats
+
+    with transaction() as cur:
+        cur.execute(
+            "SELECT d.project_id FROM dataset_versions dv "
+            "JOIN datasets d ON d.id = dv.dataset_id WHERE dv.id = %s", (version_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Dataset version not found.")
+        project_id = scoped_project(row["project_id"], user)
+
+        cur.execute(
+            "SELECT name, semantic_type FROM dataset_columns "
+            "WHERE dataset_version_id = %s AND name = %s", (version_id, column))
+        meta = cur.fetchone()
+        if not meta:
+            raise HTTPException(404, f"No column {column!r} in this dataset version.")
+        labels = harmonize.labels(cur, project_id)
+
+    values = _column_values(version_id, column)
+    finite = np.asarray([v for v in values if v is not None and np.isfinite(v)],
+                        dtype=float)
+    if finite.size < 10:
+        raise HTTPException(
+            409,
+            f"Only {finite.size} usable values in {column!r}. A density estimate over "
+            "fewer than ten points describes the smoother more than the data.")
+    if float(np.std(finite)) == 0.0:
+        raise HTTPException(
+            409, f"Every value in {column!r} is identical, so it has no distribution "
+                 "to estimate.")
+
+    # Scott's rule: the default, stated rather than hidden, so a reader can
+    # judge how much of the shape is the data and how much is the smoother.
+    kernel = stats.gaussian_kde(finite, bw_method="scott")
+    lo, hi = float(finite.min()), float(finite.max())
+    pad = (hi - lo) * 0.08
+    grid = np.linspace(lo - pad, hi + pad, 160)
+
+    return {
+        "column": column,
+        "label": labels.get(column, column),
+        "x": [float(v) for v in grid],
+        "density": [float(v) for v in kernel(grid)],
+        # The actual observations, for the rug: a density with no rug hides how
+        # much data is behind each bump.
+        "observations": [float(v) for v in finite[:400]],
+        "n": int(finite.size),
+        "bandwidth_rule": "Scott",
+        "bandwidth": float(kernel.factor * float(np.std(finite, ddof=1))),
+        "quartiles": [float(np.percentile(finite, q)) for q in (25, 50, 75)],
+        "note": ("A density curve is a smoothed estimate, not the data. The "
+                 "bandwidth above controls how much smoothing was applied; the "
+                 "rug beneath the curve shows the observations themselves."),
+    }
+
+
+@app.get("/api/dataset-versions/{version_id}/density")
+def column_density(version_id: str, column: str = Query(...),
+                   user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    A kernel density estimate for one column (P3).
+
+    Computed here by executed code, never smoothed in the browser. A density
+    curve is not a picture of the data — it is an *estimate* with a bandwidth
+    parameter, and changing that parameter changes the shape. A browser-side
+    smoother would be a second, undocumented analytical choice sitting under a
+    figure that claims to show a distribution (LAW 2), so the bandwidth rule is
     computed server-side and stated with the result.
     """
     import numpy as np
@@ -3327,6 +4803,32 @@ def list_findings(project_id: str,
         return rows
 
 
+@app.get("/api/projects/{project_id}/findings")
+def list_findings(project_id: str,
+                  user: dict = Depends(current_user)) -> list[dict[str, Any]]:
+    """
+    Every finding in this project.
+
+    This route did not exist. The interface had been calling it since the
+    Findings screen was built, receiving 405 on every load and rendering the
+    empty state — so the workspace reported "0 findings" to a researcher who
+    might have had a dozen. An error that renders as absence is the worst
+    failure this system has: it is indistinguishable from the truth.
+
+    Each finding carries its evidence counts, because §15 requires a finding to
+    be legible as supported *and* contradicted at a glance (LAW 3).
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        cur.execute(
+            "SELECT * FROM findings WHERE project_id = %s "
+            "ORDER BY updated_at DESC", (project_id,))
+        rows = [dict(row) for row in cur.fetchall()]
+        for finding in rows:
+            finding["evidence"] = findings.evidence_summary(cur, finding["id"])
+        return rows
+
+
 @app.get("/api/findings/{finding_id}")
 def get_finding(finding_id: str, user: dict = Depends(current_user)) -> dict[str, Any]:
     with transaction() as cur:
@@ -3455,6 +4957,58 @@ def project_variables(project_id: str, user: dict = Depends(current_user)) -> di
             "equivalent": harmonize.equivalent_columns(cur, project_id),
             "note": ("Only approved labels are used anywhere. An unreviewed "
                      "suggestion changes nothing on screen ( this rule)."),
+        }
+
+
+@app.post("/api/variable-mappings/{mapping_id}/decide")
+def decide_label(mapping_id: str, payload: LabelDecision,
+                 user: dict = Depends(current_user)) -> dict[str, Any]:
+    with transaction() as cur:
+        cur.execute("SELECT project_id FROM variable_mappings WHERE id = %s", (mapping_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Mapping not found.")
+        scoped_project(row["project_id"], user)
+        try:
+            return harmonize.decide(cur, mapping_id=mapping_id,
+                                    approve=payload.approve, user_id=user["id"])
+        except harmonize.HarmonizationError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+
+class LabelDecision(BaseModel):
+    approve: bool
+
+
+@app.post("/api/dataset-versions/{version_id}/propose-labels", status_code=202)
+def propose_labels(version_id: str, user: dict = Depends(current_user)) -> dict[str, Any]:
+    """§21 — read each column and propose a human label. Nothing is applied."""
+    with transaction() as cur:
+        cur.execute(
+            "SELECT d.project_id FROM dataset_versions dv "
+            "JOIN datasets d ON d.id = dv.dataset_id WHERE dv.id = %s", (version_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Dataset version not found.")
+        project_id = scoped_project(row["project_id"], user)
+        try:
+            return harmonize.propose_labels(cur, project_id=project_id,
+                                            dataset_version_id=version_id)
+        except harmonize.HarmonizationError as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+
+@app.get("/api/projects/{project_id}/variables")
+def project_variables(project_id: str, user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Approved labels, what is awaiting review, and what has been harmonized."""
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        return {
+            "labels": harmonize.labels(cur, project_id),
+            "pending": harmonize.pending(cur, project_id),
+            "equivalent": harmonize.equivalent_columns(cur, project_id),
+            "note": ("Only approved labels are used anywhere. An unreviewed "
+                     "suggestion changes nothing on screen ( LAW 4)."),
         }
 
 

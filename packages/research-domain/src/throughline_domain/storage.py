@@ -82,6 +82,36 @@ def path_for(storage_key: str) -> Path:
     return path
 
 
+def collect(orphan_keys: list[str]) -> dict[str, int]:
+    """
+    Remove stored blobs that nothing references any more.
+
+    Called after a project is deleted. The caller must have established that no
+    `files` row anywhere still points at these keys — **the store is
+    content-addressed, so two projects that uploaded the same PDF share one
+    blob**, and deleting by project without that check would silently destroy
+    another project's evidence while its rows still claimed to have it.
+
+    Failures are counted rather than raised. A blob that cannot be removed is a
+    disk-space problem; aborting the delete over it would leave the researcher
+    with a project they asked to remove and which is still there.
+    """
+    removed = 0
+    failed = 0
+    for key in orphan_keys:
+        try:
+            path = storage_root() / key
+            if not path.resolve().is_relative_to(storage_root().resolve()):
+                failed += 1
+                continue
+            if path.exists():
+                path.unlink()
+                removed += 1
+        except OSError:
+            failed += 1
+    return {"removed": removed, "failed": failed}
+
+
 def verify(storage_key: str, expected_hash: str) -> bool:
     """Re-check stored bytes against the hash a finding cited."""
     with path_for(storage_key).open("rb") as handle:

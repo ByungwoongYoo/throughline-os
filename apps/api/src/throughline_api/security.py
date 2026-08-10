@@ -107,6 +107,24 @@ class RateLimiter:
         return True, 0
 
 
+def rate_limiting_enabled() -> bool:
+    """
+    Whether to throttle at all.
+
+    Off by default under pytest. The limiter is process-global by design, so a
+    test suite making hundreds of calls from one host trips it and fails tests
+    that have nothing to do with rate limiting — which is exactly what happened
+    when it was introduced. The dedicated security tests drive the limiter
+    directly instead, so coverage does not depend on it being on globally.
+    """
+    setting = os.environ.get("THROUGHLINE_RATE_LIMIT", "").lower()
+    if setting in ("off", "0", "false", "disabled"):
+        return False
+    if setting in ("on", "1", "true", "enabled"):
+        return True
+    return "PYTEST_CURRENT_TEST" not in os.environ
+
+
 _limiter = RateLimiter()
 
 
@@ -132,8 +150,9 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         route = request.scope.get("route")
         route_path = getattr(route, "path", request.url.path)
 
-        allowed, retry_after = _limiter.check(
-            key=client_key(request), route=route_path)
+        allowed, retry_after = (
+            _limiter.check(key=client_key(request), route=route_path)
+            if rate_limiting_enabled() else (True, 0))
         if not allowed:
             # 429 with Retry-After, so a well-behaved client backs off rather
             # than retrying immediately and making the situation worse.

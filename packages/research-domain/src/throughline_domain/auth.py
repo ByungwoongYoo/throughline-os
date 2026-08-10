@@ -62,7 +62,46 @@ def destroy_other_sessions(cur, *, user_id: str,
     if keep_token:
         cur.execute(
             "DELETE FROM sessions WHERE user_id = %s AND token_hash <> %s",
-            (user_id, _hash_token(keep_token)))
+            (user_id,
+             hashlib.sha256(keep_token.encode("utf-8")).hexdigest()))
+    else:
+        cur.execute("DELETE FROM sessions WHERE user_id = %s", (user_id,))
+    return cur.rowcount
+
+
+def set_password(cur, *, user_id: str, password: str) -> None:
+    """
+    Replace a password, re-salting it.
+
+    A new salt every time on purpose: reusing the old one would make two
+    password hashes for the same account comparable, which leaks whether a
+    password was actually changed.
+    """
+    if len(password) < 12:
+        raise AuthError("Password must contain at least 12 characters.")
+    salt = secrets.token_bytes(16)
+    cur.execute(
+        "UPDATE users SET password_hash = %s, password_salt = %s WHERE id = %s",
+        (_hash_password(password, salt), salt.hex(), user_id))
+    audit(cur, project_id=None, actor=user_id, action="update",
+          object_type="user", object_id=user_id,
+          detail={"changed": "password"})
+
+
+def destroy_other_sessions(cur, *, user_id: str,
+                           keep_token: str | None = None) -> int:
+    """
+    Sign this user out everywhere except here.
+
+    Called on a password change, because a change is usually a response to the
+    suspicion that someone else has the old one — and leaving their session
+    alive is the single thing that would make the change pointless.
+    """
+    if keep_token:
+        cur.execute(
+            "DELETE FROM sessions WHERE user_id = %s AND token_hash <> %s",
+            (user_id,
+             hashlib.sha256(keep_token.encode("utf-8")).hexdigest()))
     else:
         cur.execute("DELETE FROM sessions WHERE user_id = %s", (user_id,))
     return cur.rowcount

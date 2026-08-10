@@ -187,10 +187,86 @@ RESEARCH_PLAN = Prompt(
     ),
 )
 
+VARIABLE_LABELS = Prompt(
+    name="variable_labels", version=1,
+    text=(
+        _LAWS + "\n\n"
+        "Read each column of a dataset and say what it measures.\n\n"
+        "The labels you produce replace raw column names everywhere a researcher "
+        "reads results, so a wrong label silently rewrites the meaning of every "
+        "figure that follows. Where a name is too abbreviated or generic to read "
+        "confidently, set ambiguous and say so in the definition. Guessing is worse "
+        "than admitting the name is unclear — a reviewer can fix 'unclear', and "
+        "cannot fix a confident mistake they did not notice.\n\n"
+        "Never invent a unit. If the column name and profile do not indicate one, "
+        "leave unit empty.\n\n"
+        "The label is for a reader: sentence case, no underscores, no abbreviation "
+        "they would have to decode. The canonical_name is a key for matching the "
+        "same concept across datasets: lowercase with underscores.\n\n"
+        "Research context: {question}\n\n"
+        "Columns:\n{columns}\n"
+    ),
+)
+
+LOCATE_CLAIMS = Prompt(
+    name="locate_claims", version=1,
+    text=(
+        _LAWS + "\n\n"
+        "Find the empirical claims in this paper that a dataset could test "
+        "(Part I).\n\n"
+        "A testable claim asserts a relationship between two things that could be "
+        "measured. 'Antibiotic consumption is associated with resistance' is "
+        "testable. 'More research is needed' and 'this has policy implications' "
+        "are not — do not return them.\n\n"
+        "Quote the claim in the paper's own words. Name the exposure and the "
+        "outcome as concepts, not as column names — you have not seen any "
+        "dataset.\n\n"
+        "If the paper reports an effect size, quote it verbatim — 'r = 0.42', "
+        "'OR 1.8'. Do not compute, convert or estimate one. The system parses "
+        "the number itself so the parse can be checked against your quotation; "
+        "a figure you calculated would be a claim of your own (LAW 2).\n\n"
+        "Report the study design the paper states. If it does not state one, say "
+        "unknown rather than inferring from the topic: what a claim can support "
+        "depends on how the data were collected, and guessing that wrongly is how "
+        "an association becomes a cause.\n\n"
+        "If the text contains no testable empirical claim, return no claims and "
+        "say so in the note. An empty answer is correct far more often than a "
+        "strained one.\n"
+    ),
+)
+
+EXTRACT_PAPER = Prompt(
+    name="extract_paper", version=2,
+    text=(
+        _LAWS + "\n\n"
+        "Find the sentences in this paper that state each of the following, and "
+        "copy them out.\n\n"
+        "  design            — what kind of study it was\n"
+        "  population        — who or what was studied\n"
+        "  sample_size       — how many\n"
+        "  methodology       — how the analysis was done\n"
+        "  outcome_measure   — what was measured, and how it was defined\n"
+        "  results           — the main result\n"
+        "  limitations       — what the paper says it cannot show\n"
+        "  funding           — who paid for it\n"
+        "  conflicts         — declared competing interests\n\n"
+        "Return one entry per item you can find, with the sentence copied "
+        "exactly as it appears — same words, same numbers, same punctuation. "
+        "Do not paraphrase or shorten. Each quote is checked against the paper "
+        "afterwards, and one that does not match is discarded, so copying "
+        "faithfully is what makes your answer count.\n\n"
+        "Most papers state most of these. Look for all nine. Omit an item only "
+        "when the paper genuinely does not state it — a missing limitations "
+        "statement is a real and useful fact about a paper, but so is a methods "
+        "sentence you did not bother to find.\n"
+    ),
+)
+
 PROMPTS: dict[str, Prompt] = {
     p.name: p for p in (
         PLAIN_SUMMARY, VISUAL_RECOMMENDATION, COMPATIBILITY, COMPARISON,
-        INTENT, HYPOTHESIS, RESEARCH_PLAN,
+        INTENT, HYPOTHESIS, RESEARCH_PLAN, VARIABLE_LABELS, LOCATE_CLAIMS,
+        EXTRACT_PAPER,
     )
 }
 

@@ -163,14 +163,42 @@ export function Volume({
       .sort((a, b) => a.depth - b.depth);
 
     let hidden = 0;
-    const painted: Array<{ x: number; y: number; r: number }> = [];
+    /*
+     * Occlusion is counted against a uniform grid rather than against every
+     * mark painted so far.
+     *
+     * The naive version compares each mark to all its predecessors, which is
+     * quadratic — a 260-point cloud is ~34,000 distance checks *per frame*, and
+     * this redraws on every pointer move during a drag. Since a mark can only
+     * hide another within a few pixels, bucketing by that radius makes it
+     * linear: each mark checks the nine cells around it and no more.
+     */
+    const cell = MARK_RADIUS * 3;
+    const grid = new Map<string, Array<{ x: number; y: number; r: number }>>();
+    const keyAt = (x: number, y: number) =>
+      `${Math.floor(x / cell)},${Math.floor(y / cell)}`;
+
     for (const m of marks) {
       // Counted before painting: a mark this one will cover is one the reader
       // cannot see, and claiming otherwise is the standard 3D lie.
-      if (painted.some((q) => {
-        const dx = q.x - m.x, dy = q.y - m.y;
-        return Math.hypot(dx, dy) < Math.max(q.r, m.r) * 0.7;
-      })) hidden += 1;
+      // Named apart from the canvas centre `cx`/`cy` above: these are cell
+      // indices, and shadowing the centre here would be a quiet trap.
+      const cellX = Math.floor(m.x / cell);
+      const cellY = Math.floor(m.y / cell);
+      let covered = false;
+      for (let gx = cellX - 1; gx <= cellX + 1 && !covered; gx += 1) {
+        for (let gy = cellY - 1; gy <= cellY + 1 && !covered; gy += 1) {
+          const bucket = grid.get(`${gx},${gy}`);
+          if (!bucket) continue;
+          for (const q of bucket) {
+            if (Math.hypot(q.x - m.x, q.y - m.y) < Math.max(q.r, m.r) * 0.7) {
+              covered = true;
+              break;
+            }
+          }
+        }
+      }
+      if (covered) hidden += 1;
 
       context.beginPath();
       context.arc(m.x, m.y, m.r, 0, Math.PI * 2);
@@ -179,7 +207,10 @@ export function Volume({
       // weak and the reader must not mistake it for magnitude.
       context.globalAlpha = 0.45 + 0.5 * ((m.depth + 1) / 2);
       context.fill();
-      painted.push({ x: m.x, y: m.y, r: m.r });
+      const key = keyAt(m.x, m.y);
+      const bucket = grid.get(key);
+      if (bucket) bucket.push({ x: m.x, y: m.y, r: m.r });
+      else grid.set(key, [{ x: m.x, y: m.y, r: m.r }]);
     }
     context.globalAlpha = 1;
     setOccluded(hidden);

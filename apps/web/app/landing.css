@@ -49,7 +49,9 @@
   /* Three steps, used once each. The hero is the largest thing on the page and
      nothing else may match it — the scroll beats did, which is why they read as
      shouting over the sections around them. */
-  --type-display: clamp(2.7rem, 7.2vw, 6.4rem);
+  /* The hero is the largest thing on the page and is used once. Raised
+     so the first screen reads as a statement rather than as a header. */
+  --type-display: clamp(3rem, 8.4vw, 7.6rem);
   --type-beat:    clamp(2.1rem, 4.6vw, 3.8rem);
   --type-h2:      clamp(1.7rem, 3.6vw, 2.9rem);
 
@@ -681,4 +683,168 @@
   /* No pin, no scrub: each beat becomes a normal section already resolved. */
   .beat { min-height: auto; padding: 96px 0; }
   .beat-pin { position: static; height: auto; }
+}
+
+
+/* --- the ambient field ----------------------------------------------------
+ *
+ * Sits below every layer including the hero graph, so the real renderer always
+ * reads as the foreground object. Deliberately *not* an `.l-layer`: parallax
+ * would move it against the graph in front of it and the two would fight.
+ */
+.l-field {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+  /* Fades out toward the copy, so the headline never competes with texture. */
+  -webkit-mask-image: radial-gradient(120% 90% at 50% 40%,
+                                      #000 30%, transparent 78%);
+  mask-image: radial-gradient(120% 90% at 50% 40%, #000 30%, transparent 78%);
+}
+
+
+/* --- scroll progress ------------------------------------------------------
+ *
+ * A hairline that fills as the page is read. It is orientation, not decoration:
+ * on a page this long the reader has no other cue for how much is left.
+ *
+ * Driven by `animation-timeline: scroll()` where supported, so it costs no
+ * JavaScript and cannot jank — the compositor drives it. Browsers without it
+ * simply never show the bar, which is the correct degradation for something
+ * purely orientational.
+ */
+@supports (animation-timeline: scroll()) {
+  .l-progress {
+    position: fixed;
+    top: 0; left: 0;
+    height: 2px;
+    width: 100%;
+    transform-origin: 0 50%;
+    background: linear-gradient(90deg,
+      color-mix(in srgb, var(--mist) 26%, transparent),
+      color-mix(in srgb, var(--mist) 72%, transparent));
+    z-index: 90;
+    animation: l-progress-grow linear both;
+    animation-timeline: scroll();
+  }
+  @keyframes l-progress-grow {
+    from { transform: scaleX(0); }
+    to   { transform: scaleX(1); }
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .l-progress { display: none; }
+}
+
+
+/* ==========================================================================
+   Motion
+   ==========================================================================
+   Two rules hold everything below in place.
+
+   **No animation may delay access to information.** Every reveal here finishes
+   within the first 40% of an element entering the viewport, so text is fully
+   opaque well before it reaches a comfortable reading position. Nothing waits
+   for a scroll to become legible.
+
+   **Scroll-driven work goes to the compositor.** `animation-timeline: view()`
+   is driven off the main thread, so these cost nothing per frame and cannot
+   jank the way a scroll listener writing styles does. Browsers without it get
+   the static end state — which is the content, unchanged.
+   ========================================================================== */
+
+/* The hero headline, one line at a time.
+   Each line sits inside a masking span and rises out of it. */
+.l-lines span {
+  display: block;
+  overflow: hidden;
+}
+.l-lines i { display: block; font-style: inherit; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .l-lines i {
+    animation: l-line-rise 1100ms cubic-bezier(.16, 1, .3, 1) both;
+  }
+  .l-lines span:nth-child(1) i { animation-delay: 120ms; }
+  .l-lines span:nth-child(2) i { animation-delay: 240ms; }
+  .l-lines span:nth-child(3) i { animation-delay: 360ms; }
+}
+@keyframes l-line-rise {
+  from { transform: translateY(102%); }
+  to   { transform: none; }
+}
+
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+
+    /* Cards and rows enter in sequence rather than as a block. The stagger is
+       small — 40ms — because its job is to imply order, not to be noticed. */
+    .l-ledger-item,
+    .l-step,
+    .l-chain li,
+    .l-run tbody tr {
+      animation: l-enter linear both;
+      animation-timeline: view();
+      /* Complete by 40% into the entry: legible long before it is centred. */
+      animation-range: entry 8% entry 40%;
+    }
+    .l-ledger-item:nth-child(2), .l-step:nth-child(2),
+    .l-chain li:nth-child(2), .l-run tbody tr:nth-child(2) { animation-delay: 40ms; }
+    .l-ledger-item:nth-child(3), .l-step:nth-child(3),
+    .l-chain li:nth-child(3), .l-run tbody tr:nth-child(3) { animation-delay: 80ms; }
+    .l-ledger-item:nth-child(4), .l-step:nth-child(4),
+    .l-chain li:nth-child(4), .l-run tbody tr:nth-child(4) { animation-delay: 120ms; }
+    .l-ledger-item:nth-child(5), .l-step:nth-child(5),
+    .l-chain li:nth-child(5) { animation-delay: 160ms; }
+    .l-chain li:nth-child(6) { animation-delay: 200ms; }
+
+    /* The provenance connectors draw themselves left to right, so the chain
+       reads as being followed rather than as already drawn. */
+    .l-chain li:not(:last-child)::after {
+      transform-origin: 0 50%;
+      animation: l-draw linear both;
+      animation-timeline: view();
+      animation-range: entry 12% entry 46%;
+    }
+
+    /* Section headings settle a few pixels as their band arrives. Small enough
+       to feel like depth rather than like a slide. */
+    .l-h2, .l-display-2 {
+      animation: l-settle linear both;
+      animation-timeline: view();
+      animation-range: entry 4% entry 34%;
+    }
+  }
+}
+
+@keyframes l-enter {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes l-draw {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+@keyframes l-settle {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* The button that opens the workspace deserves to feel like a door. */
+.l-btn-primary { position: relative; overflow: hidden; }
+.l-btn-primary::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 20%,
+              rgba(255,255,255,0.34) 50%, transparent 80%);
+  transform: translateX(-120%);
+  transition: transform 720ms cubic-bezier(.16, 1, .3, 1);
+}
+.l-btn-primary:hover::after { transform: translateX(120%); }
+@media (prefers-reduced-motion: reduce) {
+  .l-btn-primary::after { display: none; }
 }

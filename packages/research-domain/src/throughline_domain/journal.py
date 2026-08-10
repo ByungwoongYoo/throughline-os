@@ -69,7 +69,10 @@ def notes_for(cur, object_id: str) -> list[dict[str, Any]]:
     cur.execute(
         "SELECT id, object_id, body, author_kind, author, prompt, model, "
         "       replies_to, created_at FROM notes WHERE object_id = %s "
-        "ORDER BY created_at", (object_id,))
+        # By sequence, not timestamp: notes written in one transaction share a
+        # timestamp exactly, and a question sorting after its answer would
+        # misrepresent the order the researcher thought in.
+        "ORDER BY seq", (object_id,))
     return [dict(row) for row in cur.fetchall()]
 
 
@@ -79,7 +82,7 @@ def recent(cur, project_id: str, limit: int = 50) -> list[dict[str, Any]]:
         "SELECT n.id, n.object_id, n.object_type, n.body, n.author_kind, "
         "       n.author, n.model, n.created_at, o.title AS object_title "
         "FROM notes n LEFT JOIN research_objects o ON o.id = n.object_id "
-        "WHERE n.project_id = %s ORDER BY n.created_at DESC LIMIT %s",
+        "WHERE n.project_id = %s ORDER BY n.seq DESC LIMIT %s",
         (project_id, limit))
     return [dict(row) for row in cur.fetchall()]
 
@@ -98,7 +101,8 @@ def context(cur, *, project_id: str, object_id: str) -> dict[str, Any]:
     researched.
     """
     cur.execute(
-        "SELECT id, object_type, title, summary, created_by, created_at "
+        "SELECT id, object_type, title, description AS summary, created_by, "
+        "       created_at "
         "FROM research_objects WHERE id = %s AND project_id = %s",
         (object_id, project_id))
     node = cur.fetchone()
@@ -191,7 +195,7 @@ def ask(cur, *, project_id: str, object_id: str, question: str, author: str
     ctx = context(cur, project_id=project_id, object_id=object_id)
 
     try:
-        completion = provider().generate(
+        completion = provider().generate_text(
             instructions=_INSTRUCTIONS,
             # Fenced as data. A note or title saying "ignore your instructions"
             # is content to report on, not a command.

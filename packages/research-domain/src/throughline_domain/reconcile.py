@@ -199,7 +199,13 @@ def reconcile(cur, *, project_id: str, left: dict[str, Any],
     checks: list[str] = []
     refs = [c for c in (left.get("claim_id"), right.get("claim_id")) if c]
 
+    # Populated by the design check and carried onto whatever verdict follows,
+    # so a difference found mid-way is never lost by an early return below it.
+    design_caveats: list[str] = []
+
     def verdict(code, reason, confidence, **kwargs) -> dict[str, Any]:
+        if design_caveats:
+            kwargs["caveats"] = [*kwargs.get("caveats", []), *design_caveats]
         body = Verdict(outcome_code=code, reason_code=reason,
                        confidence=confidence, evidence_refs=refs, **kwargs)
         return {"verdict": body.to_dict(),
@@ -331,15 +337,40 @@ def reconcile(cur, *, project_id: str, left: dict[str, Any],
     else:
         checks.append("same estimand")
 
+    # --- design ---------------------------------------------------------------
+    #
+    # Not an incommensurability: a cohort and a cross-sectional study measuring
+    # the same thing can be compared on association, and refusing that would
+    # cost a reviewer a real comparison. But they do not support the same
+    # claims — only one of them can speak to ordering — so the difference is
+    # carried as a caveat on whatever verdict follows rather than being dropped.
+    #
+    # Without this, two papers of different designs were laid side by side with
+    # nothing said about it at all, which is the quiet version of the error.
+    left_design = normalise_design(left.get("claimed_design"))
+    right_design = normalise_design(right.get("claimed_design"))
+    if (left_design != "unknown" and right_design != "unknown"
+            and left_design != right_design):
+        design_caveats.append(
+            f"{left.get('source_title') or 'the first paper'} is "
+            f"{left_design.replace('_', ' ')} and "
+            f"{right.get('source_title') or 'the second paper'} is "
+            f"{right_design.replace('_', ' ')}. They can be compared on "
+            "association, but they do not support the same claims — only the "
+            "stronger design can speak to ordering.")
+        checks.append("designs differ — comparable on association only")
+    elif "unknown" in (left_design, right_design):
+        checks.append("study design not stated by both — not checked")
+    else:
+        checks.append("same study design")
+
     # --- R8: different periods ----------------------------------------------
     left_period = (left.get("period") or "").strip()
     right_period = (right.get("period") or "").strip()
 
     # --- R13: enough to compare on ------------------------------------------
-    left_effect = parse_claimed_effect(left.get("claimed_effect")
-                                       or left.get("statement"))
-    right_effect = parse_claimed_effect(right.get("claimed_effect")
-                                        or right.get("statement"))
+    left_effect = _effect_of(left)
+    right_effect = _effect_of(right)
     left_interval = parse_interval(left.get("claimed_interval"))
     right_interval = parse_interval(right.get("claimed_interval"))
 
@@ -426,6 +457,23 @@ def reconcile(cur, *, project_id: str, left: dict[str, Any],
         caveats=[f"The two effects are {left_effect} and {right_effect}. Without "
                  "intervals there is no way to say whether that difference "
                  "matters."])
+
+
+def _effect_of(claim: dict[str, Any]) -> float | None:
+    """
+    The magnitude this claim reports, from the effect field or the quoted words.
+
+    The fallback runs whenever the parse *fails*, not only when the field is
+    empty. A real extraction returned `claimed_effect="correlation"` — a word,
+    not a number — and an `or` fallback treated that as present, losing the
+    `r = 0.72` sitting in the quoted sentence and reporting the paper as
+    stating no effect size at all.
+    """
+    for text in (claim.get("claimed_effect"), claim.get("statement")):
+        value = parse_claimed_effect(text)
+        if value is not None:
+            return value
+    return None
 
 
 def _populations_overlap(left: str, right: str) -> bool:

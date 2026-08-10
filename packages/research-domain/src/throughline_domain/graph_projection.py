@@ -180,24 +180,46 @@ def rebuild(cur, project_id: str) -> dict[str, Any]:
 
         session.run(
             "MERGE (m:ProjectionMeta {project_id: $p}) "
-            "SET m.built_at = datetime(), m.source_watermark = $w",
-            p=project_id, w=str(watermark) if watermark else None)
+            "SET m.built_at = datetime(), m.source_watermark = $w, "
+            "    m.node_count = $n, m.edge_count = $e",
+            p=project_id, w=str(watermark) if watermark else None,
+            n=len(nodes), e=len(edges))
 
     return {"nodes": len(nodes), "edges": len(edges),
             "source_watermark": str(watermark) if watermark else None}
 
 
 def _staleness(cur, project_id: str) -> dict[str, Any]:
-    """How far behind the projection is, in the terms a reader needs."""
+    """
+    How far behind the projection is, in the terms a reader needs.
+
+    Counts are the primary signal, not timestamps. `now()` is transaction-stable
+    in PostgreSQL, so anything written in the same transaction as a rebuild
+    carries an identical timestamp and would compare as already-projected — the
+    check would pass in exactly the case it exists to catch. Counting rows is
+    exact, cheap, and immune to clocks.
+
+    The timestamp is still consulted, because counts alone cannot see an
+    in-place edit that leaves the totals unchanged. Neither signal is sufficient
+    alone; together they miss only an edit made in the same transaction as the
+    rebuild, which no derived store could observe anyway.
+    """
     cur.execute(
-        "SELECT max(updated_at) AS latest FROM research_objects "
-        "WHERE project_id = %s", (project_id,))
-    latest = (cur.fetchone() or {}).get("latest")
+        "SELECT count(*) AS nodes, max(updated_at) AS latest "
+        "FROM research_objects WHERE project_id = %s", (project_id,))
+    objects = cur.fetchone() or {}
+
+    cur.execute(
+        "SELECT (SELECT count(*) FROM artifact_lineage_edges WHERE project_id = %s) "
+        "     + (SELECT count(*) FROM research_edges WHERE project_id = %s) AS edges",
+        (project_id, project_id))
+    edge_count = (cur.fetchone() or {}).get("edges") or 0
 
     with _session() as session:
         row = session.run(
             "MATCH (m:ProjectionMeta {project_id: $p}) "
-            "RETURN m.source_watermark AS watermark, m.built_at AS built_at",
+            "RETURN m.source_watermark AS watermark, m.built_at AS built_at, "
+            "       m.node_count AS nodes, m.edge_count AS edges",
             p=project_id).single()
 
     if row is None:
@@ -205,19 +227,34 @@ def _staleness(cur, project_id: str) -> dict[str, Any]:
             "This project has no projection yet. Rebuild it and these queries "
             "become available.")
 
+    counts_match = (row["nodes"] == objects.get("nodes")
+                    and row["edges"] == edge_count)
     watermark = row["watermark"]
-    current = watermark is not None and latest is not None \
-        and str(latest) <= str(watermark)
+    latest = objects.get("latest")
+    timestamps_match = (watermark is None or latest is None
+                        or str(latest) <= str(watermark))
+    current = bool(counts_match and timestamps_match)
+
+    drift = []
+    if not counts_match:
+        drift.append(
+            f"the record now has {objects.get('nodes', 0)} objects and "
+            f"{edge_count} relationships; the projection was built from "
+            f"{row['nodes']} and {row['edges']}")
+    elif not timestamps_match:
+        drift.append("an object has changed since the projection was built")
+
     return {
         "built_at": str(row["built_at"]),
         "source_watermark": watermark,
-        "current": bool(current),
+        "projected_nodes": row["nodes"],
+        "projected_edges": row["edges"],
+        "current": current,
         # Said plainly, because a ranking computed before the last five uploads
         # is a different object from a current one.
-        "note": ("Computed from the projection as of "
-                 f"{watermark}. The record has changed since; rebuild for a "
-                 "current answer." if not current else
-                 "The projection is up to date with the record."),
+        "note": ("The projection is up to date with the record." if current else
+                 "This was computed from a projection that is behind the record: "
+                 + "; ".join(drift) + ". Rebuild for a current answer."),
     }
 
 
@@ -293,12 +330,16 @@ def communities(cur, *, project_id: str, max_depth: int = 4) -> dict[str, Any]:
     """
     staleness = _staleness(cur, project_id)
     with _session() as session:
+        # No CALL subquery: the `CALL { WITH n ... }` form is deprecated in
+        # current Neo4j and the replacement syntax is not available in older
+        # ones. An OPTIONAL MATCH with a collect does the same work and runs
+        # unchanged across versions.
         rows = session.run(
             "MATCH (n:Object {project_id: $p}) "
-            "CALL { WITH n "
-            "  MATCH (n)-[:RELATES*0.." + str(int(max_depth)) + "]-(m:Object) "
-            "  RETURN collect(DISTINCT m.id) AS members } "
-            "RETURN n.id AS id, n.title AS title, members",
+            "OPTIONAL MATCH (n)-[:RELATES*0.." + str(int(max_depth)) + "]-"
+            "(m:Object) "
+            "RETURN n.id AS id, n.title AS title, "
+            "       collect(DISTINCT m.id) AS members",
             p=project_id).data()
 
     seen: set[str] = set()

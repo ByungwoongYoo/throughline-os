@@ -20,7 +20,7 @@ from typing import Any, Iterator
 
 import psycopg
 from psycopg.rows import dict_row
-from psycopg.types.json import Jsonb, JsonbDumper
+from psycopg.types.json import Jsonb, JsonbBinaryDumper, JsonbDumper
 from psycopg_pool import ConnectionPool
 
 _DEFAULT_ROOT = Path(
@@ -64,6 +64,20 @@ def _configure(conn: psycopg.Connection) -> None:
     :func:`jsonb` at their call sites.
     """
     conn.adapters.register_dumper(dict, JsonbDumper)
+
+
+# Adapt a bare dict to jsonb everywhere.
+#
+# Postgres has no default mapping from a Python dict, so psycopg raises
+# "cannot adapt type 'dict'" at execute time — a long way from the code that
+# built the value. Registering it once means every query that stores a JSON
+# document works whether or not the caller remembered to wrap it, and the
+# explicit `jsonb()` below stays available for readability at the call site.
+#
+# Only `dict` is registered. A `list` is deliberately left alone, because a
+# Python list is how this codebase passes Postgres array parameters, and
+# adapting those to jsonb would silently change their column type.
+psycopg.adapters.register_dumper(dict, JsonbBinaryDumper)
 
 
 def jsonb(value: Any) -> Jsonb:

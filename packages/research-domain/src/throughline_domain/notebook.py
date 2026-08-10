@@ -191,12 +191,19 @@ def daily(cur, *, project_id: str, author: str,
 
     The whole point of a daily note is that it is already there. Anything that
     asks a question before you can type has lost.
+
+    One page per project per day, shared rather than per-person. Note titles
+    must be unique for `[[links]]` to resolve, and two researchers both wanting
+    today's page titled `2026-08-09` would make that link ambiguous. A shared
+    page is also the truer object: this is a project notebook, every note
+    records its own author, and a lab notebook several people write in is the
+    normal artifact.
     """
     on = on or date.today()
     cur.execute(
-        "SELECT id, title, body FROM notes WHERE project_id = %s AND author = %s "
+        "SELECT id, title, body FROM notes WHERE project_id = %s "
         "AND note_date = %s AND note_kind = %s",
-        (project_id, author, on, DAILY))
+        (project_id, on, DAILY))
     existing = cur.fetchone()
     if existing:
         return {**dict(existing), "created": False}

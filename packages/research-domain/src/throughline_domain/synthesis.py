@@ -33,7 +33,7 @@ import itertools
 from collections import defaultdict
 from typing import Any
 
-from . import extraction, reconcile
+from . import compare, extraction, reconcile
 from .verdicts import Family, Verdict, outcome
 
 
@@ -316,4 +316,128 @@ def key_points(cur, *, project_id: str,
     }
 
 
-__all__ = ["MAX_PAPERS", "SynthesisError", "key_points", "matrix"]
+
+
+# ---------------------------------------------------------------------------
+# Several datasets at once
+# ---------------------------------------------------------------------------
+
+#: More than this and the pairwise count runs away: 8 datasets is 28
+#: adjudications, each of which a researcher is expected to read.
+MAX_DATASETS = 8
+
+#: Ordered weakest to strongest. A set is only as poolable as its worst pair,
+#: which is the whole point of showing the ceiling rather than an average.
+_VERDICT_RANK = [compare.NOT_COMPARABLE, compare.RELATED, compare.CONCEPTUAL,
+                 compare.AFTER_HARMONIZATION, compare.DIRECT]
+
+
+def dataset_matrix(cur, *, project_id: str,
+                   version_ids: list[str]) -> dict[str, Any]:
+    """
+    Compare several datasets side by side.
+
+    The number that matters is the **ceiling**: the weakest pair in the set.
+    Someone planning to pool five datasets needs to know that two of them cannot
+    be compared at all, and an average compatibility across ten pairs would hide
+    exactly that. A chain is not as strong as its mean link.
+
+    Every check is deterministic, so this works with no model configured.
+    """
+    unique = list(dict.fromkeys(version_ids))
+    if len(unique) < 2:
+        raise SynthesisError("Comparing needs at least two datasets.")
+    if len(unique) > MAX_DATASETS:
+        raise SynthesisError(
+            f"{len(unique)} datasets would mean "
+            f"{len(unique) * (len(unique) - 1) // 2} adjudications to read. "
+            f"Compare at most {MAX_DATASETS} at a time.")
+
+    profiles = []
+    for version_id in unique:
+        cur.execute(
+            "SELECT dv.id, dv.row_count, dv.column_count, dv.study_design, "
+            "       dv.population, dv.version, s.title "
+            "FROM dataset_versions dv JOIN datasets d ON d.id = dv.dataset_id "
+            "JOIN sources s ON s.id = d.source_id "
+            "WHERE dv.id = %s AND d.project_id = %s", (version_id, project_id))
+        row = cur.fetchone()
+        if not row:
+            raise SynthesisError(
+                f"{version_id} is not a dataset in this project.")
+
+        cur.execute(
+            "SELECT dc.name, cv.name AS canonical "
+            "FROM dataset_columns dc "
+            "LEFT JOIN variable_mappings vm ON vm.dataset_column_id = dc.id "
+            "  AND vm.status = 'approved' "
+            "LEFT JOIN canonical_variables cv ON cv.id = vm.canonical_variable_id "
+            "WHERE dc.dataset_version_id = %s ORDER BY dc.ordinal", (version_id,))
+        columns = [dict(c) for c in cur.fetchall()]
+        profiles.append({**dict(row), "columns": columns})
+
+    pairs = []
+    for left, right in itertools.combinations(profiles, 2):
+        assessed = compare.assess_datasets(
+            cur, project_id=project_id,
+            left_version_id=left["id"], right_version_id=right["id"])
+        pairs.append({
+            "left": left["id"], "right": right["id"],
+            "left_title": left["title"], "right_title": right["title"],
+            "verdict": assessed["verdict"],
+            "label": assessed["label"],
+            "mismatches": assessed["mismatches"],
+            "harmonization_required": assessed["harmonization_required"],
+            "still_possible": assessed["still_possible"],
+        })
+
+    ceiling = min(
+        (p["verdict"] for p in pairs),
+        key=lambda v: _VERDICT_RANK.index(v) if v in _VERDICT_RANK else 0)
+
+    # Which canonical variables every dataset actually measures. This is the
+    # only honest basis for pooling, and it is usually much smaller than the
+    # column count suggests.
+    shared = None
+    for profile in profiles:
+        confirmed = {c["canonical"] for c in profile["columns"] if c["canonical"]}
+        shared = confirmed if shared is None else (shared & confirmed)
+    shared = sorted(shared or set())
+
+    return {
+        # First, as in the paper matrix: what cannot be done, before what can.
+        "ceiling": ceiling,
+        "ceiling_label": compare.VERDICT_LABEL[ceiling],
+        "blocked": [p for p in pairs if p["verdict"] in
+                    (compare.NOT_COMPARABLE, compare.RELATED)],
+        "shared_variables": shared,
+        "datasets": [{
+            "id": p["id"], "title": p["title"], "rows": p["row_count"],
+            "columns": p["column_count"], "version": p["version"],
+            "design": p["study_design"] or "not recorded",
+            "population": p["population"] or "not recorded",
+            "confirmed_variables": sorted(
+                {c["canonical"] for c in p["columns"] if c["canonical"]}),
+            "unmapped_columns": [c["name"] for c in p["columns"]
+                                 if not c["canonical"]],
+        } for p in profiles],
+        "pairs": pairs,
+        "multiplicity": {
+            "datasets": len(profiles),
+            "pairwise_comparisons": len(pairs),
+        },
+        "method": "deterministic",
+        "note": (
+            f"The ceiling is set by the weakest pair, not the average: "
+            f"{compare.VERDICT_LABEL[ceiling].lower()}. Pooling this set is "
+            "limited by that pair however well the others match — a chain is "
+            "not as strong as its mean link."
+            + (f" {len(shared)} variable(s) are confirmed present in every "
+               "dataset." if shared else
+               " No variable is confirmed present in all of them, so there is "
+               "nothing yet that could be pooled.")),
+    }
+
+
+__all__ = ["MAX_DATASETS", "MAX_PAPERS", "SynthesisError", "dataset_matrix",
+           "key_points", "matrix"]

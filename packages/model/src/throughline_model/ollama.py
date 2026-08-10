@@ -88,6 +88,34 @@ class OllamaProvider(ModelProvider):
             ) from exc
         return [m["name"] for m in payload.get("models", [])]
 
+    def installed(self) -> list[dict[str, Any]]:
+        """
+        Every model this machine actually has, for the picker.
+
+        Size is reported because it is the choice the researcher is really
+        making: a 32B model on a laptop will answer, slowly, and one that takes
+        four minutes per passage turns claim location from a step into an
+        afternoon. Better to say so before they pick it than after.
+        """
+        try:
+            with urllib.request.urlopen(f"{self.host}/api/tags", timeout=5) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            raise ModelUnavailable(
+                f"Ollama is not reachable at {self.host}. Start it with "
+                "`ollama serve`.") from exc
+        models = []
+        for entry in payload.get("models", []):
+            details = entry.get("details") or {}
+            models.append({
+                "name": entry["name"],
+                "size_bytes": entry.get("size"),
+                "parameters": details.get("parameter_size"),
+                "quantization": details.get("quantization_level"),
+                "family": details.get("family"),
+            })
+        return sorted(models, key=lambda m: m["name"])
+
     # -- capability --------------------------------------------------------
 
     def capability(self) -> Capability:
