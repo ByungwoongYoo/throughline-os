@@ -27,6 +27,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { Empty, Failure, Loading } from "./primitives";
+import { SourceChip, SourceMark } from "./SourceMark";
 
 type Usability = {
   usable: boolean;
@@ -124,10 +125,7 @@ export function DataSearch() {
       {repositories && (
         <p className="lit-caps">
           {repositories.map((r) => (
-            <span key={r.name} data-polite={r.curated} title={r.note}>
-              {r.name}
-              {r.curated ? " (curated)" : " (open deposit)"}
-            </span>
+            <SourceChip key={r.name} name={r.name} note={r.note} />
           ))}
         </p>
       )}
@@ -139,9 +137,8 @@ export function DataSearch() {
         <>
           <div className="lit-status">
             {Object.entries(results.sources).map(([name, status]) => (
-              <span key={name} data-ok={status.ok} title={status.note ?? ""}>
-                {name}: {status.ok ? `${status.count}` : "did not answer"}
-              </span>
+              <SourceChip key={name} name={name} ok={status.ok}
+                          count={status.count} note={status.note} />
             ))}
           </div>
 
@@ -166,6 +163,7 @@ export function DataSearch() {
                                data-usable={use.usable}>
                         <h3>{record.title}</h3>
                         <p className="lit-meta">
+                          <SourceMark name={record.repository} size={15} />
                           {record.repository}
                           {record.curated ? " · curated" : " · open deposit"}
                           {record.year && ` · ${record.year}`}

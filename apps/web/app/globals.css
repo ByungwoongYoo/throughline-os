@@ -2978,3 +2978,73 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 }
 .gate-switch button:hover { text-decoration-color: currentColor; }
 .gate-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+
+
+/* --- connector marks ------------------------------------------------------
+ *
+ * Not the sources' own logos: those are their trademarks, and the workspace
+ * has to work offline anyway. A monogram per source, recognisable at 16px.
+ *
+ * Colour is deliberately weak. Saturated colour belongs to data, and fourteen
+ * bright badges in a result list would compete with every chart on screen. The
+ * hue sits at low chroma behind the letters, and `oklch` keeps every mark at
+ * one perceived lightness so no badge shouts louder than its neighbour purely
+ * because of its hue.
+ */
+.smark {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  border-radius: 4px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: oklch(52% 0.10 var(--smark-hue));
+  background: oklch(94% 0.035 var(--smark-hue));
+  box-shadow: inset 0 0 0 1px oklch(84% 0.05 var(--smark-hue));
+}
+@media (prefers-color-scheme: dark) {
+  .smark {
+    color: oklch(82% 0.09 var(--smark-hue));
+    background: oklch(30% 0.045 var(--smark-hue));
+    box-shadow: inset 0 0 0 1px oklch(40% 0.05 var(--smark-hue));
+  }
+}
+:root[data-theme="dark"] .smark {
+  color: oklch(82% 0.09 var(--smark-hue));
+  background: oklch(30% 0.045 var(--smark-hue));
+  box-shadow: inset 0 0 0 1px oklch(40% 0.05 var(--smark-hue));
+}
+:root[data-theme="light"] .smark {
+  color: oklch(52% 0.10 var(--smark-hue));
+  background: oklch(94% 0.035 var(--smark-hue));
+  box-shadow: inset 0 0 0 1px oklch(84% 0.05 var(--smark-hue));
+}
+/* A preprint is marked as one wherever it appears. */
+.smark[data-kind="preprint"] { border-radius: 8px 4px 8px 4px; }
+.smark[data-kind="personal"] { border-radius: 50%; }
+
+.schip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px 3px 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  background: var(--panel);
+  transition: border-color var(--fast) var(--ease-out-quad);
+}
+.schip:hover { border-color: var(--line-strong); }
+.schip-name { font-weight: 550; }
+.schip-count { color: var(--ink-faint); }
+/* Down and throttled are different facts and must not look alike. */
+.schip[data-state="down"] { opacity: 0.72; border-style: dashed; }
+.schip[data-state="down"] .schip-state { color: var(--danger); }
+.schip[data-state="limited"] .schip-state { color: var(--warn, #B45309); }
+.schip-state { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+.lit-caps, .lit-status { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.lit-found { display: inline-flex; align-items: center; gap: 4px; }
+.lit-meta .smark { vertical-align: -3px; margin-right: 5px; }

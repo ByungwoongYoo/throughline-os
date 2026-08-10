@@ -25,6 +25,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { Empty, Failure, Loading } from "./primitives";
+import { SourceChip, SourceMark } from "./SourceMark";
 
 type Disagreement = {
   preferred: { value: unknown; source: string };
@@ -120,10 +121,10 @@ export function Literature({ projectId }: { projectId: string }) {
       {capabilities && (
         <p className="lit-caps">
           {capabilities.map((c) => (
-            <span key={c.name} data-polite={c.polite}>
-              {c.name}
-              {!c.polite && " (no contact address — slower)"}
-            </span>
+            <SourceChip key={c.name} name={c.name} polite={c.polite}
+                        note={c.polite ? null
+                              : "No contact address, so this source gives us a "
+                                + "slower rate limit. Add one in Settings."} />
           ))}
         </p>
       )}
@@ -137,9 +138,8 @@ export function Literature({ projectId }: { projectId: string }) {
               not answer" are different facts and must not look alike. */}
           <div className="lit-status">
             {Object.entries(results.sources).map(([name, status]) => (
-              <span key={name} data-ok={status.ok} title={status.note ?? ""}>
-                {name}: {status.ok ? `${status.count}` : "did not answer"}
-              </span>
+              <SourceChip key={name} name={name} ok={status.ok}
+                          count={status.count} note={status.note} />
             ))}
           </div>
 
@@ -206,6 +206,11 @@ export function Literature({ projectId }: { projectId: string }) {
 
                         <footer className="lit-actions">
                           <span className="lit-found">
+                            {/* The mark of every database that returned this
+                                record, so a merge is visible at a glance. */}
+                            {record.source.split("+").map((name) => (
+                              <SourceMark key={name} name={name.trim()} size={15} />
+                            ))}
                             found via {record.source.replace(/\+/g, " + ")}
                           </span>
                           {record.open_access && (

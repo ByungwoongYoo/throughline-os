@@ -4,73 +4,38 @@ node_modules/
 venv/
 env/
 
-# Build/cache
-.next/
-dist/
-build/
-.cache/
-.parcel-cache/
-coverage/
-tmp/
-temp/
-
-# Python
+# Python generated files
 __pycache__/
 *.pyc
 *.pyo
-
-# Environment/secrets
-.env
-.env.*
-!.env.example
-
-# Logs
-*.log
-
-# macOS
-.DS_Store
-
-# IDE
-.vscode/
-.idea/
-
-# OS/editor temporary files
-*.swp
-*.swo
-
-# Python virtual environments
-.venv/
-venv/
-env/
-
-# Node dependencies
-node_modules/
-
-# Build/cache
-.next/
-dist/
-build/
-.cache/
-.parcel-cache/
-coverage/
-tmp/
-temp/
-
-# Python cache
-__pycache__/
-*.pyc
-*.pyo
-
-# Generated Python package metadata
+*.pyd
 *.egg-info/
 
-# Environment/secrets
+# Next.js / JavaScript builds
+.next/
+out/
+dist/
+build/
+.turbo/
+.cache/
+.parcel-cache/
+
+# Testing / coverage
+coverage/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.log
+
+# Environment / secrets
 .env
 .env.*
 !.env.example
-
-# Logs
-*.log
 
 # macOS
 .DS_Store
@@ -78,3 +43,11 @@ __pycache__/
 # IDE
 .vscode/
 .idea/
+
+# Python tooling
+*.ipynb_checkpoints/
+
+# Editor temporary files
+*.swp
+*.swo
+apps/web/tsconfig.tsbuildinfo
