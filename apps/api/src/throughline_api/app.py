@@ -54,7 +54,7 @@ async def lifespan(_: FastAPI):
     # two runs disagree.
     try:
         with transaction() as cur:
-            domain_domain_settings.apply_model_choice(cur)
+            domain_settings.apply_model_choice(cur)
     except Exception:  # noqa: BLE001 — never let a preference block startup
         logging.getLogger("throughline.api").warning(
             "Could not apply the saved model choice; using the environment "
