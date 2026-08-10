@@ -82,7 +82,7 @@ def _session() -> Iterator[Any]:
 
 def capability() -> dict[str, Any]:
     """
-    What the projection can do right now, for .
+    What the projection can do right now, and what is unavailable without it.
 
     Reports unreachable as unavailable rather than as an error, because from the
     interface's point of view a graph database that is down and one that was

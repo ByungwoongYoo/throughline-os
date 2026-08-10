@@ -11,7 +11,7 @@ Three commitments make that safe.
 **Notes are append-only.** What a researcher believed at the time is evidence
 about how they got to a conclusion. Editing it away later would rewrite the
 reasoning while leaving the conclusion standing — a silent alteration of exactly
-the kind LAW 4 forbids. Corrections are made by writing another note, as in any
+the kind this rule forbids. Corrections are made by writing another note, as in any
 lab book.
 
 **A model's note is never a person's note.** They are stored with different
@@ -206,7 +206,7 @@ def ask(cur, *, project_id: str, object_id: str, question: str, author: str
     from . import causal
 
     answer = completion.text.strip()
-    # LAW 6 — the licence here is the weakest available, because a note about a
+    # the licence here is the weakest available, because a note about a
     # graph node has no design behind it at all.
     violations = causal.check(answer, design="unknown")
     if violations:

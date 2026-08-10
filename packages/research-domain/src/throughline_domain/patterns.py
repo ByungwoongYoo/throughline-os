@@ -442,7 +442,7 @@ def key_findings(cur, project_id: str, limit: int = 8) -> dict[str, Any]:
                            "sample_size": c["sample_size"],
                       "method": c["method"],
                          "canonical": c["canonical"],
-            # the rule — supporting and contradicting evidence together, always.
+            # Supporting and contradicting evidence together, always.
                                    "supporting_patterns": supporting,
                                       "contradicting_patterns": against,
                               "other_patterns": [p for p in relevant.values()

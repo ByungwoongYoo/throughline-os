@@ -80,7 +80,8 @@ def grade_evidence(
     """Grade the evidence behind a result, independently of its p-value.
 
     A tiny sample with a violated assumption is weak evidence however small the
-    p-value is; that is the whole point of .
+    p-value is; that is the whole point of reporting the assumption checks
+    alongside the result rather than only the p-value.
     """
     if any(a.outcome == "violated" and a.severity == "blocking" for a in assumptions):
         return "insufficient"

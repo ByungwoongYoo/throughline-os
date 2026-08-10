@@ -12,7 +12,7 @@ or the p-value — those come from the sandbox, and the report references them
 
 So these schemas carry **identifiers and choices**, not measurements. Where a
 number would be natural, the field is a reference to a recorded row instead.
-That is what makes the rule enforceable against a text generator rather than merely
+That is what makes the constraint enforceable against a text generator rather than merely
 requested of it: there is no field in which a fabricated statistic would be
 accepted, so a hallucinated number fails validation instead of reaching a page.
 
@@ -364,7 +364,7 @@ class PlainSummary(BaseModel):
     someone who has not met . The summary sits *beside* the exact figures and
     never replaces them.
 
-    It states no numbers, which is both a the rule requirement and the reason it
+    It states no numbers, which is both a hard requirement and the reason it
     can be trusted: it cannot round, restate or drift from the recorded values,
     because it does not contain any.
     """

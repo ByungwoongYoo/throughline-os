@@ -55,7 +55,7 @@ class ParsedDocument:
     def verify_anchors(self) -> list[int]:
         """Return the ordinals of any passage whose offsets do not match `text`.
 
-        LAW 1 depends on offsets being真 real. This is cheap and runs after every
+        this rule depends on offsets being真 real. This is cheap and runs after every
         parse so a bad anchor is caught at ingestion rather than discovered later
         by a researcher inspecting a citation.
         """

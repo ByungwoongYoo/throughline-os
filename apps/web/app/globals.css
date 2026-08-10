@@ -48,6 +48,12 @@
 
   /* Roles, so components never reach into the ramp directly. */
   --paper: var(--n-25);
+  /* `--bg` was referenced in three places and defined in none, so those
+     rules resolved to nothing. Aliased to the page surface, which is what
+     each of them meant. */
+  --bg: var(--n-25);
+  /* Caution. Semantic, and the one warm hue chrome is allowed. */
+  --warn: #B45309;
   --panel: var(--n-0);
   --hover: var(--n-50);
   --line:  var(--n-200);
@@ -140,6 +146,8 @@
     --n-900: #F0F2F5;
 
     --paper: var(--n-0);
+    --bg: var(--n-0);
+    --warn: #F59E0B;
     --panel: var(--n-50);
     --hover: var(--n-100);
     --accent-soft: #16233C;

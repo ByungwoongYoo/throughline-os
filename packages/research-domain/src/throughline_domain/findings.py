@@ -5,7 +5,7 @@ Two rules are enforced here rather than trusted to callers:
 1. A finding may only move along a legal transition. There is no path from
    CANDIDATE to VALIDATED — a pattern must pass through EXPLORATORY, and
    promotion out of EXPLORATORY requires the  robustness checks.
-2. A finding cannot be promoted past CANDIDATE without linked evidence. LAW 3 is
+2. A finding cannot be promoted past CANDIDATE without linked evidence. this rule is
    a precondition in code, not a convention.
 """
 
@@ -42,7 +42,7 @@ class FindingError(RuntimeError):
 
 
 class EvidenceRequired(FindingError):
-    """LAW 3 — no finding without evidence."""
+    """no finding without evidence."""
 
 
 class IllegalTransition(FindingError):
@@ -138,7 +138,7 @@ def transition(
     actor: str,
     checks: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Move a finding along the lifecycle, enforcing  and LAW 3."""
+    """Move a finding along the lifecycle, enforcing  and this rule."""
     cur.execute(
         "SELECT id, project_id, lifecycle_status FROM findings WHERE id = %s FOR UPDATE",
         (finding_id,),
@@ -157,7 +157,7 @@ def transition(
 
     checks = checks or {}
 
-    # LAW 3 — anything past CANDIDATE is a claim about the world and needs evidence.
+    # anything past CANDIDATE is a claim about the world and needs evidence.
     if to_status is not FindingLifecycle.DEPRECATED:
         summary = evidence_summary(cur, finding_id)
         if summary["total"] == 0:

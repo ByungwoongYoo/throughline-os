@@ -125,11 +125,13 @@ def summarise_run(cur, *, run_id: str, refresh: bool = False) -> dict[str, Any]:
     result = run["result"] or {}
     template = prompt("plain_summary")
 
+    # Canonical display names, so the sentence a researcher reads first does not
+    # contain a column name they have never seen.
+    names = harmonize.labels(cur, run["project_id"])
+    raw = [v for v in (result.get("extra") or {}).values() if isinstance(v, str)]
     instructions = template.render(
         method=result.get("method", "unknown"),
-        variables=", ".join(
-            str(v) for v in (result.get("extra") or {}).values()
-            if isinstance(v, str)) or "not recorded",
+        variables=", ".join(names.get(v, v) for v in raw) or "not recorded",
         practical=result.get("practical_significance", "not assessed"),
         quality=result.get("evidence_quality", "not assessed"),
         assumptions=_describe_assumptions(assumptions),

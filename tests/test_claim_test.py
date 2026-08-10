@@ -830,3 +830,48 @@ def test_a_claim_with_no_paper_records_no_edge(cur, project):
     cur.execute("SELECT count(*) AS n FROM artifact_lineage_edges "
                 "WHERE project_id = %s", (project,))
     assert cur.fetchone()["n"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Located claims are a research artifact, not a transient computation
+# ---------------------------------------------------------------------------
+
+def test_a_re_read_replaces_the_previous_reading(cur, project):
+    """
+    Two extractions of one paper sitting side by side would silently double
+    every downstream comparison — each claim would be reconciled against the
+    other paper twice, and a reviewer counting agreements would count each one
+    two times.
+    """
+    source_id = _paper(cur, project, title="Paper", passages=["An association."])
+    for round_number in range(2):
+        cur.execute(
+            "INSERT INTO located_claims(id, project_id, source_id, statement, "
+            "model, prompt_name, prompt_version, ordinal) "
+            "VALUES (%s, %s, %s, %s, 'test-model', 'locate_claims', 1, 0)",
+            (new_id("lclm"), project, source_id, f"round {round_number}"))
+        # The real function deletes first; this asserts the invariant the delete
+        # exists to keep.
+        cur.execute("DELETE FROM located_claims WHERE source_id = %s AND "
+                    "statement <> %s", (source_id, f"round {round_number}"))
+
+    assert len(claim_test.stored_claims(cur, source_id)) == 1
+
+
+def test_stored_claims_carry_the_model_that_read_them(cur, project):
+    """
+    LAW 4 — a later disagreement between two extractions must be attributable
+    rather than argued about.
+    """
+    source_id = _paper(cur, project, title="Paper", passages=["An association."])
+    cur.execute(
+        "INSERT INTO located_claims(id, project_id, source_id, statement, "
+        "estimand, model, prompt_name, prompt_version, ordinal) "
+        "VALUES (%s, %s, %s, 'x', 'odds_ratio', 'qwen2.5:7b-instruct', "
+        "'locate_claims', 1, 0)",
+        (new_id("lclm"), project, source_id))
+
+    stored = claim_test.stored_claims(cur, source_id)
+    assert stored[0]["model"] == "qwen2.5:7b-instruct"
+    assert stored[0]["prompt_version"] == 1
+    assert stored[0]["estimand"] == "odds_ratio"

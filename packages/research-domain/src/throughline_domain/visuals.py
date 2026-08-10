@@ -1,6 +1,6 @@
 """Visuals in the research model — recommendation, critique, render, provenance.
 
-LAW 5 is the whole point of this module: a figure is created *from* an analysis
+this rule is the whole point of this module: a figure is created *from* an analysis
 run and linked to it by lineage, so a chart on a slide can always be resolved
 back to the computation and the dataset underneath.
 
@@ -105,7 +105,7 @@ def create_visual(
         title=spec.title or f"{spec.visual_type} figure", actor=actor,
         metadata={"visual_id": visual_id, "visual_type": str(spec.visual_type)},
     )
-    # The figure visualises the analysis; the edge is what LAW 5 rests on.
+    # The figure visualises the analysis; the edge is what this rule rests on.
     if run["object_id"]:
         add_edge(cur, project_id=project_id, source_artifact_id=run["object_id"],
                  target_artifact_id=object_id, lineage_type=LineageType.VISUALIZES,

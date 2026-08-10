@@ -155,7 +155,7 @@ def create_object(
 
     ``derived_from`` is not optional bookkeeping. If an object is produced from
     other artifacts, passing them here is the only way it gets created, because
-    LAW 1 does not permit a derived artifact to exist without its inputs.
+    this rule does not permit a derived artifact to exist without its inputs.
     """
     object_id = new_id("obj")
     cur.execute(

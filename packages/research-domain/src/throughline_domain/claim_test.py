@@ -54,6 +54,11 @@ _AVAILABILITY = re.compile(
 
 _ACCESSION = re.compile(r"\b(?:GSE|PRJNA|SRR|E-MTAB|PXD)\d{3,}\b")
 
+#: How many passages after a heading still count as inside its section. Three is
+#: enough for a heading, a sentence and its continuation, and short enough that
+#: a data statement cannot reach across into an unrelated section.
+_SECTION_WINDOW = 3
+
 
 def _distinctive(text: str) -> set[str]:
     """
@@ -99,9 +104,15 @@ def check_circularity(cur, *, source_id: str, dataset_version_id: str
     cur.execute(
         "SELECT id, content, locator FROM passages WHERE source_id = %s "
         "ORDER BY ordinal", (source_id,))
+    passages = list(cur.fetchall())
 
-    for passage in cur.fetchall():
-        content = passage["content"]
+    for index, passage in enumerate(passages):
+        # A heading scopes what follows it. Chunkers split "## Data
+        # availability" from the sentence underneath, so a check that required
+        # both in one passage would miss every real paper — which is exactly
+        # what happened the first time this ran against one.
+        window = passages[index:index + _SECTION_WINDOW]
+        content = "\n".join(p["content"] for p in window)
 
         # Strongest signal: the same DOI or accession number in both.
         if dataset_doi and dataset_doi in content.lower():
@@ -132,9 +143,14 @@ def check_circularity(cur, *, source_id: str, dataset_version_id: str
 
     # Provenance this system recorded itself is not a guess.
     cur.execute(
+        # `artifact_lineage_edges` keys on *_artifact_id. The object-relationship
+        # table is the one with *_object_id, and mixing the two here made the
+        # circularity check raise UndefinedColumn — which the caller swallowed
+        # as "no recorded lineage", quietly turning the strongest signal this
+        # check has into a silent no.
         "SELECT 1 FROM artifact_lineage_edges "
-        "WHERE (source_object_id = %s AND target_object_id = %s) "
-        "   OR (source_object_id = %s AND target_object_id = %s) LIMIT 1",
+        "WHERE (source_artifact_id = %s AND target_artifact_id = %s) "
+        "   OR (source_artifact_id = %s AND target_artifact_id = %s) LIMIT 1",
         (source_id, dataset["dataset_source_id"],
          dataset["dataset_source_id"], source_id))
     if cur.fetchone():
@@ -341,7 +357,7 @@ def assess_testability(cur, *, project_id: str, claim: dict[str, Any],
     # String similarity is deliberately not used. A column named
     # `resistance_prevalence` is the claim's outcome only once a human says so;
     # matching automatically would let the system silently decide what a paper
-    # meant, which is the silent alteration LAW 4 forbids.
+    # meant, which is the silent alteration this rule forbids.
     cur.execute(
         "SELECT dc.id AS column_id, dc.name AS column_name, cv.name AS canonical, "
         "       COALESCE(NULLIF(cv.display_label, ''), cv.name) AS label "
@@ -499,10 +515,14 @@ def test_claim(cur, *, project_id: str, claim: dict[str, Any],
     inflate the false-discovery rate. It reads a result already computed
     under correction, or reports that the pair has not been tested.
     """
+    claim = {**claim, "source_id": claim.get("source_id") or source_id}
     testability = assess_testability(
         cur, project_id=project_id, claim=claim,
         dataset_version_id=dataset_version_id, source_id=source_id)
     if not testability["testable"]:
+        _record_in_graph(cur, project_id=project_id, claim=claim,
+                         dataset_version_id=dataset_version_id,
+                         verdict=testability["verdict"])
         return _result(testability, claim, testability["verdict"])
 
     exposure = testability["exposure_column"]
@@ -624,6 +644,59 @@ def test_claim(cur, *, project_id: str, claim: dict[str, Any],
             f"Magnitudes were called {'the same' if code == 'P1' else 'different'} "
             f"at a 20% relative difference: this data gives {abs(estimate):.3f} and "
             f"the paper reports {claimed_effect_text or claimed_effect}."]))
+
+
+def _record_in_graph(cur, *, project_id: str, claim: dict[str, Any],
+                     dataset_version_id: str, verdict: Verdict) -> None:
+    """
+    Put the claim test into the research graph.
+
+    Without this the graph has papers on one side and analyses on the other and
+    nothing between them — a path query from a paper to the finding that tested
+    its claim returns "no connection", which is true of the record and false of
+    the research. The whole point of the product is the throughline, and the
+    throughline has to be an edge.
+
+    Recorded for refusals too. "This paper's claim could not be tested on this
+    data, and here is why" is a result about both objects, and losing it would
+    mean the same dead end gets rediscovered every time someone tries.
+    """
+    from throughline_schemas.enums import LineageType
+
+    from .lineage import add_edge
+
+    source_id = claim.get("source_id")
+    if not source_id:
+        return
+
+    cur.execute(
+        "SELECT o.id FROM research_objects o WHERE o.project_id = %s "
+        "  AND o.source_id = %s AND o.object_type = 'paper' LIMIT 1",
+        (project_id, source_id))
+    paper = cur.fetchone()
+
+    cur.execute(
+        "SELECT d.object_id FROM dataset_versions dv "
+        "JOIN datasets d ON d.id = dv.dataset_id WHERE dv.id = %s",
+        (dataset_version_id,))
+    dataset = cur.fetchone()
+
+    if not (paper and dataset and dataset["object_id"]):
+        return
+
+    add_edge(
+        cur, project_id=project_id,
+        source_artifact_id=dataset["object_id"],
+        target_artifact_id=paper["id"],
+        # `references` rather than `supports`: the edge records that the two
+        # were tested against each other, and a P9 refusal is as much a part of
+        # the record as a P1 agreement.
+        lineage_type=LineageType.REFERENCES,
+        metadata={"claim_test": verdict.outcome_code,
+                  "family": verdict.family.value,
+                  "reason": verdict.reason_code,
+                  "statement": (claim.get("statement") or "")[:500]},
+    )
 
 
 def _result(testability: dict[str, Any], claim: dict[str, Any],

@@ -225,7 +225,7 @@ def draft_presentation_from_report(cur, *, project_id: str, report_id: str) -> s
 
     The blocks are *re-referenced*, not copied: each slide's value_refs point at
     the same analysis runs as the report's. If the analysis is re-run, both
-    artifacts move together, which is what LAW 5 requires of two outputs that
+    artifacts move together, which is what this rule requires of two outputs that
     claim to say the same thing.
     """
     source = communication.load_artifact(cur, report_id, resolve=False)

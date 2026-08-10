@@ -1,6 +1,6 @@
 """Artifact lineage — the system that answers "How was this made?".
 
-LAW 1 says no result without provenance. In practice that means: an artifact is
+this rule says no result without provenance. In practice that means: an artifact is
 created *together with* the edges that explain it, in one transaction. A helper
 that writes the object and lets the caller remember the edge afterwards would
 make provenance optional, so ``record_derivation`` is the only creation path for

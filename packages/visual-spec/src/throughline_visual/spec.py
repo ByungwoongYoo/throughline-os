@@ -5,7 +5,7 @@ is that analysis logic is never re-implemented per output: the spec references
 the analysis run that produced the numbers, `prepare.py` turns that into
 chart-ready data exactly once, and every renderer consumes the same structure.
 
-The spec also carries its own provenance. LAW 5 says a communication artifact may
+The spec also carries its own provenance. this rule says a communication artifact may
 not escape its source graph, so `analysis_run_id` and `dataset_version_id` are
 part of the figure's identity rather than metadata bolted on afterwards.
 """

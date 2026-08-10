@@ -2,7 +2,7 @@
 
 Raw data is never mutated. Profiling reads, describes and flags; it does
 not clean, impute or coerce. Anything that would change a value is a
-transformation, belongs in Phase 2, and must be visible under LAW 4.
+transformation, belongs in Phase 2, and must be visible under this rule.
 
 Semantic typing is deliberately conservative. A column is called an identifier,
 a geography or a date only on strong evidence; everything else stays
@@ -22,17 +22,16 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-# Re-exported rather than redefined: the parser that reads these files and the
-# router that decides which parser to use must agree on the list, and two
-# copies of a suffix set drift the moment one format is added.
-from .documents import SUPPORTED_DATASET_SUFFIXES  # noqa: F401
-
 
 class UnsupportedDataset(ValueError):
-    pass
+    """A format the profiler does not genuinely handle. Never shown as usable."""
 
 
-#:  semantic types.
+#: Tabular formats the profiler genuinely handles today.
+SUPPORTED_DATASET_SUFFIXES = frozenset({".csv", ".tsv", ".xlsx", ".xlsm", ".json"})
+
+
+#: Semantic types.
 SEMANTIC_TYPES = (
     "identifier", "continuous", "ordinal", "categorical", "binary", "date",
     "time", "geography", "age", "sex", "treatment", "outcome", "exposure",
@@ -52,11 +51,18 @@ _NAME_HINTS: list[tuple[str, re.Pattern[str]]] = [
     ("exposure", re.compile(r"^(exposure|dose|consumption|intake|usage)$", re.I)),
 ]
 
-#  — flag fields that may carry personal data so downstream sharing and
+# Flag fields that may carry personal data so downstream sharing and
 # export can respect them. Flagging is not redaction; nothing is removed.
+# A qualifier prefix is allowed so `patient_name` and `respondent_email` are
+# caught, but structural words are excluded so `column_name` is not. Over-
+# flagging is the safe direction here: this raises a flag, it never redacts.
 _SENSITIVE_HINTS = re.compile(
-    r"^(name|full_?name|first_?name|last_?name|surname|email|phone|mobile|address|"
-    r"postcode|zip|ssn|nhs_?number|mrn|patient_?id|dob|date_?of_?birth|nric|passport)$",
+    r"^(?!(?:column|field|variable|file|table|dataset|study|method|model|test|"
+    r"group|category|species|gene|protein|drug|country|region|city|site)[_\.])"
+    r"(?:[a-z0-9]+[_\.])?"
+    r"(name|full_?name|first_?name|last_?name|surname|email|e_?mail|phone|mobile|"
+    r"telephone|address|postcode|post_?code|zip|zipcode|ssn|nhs_?number|mrn|"
+    r"dob|date_?of_?birth|nric|passport|patient_?id|participant_?id|subject_?id)$",
     re.I,
 )
 
@@ -87,7 +93,7 @@ class DatasetProfile:
 
 
 def sniff_delimiter(path: Path) -> str:
-    """ — detect the delimiter rather than assuming a comma."""
+    """Detect the delimiter rather than assuming a comma."""
     sample = path.read_bytes()[:64_000].decode("utf-8", errors="replace")
     try:
         return csv.Sniffer().sniff(sample, delimiters=",;\t|").delimiter
@@ -96,14 +102,16 @@ def sniff_delimiter(path: Path) -> str:
         return ","
 
 
-def read_dataset(path: Path) -> tuple[pd.DataFrame, str]:
+def read_dataset(path: Path, *, suffix: str | None = None) -> tuple[pd.DataFrame, str]:
     """Load a dataset without coercing anything.
 
     ``dtype=str`` and ``keep_default_na=False`` mean the profiler observes the
     file's literal contents — including the strings people use for missingness —
     instead of pandas' interpretation of them.
     """
-    suffix = path.suffix.lower()
+    # Content-addressed storage means the path is a hash with no extension, so
+    # the caller supplies the format from the original filename.
+    suffix = (suffix or path.suffix).lower()
     if suffix in {".csv", ".tsv"}:
         delimiter = "\t" if suffix == ".tsv" else sniff_delimiter(path)
         frame = pd.read_csv(
@@ -173,7 +181,7 @@ def profile_column(ordinal: int, name: str, series: pd.Series) -> ColumnProfile:
                 "p75": float(quantiles.loc[0.75]),
                 "integer_only": bool(np.all(np.equal(np.mod(numbers, 1), 0))),
             })
-            #  — suspicious values are reported, never silently corrected.
+            # Suspicious values are reported, never silently corrected.
             sentinels = [v for v in (-999, -99, -9999, 999, 9999) if float((numbers == v).sum()) > 0]
             if sentinels:
                 stats["possible_sentinel_values"] = sentinels
@@ -217,6 +225,14 @@ def _semantic_type(
 
     hinted = next((label for label, pattern in _NAME_HINTS if pattern.match(clean_name)), None)
 
+    # A bare year column is physically a number but means a date. This is very
+    # common in research data, and typing it "continuous" would let it be
+    # correlated against outcomes as if it were a measurement.
+    if hinted == "date" and physical_type == "number":
+        low, high = stats.get("min"), stats.get("max")
+        if low is not None and high is not None and 1500 <= low and high <= 2200:
+            return "date"
+
     # An identifier must actually be near-unique, whatever it is called.
     if hinted == "identifier":
         if total and unique_count >= 0.95 * max(1, len(present)):
@@ -251,8 +267,9 @@ def _semantic_type(
     return "measurement"
 
 
-def profile_dataset(path: Path, *, row_limit: int = 500_000) -> DatasetProfile:
-    frame, fmt = read_dataset(path)
+def profile_dataset(path: Path, *, suffix: str | None = None,
+                    row_limit: int = 500_000) -> DatasetProfile:
+    frame, fmt = read_dataset(path, suffix=suffix)
     original_rows = len(frame)
     sampled = original_rows > row_limit
     if sampled:
@@ -282,7 +299,7 @@ def profile_dataset(path: Path, *, row_limit: int = 500_000) -> DatasetProfile:
         "high_missing_columns": high_missing,
         "possibly_personal_columns": sensitive,
         "semantic_type_counts": _counts(c.semantic_type for c in columns),
-        #  — the report describes; it never prescribes a mutation.
+        # the report describes; it never prescribes a mutation.
         "notice": "Profiling never modifies the source data. Findings here are "
                   "observations for the researcher to act on.",
     }

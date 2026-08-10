@@ -1,6 +1,6 @@
 """Analysis specifications, runs and computational provenance.
 
-LAW 2 in practice: a number reaches the rest of the system only as a field of a
+this rule in practice: a number reaches the rest of the system only as a field of a
 recorded `analysis_run`, produced by the sandbox from a validated spec against a
 named dataset version. There is no path by which a number enters the research
 model without a run behind it.
@@ -233,7 +233,7 @@ def create_run(
 def record_result(
     cur, *, run_id: str, sandbox: Any, spec_row: dict[str, Any], actor: str,
 ) -> dict[str, Any]:
-    """Persist a completed run and commit its provenance .
+    """Persist a completed run and commit its provenance.
 
     The analysis becomes a research object derived from the dataset version, so
     anything later built on this number can be traced back to the rows and the

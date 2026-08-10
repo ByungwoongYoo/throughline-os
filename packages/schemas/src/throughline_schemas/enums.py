@@ -3,7 +3,7 @@
 These enums are the specification's distinctions rendered in code. The system
 laws depend on them staying separate: collapsing FindingLifecycle.CANDIDATE into
 FindingLifecycle.VALIDATED, or ClaimType.AI_INTERPRETATION into
-ClaimType.CALCULATED_RESULT, would silently break LAW 2 and LAW 3.
+ClaimType.CALCULATED_RESULT, would silently break this rule and this rule.
 """
 
 from __future__ import annotations
@@ -113,7 +113,7 @@ class ClaimType(StrEnum):
     """ — never merge these categories.
 
     The distinction between SOURCE_FACT, CALCULATED_RESULT and AI_INTERPRETATION
-    is what makes LAW 2 auditable.
+    is what makes this rule auditable.
     """
 
     SOURCE_FACT = "source_fact"

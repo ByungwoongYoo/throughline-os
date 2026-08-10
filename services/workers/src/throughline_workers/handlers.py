@@ -6,6 +6,8 @@ work or is absent.
 
 from __future__ import annotations
 
+import logging
+
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +16,8 @@ from throughline_domain.db import connection
 from throughline_ingestion import datasets as dataset_parser
 from throughline_ingestion import documents as document_parser
 from throughline_schemas.enums import IngestionStatus
+
+log = logging.getLogger("throughline.workers")
 
 from .runner import REGISTRY
 
@@ -116,13 +120,32 @@ def ingest_source(run: dict[str, Any], cur: Any) -> dict[str, Any]:
 
 
 def _record_failure(source_id: str, detail: str) -> None:
+    """
+    Record an ingestion failure on its own connection, or give up quickly.
+
+    **The lock timeout is what stops this deadlocking against its own caller.**
+    This runs while the caller still holds an open transaction that has already
+    touched this source row, so the second connection queues behind a lock the
+    first will not release until this returns. Without a timeout that wait is
+    unbounded: the handler never returns, the worker's run never finishes, and
+    because a claimed run stays claimable the retry loop spins forever. A single
+    transient ingestion failure was enough to hang the worker permanently.
+
+    Two seconds is far longer than the write needs and far shorter than a
+    researcher would wait. If it does time out the failure is still visible —
+    the workflow run carries the error either way — so the fallback loses a
+    status field, not the information.
+    """
     try:
         with connection() as conn, conn.cursor() as cur:
+            cur.execute("SET LOCAL lock_timeout = '2s'")
             objects.advance_ingestion(cur, source_id=source_id,
                                       to_status=IngestionStatus.FAILED, detail=detail)
     except Exception:
-        # Never let failure-recording mask the original error.
-        pass
+        # Logged rather than silently swallowed: this failing used to be
+        # invisible, which is how the deadlock went unnoticed.
+        log.warning("could not record ingestion failure for %s", source_id,
+                    exc_info=True)
 
 
 def _ingest_document(
@@ -303,7 +326,7 @@ def discovery_run(run: dict[str, Any], cur: Any) -> dict[str, Any]:
     """/ — generate candidates, test them, correct, rank, record.
 
     Every candidate becomes a real sandboxed analysis run, so a discovered
-    connection is traceable to the computation behind it (LAW 1, LAW 2).
+    connection is traceable to the computation behind it (this rule, this rule).
     """
     from throughline_domain import analysis, discovery
 

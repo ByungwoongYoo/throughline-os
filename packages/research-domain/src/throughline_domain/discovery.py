@@ -39,7 +39,7 @@ CATEGORICAL_TYPES = frozenset({"categorical", "binary", "sex", "treatment",
 #: to a grouping, and group-comparison tests stop being meaningful.
 MAX_CATEGORY_LEVELS = 12
 
-#: Absolute skew beyond which a rank-based method is preferred .
+#: Absolute skew beyond which a rank-based method is preferred.
 SKEW_THRESHOLD = 1.0
 
 MIN_ROWS_FOR_TEST = 12

@@ -3,7 +3,7 @@
  says a new relationship begins as EXPLORATORY and is promoted only after
 suitable checks. This module runs those checks as *real analyses in the sandbox*
 rather than as assertions about them, so every validation claim is itself
-traceable to a computation (LAW 1 applied to validation).
+traceable to a computation (this rule applied to validation).
 
 The checks map onto the names `findings.REQUIRED_VALIDATION_CHECKS` has demanded
 since Phase 0. That gate was written before anything could satisfy it; this is

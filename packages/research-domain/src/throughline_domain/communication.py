@@ -17,7 +17,7 @@ whether the reference still resolves. There is no third state where it displays
 the old one.
 
 The cost is that authoring is stricter — you cannot type a result into a
-sentence. That is the point. LAW 2 says an LLM may explain a number and may not
+sentence. That is the point. this rule says an LLM may explain a number and may not
 produce one, and the only way to enforce that against a text generator is to
 give it no field in which a number would be believed.
 """

@@ -275,7 +275,7 @@ def rewrite(text: str, *, design: str) -> tuple[str, list[Violation]]:
     Apply each rule's suggested replacement.
 
     Offered for review, never applied silently — a substitution can produce a
-    grammatically odd sentence, and LAW 4 forbids changing what a researcher
+    grammatically odd sentence, and this rule forbids changing what a researcher
     will publish without showing them. The violations are returned alongside so
     the interface can show both versions.
     """

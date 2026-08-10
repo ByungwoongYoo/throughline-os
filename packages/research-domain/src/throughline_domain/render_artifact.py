@@ -114,7 +114,7 @@ def _provenance_lines(artifact: dict[str, Any]) -> list[str]:
 
     This is the  traceability trail in text form, and it is not optional
     decoration: it is what makes the exported file auditable once it has left
-    the application, which is precisely when LAW 5 is hardest to honour.
+    the application, which is precisely when this rule is hardest to honour.
     """
     lines: list[str] = []
     for block in artifact["blocks"]:

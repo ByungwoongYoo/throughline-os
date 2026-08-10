@@ -190,7 +190,7 @@ def propose_labels(cur, *, project_id: str, dataset_version_id: str) -> dict[str
                   "prompt": f"{completion.prompt_name} v{completion.prompt_version}",
                  "note": ("These are suggestions. Column names are still shown everywhere "
                  "until each is approved — an unreviewed label would silently "
-                 "restate what every figure beneath it means (, the rule)."),
+                 "restate what every figure beneath it means."),
                  }
 
 

@@ -40,7 +40,7 @@ def render(spec: ResearchVisualSpec, data: VisualData) -> dict[str, Any]:
     chart["$schema"] = VEGA_LITE_SCHEMA
     chart["title"] = {"text": spec.title, "subtitle": spec.subtitle or None,
                       "anchor": "start"}
-    # LAW 5 — the rendered figure keeps its link to the computation behind it.
+    # the rendered figure keeps its link to the computation behind it.
     chart["usermeta"] = {
         "analysis_run_id": spec.analysis_run_id,
         "dataset_version_id": spec.dataset_version_id,
@@ -105,7 +105,7 @@ def _make_interactive(chart: dict[str, Any], spec: ResearchVisualSpec,
         "select": {"type": "interval", "encodings": ["x", "y"]},
     })
 
-    # Legend as a filter, when there are groups to filter by .
+    # Legend as a filter, when there are groups to filter by.
     if data.group_values:
         params.append({
             "name": "group_filter",

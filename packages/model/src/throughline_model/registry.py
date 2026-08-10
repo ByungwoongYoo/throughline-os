@@ -55,7 +55,7 @@ _LAWS = (
 )
 
 PLAIN_SUMMARY = Prompt(
-    name="plain_summary", version=1,
+    name="plain_summary", version=2,
     text=(
         _LAWS + "\n\n"
         "Explain a statistical result to a researcher who is not a statistician — "
@@ -65,6 +65,12 @@ PLAIN_SUMMARY = Prompt(
         "Be direct about weakness. If assumptions were violated, say plainly that the "
         "result deserves less weight than its p-value suggests, and why. A reader who "
         "walks away over-confident has been failed.\n\n"
+        "Refer to the variables ONLY by the names given below. Never write a raw "
+        "column name such as `consumption_ddd` — the reader has never seen the "
+        "spreadsheet and a column name tells them nothing.\n\n"
+        "Refer to the variables ONLY by the names given below. Never write a raw "
+        "column name such as `consumption_ddd` — the reader has never seen the "
+        "spreadsheet and a column name tells them nothing.\n\n"
         "The result:\n"
         "Method: {method}\n"
         "What was compared: {variables}\n"

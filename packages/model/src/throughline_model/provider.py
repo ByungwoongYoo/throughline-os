@@ -8,7 +8,7 @@ against, so a second backend is an addition rather than a migration.
 
 Three rules shape this file more than anything else:
 
-**LAW 2 — a model may never produce a numerical result.** So there is no method
+**a model may never produce a numerical result.** So there is no method
 here that returns a number. `generate_structured` validates against a schema you
 supply, and the schemas that matter carry *references* to recorded
 computations rather than values. A model may say which analysis to run and how

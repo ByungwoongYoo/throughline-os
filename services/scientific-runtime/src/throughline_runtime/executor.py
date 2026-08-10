@@ -187,7 +187,7 @@ def run_analysis(
     workdir = Path(tempfile.mkdtemp(prefix="throughline-sandbox-"))
     try:
         # Copy the input in and make it read-only: an analysis describes data, it
-        # does not alter it .
+        # does not alter it.
         sandbox_input = workdir / f"input{input_suffix or '.csv'}"
         shutil.copy2(input_path, sandbox_input)
         sandbox_input.chmod(0o444)
