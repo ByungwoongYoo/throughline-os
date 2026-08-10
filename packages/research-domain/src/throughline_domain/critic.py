@@ -15,6 +15,7 @@ from typing import Any, Callable
 
 from throughline_schemas.enums import FindingLifecycle
 
+from .db import jsonb
 from .findings import evidence_summary, transition
 from .ids import new_id
 from .validation import validate_connection
@@ -110,7 +111,7 @@ def challenge_finding(
     cur.execute(
         "UPDATE challenges SET status = 'complete', verdict = %s, probes = %s, "
         "summary = %s, lifecycle_after = %s, finished_at = now() WHERE id = %s",
-        (verdict, probes, summary, after, challenge_id),
+        (verdict, jsonb(probes), summary, after, challenge_id),
     )
     return {"challenge_id": challenge_id, "verdict": verdict, "probes": probes,
             "summary": summary, "lifecycle_before": before, "lifecycle_after": after}

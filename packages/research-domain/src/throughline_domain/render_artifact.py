@@ -20,8 +20,9 @@ import io
 from typing import Any
 
 from . import citations as citations_mod
-from . import communication, storage
+from . import communication
 from .ids import new_id
+from .storage import storage_root
 
 FORMATS = ("markdown", "html", "docx", "pptx")
 
@@ -62,18 +63,25 @@ def render(cur, *, artifact_id: str, fmt: str) -> dict[str, Any]:
     else:
         payload, suffix = _pptx(artifact), "pptx"
 
-    stored = storage.put_bytes(payload, suffix=suffix)
+    # Same layout as figure renders: content under the storage root, keyed by
+    # artifact, so one backup covers every produced file.
+    directory = storage_root() / "artifacts" / artifact_id
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{artifact_id}.{suffix}"
+    path.write_bytes(payload)
+    storage_key = str(path.relative_to(storage_root()))
+
     render_id = new_id("ren")
     cur.execute(
         "INSERT INTO artifact_renders(id, artifact_id, fmt, storage_key, byte_size, "
         "resolved_hash, artifact_version) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-        (render_id, artifact_id, fmt, stored["storage_key"], len(payload),
+        (render_id, artifact_id, fmt, storage_key, len(payload),
          communication.resolved_hash(artifact), artifact["version"]),
     )
     return {
         "render_id": render_id,
         "fmt": fmt,
-        "storage_key": stored["storage_key"],
+        "storage_key": storage_key,
         "byte_size": len(payload),
         "warnings": integrity["warnings"],
     }
@@ -120,7 +128,7 @@ def _provenance_lines(artifact: dict[str, Any]) -> list[str]:
     for block in artifact["blocks"]:
         for ref in block.get("value_provenance", []):
             lines.append(f"{ref['name']} = {block['resolved'][ref['name']]} "
-                         f"— {ref['analysis_run_id']}, {ref['path']}")
+                         f"— {ref['source']}, {ref['path']}")
     return lines
 
 

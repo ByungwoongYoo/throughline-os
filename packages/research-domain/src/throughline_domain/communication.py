@@ -104,6 +104,62 @@ _LITERAL_STAT = re.compile(
 )
 
 
+# Fields that may be quoted verbatim, and where they live. Restricting this to a
+# fixed map is what keeps `quoted_from` from becoming a hole in the rule: a
+# caller cannot nominate an arbitrary table and claim its text is a computation.
+_QUOTABLE = {
+    "analysis_runs.result.interpretation": ("analysis_runs", "result", "interpretation"),
+    "validation_checks.detail": ("validation_checks", "detail", None),
+    "validation_reports.summary": ("validation_reports", "summary", None),
+    "analysis_runs.result.limitations": ("analysis_runs", "result", "limitations"),
+}
+
+
+def _verify_quotation(cur, template: str, quoted_from: dict[str, Any]) -> None:
+    """
+    Prove that a block's text is a verbatim quotation of a stored field.
+
+    This is what makes `quoted_from` safe. The rule against literal statistics
+    exists to stop a *generator* from writing a number; text emitted by the
+    sandboxed runtime and stored in the record is not generated prose, it is the
+    computation's own words. But "trust me, this came from the run" is worth
+    nothing — so the stored value is fetched and compared. If a single character
+    was edited, this is no longer a quotation and the literal-statistic rule
+    applies again.
+    """
+    key = quoted_from.get("field", "")
+    row_id = quoted_from.get("id", "")
+    if key not in _QUOTABLE:
+        raise CommunicationError(
+            f"{key!r} is not a quotable field. Quotable: {sorted(_QUOTABLE)}."
+        )
+    table, column, json_key = _QUOTABLE[key]
+
+    cur.execute(f"SELECT {column} FROM {table} WHERE id = %s", (row_id,))  # noqa: S608
+    row = cur.fetchone()
+    if not row:
+        raise CommunicationError(f"No {table} row with id {row_id!r} to quote.")
+
+    stored = row[column]
+    if json_key:
+        stored = (stored or {}).get(json_key)
+    if isinstance(stored, list):
+        # A limitations list is quotable item by item.
+        if template not in [str(item) for item in stored]:
+            raise LiteralNumberRejected(
+                f"This text is not among the stored {key} values of {row_id}. "
+                "It states a statistic and is not a verbatim quotation, so it is "
+                "refused."
+            )
+        return
+    if template != str(stored or ""):
+        raise LiteralNumberRejected(
+            f"This text is not a verbatim quotation of {key} on {row_id}: it has been "
+            "edited. Edited text containing a statistic is authored prose, and a "
+            "number in authored prose must be a {{ref:name}}."
+        )
+
+
 def add_block(
     cur,
     *,
@@ -115,6 +171,7 @@ def add_block(
     visual_id: str | None = None,
     notes: str = "",
     citation_ids: list[str] | None = None,
+    quoted_from: dict[str, Any] | None = None,
 ) -> str:
     """
     Add a block, refusing any template that states a statistic directly.
@@ -122,9 +179,17 @@ def add_block(
     The refusal is the mechanism, not a lint. Once a number can only arrive
     through `value_refs`, "does the displayed number equal the computed output"
     stops being a question — there is no other place it could have come from.
+
+    The one exception is a verbatim quotation of a stored field, and it is
+    verified rather than trusted: `_verify_quotation` re-reads the row and
+    compares character for character. So the guarantee holds in a more precise
+    form — every number on the page is either a resolved reference, or a
+    quotation proven identical to what the computation recorded.
     """
     stray = _LITERAL_STAT.search(REF.sub("", template))
-    if stray:
+    if stray and quoted_from:
+        _verify_quotation(cur, template, quoted_from)
+    elif stray:
         raise LiteralNumberRejected(
             f"This template states a result directly: {stray.group(0)!r}. "
             "Statistics must be written as {{ref:name}} and resolved from a recorded "
@@ -150,9 +215,10 @@ def add_block(
     block_id = new_id("blk")
     cur.execute(
         "INSERT INTO artifact_blocks(id, artifact_id, sequence, block_type, template, "
-        "value_refs, visual_id, notes) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+        "value_refs, visual_id, notes, quoted_from) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
         (block_id, artifact_id, sequence, block_type, template, jsonb(refs),
-         visual_id, notes),
+         visual_id, notes, jsonb(quoted_from or {})),
     )
     for citation_id in citation_ids or []:
         cur.execute(
@@ -224,7 +290,16 @@ def _present(value: Any, fmt: str) -> str:
 
 def resolve_block(cur, block: dict[str, Any]) -> dict[str, Any]:
     """
-    Substitute a block's references with values read from recorded runs.
+    Substitute a block's references with values read from recorded rows.
+
+    A reference names either an analysis run or a connection. The distinction is
+    scientific, not clerical: an estimate belongs to the run that computed it,
+    but a *corrected* q-value does not — it is a property of that test within
+    its multiple-testing family (§49 step 7), and the same run in a family of
+    five and a family of five hundred yields different q. Storing q on the run
+    would make it look like an attribute of the computation, and the report
+    would then be able to quote a correction that no longer matched the family
+    it was corrected in.
 
     Raises on anything it cannot resolve. A renderer must never be handed a
     partially-resolved block, because the failure mode of doing so is a document
@@ -236,34 +311,52 @@ def resolve_block(cur, block: dict[str, Any]) -> dict[str, Any]:
 
     for name, ref in refs.items():
         run_id = ref.get("analysis_run_id")
+        connection_id = ref.get("connection_id")
         path = ref.get("path", "")
-        if not run_id or not path:
+
+        if not path or bool(run_id) == bool(connection_id):
             raise UnresolvedReference(
-                f"Reference {name!r} must name both an analysis_run_id and a path."
+                f"Reference {name!r} must name a path and exactly one of "
+                "analysis_run_id or connection_id."
             )
 
-        cur.execute("SELECT id, status, result FROM analysis_runs WHERE id = %s", (run_id,))
-        run = cur.fetchone()
-        if not run:
-            raise UnresolvedReference(
-                f"Reference {name!r} points at analysis run {run_id}, which does not exist."
-            )
-        if run["status"] != "completed":
-            raise UnresolvedReference(
-                f"Reference {name!r} points at analysis run {run_id}, which is "
-                f"{run['status']}. A number may only be shown once it has been computed."
-            )
+        if run_id:
+            cur.execute("SELECT id, status, result FROM analysis_runs WHERE id = %s",
+                        (run_id,))
+            row = cur.fetchone()
+            if not row:
+                raise UnresolvedReference(
+                    f"Reference {name!r} points at analysis run {run_id}, which does "
+                    "not exist."
+                )
+            if row["status"] != "completed":
+                raise UnresolvedReference(
+                    f"Reference {name!r} points at analysis run {run_id}, which is "
+                    f"{row['status']}. A number may only be shown once it has been "
+                    "computed."
+                )
+            value = _dig(row["result"], path)
+            origin = {"name": name, "source": run_id, "path": path}
+        else:
+            cur.execute("SELECT * FROM connections WHERE id = %s", (connection_id,))
+            row = cur.fetchone()
+            if not row:
+                raise UnresolvedReference(
+                    f"Reference {name!r} points at connection {connection_id}, which "
+                    "does not exist."
+                )
+            value = _dig(dict(row), path)
+            origin = {"name": name, "source": connection_id, "path": path}
 
-        value = _dig(run["result"], path)
         if value is None:
             raise UnresolvedReference(
-                f"Reference {name!r} resolves to nothing: {run_id} has no value at "
-                f"{path!r}. Rendering stops rather than printing a blank where a "
-                "result belongs."
+                f"Reference {name!r} resolves to nothing: {origin['source']} has no "
+                f"value at {path!r}. Rendering stops rather than printing a blank "
+                "where a result belongs."
             )
 
         resolved[name] = value
-        provenance.append({"name": name, "analysis_run_id": run_id, "path": path})
+        provenance.append(origin)
 
     text = REF.sub(
         lambda m: _present(resolved[m.group(1)], refs[m.group(1)].get("format", "auto")),

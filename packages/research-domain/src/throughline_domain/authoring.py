@@ -112,7 +112,9 @@ def draft_from_connection(
             "method": {"analysis_run_id": run_id, "path": "method"},
             "estimate_name": {"analysis_run_id": run_id, "path": "estimate_name"},
             "estimate": {"analysis_run_id": run_id, "path": "estimate", "format": "dp4"},
-            "q": {"analysis_run_id": run_id, "path": "extra.q_value", "format": "exp"},
+            # q comes from the connection, not the run: it is the correction
+            # applied across this discovery's whole family of tests (§49).
+            "q": {"connection_id": connection_id, "path": "q_value", "format": "exp"},
         },
         citation_ids=[run_citation],
     )
@@ -189,7 +191,7 @@ def draft_from_connection(
               citation_ids=[run_citation])
 
     cur.execute(
-        "SELECT name, outcome, detail FROM assumption_checks WHERE analysis_run_id = %s "
+        "SELECT name, outcome, detail FROM assumption_checks WHERE run_id = %s "
         "AND outcome = 'violated' ORDER BY name",
         (run_id,),
     )

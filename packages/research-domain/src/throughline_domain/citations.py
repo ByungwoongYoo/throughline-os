@@ -157,8 +157,11 @@ def resolve(cur, citation_id: str) -> dict[str, Any]:
         citation["target_kind"] = "source"
 
     else:
+        # `method` lives inside the stored result, not as a column: the run
+        # records what the runtime returned rather than duplicating it.
         cur.execute(
-            "SELECT id, method, status, result FROM analysis_runs WHERE id = %s",
+            "SELECT id, status, result, result->>'method' AS method "
+            "FROM analysis_runs WHERE id = %s",
             (citation["analysis_run_id"],),
         )
         target = cur.fetchone()
@@ -181,14 +184,30 @@ def resolve(cur, citation_id: str) -> dict[str, Any]:
 _NUMBER = re.compile(r"-?\d[\d,]*\.?\d*(?:\s*[eE]\s*[-+]?\d+)?")
 
 
-def _numbers_in(text: str) -> list[float]:
-    values: list[float] = []
-    for match in _NUMBER.finditer(text or ""):
+def _numbers_in(text: str) -> list[tuple[float, bool]]:
+    """
+    Every number in a piece of text, paired with whether it is written as a
+    percentage.
+
+    The percentage flag is load-bearing. A runtime that stores `sign_agreement:
+    1.0` writes "100.0% of resamples kept the sign" in its own prose, and a
+    checker that does not know those are the same value reports a correct
+    sentence as unsupported. Once that happens on ordinary output, the check
+    gets switched off — so the narrow allowance is what keeps the strict rule
+    usable.
+    """
+    text = _LABEL.sub(" ", text or "")
+    values: list[tuple[float, bool]] = []
+    for match in _NUMBER.finditer(text):
         raw = match.group(0).replace(",", "").replace(" ", "")
         try:
-            values.append(float(raw))
+            value = float(raw)
         except ValueError:
             continue
+        # Only the character immediately after the number counts. "50% of 80"
+        # marks the 50 and not the 80.
+        tail = text[match.end():match.end() + 1]
+        values.append((value, tail == "%"))
     return values
 
 
@@ -207,6 +226,40 @@ def _close(a: float, b: float) -> bool:
     if scale == 0:
         return True
     return abs(a - b) / scale <= 0.01
+
+
+def _matches(claimed: float, is_percent: bool, available: list[tuple[float, bool]]) -> bool:
+    """
+    Match a claimed number against the values available in the cited text.
+
+    A number written as a percentage may also match the same quantity stored as
+    a proportion. That allowance is deliberately one-directional and gated on
+    the `%` actually being present in the claim: it recognises a formatting
+    convention, and does not let an arbitrary factor of a hundred pass.
+    """
+    for value, _ in available:
+        if _close(claimed, value):
+            return True
+        if is_percent and _close(claimed / 100.0, value):
+            return True
+    return False
+
+
+def _matches(claimed: float, is_percent: bool, available: list[tuple[float, bool]]) -> bool:
+    """
+    Match a claimed number against the values available in the cited text.
+
+    A number written as a percentage may also match the same quantity stored as
+    a proportion. That allowance is deliberately one-directional and gated on
+    the `%` actually being present in the claim: it recognises a formatting
+    convention, and does not let an arbitrary factor of a hundred pass.
+    """
+    for value, _ in available:
+        if _close(claimed, value):
+            return True
+        if is_percent and _close(claimed / 100.0, value):
+            return True
+    return False
 
 
 def check_entailment(cur, citation_id: str, claim_text: str) -> dict[str, Any]:
@@ -238,10 +291,10 @@ def check_entailment(cur, citation_id: str, claim_text: str) -> dict[str, Any]:
         # not what the run produced.
         result = citation["target"].get("result") or {}
         available = _numbers_in(_flatten_numbers(result))
-        missing = [n for n in claimed if not any(_close(n, c) for c in available)]
+        missing = [n for n, pct in claimed if not _matches(n, pct, available)]
         if missing:
             outcome = UNSUPPORTED
-            detail = (f"{_fmt_list(missing)} do not appear in the recorded result of "
+            detail = (f"{_fmt_list(missing)} appear in the recorded result of "
                       f"{citation['analysis_run_id']}.")
         else:
             outcome = SUPPORTED
@@ -254,10 +307,10 @@ def check_entailment(cur, citation_id: str, claim_text: str) -> dict[str, Any]:
         )
     else:
         available = _numbers_in(cited_text)
-        missing = [n for n in claimed if not any(_close(n, c) for c in available)]
+        missing = [n for n, pct in claimed if not _matches(n, pct, available)]
         if missing:
             outcome = UNSUPPORTED
-            detail = f"{_fmt_list(missing)} do not appear in the cited span."
+            detail = f"{_fmt_list(missing)} appear in the cited span."
         else:
             outcome = SUPPORTED
             detail = "Every number in the claim appears in the cited span."
@@ -295,7 +348,9 @@ def _flatten_numbers(value: Any) -> str:
 
 def _fmt_list(values: list[float]) -> str:
     shown = ", ".join(f"{v:g}" for v in values[:5])
-    return f"The values {shown}" if len(values) > 1 else f"The value {shown}"
+    if len(values) > 1:
+        return f"The values {shown} do not"
+    return f"The value {shown} does not"
 
 
 # ---------------------------------------------------------------------------
@@ -367,7 +422,8 @@ def format_reference(citation: dict[str, Any]) -> str:
     target = citation["target"]
 
     if citation["target_kind"] == "analysis_run":
-        return f"Analysis run {target['id']} ({target['method'].replace('_', ' ')})"
+        method = (target.get("method") or "analysis").replace("_", " ")
+        return f"Analysis run {target['id']} ({method})"
 
     bits: list[str] = []
     authors = target.get("authors") or []

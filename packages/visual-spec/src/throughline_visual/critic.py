@@ -13,7 +13,7 @@ to happen quietly.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 from .spec import ResearchVisualSpec, Scale, UncertaintyDisplay, VisualData, VisualType
@@ -62,7 +62,8 @@ class CritiqueReport:
     def to_dict(self) -> dict[str, Any]:
         return {
             "publishable": self.publishable,
-            "critiques": [c.__dict__ for c in self.critiques],
+            # asdict, not __dict__: these are slots dataclasses.
+            "critiques": [asdict(c) for c in self.critiques],
         }
 
 
@@ -81,6 +82,7 @@ def critique(
     _category_overload(spec, data, report)
     _scale_choice(spec, data, report)
     _accessibility(spec, data, report)
+    _comparable_scales(spec, data, report)
     _misleading_encoding(spec, data, report)
     _overstatement(spec, analysis, report)
 
