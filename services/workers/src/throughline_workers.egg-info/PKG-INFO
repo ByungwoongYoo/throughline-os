@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: throughline-workers
+Version: 0.1.0
+Summary: Durable background workers
+Requires-Python: >=3.12
+Requires-Dist: throughline-domain
+Requires-Dist: throughline-schemas

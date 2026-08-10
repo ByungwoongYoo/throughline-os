@@ -3,7 +3,7 @@
 These enums are the specification's distinctions rendered in code. The system
 laws depend on them staying separate: collapsing FindingLifecycle.CANDIDATE into
 FindingLifecycle.VALIDATED, or ClaimType.AI_INTERPRETATION into
-ClaimType.CALCULATED_RESULT, would silently break the rule and the rule.
+ClaimType.CALCULATED_RESULT, would silently break LAW 2 and LAW 3.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from enum import StrEnum
 
 
 class ObjectType(StrEnum):
-    """ — every addressable thing in a research project."""
+    """§10 — every addressable thing in a research project."""
 
     PAPER = "paper"
     DATASET = "dataset"
@@ -50,7 +50,7 @@ class ObjectType(StrEnum):
 
 
 class LineageType(StrEnum):
-    """ — how a derived artifact relates to what produced it."""
+    """§11 — how a derived artifact relates to what produced it."""
 
     DERIVED_FROM = "derived_from"
     TRANSFORMED_FROM = "transformed_from"
@@ -63,7 +63,7 @@ class LineageType(StrEnum):
 
 
 class FindingLifecycle(StrEnum):
-    """ — a pattern is not a finding. Order matters; see FINDING_PROMOTION."""
+    """§13 — a pattern is not a finding. Order matters; see FINDING_PROMOTION."""
 
     CANDIDATE = "candidate"
     EXPLORATORY = "exploratory"
@@ -73,8 +73,8 @@ class FindingLifecycle(StrEnum):
     DEPRECATED = "deprecated"
 
 
-#: Legal lifecycle transitions. A candidate may never jump to validated:
-#: promotion past EXPLORATORY requires the robustness checks, which are
+#: Legal lifecycle transitions (§13). A candidate may never jump to validated:
+#: promotion past EXPLORATORY requires the §51 robustness checks, which are
 #: enforced by the domain service rather than by the caller.
 FINDING_PROMOTION: dict[FindingLifecycle, set[FindingLifecycle]] = {
     FindingLifecycle.CANDIDATE: {FindingLifecycle.EXPLORATORY, FindingLifecycle.DEPRECATED},
@@ -82,24 +82,24 @@ FINDING_PROMOTION: dict[FindingLifecycle, set[FindingLifecycle]] = {
         FindingLifecycle.VALIDATED,
         FindingLifecycle.CONFLICTED,
         FindingLifecycle.DEPRECATED,
-        },
+    },
     FindingLifecycle.VALIDATED: {
         FindingLifecycle.REPLICATED,
         FindingLifecycle.CONFLICTED,
         FindingLifecycle.DEPRECATED,
-        },
+    },
     FindingLifecycle.REPLICATED: {FindingLifecycle.CONFLICTED, FindingLifecycle.DEPRECATED},
     FindingLifecycle.CONFLICTED: {
         FindingLifecycle.EXPLORATORY,
         FindingLifecycle.VALIDATED,
         FindingLifecycle.DEPRECATED,
-        },
+    },
     FindingLifecycle.DEPRECATED: set(),
-    }
+}
 
 
 class ConnectionLifecycle(StrEnum):
-    """ — discovered relationships carry the same discipline as findings."""
+    """§14 — discovered relationships carry the same discipline as findings."""
 
     CANDIDATE = "candidate"
     EXPLORATORY = "exploratory"
@@ -110,10 +110,10 @@ class ConnectionLifecycle(StrEnum):
 
 
 class ClaimType(StrEnum):
-    """ — never merge these categories.
+    """§15 — never merge these categories.
 
     The distinction between SOURCE_FACT, CALCULATED_RESULT and AI_INTERPRETATION
-    is what makes the rule auditable.
+    is what makes LAW 2 auditable.
     """
 
     SOURCE_FACT = "source_fact"
@@ -134,7 +134,7 @@ class ClaimStatus(StrEnum):
 
 
 class EvidenceDirection(StrEnum):
-    """."""
+    """§16."""
 
     SUPPORTS = "supports"
     CONTRADICTS = "contradicts"
@@ -153,7 +153,7 @@ class EvidenceType(StrEnum):
 
 
 class FindingType(StrEnum):
-    """."""
+    """§17."""
 
     LITERATURE = "literature"
     STATISTICAL = "statistical"
@@ -168,7 +168,7 @@ class FindingType(StrEnum):
 
 
 class CausalStatus(StrEnum):
-    """/ — association is not causation, and the model says so."""
+    """§17/§52 — association is not causation, and the model says so."""
 
     NOT_ASSESSED = "not_assessed"
     ASSOCIATION_ONLY = "association_only"
@@ -179,7 +179,7 @@ class CausalStatus(StrEnum):
 
 
 class SourceType(StrEnum):
-    """."""
+    """§18."""
 
     UPLOAD = "upload"
     CONNECTOR = "connector"
@@ -189,7 +189,7 @@ class SourceType(StrEnum):
 
 
 class IngestionStatus(StrEnum):
-    """ — the ingestion state machine. FAILED preserves completed work."""
+    """§24 — the ingestion state machine. FAILED preserves completed work."""
 
     UPLOADED = "uploaded"
     VALIDATED = "validated"
@@ -203,7 +203,7 @@ class IngestionStatus(StrEnum):
     FAILED = "failed"
 
 
-#: Forward progression of . A stage may only advance to the next stage or to
+#: Forward progression of §24. A stage may only advance to the next stage or to
 #: FAILED; this prevents a retry from silently rewinding published state.
 INGESTION_PROGRESSION: list[IngestionStatus] = [
     IngestionStatus.UPLOADED,
@@ -215,11 +215,11 @@ INGESTION_PROGRESSION: list[IngestionStatus] = [
     IngestionStatus.INDEXING,
     IngestionStatus.ENRICHING,
     IngestionStatus.READY,
-    ]
+]
 
 
 class WorkflowState(StrEnum):
-    """ — must survive a worker restart."""
+    """§37 — must survive a worker restart."""
 
     QUEUED = "queued"
     RUNNING = "running"
@@ -237,11 +237,11 @@ TERMINAL_WORKFLOW_STATES = {
     WorkflowState.PARTIALLY_COMPLETED,
     WorkflowState.FAILED,
     WorkflowState.CANCELLED,
-    }
+}
 
 
 class ResearchEdgeType(StrEnum):
-    """ — the research graph vocabulary."""
+    """§60 — the research graph vocabulary."""
 
     SUPPORTS = "supports"
     CONTRADICTS = "contradicts"
@@ -262,7 +262,7 @@ class ResearchEdgeType(StrEnum):
 
 
 class TrustLevel(StrEnum):
-    """ — the prompt-injection boundary.
+    """§35 — the prompt-injection boundary.
 
     Content carries its trust level with it. UNTRUSTED content may never be
     interpreted as instructions, regardless of what it says about itself.

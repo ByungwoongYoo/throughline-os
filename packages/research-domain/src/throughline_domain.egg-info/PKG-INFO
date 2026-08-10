@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: throughline-domain
+Version: 0.1.0
+Summary: Research object model, lineage, findings and durable workflows
+Requires-Python: >=3.12
+Requires-Dist: throughline-schemas
+Requires-Dist: psycopg[binary]>=3.1
+Requires-Dist: psycopg-pool>=3.2
+Requires-Dist: pgserver>=0.1.4
