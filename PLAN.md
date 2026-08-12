@@ -8,6 +8,42 @@ Target: this branch accumulates the fixes and merges to `main` once final.
 
 ---
 
+## Status
+
+All seven issues are fixed on this branch, plus the rate-limit tuning and the
+Windows port. Verified by running, not by reading:
+
+| # | Issue | State | How it was verified |
+|---|---|---|---|
+| 1 | Installer omitted three required packages | fixed | `bootstrap.sh` run against a clean tree: all nine install, migrations apply, every module imports. Both failure paths exercised too. |
+| 2 | Docker build referenced a directory that never existed | fixed | Line removed; build itself **not run** — no Docker on the machine used. CI now builds the image and health-checks it. |
+| 3 | Native Windows could not import the API | fixed | Whole stack verified natively on Windows: API imports (180 routes), embedded PostgreSQL boots and applies all 24 migrations, `/api/health` returns 200, and the sandbox runs a real analysis under a Job Object. |
+| 4 | Duplicate upload orphaned a source forever | fixed | Regression test reproduces the orphan against the old keying and passes against the new. |
+| 5 | Workflow does not finish in the browser | **open** | Out of scope — a feature, not a fix. See below. |
+| 6 | Three tests pinned to the author's laptop | fixed | Paper is generated; all three now run. The §137 end-to-end test passes for the first time off its author's machine. |
+| 7 | `python-pptx` / `python-docx` / neo4j driver undeclared | fixed | Both previously failing tests pass. |
+
+Also landed: credential rate limits relax on a local install while the sandbox
+limits stay strict, and `policy_report()` now derives from the active backend
+instead of returning hardcoded `True`.
+
+**Native Windows works, and `pgserver` was never the obstacle.** It publishes
+`win_amd64` wheels up to cp312, so on Python 3.12 the embedded PostgreSQL boots
+on Windows exactly as it does elsewhere — verified, 24 migrations applied. The
+POSIX-only sandbox was the whole blocker. What remains for a *pleasant* Windows
+experience is E4, since `scripts/*.sh` still assume bash and `.venv/bin/python`;
+the stack itself no longer needs porting.
+
+Still needing someone with the right machine: `docker build` (issue 2). No Docker
+was available here, so the fix is reasoned rather than run — CI now builds the
+image and health-checks it, which is where that claim should be settled anyway.
+
+The workstream sections below are left as written. They record why each fix takes
+the shape it does, which outlives the moment the work landed; the table above is
+what says where things stand.
+
+---
+
 ## What the run established
 
 The core of the product works, and works well. Discovery ran six real sandboxed
@@ -259,26 +295,38 @@ Add a regression test — the current suite does not cover this path.
 
 **Risk:** medium. Touches the data model and an API contract.
 
-## E. Native Windows support (later)
+## E. Native Windows support — E1, E2, E3 landed
 
-**E1 — make the server boot.** Put `import resource` behind a platform check and
-stop `app.py:32` pulling the sandbox in at import time. On its own this yields a
-product that starts and cannot compute, since discovery and validation both run
-through the cage. A stepping stone, not a release.
+E1, E2 and E3 turned out to be one refactor and were done together. E4, E5 and E6
+are still open and described below.
 
-**E2 — the real work.** A platform abstraction in the executor: the existing
-Unix implementation on one side, a Windows one on the other. Windows Job Objects
-provide the memory cap, the CPU-time cap, and kill-all-children-on-close;
-`CREATE_NEW_PROCESS_GROUP` covers process-group semantics. The portable pieces —
-scrubbed environment, throwaway working directory, no shell, wall-clock timeout
-— carry over unchanged.
+`executor.py` now selects a backend by platform. POSIX keeps `setrlimit` between
+fork and exec plus `setsid`/`killpg`, unchanged and still passing its tests.
+Windows gets `jobobject.py`: a Job Object carrying the same ceilings, bound with
+`ctypes` rather than adding a platform-specific dependency. The mapping is
+`RLIMIT_AS → JOB_OBJECT_LIMIT_JOB_MEMORY`, `RLIMIT_CPU → JOB_OBJECT_LIMIT_JOB_TIME`,
+`RLIMIT_NPROC → JOB_OBJECT_LIMIT_ACTIVE_PROCESS`, and
+`setsid`+`killpg` → `TerminateJobObject`. `KILL_ON_JOB_CLOSE` makes cleanup
+stricter than POSIX in one respect: an orphaned process group survives a dead
+parent, a job does not.
 
-**E3 — keep the safety report honest.** `policy_report()` currently returns
-`enforced: {...}` with every value hardcoded `True` while reporting the real
-platform name. If Windows enforcement differs at all, the app would state
-something false about its own guarantees — precisely the failure this project
-exists to avoid. Derive the report from the active backend, not from a literal.
-Treat as non-negotiable, not polish.
+Two differences are real and are reported as best-effort rather than smoothed
+over. `chmod(0o444)` on Windows sets an attribute the analysis could clear, where
+POSIX mode bits deny the write; and the job is attached just after the process is
+created rather than just before it starts, because `Popen` does not expose the
+suspended thread handle that would be needed to do it earlier. Both are named in
+`policy_report()`.
+
+If the Job Object cannot be attached, the run is refused rather than continued
+unprotected — a run that had quietly lost its ceilings would otherwise be
+recorded against a report claiming it had them.
+
+Verified natively on Windows: a real `pearson_correlation` returning
+r = 0.999419, identical on rerun; a non-whitelisted method refused; a 1-second
+timeout terminating the job; and a 16 MB ceiling actually killing the process
+rather than being exceeded.
+
+### Still open
 
 **E4 — one launcher.** Replace the bash scripts with a single Python entrypoint
 rather than maintaining PowerShell twins. This also removes the

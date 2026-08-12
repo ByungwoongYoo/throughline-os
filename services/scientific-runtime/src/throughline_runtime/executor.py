@@ -13,9 +13,21 @@ constrains it.
 * Isolated working directory, destroyed after the run.
 * Read-only input — the source is copied in and chmod'd `0o444`, so an analysis
   cannot mutate the data it describes.
-* Wall-clock timeout, killed by process group so children die too.
-* CPU-seconds and address-space limits via `setrlimit`.
+* Wall-clock timeout, killing the whole process tree so children die too.
+* CPU-seconds and memory limits.
 * No shell: the child is exec'd with an argument vector.
+
+**How the limits are imposed differs by platform, and the report says which**
+
+* POSIX — `setrlimit` in the child between fork and exec, plus `setsid` so a
+  timeout can `killpg` the entire tree. The limits are in force before the
+  analysis executes an instruction.
+* Windows — a Job Object holding the same ceilings, created before the child and
+  attached to it as soon as it exists. See `jobobject.py` for the mapping.
+  Two differences are real and are reported as best-effort rather than glossed:
+  the read-only input relies on a file attribute the analysis could clear, and
+  the job is attached just after the process is created rather than just before
+  it starts.
 
 **What is best-effort and reported as such**
 
@@ -34,7 +46,6 @@ from __future__ import annotations
 import json
 import os
 import platform
-import resource
 import shutil
 import signal
 import subprocess
@@ -45,13 +56,42 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+#: Which family of process controls this platform provides.
+#:
+#: `resource` is POSIX-only and was imported unconditionally at module scope,
+#: which made this module — and therefore the whole API, which imports it for
+#: `policy_report` — fail to import on Windows before any analysis was attempted.
+#: The import is guarded so the platform that lacks rlimits gets the equivalent
+#: it does have rather than an ImportError at startup.
+WINDOWS = sys.platform == "win32"
+
+if WINDOWS:  # pragma: no cover - selected by platform
+    resource = None
+    from . import jobobject
+else:
+    import resource
+
+    jobobject = None
+
 DEFAULT_TIMEOUT_SECONDS = 120
 DEFAULT_MEMORY_MB = 2048
 DEFAULT_CPU_SECONDS = 120
 
 #: Environment variables the child may keep. Everything else is dropped, so a
 #: secret cannot leak into an analysis process by accident.
-_ENV_ALLOWLIST = {"PATH", "LANG", "LC_ALL", "TZ", "HOME", "TMPDIR", "PYTHONPATH"}
+#:
+#: `SYSTEMROOT`, `windir` and `PATHEXT` are here for Windows, where a scrubbed
+#: environment missing them can fail to load a DLL — an analysis importing scipy
+#: or touching SSL then dies for a reason that has nothing to do with its own
+#: correctness. None of them names anything secret, and on POSIX they are simply
+#: absent.
+#:
+#: `TEMP` and `TMP` are deliberately *not* allowlisted. Without them Windows
+#: falls back through `tempfile.gettempdir()` to the working directory, which is
+#: the sandbox's own — better isolation than handing the child the user's temp
+#: directory, so the omission is the feature.
+_ENV_ALLOWLIST = {"PATH", "LANG", "LC_ALL", "TZ", "HOME", "TMPDIR", "PYTHONPATH",
+                  "SYSTEMROOT", "windir", "PATHEXT"}
 _SECRET_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL", "DATABASE", "DSN")
 
 
@@ -104,30 +144,70 @@ def scrub_environment() -> dict[str, str]:
 
 
 def policy_report(policy: SandboxPolicy | None = None) -> dict[str, Any]:
-    """Which  controls this platform actually enforces."""
+    """Which controls this platform actually enforces.
+
+    Every value here was once a hardcoded `True` sitting next to a real
+    `platform.system()`, which is the one shape of dishonesty this file exists to
+    prevent: a report that names the platform correctly and then describes
+    another platform's guarantees. It is stored with every analysis run, so a
+    result recorded under it would have carried a claim nobody checked.
+
+    The mechanism differs by platform and the report says which is in force, so
+    two runs of the same analysis on different machines can be compared knowing
+    what each was actually protected by.
+    """
     policy = policy or SandboxPolicy()
+
+    enforced = {
+        # Platform-independent: these come from how the child is spawned and
+        # where it is spawned, not from any OS limit facility.
+        "separate_process": True,
+        "scrubbed_environment": True,
+        "no_application_secrets": True,
+        "isolated_working_directory": True,
+        "wall_clock_timeout": True,
+        "environment_destroyed_after_run": True,
+        "no_shell": True,
+        # Platform-dependent, and the reason this is computed rather than written
+        # out: the limits and the tree-kill come from rlimits and process groups
+        # on POSIX and from a Job Object on Windows.
+        "cpu_limit": True,
+        "memory_limit": True,
+        "process_tree_killed_together": True,
+        "read_only_inputs": not WINDOWS,
+    }
+
+    best_effort = {
+        # Honest: this is a process sandbox, not a container.
+        "network_egress_disabled": "python_level_only",
+    }
+    not_enforced = {
+        "kernel_level_filesystem_isolation": True,
+        "gpu_quota": True,
+    }
+
+    if WINDOWS:  # pragma: no cover - selected by platform
+        mechanism = "windows_job_object"
+        # chmod(0o444) sets the read-only attribute, which an analysis running as
+        # the same user can simply clear. On POSIX the mode bits actually deny the
+        # write. Reported as best-effort rather than enforced, because the
+        # difference is real and a run recorded as "inputs were read-only" would
+        # be overstating it.
+        best_effort["read_only_inputs"] = "read_only_attribute_only"
+        # Assignment to the job happens immediately after the process is created
+        # rather than before it starts, since Popen does not expose the suspended
+        # thread needed to do it earlier. The window is microseconds and the child
+        # spends it in interpreter startup, but it is a window and not a fiction.
+        best_effort["limits_applied_before_first_instruction"] = "assigned_after_spawn"
+    else:
+        mechanism = "posix_rlimit_process_group"
+
     return {
         "platform": platform.system(),
-        "enforced": {
-            "separate_process": True,
-            "scrubbed_environment": True,
-            "no_application_secrets": True,
-            "isolated_working_directory": True,
-            "read_only_inputs": True,
-            "wall_clock_timeout": True,
-            "cpu_limit": True,
-            "memory_limit": True,
-            "environment_destroyed_after_run": True,
-            "no_shell": True,
-        },
-        "best_effort": {
-            # Honest: this is a process sandbox, not a container.
-            "network_egress_disabled": "python_level_only",
-        },
-        "not_enforced": {
-            "kernel_level_filesystem_isolation": True,
-            "gpu_quota": True,
-        },
+        "mechanism": mechanism,
+        "enforced": enforced,
+        "best_effort": best_effort,
+        "not_enforced": not_enforced,
         "limits": {
             "timeout_seconds": policy.timeout_seconds,
             "memory_mb": policy.memory_mb,
@@ -155,7 +235,7 @@ def require_full_isolation() -> None:
 
 
 def _limit_child(policy: SandboxPolicy) -> None:
-    """Runs in the forked child, before exec."""
+    """Runs in the forked child, before exec. POSIX only."""
     # Own process group so a timeout kills the whole tree, not just the parent stub.
     os.setsid()
     resource.setrlimit(resource.RLIMIT_CPU, (policy.cpu_seconds, policy.cpu_seconds))
@@ -200,24 +280,70 @@ def run_analysis(
         }), encoding="utf-8")
         job_path.chmod(0o444)
 
-        process = subprocess.Popen(
-            [sys.executable, "-I", "-m", "throughline_runtime.entrypoint", str(job_path)],
-            cwd=workdir,
-            env=scrub_environment(),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            preexec_fn=lambda: _limit_child(policy),  # noqa: PLW1509 — intended
-            text=True,
-            shell=False,
-        )
+        command = [sys.executable, "-I", "-m",
+                   "throughline_runtime.entrypoint", str(job_path)]
+        common = {
+            "cwd": workdir,
+            "env": scrub_environment(),
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "text": True,
+            "shell": False,
+        }
+
+        # The two platforms reach the same place by different routes. POSIX sets
+        # the limits in the child between fork and exec, so they are in force
+        # before the analysis has run an instruction. Windows has no fork and no
+        # rlimits: the limits live in a Job Object created here, and the child is
+        # attached to it the moment it exists.
+        job = None
+        if WINDOWS:  # pragma: no cover - selected by platform
+            # CREATE_NEW_PROCESS_GROUP is the closest thing to setsid(): it stops
+            # a Ctrl-C in this console from reaching the analysis, so the parent
+            # decides when the child dies.
+            job = jobobject.Job(memory_mb=policy.memory_mb,
+                                cpu_seconds=policy.cpu_seconds)
+            try:
+                process = subprocess.Popen(
+                    command, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+                    **common)
+            except BaseException:
+                job.close()
+                raise
+            try:
+                job.assign(int(process._handle))  # noqa: SLF001 — the only handle Popen exposes
+            except jobobject.JobObjectError:
+                # Refuse rather than continue unprotected. A run that silently lost
+                # its memory and CPU ceilings would still be recorded against a
+                # policy report claiming it had them.
+                process.kill()
+                process.communicate()
+                job.close()
+                raise
+        else:
+            process = subprocess.Popen(
+                command,
+                preexec_fn=lambda: _limit_child(policy),  # noqa: PLW1509 — intended
+                **common)
+
         try:
             stdout, stderr = process.communicate(timeout=policy.timeout_seconds)
         except subprocess.TimeoutExpired:
-            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            if job is not None:  # pragma: no cover - selected by platform
+                # Terminates the process and every descendant, as killpg does.
+                job.terminate()
+            else:
+                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
             process.communicate()
             raise SandboxTimeout(
                 f"Analysis exceeded its {policy.timeout_seconds}s limit and was terminated."
             ) from None
+        finally:
+            if job is not None:  # pragma: no cover - selected by platform
+                # Closing the handle kills anything still inside the job, because
+                # it was created with KILL_ON_JOB_CLOSE. A grandchild that outlived
+                # the analysis does not outlive this line.
+                job.close()
 
         duration = int((time.time() - started) * 1000)
         if not stdout.strip():

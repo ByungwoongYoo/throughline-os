@@ -661,6 +661,43 @@ async def upload_source(
             cur, project_id=project_id, filename=file.filename or "upload",
             stream=file.file, media_type=file.content_type or "application/octet-stream",
         )
+
+        # The same bytes in the same project ingest once. That was already the
+        # intent, and keying the ingestion workflow on the content hash was how it
+        # was attempted — but it deduplicated the wrong half of the operation. The
+        # second upload still created a source row, and then enqueue() handed back
+        # the *already completed* run belonging to the first one, so nothing would
+        # ever move the new row out of 'uploaded'. The interface showed it waiting
+        # for a worker for as long as the project existed.
+        #
+        # Deduplicating here answers a repeat upload with the source that already
+        # holds those bytes, which is what the researcher meant, and leaves no row
+        # behind that no worker will ever look at.
+        existing = objects.find_source_by_content_hash(
+            cur, project_id=project_id, content_hash=str(record["content_hash"]),
+            source_type=SourceType.UPLOAD,
+        )
+        if existing is not None:
+            # The run that actually ingested these bytes, not a new one and not
+            # null: a caller comparing run ids across two uploads of the same file
+            # is asking "did this ingest twice?", and the honest answer is one run
+            # id, the same both times.
+            return {
+                "source_id": existing["id"],
+                "file": record,
+                "workflow_run_id": existing["ingest_run_id"],
+                "ingestion_status": existing["ingestion_status"],
+                # Distinct from file.deduplicated, which reports that the *bytes*
+                # were already stored. This reports that the *source* already
+                # existed, so no second one was made.
+                "source_reused": True,
+                "note": (
+                    f"These bytes are already in this project as "
+                    f"{existing['title']!r}, currently "
+                    f"{existing['ingestion_status']}. No second source was created."
+                ),
+            }
+
         source_id = objects.create_source(
             cur, project_id=project_id, source_type=SourceType.UPLOAD,
             title=file.filename or "upload", actor=user["id"],
@@ -669,12 +706,18 @@ async def upload_source(
         run_id = workflow.enqueue(
             cur, workflow_name="ingest.source", project_id=project_id,
             payload={"source_id": source_id},
-            # : the same bytes in the same project ingest once.
-            idempotency_key=f"ingest:{project_id}:{record['content_hash']}",
+            # Keyed per source rather than per content hash. A retried or
+            # duplicated POST for one source is still collapsed into a single run,
+            # but a source that does get created can no longer end up without a run
+            # to finish it — which is the only way the orphan above was reachable,
+            # including under two near-simultaneous uploads that cannot see each
+            # other's row yet.
+            idempotency_key=f"ingest:{source_id}",
         )
     return {
         "source_id": source_id, "file": record, "workflow_run_id": run_id,
         "ingestion_status": "uploaded",
+        "source_reused": False,
     }
 
 

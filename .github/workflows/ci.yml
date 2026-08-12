@@ -59,12 +59,25 @@ jobs:
       - name: Every skip must be accounted for
         # A skipped test renders as passing. Three tests skipped themselves on
         # every machine but one for months, which is how the §137 workflow came to
-        # be advertised as working end to end while missing its final step. The
-        # only skips this project accepts are gated on an optional Neo4j server.
+        # be advertised as working end to end while missing its final step.
+        #
+        # The allowlist is every skip reason this project accepts, and each one is
+        # an optional capability the product already reports as unavailable at
+        # runtime rather than a test that stopped working:
+        #
+        #   Neo4j            — a derived projection (ADR 0002), extra: [graph]
+        #   cv2              — figure digitising, extra: [digitise]
+        #   embedding model  — semantic search; /api/system/capabilities says so
+        #
+        # Anything else fails the build. Adding a line here should feel like a
+        # decision, because that is what it is.
         run: |
-          if grep '^SKIPPED' pytest.out | grep -v 'no Neo4j configured'; then
+          if grep '^SKIPPED' pytest.out \
+              | grep -v 'no Neo4j configured' \
+              | grep -v "could not import 'cv2'" \
+              | grep -v 'no local embedding model installed'; then
             echo "::error::A test skipped for a reason that is not allowlisted."
-            echo "Either make it run everywhere, or add its reason here on purpose."
+            echo "Either make it run everywhere, or add its reason above on purpose."
             exit 1
           fi
           echo "All skips accounted for."
