@@ -16,7 +16,7 @@ Windows port. Verified by running, not by reading:
 | # | Issue | State | How it was verified |
 |---|---|---|---|
 | 1 | Installer omitted three required packages | fixed | `bootstrap.sh` run against a clean tree: all nine install, migrations apply, every module imports. Both failure paths exercised too. |
-| 2 | Docker build referenced a directory that never existed | fixed | Line removed; build itself **not run** — no Docker on the machine used. CI now builds the image and health-checks it. |
+| 2 | Docker build broken three ways over | fixed | CI builds the image and boots the container: green. Three separate breakages, each hidden behind the one in front — see below. |
 | 3 | Native Windows could not import the API | fixed | Whole stack verified natively on Windows: API imports (180 routes), embedded PostgreSQL boots and applies all 24 migrations, `/api/health` returns 200, and the sandbox runs a real analysis under a Job Object. |
 | 4 | Duplicate upload orphaned a source forever | fixed | Regression test reproduces the orphan against the old keying and passes against the new. |
 | 5 | Workflow does not finish in the browser | **open** | Out of scope — a feature, not a fix. See below. |
@@ -45,9 +45,28 @@ POSIX-only sandbox was the whole blocker. What remains for a *pleasant* Windows
 experience is E4, since `scripts/*.sh` still assume bash and `.venv/bin/python`;
 the stack itself no longer needs porting.
 
-Still needing someone with the right machine: `docker build` (issue 2). No Docker
-was available here, so the fix is reasoned rather than run — CI now builds the
-image and health-checks it, which is where that claim should be settled anyway.
+**The Docker build was broken three times over, and each break hid the next.** No
+Docker was available on the machine used, so CI settled it — which is the right
+place for that claim anyway, and it took three runs to get there:
+
+1. `./packages/workflow-sdk` — a directory that has never existed in this
+   repository's history.
+2. `COPY --from=web /build/public` — `public/` is optional in Next.js and this
+   project has none, so the runtime stage had nothing to copy. Now created in the
+   web stage.
+3. `/data` owned by root while the container runs as `throughline`. The image
+   chowned `/app` but never the directory the research actually lives in, and
+   Docker creates an absent volume path as root — so the embedded PostgreSQL would
+   have failed to write on first boot. Fixed ahead of the run rather than after it.
+
+Nothing about that sequence is exotic. It is what a build looks like when nothing
+ever runs it, and it is the single clearest argument for the CI job: each fault was
+invisible until the one in front of it was gone.
+
+**Every job now passes on hardware nobody configured:** the full suite installed
+via `bootstrap.sh` on clean Ubuntu and macOS runners, the sandbox tests on a real
+Windows runner, the web tests and production build, and the container built and
+health-checked.
 
 The workstream sections below are left as written. They record why each fix takes
 the shape it does, which outlives the moment the work landed; the table above is
