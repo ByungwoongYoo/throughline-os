@@ -48,6 +48,7 @@ import os
 import platform
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -234,6 +235,32 @@ def require_full_isolation() -> None:
     )
 
 
+def _destroy(workdir: Path) -> None:
+    """Remove the sandbox directory, including the files it made read-only.
+
+    Found by running the suite on Windows. `shutil.rmtree` will not delete a file
+    carrying the Windows read-only attribute, and the sandbox sets exactly that on
+    the input and the job description — so `ignore_errors=True` swallowed the
+    failure and left the directory, with a copy of the researcher's data in it,
+    in the temp folder after every single analysis. Meanwhile `policy_report()`
+    went on claiming the environment was destroyed afterwards.
+
+    POSIX never showed this: there, permission to unlink comes from the *parent*
+    directory, so a read-only file inside a writable directory deletes fine.
+    """
+    def clear_readonly_and_retry(func, path, _exc):  # noqa: ANN001
+        try:
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        except OSError:
+            # Nothing further to try. Raised out of rmtree below rather than
+            # silently ignored, because a sandbox that quietly fails to clean up
+            # is the thing this function exists to prevent.
+            raise
+
+    shutil.rmtree(workdir, onexc=clear_readonly_and_retry)
+
+
 def _limit_child(policy: SandboxPolicy) -> None:
     """Runs in the forked child, before exec. POSIX only."""
     # Own process group so a timeout kills the whole tree, not just the parent stub.
@@ -369,5 +396,7 @@ def run_analysis(
             exit_code=process.returncode, duration_ms=duration, policy=report,
         )
     finally:
-        #  — destroy the environment after execution.
-        shutil.rmtree(workdir, ignore_errors=True)
+        # Destroy the environment after execution. Not ignore_errors: research
+        # data left in a temp directory is the failure, and hiding it is worse
+        # than the exception.
+        _destroy(workdir)

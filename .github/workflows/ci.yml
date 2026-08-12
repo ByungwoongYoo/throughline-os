@@ -82,6 +82,38 @@ jobs:
           fi
           echo "All skips accounted for."
 
+  windows-sandbox:
+    name: windows · sandbox
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: python scripts/manage.py bootstrap
+
+      # Scoped to the sandbox rather than running the whole suite, on purpose.
+      #
+      # This job exists to exercise the code that only runs on Windows — the Job
+      # Object limits, the process-tree kill, the read-only-attribute cleanup, and
+      # the policy report that must describe this platform rather than POSIX. That
+      # is what a Windows runner is uniquely able to check.
+      #
+      # The full suite is deliberately not run here. It spawns a sandboxed
+      # subprocess per analysis and Windows process creation is several times more
+      # expensive, so 541 tests take long enough to be a poor gate. Two platforms
+      # run the whole thing already; this one covers what they cannot reach.
+      #
+      # Known fragility, seen while porting: if a previous pgserver instance is
+      # killed rather than shut down, the stale data directory makes the next
+      # `pg_ctl start` time out, and without a per-test timeout that reads as an
+      # indefinite hang. A fresh runner never has that state.
+      - name: The Windows sandbox actually confines
+        run: .venv\Scripts\python -m pytest tests/test_sandbox.py -q
+
   web:
     name: web interface
     runs-on: ubuntu-latest

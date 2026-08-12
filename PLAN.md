@@ -24,8 +24,19 @@ Windows port. Verified by running, not by reading:
 | 7 | `python-pptx` / `python-docx` / neo4j driver undeclared | fixed | Both previously failing tests pass. |
 
 Also landed: credential rate limits relax on a local install while the sandbox
-limits stay strict, and `policy_report()` now derives from the active backend
-instead of returning hardcoded `True`.
+limits stay strict, `policy_report()` derives from the active backend instead of
+returning hardcoded `True`, one launcher replaces the bash-only entrypoints, and
+CI gained a Windows job scoped to the sandbox.
+
+**An eighth issue, found by doing the work rather than by review.** On Windows the
+sandbox working directory was never destroyed — `shutil.rmtree` will not delete a
+file with the read-only attribute, which the sandbox sets on its input, and
+`ignore_errors=True` hid it. A copy of the researcher's data was left in the temp
+folder after every analysis while the policy report claimed otherwise. Fixed and
+verified: a full sandbox run now leaves nothing behind. Two more were bugs in these
+fixes themselves — a partial `.venv` that made the next run fail confusingly, and a
+launcher that ignored `SIGTERM` and orphaned the whole stack. All three surfaced
+only by running the thing, which is the argument for workstream F in one line.
 
 **Native Windows works, and `pgserver` was never the obstacle.** It publishes
 `win_amd64` wheels up to cp312, so on Python 3.12 the embedded PostgreSQL boots
@@ -326,17 +337,54 @@ r = 0.999419, identical on rerun; a non-whitelisted method refused; a 1-second
 timeout terminating the job; and a 16 MB ceiling actually killing the process
 rather than being exceeded.
 
-### Still open
+### E4, E5, E6 — landed
 
-**E4 — one launcher.** Replace the bash scripts with a single Python entrypoint
-rather than maintaining PowerShell twins. This also removes the
-`.venv/bin/python` vs `.venv\Scripts\python.exe` assumption at its root.
+**E4.** `scripts/manage.py` holds the sequence; `bootstrap.sh` and `dev.sh` are
+wrappers. Standard library only, since bootstrap runs before there is a
+virtualenv. Verified on POSIX end to end — API answers, web serves, and a
+`SIGTERM` leaves zero processes and zero held ports. Verified on Windows for the
+parts that differ: the `Scripts\python.exe` path, the version guard, the package
+order, `SIGBREAK`.
 
-**E5 — the database constraint.** The embedded PostgreSQL caps at Python 3.12 on
-every platform. Either pin and document it, or let newer interpreters run
-against an external database via the existing `THROUGHLINE_DATABASE_URL`.
+Two bugs it turned up, both only visible by running it. `SIGTERM` killed the
+launcher without unwinding, so the children survived holding both ports — Ctrl-C
+worked, which is why it would have gone unnoticed. And the README asked for
+"Python 3.12+", which cannot be true when `pgserver` stops at cp312.
 
-**E6 — extend CI to Windows.** The only way to know the port holds.
+**E5.** Pinned and documented rather than made optional. `bootstrap` refuses
+anything but 3.12 and names `pgserver` as the reason. Making the embedded database
+an optional extra so newer interpreters could run against external PostgreSQL
+remains possible — `db.py` already imports `pgserver` lazily — but it is a
+structural change to a package that works, so it is left as a choice rather than
+taken unilaterally.
+
+**E6.** A `windows-latest` job scoped to `tests/test_sandbox.py`, not the whole
+suite. It covers what only a Windows runner can: the Job Object limits, the
+process-tree kill, the read-only-attribute cleanup, and the policy report. The
+full suite is not run there because each analysis spawns a subprocess and Windows
+process creation is several times more expensive — 12 sandbox tests take about two
+minutes on Windows against seconds elsewhere, so 541 would be a poor gate. Ubuntu
+and macOS run everything.
+
+One fragility worth knowing before anyone runs the full suite on Windows: if a
+`pgserver` instance is killed rather than shut down, the stale data directory makes
+the next `pg_ctl start` time out, and with no per-test timeout that presents as an
+indefinite hang with no CPU use. Deleting the data directory clears it. A fresh CI
+runner never has that state.
+
+**A third bug, found by running the suite on Windows.** The sandbox working
+directory was not being destroyed. `shutil.rmtree` refuses to delete a file
+carrying the Windows read-only attribute, and the sandbox sets exactly that on its
+input and job description — so `ignore_errors=True` swallowed the failure and left
+a copy of the researcher's data in the temp folder after *every* analysis, while
+`policy_report()` claimed the environment had been destroyed. POSIX never showed
+it, because there the right to unlink comes from the parent directory. Cleanup now
+clears the attribute and retries, and does not ignore errors: research data left
+behind is the failure, and hiding it is worse than the exception. Verified — a full
+sandbox run now leaves zero directories behind.
+
+Nothing in E remains open. The original notes for E4, E5 and E6 are folded into the
+descriptions above.
 
 ---
 
