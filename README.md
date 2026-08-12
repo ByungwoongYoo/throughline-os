@@ -53,12 +53,18 @@ in API route handlers.
 
 ## Requirements
 
-- Python 3.12+
-- Node 20+ *(for `apps/web`; installed user-locally at `~/.local/opt/node`,
-  and `scripts/dev.sh` finds it. The API and workers run without it.)*
+- Python **3.12** — not merely 3.12 or newer. `pgserver`, which provides the
+  embedded PostgreSQL, publishes no wheel past cp312, so 3.13 and 3.14 cannot
+  install the database. `bootstrap` checks this and says so rather than letting
+  pip fail obliquely.
+- Node 20+ *(for `apps/web`; if installed user-locally at `~/.local/opt/node`,
+  the launcher finds it. The API and workers run without it.)*
 
 PostgreSQL is **not** a prerequisite — `pgserver` bundles a real PostgreSQL with
 pgvector as a Python wheel and runs it against a local data directory.
+
+Linux, macOS and Windows. The analysis sandbox was POSIX-only until it grew a
+Windows backend built on Job Objects; see `services/scientific-runtime`.
 
 ## Quick start
 
@@ -70,4 +76,13 @@ Then:
 
 ```bash
 ./scripts/dev.sh
+```
+
+On Windows, or wherever bash is not the shell, call the launcher directly — the
+shell scripts are wrappers around it and there is no separate implementation to
+fall out of step:
+
+```
+python scripts\manage.py bootstrap
+python scripts\manage.py dev
 ```
