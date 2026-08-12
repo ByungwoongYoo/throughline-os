@@ -71,6 +71,14 @@ COPY --from=node:22-slim /usr/local/bin/node /usr/local/bin/node
 COPY scripts ./scripts
 RUN chmod +x scripts/*.sh && chown -R throughline:throughline /app
 
+# /data has to exist, and be owned by the user that runs, *before* the VOLUME
+# below. Docker creates a declared volume's mount point as root when the path is
+# absent from the image, and this container deliberately does not run as root — so
+# the first thing the embedded PostgreSQL would do is fail to write its data
+# directory. /app was already chowned; the directory the research actually lives in
+# was not.
+RUN mkdir -p /data && chown throughline:throughline /data
+
 USER throughline
 ENV THROUGHLINE_HOME=/data \
     PYTHONUNBUFFERED=1 \
