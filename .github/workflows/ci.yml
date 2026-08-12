@@ -1,0 +1,123 @@
+# Clean-environment verification.
+#
+# The point of this file is narrow and worth stating: every defect this project
+# has shipped so far was invisible because nothing ever installed it or ran it
+# anywhere but the machine it was written on. A broken bootstrap script, a Docker
+# build referencing a directory that never existed, two libraries imported but
+# never declared, and the one test covering the whole §137 workflow skipping
+# itself everywhere else — all of it survives a developer's own laptop and none of
+# it survives a fresh checkout.
+#
+# So this job does the least clever thing available: clones, installs the way the
+# README tells a researcher to install, and runs the suite.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  # A superseded run tells you about code nobody is looking at any more.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  suite:
+    name: ${{ matrix.os }} · python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One failing platform must not hide the others: knowing whether a break is
+      # universal or platform-specific is most of the diagnosis.
+      fail-fast: false
+      matrix:
+        # 3.12 exactly, for the reason bootstrap.sh states — the packages need
+        # >= 3.12 and pgserver publishes no wheel past cp312.
+        python: ["3.12"]
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install the way the README says to
+        # Deliberately ./scripts/bootstrap.sh rather than a hand-written pip
+        # invocation. A CI job that installs differently from the documented path
+        # verifies a route no researcher takes, and the documented one is exactly
+        # what was broken.
+        run: ./scripts/bootstrap.sh
+
+      - name: Run the suite
+        run: |
+          set -o pipefail
+          ./.venv/bin/python -m pytest -q -rs | tee pytest.out
+
+      - name: Every skip must be accounted for
+        # A skipped test renders as passing. Three tests skipped themselves on
+        # every machine but one for months, which is how the §137 workflow came to
+        # be advertised as working end to end while missing its final step. The
+        # only skips this project accepts are gated on an optional Neo4j server.
+        run: |
+          if grep '^SKIPPED' pytest.out | grep -v 'no Neo4j configured'; then
+            echo "::error::A test skipped for a reason that is not allowlisted."
+            echo "Either make it run everywhere, or add its reason here on purpose."
+            exit 1
+          fi
+          echo "All skips accounted for."
+
+  web:
+    name: web interface
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - run: npm ci --no-audit --no-fund
+        working-directory: apps/web
+
+      - run: npm test
+        working-directory: apps/web
+
+      # The build catches what unit tests cannot: a type error or a bad import in
+      # a component no test renders.
+      - run: npm run build
+        working-directory: apps/web
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+
+  container:
+    name: docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # `docker compose up` is the install route offered to anyone not on Linux
+      # or macOS, so it needs the same protection as the script. It was broken by
+      # a single path in the Dockerfile that had never existed in this repository.
+      - name: Build the image
+        run: docker build -t throughline-os:ci .
+
+      - name: The API answers in the built image
+        run: |
+          docker run -d --name throughline -p 8080:8080 throughline-os:ci
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8080/api/health >/dev/null 2>&1; then
+              echo "healthy"
+              docker rm -f throughline
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::The API never became healthy."
+          docker logs throughline
+          docker rm -f throughline
+          exit 1

@@ -55,9 +55,23 @@ def _session() -> Iterator[Any]:
             "clustering need Neo4j. Set THROUGHLINE_NEO4J_URI to enable them.")
     try:
         from neo4j import GraphDatabase
-    except ImportError as exc:  # pragma: no cover - driver is a dependency
+    except ImportError as exc:
+        # Says the same thing as the unreachable case below, deliberately. A
+        # driver that is absent and a server that is down are one fact from the
+        # interface's side — these four queries cannot be answered — and the
+        # researcher needs to know the provenance path is untouched either way.
+        # Reporting only the technical cause invites the reading that something
+        # load-bearing is broken.
+        #
+        # The driver is an optional extra, not a dependency: ADR 0002 makes this
+        # a derived projection that is never the source of a fact, so installing
+        # it is a choice.
         raise ProjectionUnavailable(
-            "The Neo4j driver is not installed in this environment.") from exc
+            "The Neo4j driver is not installed, so the graph projection cannot "
+            "be reached. Everything on the provenance path is unaffected — it "
+            "is answered from PostgreSQL. To enable path-finding, influence "
+            "ranking and clustering, install the optional extra: "
+            "pip install -e 'packages/research-domain[graph]'") from exc
 
     user = os.environ.get("THROUGHLINE_NEO4J_USER", "neo4j")
     password = os.environ.get("THROUGHLINE_NEO4J_PASSWORD", "")

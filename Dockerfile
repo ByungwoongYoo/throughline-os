@@ -40,10 +40,14 @@ COPY services ./services
 COPY apps/api ./apps/api
 COPY pyproject.toml* ./
 
+# No ./packages/workflow-sdk: it has never existed in this repository. The
+# durable-workflow code lives in research-domain as workflow.py, and pip cannot
+# install a path that is not there — so this layer failed, and with it every
+# `docker build` and `docker compose up`.
 RUN pip install --no-cache-dir --upgrade pip \
  && pip install --no-cache-dir \
       ./packages/schemas ./packages/ingestion ./packages/model \
-      ./packages/visual-spec ./packages/workflow-sdk ./packages/connector-sdk \
+      ./packages/visual-spec ./packages/connector-sdk \
       ./packages/research-domain ./services/scientific-runtime \
       ./services/workers ./apps/api \
  && apt-get purge -y build-essential && apt-get autoremove -y

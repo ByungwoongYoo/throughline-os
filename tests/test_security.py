@@ -48,7 +48,10 @@ def test_secure_cookie_is_on_unless_the_deployment_says_local(monkeypatch):
     assert security.session_cookie_kwargs()["samesite"] == "strict"
 
 
-def test_login_is_throttled_before_a_password_can_be_guessed():
+def test_login_is_throttled_before_a_password_can_be_guessed(monkeypatch):
+    # Stated explicitly: guessing is a threat from the network, so this is the
+    # hosted case. The local case is relaxed on purpose and covered below.
+    monkeypatch.setenv("THROUGHLINE_DEPLOYMENT", "hosted")
     limiter = security.RateLimiter()
     route = "/api/auth/login"
     limit = security.LIMITS[route]
@@ -60,6 +63,50 @@ def test_login_is_throttled_before_a_password_can_be_guessed():
     allowed, retry_after = limiter.check(key="1.2.3.4", route=route)
     assert not allowed
     assert retry_after > 0
+
+
+def test_a_local_install_does_not_lock_the_researcher_out_of_their_own_machine(
+        monkeypatch):
+    """
+    Ten attempts per five minutes is right when an attacker can reach the login
+    and wrong when nobody can. Mistyping a long password three times should not
+    cost a researcher access to their own corpus for five minutes.
+    """
+    monkeypatch.setenv("THROUGHLINE_DEPLOYMENT", "local")
+    route = "/api/auth/login"
+    limiter = security.RateLimiter()
+
+    # Comfortably past the hosted ceiling, still allowed.
+    for _ in range(security.LIMITS[route].requests + 1):
+        allowed, _ = limiter.check(key="127.0.0.1", route=route)
+        assert allowed
+
+    # Relaxed is not unlimited: a runaway loop still meets a wall, because every
+    # attempt costs 600k PBKDF2 rounds of this machine's CPU.
+    for _ in range(security.LOCAL_LIMITS[route].requests):
+        limiter.check(key="127.0.0.1", route=route)
+    allowed, retry_after = limiter.check(key="127.0.0.1", route=route)
+    assert not allowed
+    assert retry_after > 0
+
+
+def test_the_sandbox_limits_do_not_relax_on_a_local_install(monkeypatch):
+    """
+    The analysis limits are not about credentials. Each request starts a
+    sandboxed subprocess, so a loop over them exhausts this machine whether or
+    not anyone else can reach it — being local is not a reason to lift them.
+    """
+    monkeypatch.setenv("THROUGHLINE_DEPLOYMENT", "local")
+    for route in ("/api/projects/{project_id}/discoveries",
+                  "/api/projects/{project_id}/analyses"):
+        assert security.limit_for(route) == security.LIMITS[route]
+        assert route not in security.LOCAL_LIMITS
+
+    # And the credential routes really are the ones that changed.
+    monkeypatch.setenv("THROUGHLINE_DEPLOYMENT", "hosted")
+    assert security.limit_for("/api/auth/login") == security.LIMITS["/api/auth/login"]
+    monkeypatch.setenv("THROUGHLINE_DEPLOYMENT", "local")
+    assert security.limit_for("/api/auth/login") == security.LOCAL_LIMITS["/api/auth/login"]
 
 
 def test_throttling_is_per_client_not_global():
@@ -141,6 +188,9 @@ def test_a_throttled_request_answers_429_not_500(client, monkeypatch):
     # Enabled explicitly: it is off under pytest so that the rest of the suite
     # is not throttled by shared process-global counters.
     monkeypatch.setenv("THROUGHLINE_RATE_LIMIT", "on")
+    # Hosted, so the strict login ceiling applies and 429 is reachable in a
+    # dozen calls rather than a hundred.
+    monkeypatch.setenv("THROUGHLINE_DEPLOYMENT", "hosted")
 
     codes = []
     for _ in range(security.LIMITS["/api/auth/login"].requests + 2):

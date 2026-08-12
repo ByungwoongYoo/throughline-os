@@ -18,27 +18,35 @@ a placeholder presented as working functionality.
 
 ## Layout (§9)
 
+Every directory below exists. Per §123 a layout that lists directories which are
+not there is the same defect as a feature claim that is not true — what is
+planned but unbuilt is named under it, separately.
+
 ```
 apps/
   api/                  FastAPI application — HTTP surface only, no research logic
   web/                  Next.js researcher interface (§65, §66, §115)
 packages/
   schemas/              Pydantic domain schemas, versioned (§113)
-  research-domain/      The research model: objects, lineage, claims, evidence, findings
-  workflow-sdk/         Durable workflow contracts and node definitions (§36)
+  model/                Shared model-facing types
+  research-domain/      The research model: objects, lineage, claims, evidence,
+                        findings, and the durable workflow contracts (§36)
   connector-sdk/        Connector interface and capability model (§32)
+  ingestion/            PDF, spreadsheet and document parsing (§24)
   visual-spec/          ResearchVisualSpec (§73), recommendation, critic, renderers
-  motion-spec/          Scientific Motion Grammar (§87) — Phase 8
-  types/                Shared TypeScript types for the web app
 services/
   workers/              Durable background workers (§37, §38)
-  scientific-runtime/   Isolated analysis execution (§43) — Phase 2
-  video-renderer/       Deterministic 4K scene renderer (§89) — Phase 8
-infrastructure/         Local runtime: embedded Postgres, storage roots
+  scientific-runtime/   Isolated analysis execution (§43)
 docs/                   Architecture decisions and phase records
 tests/                  Cross-package tests
 evals/                  Self-evaluation harness (§58) — grows from Phase 1
 ```
+
+Planned, and not present in this repository yet: the Scientific Motion Grammar
+(§87) and the deterministic 4K scene renderer (§89), both Phase 8.
+
+The durable workflow contracts (§36) live inside `research-domain` as
+`workflow.py` rather than in a package of their own.
 
 Business logic does not live in React components. Research logic does not live
 in API route handlers.

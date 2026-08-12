@@ -16,10 +16,6 @@ from throughline_workers.runner import Worker
 
 # The three periodontal-disease PDFs from the previous product, used as real
 # input rather than a synthetic fixture.
-LEGACY_PDFS = sorted(
-    Path("/Users/sarthakpattnaik/Downloads/throughline_v18_zero_motion_1_8_0/"
-         "data/files/workspace_default").glob("*.pdf")
-)
 
 
 @pytest.fixture()
@@ -89,9 +85,8 @@ def test_plain_text_anchors_resolve_exactly():
     assert {p.section for p in parsed.passages} >= {"methods", "results"}
 
 
-@pytest.mark.skipif(not LEGACY_PDFS, reason="legacy PDFs not present")
-def test_real_pdf_parses_with_resolvable_anchors():
-    parsed = document_parser.parse_pdf(LEGACY_PDFS[0])
+def test_real_pdf_parses_with_resolvable_anchors(paper_pdf):
+    parsed = document_parser.parse_pdf(paper_pdf)
     assert parsed.passages and parsed.page_count > 0
     assert parsed.verify_anchors() == []
     # The column-aware reader must not splice unrelated sentences together.
@@ -200,9 +195,8 @@ def test_failed_ingestion_preserves_the_stages_it_completed(committed_project):
         assert storage.path_for(cur.fetchone()["storage_key"]).exists()
 
 
-@pytest.mark.skipif(not LEGACY_PDFS, reason="legacy PDFs not present")
-def test_real_pdf_ingests_end_to_end_with_lineage(committed_project):
-    source_id = _upload(committed_project, LEGACY_PDFS[0].name, LEGACY_PDFS[0].read_bytes())
+def test_real_pdf_ingests_end_to_end_with_lineage(committed_project, paper_pdf):
+    source_id = _upload(committed_project, paper_pdf.name, paper_pdf.read_bytes())
     _drain()
 
     source = _source(source_id)
