@@ -16,7 +16,7 @@
  * collision is part of why nothing here was covered.)
  */
 
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DESIGNED, PRIMITIVES, RENDERING } from "@/lib/primitives";
@@ -70,6 +70,23 @@ describe("the primitive registry", () => {
   it("counts what it claims", () => {
     expect(RENDERING.length + DESIGNED.length).toBe(PRIMITIVES.length);
     expect(PRIMITIVES).toHaveLength(14);
+  });
+
+  it("is shown in full by the gallery that counts from it", () => {
+    // The gallery's headline reads "All 14 primitives render" and it rendered
+    // eight — P7 to P14 — because the sections were written by hand while the
+    // count was computed. A reader saw eight charts under a sentence claiming
+    // fourteen. Reading the source is crude but it is the property that broke.
+    const gallery = readFileSync(
+      join(__dirname, "..", "components", "gallery.tsx"), "utf8");
+    const shown = new Set(
+      [...gallery.matchAll(/<Section code="(P\d+)"/g)].map((m) => m[1]));
+    const missing = PRIMITIVES
+      .filter((p) => !shown.has(p.code))
+      .map((p) => `${p.code} ${p.name}`);
+
+    expect(missing, "claimed by the gallery's count but not drawn on it")
+      .toEqual([]);
   });
 
   it("gives every primitive the guard it protects against", () => {

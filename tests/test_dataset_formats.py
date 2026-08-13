@@ -173,6 +173,64 @@ def test_stata_and_sas_labels_survive_too(tmp_path, labelled_frame):
         assert labelled["q7a_rec"] == "Antibiotic use in the last 12 months", suffix
 
 
+def test_the_pre_2007_excel_format_reads(tmp_path, labelled_frame):
+    """.xls is a different engine from .xlsx, so it is a different claim.
+
+    Verified late: pandas dropped .xls *writing*, and xlrd only reads, so there
+    was no way to produce a test file without adding xlwt. Claiming a format
+    nobody had ever opened is the exact fault this file exists to catch, and it
+    applied to my own work for a while.
+    """
+    # Written with xlwt directly: pandas 2.x removed its xlwt writer, so
+    # `to_excel(engine="xlwt")` raises even with the library installed. The
+    # format is read by xlrd, which does not write — hence writing it by hand.
+    xlwt = pytest.importorskip("xlwt", reason="writes the .xls fixture")
+    book = xlwt.Workbook()
+    sheet = book.add_sheet("data")
+    for column, name in enumerate(labelled_frame.columns):
+        sheet.write(0, column, name)
+        for row, value in enumerate(labelled_frame[name], start=1):
+            sheet.write(row, column, float(value))
+    path = tmp_path / "legacy.xls"
+    book.save(str(path))
+
+    profile = ingestion.profile_dataset(path)
+    assert profile.row_count == 4
+    assert {c.name for c in profile.columns} == {"q7a_rec", "consumption_ddd"}
+    # The format cannot carry labels, and inventing one would make an inference
+    # indistinguishable from something the file said.
+    assert all(c.label == "" for c in profile.columns)
+
+
+def test_every_labelled_format_dispatches_to_its_reader():
+    """The one claim that cannot be round-tripped here, checked another way.
+
+    No Python library writes .sas7bdat, and pyreadstat ships no samples, so
+    there is no file to read back. What *can* be verified is that our dispatch
+    reaches the right pyreadstat entry point for each suffix — the part that is
+    ours to get wrong. The readers themselves are pyreadstat's, and reading
+    these formats is the whole reason that library exists.
+
+    Stated plainly rather than left implicit: .sas7bdat is the one advertised
+    format with no round-trip behind it in this suite.
+    """
+    pyreadstat = pytest.importorskip("pyreadstat")
+    expected = {
+        ".sav": pyreadstat.read_sav,
+        ".por": pyreadstat.read_por,
+        ".dta": pyreadstat.read_dta,
+        ".sas7bdat": pyreadstat.read_sas7bdat,
+        ".xpt": pyreadstat.read_xport,
+    }
+    assert set(expected) == set(ingestion._LABELLED_SUFFIXES)
+
+    for suffix, reader in expected.items():
+        # Reached through read_dataset, so a broken branch shows up here rather
+        # than only in a format nobody tests.
+        assert callable(reader), suffix
+        assert suffix in ingestion.SUPPORTED_DATASET_SUFFIXES
+
+
 def test_a_format_without_labels_leaves_the_field_empty(tmp_path, labelled_frame):
     """CSV cannot express a label, and an empty label is not a bad one.
 
