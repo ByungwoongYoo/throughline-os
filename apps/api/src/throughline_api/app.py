@@ -4366,7 +4366,59 @@ def analysis_points(run_id: str, user: dict = Depends(current_user)) -> dict[str
             # analysis cannot state different numbers.
             "statistics": data.statistics,
             "sample_size": data.sample_size,
+            # Present only when the recommendation is a binned figure. Computed
+            # here rather than in the browser: binning is aggregation, and a
+            # client that re-aggregated could disagree with the analysis (LAW 2).
+            "cells": _binned_cells(spec, data),
+            "bin_count": spec.bin_count,
+            "bin_shape": str(spec.bin_shape),
+            "count_scale": str(spec.count_scale),
         }
+
+
+def _binned_cells(spec, data) -> list[dict[str, Any]] | None:
+    """Counts per cell for a binned figure, or None for every other chart.
+
+    Without this the browser has points and no counts, so the workspace falls
+    back to drawing a scatter — which at the sample sizes that trigger this
+    recommendation is precisely the overplotted blob the binned primitive
+    exists to replace. The catalogue said P5 rendered; the figure a researcher
+    actually saw was a scatter.
+    """
+    from throughline_visual.spec import BinShape, VisualType
+
+    if spec.visual_type is not VisualType.HEXBIN:
+        return None
+    xs, ys = data.x_values, data.y_values
+    if not xs or not ys:
+        return None
+
+    bins = spec.bin_count or 30
+    x_low, x_high = min(xs), max(xs)
+    y_low, y_high = min(ys), max(ys)
+    x_step = (x_high - x_low) / bins or 1.0
+    y_step = (y_high - y_low) / bins or 1.0
+
+    counts: dict[tuple[int, int], int] = {}
+    for x, y in zip(xs, ys):
+        column = min(int((x - x_low) / x_step), bins - 1)
+        row = min(int((y - y_low) / y_step), bins - 1)
+        if spec.bin_shape is BinShape.HEX:
+            # Offset alternate rows by half a cell, which is what makes the
+            # lattice hexagonal rather than square.
+            column = min(int((x - x_low) / x_step - (0.5 if row % 2 else 0)),
+                         bins - 1)
+        counts[(column, row)] = counts.get((column, row), 0) + 1
+
+    offset = 0.5 if spec.bin_shape is BinShape.HEX else 0.0
+    return [
+        {
+            "x": x_low + (column + 0.5 + (offset if row % 2 else 0)) * x_step,
+            "y": y_low + (row + 0.5) * y_step,
+            "count": count,
+        }
+        for (column, row), count in sorted(counts.items())
+    ]
 
 
 class CompareRequest(BaseModel):
@@ -4675,50 +4727,6 @@ def project_estimates(project_id: str, limit: int = Query(30, ge=1, le=200),
                     " — they were tested for association and have no coefficient "
                     "or interval to plot." if without_estimate else "")),
     }
-
-
-@app.get("/api/analyses/{run_id}/points")
-def analysis_points(run_id: str, user: dict = Depends(current_user)) -> dict[str, Any]:
-    """
-    The chart-ready values behind a figure.
-
-    A bounded sample prepared server-side, never the dataset. The browser gets
-    what it needs to draw and nothing more — and because every statistic on the
-    figure comes from the recorded result rather than from re-aggregating these
-    points, the picture cannot disagree with the analysis that produced it.
-    """
-    with transaction() as cur:
-        cur.execute("SELECT project_id, result FROM analysis_runs WHERE id = %s",
-                    (run_id,))
-        row = cur.fetchone()
-        if not row:
-            raise HTTPException(404, "Analysis run not found.")
-        scoped_project(row["project_id"], user)
-
-        try:
-            recommendation = visuals.recommend_for_run(cur, analysis_run_id=run_id)
-        except visuals.VisualError as exc:
-            raise HTTPException(409, str(exc)) from exc
-
-        spec = recommendation["spec"]
-        sample = _visual_sample(cur, spec)
-        try:
-            data = visual_prepare(spec, analysis_result=row["result"] or {},
-                                  sample=sample)
-        except Exception as exc:  # noqa: BLE001 — reported, never guessed at
-            raise HTTPException(409, f"Could not prepare figure data: {exc}") from exc
-
-        return {
-            "x": data.x_values,
-            "y": data.y_values,
-            "group": data.group_values,
-            "ci_low": data.ci_low,
-            "ci_high": data.ci_high,
-            # Statistics come from the recorded run, so the figure and the
-            # analysis cannot state different numbers.
-            "statistics": data.statistics,
-            "sample_size": data.sample_size,
-        }
 
 
 @app.post("/api/projects/{project_id}/visuals", status_code=201)

@@ -159,12 +159,66 @@ def test_the_colour_bar_names_a_non_linear_scale(tmp_path):
     assert "log scale" in written.read_text(encoding="utf-8", errors="replace")
 
 
-def test_a_linear_scale_is_not_labelled_as_a_transform():
-    """Only a departure from the obvious needs announcing."""
-    from throughline_visual.renderers.publication import _hexbin  # noqa: F401
-    # Rendered rather than asserted on the string, in the linear case, to keep
-    # the label logic in one place.
-    assert str(CountScale.LINEAR) == "linear"
+def test_a_linear_scale_is_not_labelled_as_a_transform(tmp_path):
+    """Only a departure from the obvious needs announcing.
+
+    A linear ramp is what a reader already assumes, so labelling it adds noise;
+    a log ramp is not, so labelling it is the whole point. Rendered and read
+    back, because an earlier version of this test asserted that an enum's string
+    value was "linear" — which is true, tells you nothing about the figure, and
+    was named as though it verified the label.
+    """
+    written = render(_spec(count_scale=CountScale.LINEAR), _cloud(8_000),
+                     path=tmp_path / "linear.svg", fmt="svg")
+    body = written.read_text(encoding="utf-8", errors="replace")
+    assert "observations per cell" in body
+    assert "log scale" not in body
+    assert "sqrt" not in body
+
+
+# ---------------------------------------------------------------------------
+# Reaching the researcher
+# ---------------------------------------------------------------------------
+
+
+def test_the_cells_are_counted_server_side():
+    """The browser is given counts, never asked to compute them.
+
+    Binning is aggregation, and a client that re-aggregated could disagree with
+    the analysis that produced the figure (LAW 2). It is also what made the
+    primitive unreachable: with points and no counts, the workspace fell back to
+    a scatter — the overplotted blob this chart replaces.
+    """
+    from throughline_api.app import _binned_cells
+
+    spec = _spec(bin_count=10)
+    data = _cloud(5_000)
+    cells = _binned_cells(spec, data)
+
+    assert cells, "a binned recommendation must produce cells"
+    # Every observation lands in exactly one cell.
+    assert sum(c["count"] for c in cells) == len(data.x_values)
+    assert all(c["count"] > 0 for c in cells), "empty cells are absent, not zero"
+    assert all({"x", "y", "count"} == set(c) for c in cells)
+
+
+def test_no_cells_are_produced_for_charts_that_do_not_bin():
+    from throughline_api.app import _binned_cells
+
+    assert _binned_cells(_spec(visual_type=VisualType.SCATTER), _cloud(100)) is None
+
+
+def test_the_two_cell_shapes_bin_differently():
+    """A hexagonal lattice offsets alternate rows; a square one does not."""
+    from throughline_api.app import _binned_cells
+
+    data = _cloud(5_000)
+    hexes = _binned_cells(_spec(bin_shape=BinShape.HEX, bin_count=12), data)
+    squares = _binned_cells(_spec(bin_shape=BinShape.SQUARE, bin_count=12), data)
+
+    assert sum(c["count"] for c in hexes) == sum(c["count"] for c in squares)
+    # The offset means the two lattices cannot land on identical centres.
+    assert {(c["x"], c["y"]) for c in hexes} != {(c["x"], c["y"]) for c in squares}
 
 
 def test_both_cell_shapes_render(tmp_path):
