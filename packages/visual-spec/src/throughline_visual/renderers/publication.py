@@ -81,11 +81,48 @@ def _draw(spec: ResearchVisualSpec, data: VisualData, axes) -> None:
         VisualType.BAR: _bar,
         VisualType.HISTOGRAM: _histogram,
         VisualType.HEATMAP: _heatmap,
+        VisualType.HEXBIN: _hexbin,
     }
     drawer = drawers.get(spec.visual_type)
     if drawer is None:
         raise RenderError(f"No publication renderer for {spec.visual_type}")
     drawer(spec, data, axes)
+
+
+def _hexbin(spec, data: VisualData, axes) -> None:
+    """Density by cell, for sample sizes where marks would overplot.
+
+    Hexagons rather than squares: a square grid produces horizontal and vertical
+    banding that reads as structure in the data, and every point in a hexagon is
+    closer to its centre than in a square of equal area, so the count in a cell
+    is a fairer summary of the neighbourhood.
+
+    A sequential, perceptually uniform colour map, because the encoded quantity
+    is a count — ordered, single-ended, with a meaningful zero. Diverging would
+    invent a midpoint that does not exist.
+    """
+    xs = np.asarray(data.x_values, dtype=float)
+    ys = np.asarray(data.y_values, dtype=float)
+    if xs.size == 0:
+        raise RenderError("A binned figure needs observations to bin.")
+
+    bins = spec.bin_count or 30
+    mesh = axes.hexbin(xs, ys, gridsize=bins, cmap="viridis",
+                       mincnt=1, linewidths=0.2, edgecolors="white")
+
+    bar = axes.get_figure().colorbar(mesh, ax=axes, pad=0.02)
+    # "Observations" rather than "count": the reader should not have to infer
+    # what is being counted.
+    bar.set_label("observations per cell", fontsize=8)
+    bar.ax.tick_params(labelsize=7)
+
+    # Empty cells are left unpainted (mincnt=1) rather than drawn as the lowest
+    # colour, so "no data here" and "a little data here" stay distinguishable.
+    if any(a.kind == "regression_line" for a in spec.annotations) and xs.size > 1:
+        slope, intercept = np.polyfit(xs, ys, 1)
+        line_x = np.linspace(xs.min(), xs.max(), 100)
+        axes.plot(line_x, slope * line_x + intercept, color="#B91C1C",
+                  linewidth=1.4, linestyle="--", label="_nolegend_")
 
 
 def _scatter(spec, data: VisualData, axes) -> None:

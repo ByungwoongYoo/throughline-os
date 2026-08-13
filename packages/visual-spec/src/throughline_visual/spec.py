@@ -34,6 +34,12 @@ class VisualType(StrEnum):
     LINE = "line"
     FOREST = "forest"
     HEATMAP = "heatmap"
+    #: Two continuous variables at a sample size where one mark per row stops
+    #: being readable. A scatter does not fail loudly when it overplots — it
+    #: fills in, and a region holding fifty points and one holding five thousand
+    #: both render as solid ink. Binning counts per cell and shades by that
+    #: count, so density becomes visible instead of saturating.
+    HEXBIN = "hexbin"
 
 
 class Scale(StrEnum):
@@ -93,6 +99,16 @@ class ResearchVisualSpec(BaseModel):
 
     uncertainty: UncertaintyDisplay = UncertaintyDisplay.NONE
     annotations: list[Annotation] = Field(default_factory=list)
+
+    #: Cells across the x range for a binned figure.
+    #:
+    #: Explicit and required rather than a renderer default, because bin width
+    #: is not a cosmetic choice: widen it and a two-humped distribution becomes
+    #: one hump, narrow it and noise becomes structure. Same data, opposite
+    #: readings, with nothing on the figure saying which was chosen. It is
+    #: stated in the caption for the same reason a density plot states its
+    #: bandwidth — the shape is partly a decision, so the decision is published.
+    bin_count: int | None = Field(default=None, ge=4, le=200)
 
     # --- editorial -----------------------------------------------------------
     title: str = ""

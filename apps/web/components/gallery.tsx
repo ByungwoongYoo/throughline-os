@@ -18,6 +18,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FeatureCollection, Geometry } from "geojson";
 import { PRIMITIVES } from "@/lib/primitives";
+import { Binned, Cell } from "./charts/Binned";
 import { Hierarchy, TreeNode } from "./charts/Hierarchy";
 import { Radial, Spoke } from "./charts/Radial";
 import { Ribbon, FlowNode, FlowLink } from "./charts/Ribbon";
@@ -175,6 +176,25 @@ const FOLLOW_UP: TemporalEvent[] = (() => {
   return out.sort((a, b) => a.time - b.time);
 })();
 
+// A dense cloud with a real ridge in it, so the shading has something to show.
+// Deterministic: a gallery whose illustration changes between reloads teaches
+// the reader not to trust it.
+const DENSITY: Cell[] = (() => {
+  const cells: Cell[] = [];
+  for (let i = 0; i < 18; i += 1) {
+    for (let j = 0; j < 14; j += 1) {
+      const cx = 6 + i * 1.6;
+      const cy = 8 + j * 2.4;
+      // Counts fall away from the regression ridge, which is what a real
+      // correlation at scale looks like once it is binned.
+      const distance = Math.abs(cy - (0.82 * cx + 2.1));
+      const count = Math.round(420 * Math.exp(-(distance ** 2) / 120));
+      if (count > 0) cells.push({ x: cx, y: cy, count });
+    }
+  }
+  return cells;
+})();
+
 function Section({ code, children }: { code: string; children: React.ReactNode }) {
   const meta = PRIMITIVES.find((p) => p.code === code);
   return (
@@ -236,6 +256,13 @@ export function Gallery() {
         primitives, and a gallery showing only the cases that work would
         misdescribe them.
       </p>
+
+      <Section code="P5">
+        <Binned cells={DENSITY} xLabel="consumption" yLabel="resistance"
+                xUnit="DDD/1000/day" yUnit="%" binCount={18} sampleSize={40_000}
+                fit={{ slope: 0.82, intercept: 2.1 }}
+                title="Resistance against consumption — 40,000 observations" />
+      </Section>
 
       <Section code="P7">
         <Hierarchy root={CORPUS} layout="treemap" valueLabel="passages"

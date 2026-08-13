@@ -79,9 +79,25 @@ def _significance_note(result: dict[str, Any]) -> str:
     return "; ".join(parts)
 
 
+#: Sample size beyond which one mark per observation stops being readable.
+#:
+#: Overplotting has no threshold of its own — a scatter degrades continuously and
+#: never announces it. This is the point where, at publication figure sizes, the
+#: dense region of a typical correlation goes solid and the reader can no longer
+#: tell fifty points from five thousand. Below it a scatter is strictly better,
+#: because it shows every observation; above it the scatter is showing ink.
+OVERPLOTTING_THRESHOLD = 5_000
+
+
 def _correlation(run_id, version_id, variables, result, audience) -> dict[str, Any]:
     x_name, y_name = variables["x"], variables["y"]
     has_ci = result.get("ci_low") is not None
+    sample_size = int(result.get("sample_size") or 0)
+
+    if sample_size >= OVERPLOTTING_THRESHOLD:
+        return _binned_correlation(run_id, version_id, x_name, y_name,
+                                   result, sample_size)
+
     spec = ResearchVisualSpec(
         visual_type=VisualType.SCATTER,
         analysis_run_id=run_id, dataset_version_id=version_id,
@@ -106,6 +122,49 @@ def _correlation(run_id, version_id, variables, result, audience) -> dict[str, A
         "alternatives": [
             {"visual_type": VisualType.HEATMAP,
              "when": "more than two variables are being compared at once"},
+            {"visual_type": VisualType.BOX,
+             "when": "one variable is better treated as categorical"},
+        ],
+    }
+
+
+def _binned_correlation(run_id, version_id, x_name, y_name, result,
+                        sample_size) -> dict[str, Any]:
+    """The same relationship, at a sample size where marks would overplot.
+
+    Not a downgrade of the scatter. At this many rows a scatter answers "is
+    there ink here" rather than "how much data is here", and the two questions
+    have visibly different answers in the middle of a dense cloud.
+    """
+    bins = 30
+    spec = ResearchVisualSpec(
+        visual_type=VisualType.HEXBIN,
+        analysis_run_id=run_id, dataset_version_id=version_id,
+        x=Encoding(field=x_name, label=x_name.replace("_", " ")),
+        y=Encoding(field=y_name, label=y_name.replace("_", " ")),
+        bin_count=bins,
+        annotations=[Annotation(kind="regression_line",
+                                text="least-squares fit, shown for orientation only")],
+        title=f"{y_name.replace('_', ' ')} against {x_name.replace('_', ' ')}",
+        caption=(f"Association between {x_name} and {y_name} across "
+                 f"{sample_size:,} observations, binned into {bins} cells per "
+                 f"axis; shade shows how many observations fall in each cell. "
+                 f"{_significance_note(result)}. "
+                 f"Association does not establish causation."),
+        interaction=["hover", "brush", "underlying_table"],
+    )
+    return {
+        "visual_type": VisualType.HEXBIN,
+        "reason": (f"{sample_size:,} observations would overplot as a scatter — "
+                   f"the dense region fills in and a reader cannot tell where "
+                   f"most of the data lies. Binning shades each cell by how many "
+                   f"observations it holds, so density stays visible."),
+        "spec": spec,
+        "interpretation": result.get("interpretation", ""),
+        "alternatives": [
+            {"visual_type": VisualType.SCATTER,
+             "when": "the individual observations matter more than their density, "
+                     "such as when hunting outliers"},
             {"visual_type": VisualType.BOX,
              "when": "one variable is better treated as categorical"},
         ],
