@@ -21,6 +21,14 @@ COPY apps/web/package*.json ./
 RUN npm ci --no-audit --no-fund
 COPY apps/web ./
 ENV NEXT_TELEMETRY_DISABLED=1
+
+# `public/` is optional in Next.js and this project has none, so the runtime stage
+# below had nothing to copy and the build failed there instead of here. Created
+# rather than made conditional: Docker has no optional COPY, and the alternatives
+# either flatten the directory into the wrong place or need editing again the day
+# somebody adds a favicon.
+RUN mkdir -p public
+
 RUN npm run build
 
 
@@ -40,10 +48,14 @@ COPY services ./services
 COPY apps/api ./apps/api
 COPY pyproject.toml* ./
 
+# No ./packages/workflow-sdk: it has never existed in this repository. The
+# durable-workflow code lives in research-domain as workflow.py, and pip cannot
+# install a path that is not there — so this layer failed, and with it every
+# `docker build` and `docker compose up`.
 RUN pip install --no-cache-dir --upgrade pip \
  && pip install --no-cache-dir \
       ./packages/schemas ./packages/ingestion ./packages/model \
-      ./packages/visual-spec ./packages/workflow-sdk ./packages/connector-sdk \
+      ./packages/visual-spec ./packages/connector-sdk \
       ./packages/research-domain ./services/scientific-runtime \
       ./services/workers ./apps/api \
  && apt-get purge -y build-essential && apt-get autoremove -y
@@ -58,6 +70,14 @@ COPY --from=node:22-slim /usr/local/bin/node /usr/local/bin/node
 
 COPY scripts ./scripts
 RUN chmod +x scripts/*.sh && chown -R throughline:throughline /app
+
+# /data has to exist, and be owned by the user that runs, *before* the VOLUME
+# below. Docker creates a declared volume's mount point as root when the path is
+# absent from the image, and this container deliberately does not run as root — so
+# the first thing the embedded PostgreSQL would do is fail to write its data
+# directory. /app was already chowned; the directory the research actually lives in
+# was not.
+RUN mkdir -p /data && chown throughline:throughline /data
 
 USER throughline
 ENV THROUGHLINE_HOME=/data \

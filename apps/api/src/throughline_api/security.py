@@ -77,6 +77,45 @@ LIMITS: dict[str, Limit] = {
 }
 
 
+# Whether a limit protects the network or protects this machine is not the same
+# question, and only the first kind is pointless on a local install.
+#
+# Login and setup exist to deny an attacker free password guesses. On an install
+# reachable from this keyboard and nowhere else there is no such attacker, and
+# the likely event is the researcher mistyping their own long password — so ten
+# attempts per five minutes locks them out of their own corpus to prevent
+# nothing. Those two relax when the deployment declares itself local.
+#
+# The discovery and analysis limits deliberately do NOT appear here. They are not
+# about credentials: each request starts a sandboxed subprocess, and a loop over
+# them exhausts this machine whether or not anyone else can reach it. Relaxing
+# those locally would remove the protection exactly where it still applies.
+#
+# Relaxed is still bounded. A runaway script on this machine should meet a wall
+# eventually, because each attempt costs 600k PBKDF2 rounds of real CPU.
+LOCAL_LIMITS: dict[str, Limit] = {
+    "/api/auth/login": Limit(100, 300),
+    "/api/auth/setup": Limit(30, 3600),
+}
+
+
+def limit_for(route: str) -> Limit:
+    """
+    The limit in force for a route, given the deployment.
+
+    Keyed off :func:`deployment_is_local` rather than the caller's address, for
+    the reason that function already documents: a reverse proxy in front of a
+    loopback bind makes every request look local, so reading it off the
+    connection would relax the credential limits in precisely the deployment
+    that needs them kept.
+    """
+    if deployment_is_local():
+        relaxed = LOCAL_LIMITS.get(route)
+        if relaxed is not None:
+            return relaxed
+    return LIMITS.get(route, LIMITS["__default__"])
+
+
 class RateLimiter:
     """
     A fixed-window counter held in memory.
@@ -92,7 +131,7 @@ class RateLimiter:
         self._hits: dict[tuple[str, str], deque[float]] = defaultdict(deque)
 
     def check(self, *, key: str, route: str) -> tuple[bool, int]:
-        limit = LIMITS.get(route, LIMITS["__default__"])
+        limit = limit_for(route)
         now = time.monotonic()
         bucket = self._hits[(key, route)]
 
@@ -215,5 +254,6 @@ def _apply_headers(response: Response) -> None:
             "max-age=31536000; includeSubDomains")
 
 
-__all__ = ["LIMITS", "Limit", "RateLimiter", "SecurityMiddleware",
-           "client_key", "deployment_is_local", "session_cookie_kwargs"]
+__all__ = ["LIMITS", "LOCAL_LIMITS", "Limit", "RateLimiter", "SecurityMiddleware",
+           "client_key", "deployment_is_local", "limit_for",
+           "session_cookie_kwargs"]

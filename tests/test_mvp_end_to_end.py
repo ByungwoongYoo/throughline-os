@@ -11,18 +11,12 @@ PDF, a real dataset, real sandboxed computation and real lifecycle gates.
 from __future__ import annotations
 
 import io
-from pathlib import Path
 
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 from throughline_domain.db import connection
 from throughline_workers.runner import Worker
-
-LEGACY_PDFS = sorted(
-    Path("/Users/sarthakpattnaik/Downloads/throughline_v18_zero_motion_1_8_0/"
-         "data/files/workspace_default").glob("*.pdf")
-)
 
 
 def _amr_csv(n: int = 120) -> bytes:
@@ -58,8 +52,8 @@ def clean_users():
         cur.execute("DELETE FROM users")
 
 
-@pytest.mark.skipif(not LEGACY_PDFS, reason="legacy PDFs not present")
-def test_paper_plus_dataset_to_validated_finding_with_full_provenance(client):
+def test_paper_plus_dataset_to_validated_finding_with_full_provenance(
+        client, paper_pdf, paper_search_term):
     # --- the researcher signs in and states a question ----------------------
     client.post("/api/auth/setup", json={
         "email": "chen@lab.local", "display_name": "Dr Chen",
@@ -72,9 +66,8 @@ def test_paper_plus_dataset_to_validated_finding_with_full_provenance(client):
     }).json()["id"]
 
     # --- DROP: a real paper and a dataset -----------------------------------
-    paper = LEGACY_PDFS[0]
     client.post(f"/api/projects/{project_id}/sources",
-                files={"file": (paper.name, io.BytesIO(paper.read_bytes()),
+                files={"file": (paper_pdf.name, io.BytesIO(paper_pdf.read_bytes()),
                                 "application/pdf")})
     dataset_source = client.post(
         f"/api/projects/{project_id}/sources",
@@ -90,7 +83,7 @@ def test_paper_plus_dataset_to_validated_finding_with_full_provenance(client):
 
     # The paper is searchable, with exact locators (§27, §29).
     hits = client.get(f"/api/projects/{project_id}/search",
-                      params={"q": "periodontal disease"}).json()
+                      params={"q": paper_search_term}).json()
     assert hits["results"] and hits["results"][0]["locator"]
 
     # --- DISCOVER: candidates, tested and corrected (§48, §49) --------------

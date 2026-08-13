@@ -9,7 +9,28 @@ dependencies = [
   "psycopg[binary]>=3.1",
   "psycopg-pool>=3.2",
   "pgserver>=0.1.4",
+  # render_artifact imports both directly. python-docx was reaching this package
+  # only because throughline-ingestion happens to depend on it, which held by
+  # accident rather than by declaration; python-pptx was declared nowhere at all,
+  # so every PPTX export raised ModuleNotFoundError.
+  "python-docx>=1.1",
+  "python-pptx>=0.6.23",
 ]
+
+[project.optional-dependencies]
+# ADR 0002 — the graph projection is derived and never the source of a fact, so
+# the driver is a choice rather than a requirement. graph_projection reports its
+# absence as unavailability and answers everything on the provenance path from
+# PostgreSQL regardless.
+graph = ["neo4j>=5"]
+
+# Reading points off a published figure, and comparing two images. Both already
+# import cv2 lazily and raise a DigitiseError naming OpenCV when it is missing, so
+# the capability degrades the way a missing embedding model does. Declared here so
+# there is a documented way to turn it on rather than a library you have to
+# discover from a stack trace. Headless: this is a backend, and the GUI build
+# drags in system libraries a researcher's machine should not need.
+digitise = ["opencv-python-headless>=4.9"]
 
 [build-system]
 requires = ["setuptools>=68"]
