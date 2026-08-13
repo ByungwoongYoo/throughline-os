@@ -221,7 +221,12 @@ def _ingest_dataset(
     schema_passages = [
         document_parser.Passage(
             ordinal=column.ordinal,
-            content=(f"Column {column.name} ({column.physical_type}, {column.semantic_type})"
+            # The file's own label leads where there is one. A researcher
+            # searches for "antibiotic use", not for `q7a_rec`, and on an SPSS
+            # or Stata import the file already told us which is which.
+            content=(f"Column {column.name}"
+                     + (f" — {label}" if (label := getattr(column, "label", "")) else "")
+                     + f" ({column.physical_type}, {column.semantic_type})"
                      + (f" in {column.unit}" if column.unit else "")
                      + f". {column.unique_count} distinct values, "
                        f"{column.missing_count} missing."),

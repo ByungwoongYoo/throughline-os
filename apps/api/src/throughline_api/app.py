@@ -2791,6 +2791,30 @@ def capabilities() -> dict[str, Any]:
             "isolation": sandbox_policy_report(),
         },
         "llm": {"configured": False, "note": "No model provider is configured yet."},
+        # What this installation can open, asked of the layer that reads them
+        # rather than from a list kept here. Optional formats report the extra
+        # that turns them on, so "we cannot read Parquet" and "Parquet needs one
+        # pip install" are distinguishable — they need different responses.
+        "formats": _dataset_formats(),
+    }
+
+
+def _dataset_formats() -> dict[str, Any]:
+    from throughline_ingestion.datasets import format_availability
+
+    availability = format_availability()
+    readable = sorted(s for s, state in availability.items() if state["readable"])
+    optional = {s: state for s, state in availability.items()
+                if not state["readable"]}
+    return {
+        "readable": readable,
+        "available_with_an_extra": {
+            suffix: {"describes": state["describes"], "install": state["install"]}
+            for suffix, state in optional.items()
+        },
+        "note": (f"{len(readable)} formats readable here."
+                 + (f" {len(optional)} more become readable by installing an "
+                    f"extra." if optional else "")),
     }
 
 

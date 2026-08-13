@@ -193,11 +193,18 @@ def store_dataset(
             """
             INSERT INTO dataset_columns
                 (id, dataset_version_id, ordinal, name, original_name, physical_type,
-                 semantic_type, unit, missing_count, unique_count, statistics, sensitivity)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 semantic_type, unit, description, missing_count, unique_count,
+                 statistics, sensitivity)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
+            # `description` carries the label the source file gave this column,
+            # where the format had one. SPSS, Stata and SAS state what a column
+            # means; that is a description in the plainest sense, and losing it
+            # on import would mean re-deriving by inference something the file
+            # already said outright.
             (new_id("dsc"), version_id, column.ordinal, column.name, column.original_name,
-             column.physical_type, column.semantic_type, column.unit, column.missing_count,
+             column.physical_type, column.semantic_type, column.unit,
+             getattr(column, "label", "") or "", column.missing_count,
              column.unique_count, column.statistics, column.sensitivity),
         )
 
