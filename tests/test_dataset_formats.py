@@ -91,6 +91,27 @@ def test_every_optional_format_can_explain_itself():
             assert report["install"].startswith("pip install"), suffix
 
 
+def test_a_malformed_file_in_any_format_raises_our_error_not_the_library_s(tmp_path):
+    """§104 — never a generic error, and never a library's error either.
+
+    Found by feeding sixteen bytes of nonsense to the .xls branch: xlrd raised
+    XLRDError, which is not UnsupportedDataset, so it escaped every handler
+    upstream and the worker reported a generic failure instead of a sentence
+    naming the problem. Every reader must convert its library's exception.
+    """
+    corrupt = b"\x00 definitely not a dataset \xff"
+    # Every format, core and optional, that this installation can actually open.
+    # .csv and .tsv are excluded because nonsense is a legitimate one-column CSV;
+    # .json because pandas raises before our code sees the file, and a JSON that
+    # is not tabular is a separate case.
+    checked = (ingestion.readable_suffixes() - {".csv", ".tsv"})
+    for suffix in sorted(checked):
+        path = tmp_path / f"corrupt{suffix}"
+        path.write_bytes(corrupt)
+        with pytest.raises(ingestion.UnsupportedDataset):
+            ingestion.read_dataset(path)
+
+
 def test_a_genuinely_unknown_format_lists_what_would_work(tmp_path):
     path = tmp_path / "notes.rtf"
     path.write_text("not a dataset")

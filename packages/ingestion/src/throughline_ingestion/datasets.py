@@ -227,14 +227,44 @@ def read_dataset(path: Path, *, suffix: str | None = None) -> tuple[pd.DataFrame
         )
         return frame, "tsv" if delimiter == "\t" else "csv"
     if suffix in {".xlsx", ".xlsm"}:
-        return pd.read_excel(path, dtype=str, keep_default_na=False), "xlsx"
+        # Wrapped for the same reason as .xls below. This one predates the .xls
+        # branch: pandas raises a bare ValueError ("Excel file format cannot be
+        # determined") on a malformed workbook, which escaped every
+        # `except UnsupportedDataset` upstream and surfaced as a generic
+        # ingestion failure.
+        try:
+            return pd.read_excel(path, dtype=str, keep_default_na=False), "xlsx"
+        except Exception as exc:  # noqa: BLE001 — any read failure is unusability
+            raise UnsupportedDataset(
+                f"This {suffix} file could not be read ({exc}). If it opens in "
+                f"Excel, saving it again as .xlsx or .csv will work here."
+            ) from exc
     if suffix == ".xls":
         # The pre-2007 binary format, still what a government statistics office
         # will hand you. A separate engine from .xlsx, hence a separate branch.
-        return pd.read_excel(path, dtype=str, keep_default_na=False,
-                             engine="xlrd"), "xls"
+        #
+        # Wrapped, because xlrd raises its own XLRDError on a malformed file and
+        # that escapes every `except UnsupportedDataset` upstream — the worker
+        # would report a generic failure instead of a sentence naming the
+        # problem, which §104 exists to prevent. Found by feeding it sixteen
+        # bytes of nonsense.
+        try:
+            return pd.read_excel(path, dtype=str, keep_default_na=False,
+                                 engine="xlrd"), "xls"
+        except Exception as exc:  # noqa: BLE001 — any read failure is unusability
+            raise UnsupportedDataset(
+                f"This .xls file could not be read ({exc}). If it opens in Excel, "
+                f"saving it as .xlsx or .csv will work here."
+            ) from exc
     if suffix == ".json":
-        frame = pd.read_json(path, dtype=str)
+        try:
+            frame = pd.read_json(path, dtype=str)
+        except Exception as exc:  # noqa: BLE001 — any read failure is unusability
+            raise UnsupportedDataset(
+                f"This .json file could not be read as a table ({exc}). A "
+                f"dataset needs a list of records with the same keys; nested "
+                f"documents have to be flattened first."
+            ) from exc
         return frame.astype(str), "json"
     if suffix == ".geojson":
         return _read_geojson(path)
@@ -251,7 +281,20 @@ def read_dataset(path: Path, *, suffix: str | None = None) -> tuple[pd.DataFrame
                 f"read once the '{entry.extra}' extra is installed: "
                 f"pip install throughline-ingestion[{entry.extra}]"
             )
-        return _READERS[suffix](path)
+        # Every optional reader's library raises its own exception type, and any
+        # of those escaping here would bypass `except UnsupportedDataset`
+        # upstream — the worker would show a generic failure rather than a
+        # sentence naming the problem (§104). The readers that can say something
+        # specific already do; this converts whatever is left.
+        try:
+            return _READERS[suffix](path)
+        except UnsupportedDataset:
+            raise
+        except Exception as exc:  # noqa: BLE001 — any read failure is unusability
+            raise UnsupportedDataset(
+                f"This {suffix} file could not be read ({exc}). Exporting it as "
+                f".csv from the software that produced it will always work."
+            ) from exc
     raise UnsupportedDataset(
         f"{suffix or 'this file type'} is not supported for dataset ingestion. "
         f"Supported here: {', '.join(sorted(readable_suffixes()))}"
@@ -365,7 +408,13 @@ def _read_shapefile(path: Path) -> tuple[pd.DataFrame, str]:
 
 def _read_geojson(path: Path) -> tuple[pd.DataFrame, str]:
     """GeoJSON needs no extra runtime — it is JSON with a geometry convention."""
-    payload = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except json.JSONDecodeError as exc:
+        raise UnsupportedDataset(
+            f"This .geojson file is not valid JSON ({exc.msg} at line "
+            f"{exc.lineno}). "
+        ) from exc
     features = (payload.get("features") if isinstance(payload, dict) else None)
     if not isinstance(features, list) or not features:
         raise UnsupportedDataset(
