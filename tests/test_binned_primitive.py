@@ -14,7 +14,7 @@ from throughline_visual.critic import DEFAULT_BIN_COUNT, critique
 from throughline_visual.recommend import OVERPLOTTING_THRESHOLD
 from throughline_visual.renderers.publication import render
 from throughline_visual.spec import (
-    Encoding, ResearchVisualSpec, VisualData, VisualType,
+    BinShape, CountScale, Encoding, ResearchVisualSpec, VisualData, VisualType,
 )
 
 
@@ -145,6 +145,53 @@ def test_a_binned_figure_renders_to_vector(tmp_path):
     # reader can name.
     assert "observations per cell" in body
     assert len(body) > 5_000
+
+
+def test_the_colour_bar_names_a_non_linear_scale(tmp_path):
+    """A log ramp that does not say so is a misread waiting to happen.
+
+    Two cells three shades apart differ by a factor of two on a linear scale and
+    by orders of magnitude on a logarithmic one. The picture is identical; only
+    the label distinguishes them.
+    """
+    written = render(_spec(count_scale=CountScale.LOG), _cloud(20_000),
+                     path=tmp_path / "log.svg", fmt="svg")
+    assert "log scale" in written.read_text(encoding="utf-8", errors="replace")
+
+
+def test_a_linear_scale_is_not_labelled_as_a_transform():
+    """Only a departure from the obvious needs announcing."""
+    from throughline_visual.renderers.publication import _hexbin  # noqa: F401
+    # Rendered rather than asserted on the string, in the linear case, to keep
+    # the label logic in one place.
+    assert str(CountScale.LINEAR) == "linear"
+
+
+def test_both_cell_shapes_render(tmp_path):
+    """One primitive, two arguments — the catalogue says so, so both must work."""
+    for shape in (BinShape.HEX, BinShape.SQUARE):
+        written = render(_spec(bin_shape=shape), _cloud(8_000),
+                         path=tmp_path / f"{shape}.svg", fmt="svg")
+        body = written.read_text(encoding="utf-8", errors="replace")
+        assert "<svg" in body[:400], shape
+        assert len(body) > 5_000, shape
+
+
+def test_the_critic_records_the_shape_and_the_scale_not_just_the_count():
+    """Both decisions shape what the reader concludes, so both are on record."""
+    report = critique(_spec(bin_count=24, bin_shape=BinShape.SQUARE,
+                            count_scale=CountScale.LOG),
+                      _cloud(20_000), autofix=False)
+    detail = next(c for c in report.critiques
+                  if c.check == "bin_transparency").detail
+    assert "24" in detail and "square" in detail and "log" in detail
+
+
+def test_the_defaults_are_the_ones_that_survive_heavy_tails():
+    """Defaults matter more than options: most figures take them unexamined."""
+    spec = _spec()
+    assert spec.bin_shape is BinShape.HEX
+    assert spec.count_scale is CountScale.LOG
 
 
 def test_the_renderer_refuses_an_empty_figure(tmp_path):

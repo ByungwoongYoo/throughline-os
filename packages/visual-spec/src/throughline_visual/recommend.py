@@ -147,8 +147,11 @@ def _binned_correlation(run_id, version_id, x_name, y_name, result,
                                 text="least-squares fit, shown for orientation only")],
         title=f"{y_name.replace('_', ' ')} against {x_name.replace('_', ' ')}",
         caption=(f"Association between {x_name} and {y_name} across "
-                 f"{sample_size:,} observations, binned into {bins} cells per "
-                 f"axis; shade shows how many observations fall in each cell. "
+                 f"{sample_size:,} observations, binned into {bins} hexagonal "
+                 f"cells per axis; shade shows how many observations fall in "
+                 f"each cell, on a logarithmic scale — binned counts are "
+                 f"heavy-tailed, and a linear ramp would collapse everything "
+                 f"outside the densest cells into one shade. "
                  f"{_significance_note(result)}. "
                  f"Association does not establish causation."),
         interaction=["hover", "brush", "underlying_table"],

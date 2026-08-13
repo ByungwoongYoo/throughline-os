@@ -183,10 +183,15 @@ def _bin_transparency(spec: ResearchVisualSpec, report: CritiqueReport,
         return
 
     if spec.bin_count:
+        # Both decisions are recorded, not only the bin count. A logarithmic
+        # colour scale changes the apparent ratio between two cells by an order
+        # of magnitude, so a reader who assumes linear misreads the figure as
+        # surely as one who assumes a different bin width.
         report.critiques.append(Critique(
             check="bin_transparency", outcome="passed", severity="blocking",
-            detail=f"Binned into {spec.bin_count} cells across the range, stated "
-                   f"on the figure.",
+            detail=f"Binned into {spec.bin_count} {spec.bin_shape} cells across "
+                   f"the range, with counts on a {spec.count_scale} colour "
+                   f"scale. Both are stated on the figure.",
         ))
         return
 

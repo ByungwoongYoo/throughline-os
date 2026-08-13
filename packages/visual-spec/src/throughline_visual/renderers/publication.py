@@ -18,8 +18,11 @@ matplotlib.use("Agg")  # no display, no interactive backend
 
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+from matplotlib.colors import LogNorm, PowerNorm  # noqa: E402
 
-from ..spec import ResearchVisualSpec, Scale, UncertaintyDisplay, VisualData, VisualType  # noqa: E402
+from ..spec import (  # noqa: E402
+    BinShape, ResearchVisualSpec, Scale, UncertaintyDisplay, VisualData, VisualType,
+)
 
 #:  — journal-style defaults. Restrained, legible at column width.
 PUBLICATION_STYLE: dict[str, Any] = {
@@ -107,13 +110,28 @@ def _hexbin(spec, data: VisualData, axes) -> None:
         raise RenderError("A binned figure needs observations to bin.")
 
     bins = spec.bin_count or 30
-    mesh = axes.hexbin(xs, ys, gridsize=bins, cmap="viridis",
-                       mincnt=1, linewidths=0.2, edgecolors="white")
+    scale = str(spec.count_scale)
+
+    if spec.bin_shape is BinShape.SQUARE:
+        norm = (LogNorm() if scale == "log"
+                else PowerNorm(0.5) if scale == "sqrt" else None)
+        counts, _, _, mesh = axes.hist2d(xs, ys, bins=bins, cmap="viridis",
+                                         norm=norm, cmin=1)
+    else:
+        # matplotlib's own log binning for hexagons; sqrt via PowerNorm.
+        mesh = axes.hexbin(
+            xs, ys, gridsize=bins, cmap="viridis", mincnt=1,
+            linewidths=0.2, edgecolors="white",
+            bins="log" if scale == "log" else None,
+            norm=PowerNorm(0.5) if scale == "sqrt" else None,
+        )
 
     bar = axes.get_figure().colorbar(mesh, ax=axes, pad=0.02)
-    # "Observations" rather than "count": the reader should not have to infer
-    # what is being counted.
-    bar.set_label("observations per cell", fontsize=8)
+    # The scale is named, not implied. A reader assuming linear when the ramp is
+    # logarithmic misjudges the ratio between two cells by an order of
+    # magnitude — the same class of error as an unstated bin width.
+    suffix = "" if scale == "linear" else f" ({scale} scale)"
+    bar.set_label(f"observations per cell{suffix}", fontsize=8)
     bar.ax.tick_params(labelsize=7)
 
     # Empty cells are left unpainted (mincnt=1) rather than drawn as the lowest

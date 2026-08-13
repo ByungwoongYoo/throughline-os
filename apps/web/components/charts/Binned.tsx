@@ -36,7 +36,7 @@
 
 import { useId, useMemo } from "react";
 import { extent, max } from "d3-array";
-import { scaleLinear, scaleSequential } from "d3-scale";
+import { scaleLinear } from "d3-scale";
 import { interpolateViridis } from "d3-scale-chromatic";
 
 export type Cell = {
@@ -47,10 +47,51 @@ export type Cell = {
   count: number;
 };
 
+/**
+ * Hexagons see density; squares read values.
+ *
+ * A square cell maps onto a legible x-range and y-range, and the marginal
+ * distributions can be recovered by summing rows and columns — neither of which
+ * a hexagonal lattice offers. What squares cost is the axis-aligned banding the
+ * eye reads as structure, which is why hexagons are the default.
+ */
+export type BinShape = "hex" | "square";
+
+/**
+ * Binned counts are heavy-tailed often enough that linear is the wrong default:
+ * a few central cells take the top of the range and the rest collapse into the
+ * darkest shades, reproducing the overplotting this chart exists to cure.
+ */
+export type CountScale = "linear" | "log" | "sqrt";
+
 const M = { top: 14, right: 74, bottom: 46, left: 60 };
+
+/** Where a count sits in the colour ramp, 0–1, under the chosen scale. */
+function transform(count: number, peak: number, scale: CountScale): number {
+  if (peak <= 0) return 0;
+  if (scale === "log") {
+    // log1p so a single observation is distinguishable from an empty cell
+    // rather than mapping to the very bottom of the ramp.
+    return Math.log1p(count) / Math.log1p(peak);
+  }
+  if (scale === "sqrt") return Math.sqrt(count) / Math.sqrt(peak);
+  return count / peak;
+}
+
+/** Ticks that sit at even *visual* intervals, so the ramp reads correctly. */
+function legendTicks(peak: number, scale: CountScale): number[] {
+  if (scale === "log") {
+    const ticks = [1];
+    for (let value = 10; value < peak; value *= 10) ticks.push(value);
+    ticks.push(peak);
+    return ticks;
+  }
+  return [1, Math.round(peak / 2), peak].filter((v, i, a) => a.indexOf(v) === i);
+}
 
 export function Binned({
   cells, xLabel, yLabel, xUnit, yUnit, binCount, sampleSize,
+  binShape = "hex", countScale = "log",
   title, caption, fit,
   width = 620, height = 340,
 }: {
@@ -62,6 +103,9 @@ export function Binned({
   /** Cells across the range. Required: the figure must state how it was binned. */
   binCount: number;
   sampleSize: number;
+  binShape?: BinShape;
+  /** Named on the colour bar, because it changes the apparent ratio between cells. */
+  countScale?: CountScale;
   title?: string;
   caption?: string;
   /** Optional least-squares line, for orientation only. */
@@ -87,21 +131,32 @@ export function Binned({
       // Sequential and perceptually uniform: the encoded quantity is a count —
       // ordered, single-ended, with a real zero. A diverging scale would invent
       // a midpoint that does not exist in the data.
-      colour: scaleSequential(interpolateViridis).domain([0, peakCount]),
+      // Sequential and perceptually uniform, transformed by countScale. The
+      // transform is applied to the *position* in the ramp, not to the tick
+      // labels, so the legend still reads in observations.
+      colour: (count: number) =>
+        interpolateViridis(transform(count, peakCount, countScale)),
       radius: plotWidth / Math.max(binCount, 1) / 1.732,
       peak: peakCount,
     };
-  }, [cells, binCount, plotWidth, plotHeight]);
+  }, [cells, binCount, plotWidth, plotHeight, countScale]);
 
-  // A flat-topped hexagon of the given radius, centred on the origin.
-  const hexagon = useMemo(() => {
+  // The cell outline, drawn once and reused at every position.
+  const cellPoints = useMemo(() => {
+    if (binShape === "square") {
+      // Edge length chosen so a square covers the same area as the hexagon it
+      // replaces, keeping the two shapes visually comparable at one bin count.
+      const half = radius * 0.9306;
+      return [`${-half},${-half}`, `${half},${-half}`,
+              `${half},${half}`, `${-half},${half}`].join(" ");
+    }
     const points: string[] = [];
     for (let i = 0; i < 6; i += 1) {
       const angle = (Math.PI / 3) * i;
       points.push(`${(radius * Math.cos(angle)).toFixed(2)},${(radius * Math.sin(angle)).toFixed(2)}`);
     }
     return points.join(" ");
-  }, [radius]);
+  }, [radius, binShape]);
 
   const xTicks = x.ticks(6);
   const yTicks = y.ticks(5);
@@ -143,7 +198,7 @@ export function Binned({
               // persist rather than fading the whole field out and back in.
               <polygon
                 key={`${cell.x}:${cell.y}`}
-                points={hexagon}
+                points={cellPoints}
                 transform={`translate(${x(cell.x)},${y(cell.y)})`}
                 fill={colour(cell.count)}
                 stroke="var(--n-0)"
@@ -181,48 +236,76 @@ export function Binned({
             {yLabel}{yUnit ? ` (${yUnit})` : ""}
           </text>
 
-          <Legend peak={peak} colour={colour} height={plotHeight} x={plotWidth + 16} />
+          <Legend peak={peak} colour={colour} countScale={countScale}
+                  height={plotHeight} x={plotWidth + 16} />
         </g>
       </svg>
 
       <p className="chart-note">
-        {sampleSize.toLocaleString()} observations, binned into {binCount} cells
-        per axis. Shade shows observations per cell; empty cells are left blank
-        rather than shaded, so no data and a little data stay distinguishable.
+        {sampleSize.toLocaleString()} observations, binned into {binCount}{" "}
+        {binShape === "square" ? "square" : "hexagonal"} cells per axis. Shade
+        shows observations per cell
+        {countScale !== "linear" && ` on a ${countScale} scale`}; empty cells are
+        left blank rather than shaded, so no data and a little data stay
+        distinguishable.
+        {countScale === "log" && " A logarithmic scale is used because binned "
+          + "counts are heavy-tailed: on a linear ramp the densest few cells "
+          + "would take the whole range and everything else would read as one "
+          + "shade."}
       </p>
       {caption && <p className="chart-caption">{caption}</p>}
     </figure>
   );
 }
 
-function Legend({ peak, colour, height, x }: {
+function Legend({ peak, colour, countScale, height, x }: {
   peak: number;
   colour: (n: number) => string;
+  countScale: CountScale;
   height: number;
   x: number;
 }) {
-  const steps = 24;
+  const steps = 32;
   const barHeight = Math.min(height, 160);
   const band = barHeight / steps;
+  const ticks = legendTicks(peak, countScale);
+
   return (
     <g transform={`translate(${x},0)`} aria-hidden>
-      {Array.from({ length: steps }, (_, i) => (
-        <rect
-          key={i}
-          x={0}
-          y={barHeight - (i + 1) * band}
-          width={12}
-          height={band + 0.5}
-          fill={colour(((i + 1) / steps) * peak)}
-        />
-      ))}
-      <text x={17} y={8} className="tick numeric">{peak.toLocaleString()}</text>
-      <text x={17} y={barHeight} className="tick numeric">1</text>
+      {Array.from({ length: steps }, (_, i) => {
+        // The bar is painted in ramp space, so it shows the transform itself
+        // rather than a linear gradient that would misdescribe the mapping.
+        const position = (i + 0.5) / steps;
+        return (
+          <rect
+            key={i}
+            x={0}
+            y={barHeight - (i + 1) * band}
+            width={12}
+            height={band + 0.5}
+            fill={interpolateViridis(position)}
+          />
+        );
+      })}
+      {ticks.map((value) => {
+        const position = transform(value, peak, countScale);
+        return (
+          <text
+            key={value}
+            x={17}
+            y={barHeight - position * barHeight}
+            dy="0.32em"
+            className="tick numeric"
+          >
+            {value.toLocaleString()}
+          </text>
+        );
+      })}
       <text
         transform={`translate(${-4},${barHeight + 22})`}
         className="tick" textAnchor="start"
       >
-        per cell
+        per cell{countScale !== "linear" ? ` (${countScale})` : ""}
       </text>
     </g>
   );
