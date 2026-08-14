@@ -13,6 +13,8 @@ file is for.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
 import pytest
 from throughline_connectors import datasets as connector_datasets
@@ -203,16 +205,16 @@ def test_the_pre_2007_excel_format_reads(tmp_path, labelled_frame):
 
 
 def test_every_labelled_format_dispatches_to_its_reader():
-    """The one claim that cannot be round-tripped here, checked another way.
+    """Our dispatch reaches the right pyreadstat entry point for each suffix.
 
-    No Python library writes .sas7bdat, and pyreadstat ships no samples, so
-    there is no file to read back. What *can* be verified is that our dispatch
-    reaches the right pyreadstat entry point for each suffix — the part that is
-    ours to get wrong. The readers themselves are pyreadstat's, and reading
-    these formats is the whole reason that library exists.
+    That is the part that is ours to get wrong; the readers themselves are
+    pyreadstat's, and reading these formats is the whole reason that library
+    exists.
 
-    Stated plainly rather than left implicit: .sas7bdat is the one advertised
-    format with no round-trip behind it in this suite.
+    This test used to carry a caveat saying .sas7bdat was the one advertised
+    format with no evidence behind it, because nothing in Python writes one.
+    That is still true of writing — see the committed sample and the tests
+    below, which read a file SAS itself produced.
     """
     pyreadstat = pytest.importorskip("pyreadstat")
     expected = {
@@ -241,3 +243,74 @@ def test_a_format_without_labels_leaves_the_field_empty(tmp_path, labelled_frame
     labelled_frame.to_csv(path, index=False)
     profile = ingestion.profile_dataset(path)
     assert all(column.label == "" for column in profile.columns)
+
+
+# ---------------------------------------------------------------------------
+# .sas7bdat — the format that cannot be generated
+# ---------------------------------------------------------------------------
+
+#: A real file, committed rather than generated, and the only fixture here that
+#: is. Nothing in Python writes .sas7bdat: pyreadstat reads it and writes
+#: .sav/.por/.dta/.xpt instead, so there is no round-trip to run and no way to
+#: produce a fixture at test time. The alternative was to keep advertising a
+#: format whose reader rested on nothing in this repository.
+#:
+#: Source: pandas' own test corpus (BSD-3-Clause), which took it from a public
+#: SAS example. Written by SAS on 2008-05-13; 32 annual observations of an
+#: airline cost function. Provenance is recorded because a committed binary
+#: nobody can regenerate is only trustworthy if its origin is stated.
+SAS_SAMPLE = Path(__file__).parent / "fixtures" / "formats" / "airline.sas7bdat"
+SAS_CORRUPT = Path(__file__).parent / "fixtures" / "formats" / "corrupt.sas7bdat"
+
+
+def test_a_real_sas_file_reads_the_values_sas_wrote():
+    """The claim, with a file behind it at last.
+
+    Values are asserted against what SAS actually stored, so this fails if the
+    reader silently changes — a shifted column, a mangled numeric, a dropped
+    row. Checking only the row count would pass on all three.
+    """
+    pytest.importorskip("pyreadstat")
+    profile = ingestion.profile_dataset(SAS_SAMPLE)
+
+    assert profile.row_count == 32
+    assert [c.name for c in profile.columns] == [
+        "year", "y", "w", "r", "l", "k"]
+
+    frame, fmt = ingestion.read_dataset(SAS_SAMPLE)
+    assert fmt == "sas7bdat"
+    # Values arrive as the file's literal contents (`dtype=str` upstream), so
+    # they are coerced here rather than assumed to be numeric.
+    first = frame.iloc[0]
+    assert int(float(first["YEAR"])) == 1948
+    assert float(first["Y"]) == pytest.approx(1.214)
+    assert float(first["W"]) == pytest.approx(0.243)
+    assert float(first["K"]) == pytest.approx(0.612)
+    assert int(float(frame.iloc[-1]["YEAR"])) == 1979
+
+
+def test_a_real_sas_file_carries_its_labels_into_the_profile():
+    """SAS stores a label per column, and the profile is where it must land.
+
+    This is the same mechanism the canonical variable layer leans on, so a
+    regression here would quietly reintroduce raw column names on figures.
+    """
+    pytest.importorskip("pyreadstat")
+    profile = ingestion.profile_dataset(SAS_SAMPLE)
+    labels = {c.name: c.label for c in profile.columns}
+    assert labels["y"] == "level of output"
+    assert labels["w"] == "wage rate"
+    assert labels["k"] == "capital input"
+
+
+def test_a_corrupt_sas_file_refuses_with_our_error():
+    """§104 — a truncated SAS file must not surface pyreadstat's exception.
+
+    The generic corruption test feeds every reader the same nonsense bytes.
+    This one is a real .sas7bdat header with the rest of the file missing,
+    which is what a failed download actually looks like and takes a different
+    path through the reader.
+    """
+    pytest.importorskip("pyreadstat")
+    with pytest.raises(ingestion.UnsupportedDataset):
+        ingestion.read_dataset(SAS_CORRUPT)
