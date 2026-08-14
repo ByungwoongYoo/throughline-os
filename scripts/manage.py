@@ -250,6 +250,174 @@ def dev(api_port: int, web_port: int) -> int:
             _stop(child)
 
 
+# ---------------------------------------------------------------------------
+# Working alongside somebody else
+# ---------------------------------------------------------------------------
+#
+# Two people building the same repository hit two failure modes, and only one of
+# them is a bug CI can see.
+#
+# The expensive one is invisible: both of us independently built a Dockerfile,
+# both fixed the same broken package list, both edited the same route file.
+# Nothing was broken — the work was simply done twice, and one copy had to be
+# thrown away. No test catches that, because at no point was anything wrong.
+# `sync` exists for exactly this: it looks at what everyone else's branches
+# already touch before you spend a day on it.
+#
+# The cheap one is a push that does not build. CI catches it, but only after it
+# is public and only after somebody waits. `preflight` runs the same checks
+# locally first.
+
+
+def _git(*args: str, check: bool = True) -> str:
+    result = subprocess.run(["git", *args], cwd=ROOT, text=True,
+                            capture_output=True)
+    if check and result.returncode != 0:
+        raise RuntimeError(f"git {' '.join(args)}: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def _changed_against_main(ref: str) -> set[str]:
+    """Files a ref has touched since it left main — not since main last moved."""
+    try:
+        base = _git("merge-base", "origin/main", ref)
+    except RuntimeError:
+        return set()
+    listing = _git("diff", "--name-only", f"{base}..{ref}", check=False)
+    return {line for line in listing.splitlines() if line}
+
+
+def sync() -> int:
+    """
+    Find out what everyone else is doing before writing code.
+
+    Read-only on purpose. It fetches, reports, and changes nothing: a command
+    that rebases your branch as a side effect of asking a question is one you
+    stop running.
+    """
+    print("Fetching…")
+    _git("fetch", "origin", "--prune")
+
+    branch = _git("rev-parse", "--abbrev-ref", "HEAD")
+    print(f"\nYou are on {branch}.")
+
+    if branch != "main":
+        behind = _git("rev-list", "--count", f"{branch}..origin/main")
+        if behind != "0":
+            print(f"  origin/main has moved {behind} commit(s) ahead of you.")
+            print(f"  Catch up before you push:  git rebase origin/main")
+        else:
+            print("  Up to date with origin/main.")
+
+    # Committed work *and* what is still in the working tree. Uncommitted edits
+    # are exactly the ones worth warning about — they are the work you can still
+    # cheaply decide not to do.
+    mine = _changed_against_main("HEAD")
+    mine |= {line[3:].strip().strip('"')
+             for line in _git("status", "--porcelain").splitlines() if line}
+
+    others = [line.strip() for line in
+              _git("branch", "-r", "--no-merged", "origin/main").splitlines()
+              if line.strip() and "origin/HEAD" not in line]
+
+    if not others:
+        print("\nNo other unmerged branches. Nobody else has work in flight.")
+        return 0
+
+    print("\nOther branches with work in flight:")
+    overlapping = False
+    for ref in others:
+        if ref.endswith(f"/{branch}"):
+            continue
+        when = _git("log", "-1", "--format=%ar by %an", ref, check=False)
+        theirs = _changed_against_main(ref)
+        shared = sorted(mine & theirs)
+        name = ref.replace("origin/", "")
+        print(f"\n  {name}  ({when})")
+        for path in sorted(theirs)[:8]:
+            print(f"      {path}")
+        if len(theirs) > 8:
+            print(f"      … and {len(theirs) - 8} more")
+        if shared:
+            overlapping = True
+            print(f"    ⚠ You are both editing:")
+            for path in shared:
+                print(f"      {path}")
+
+    if overlapping:
+        print("\nOverlap is not an error — but it is where duplicated work and")
+        print("merge conflicts both come from. Worth a message before continuing.")
+    return 0
+
+
+def preflight(full: bool) -> int:
+    """
+    Everything CI will check, before anyone else can see it fail.
+
+    Deliberately the same checks rather than a cheaper subset: a preflight that
+    passes while CI fails teaches you to ignore the preflight.
+    """
+    python = venv_python()
+    if not python.exists():
+        print("No virtualenv. Run bootstrap first.", file=sys.stderr)
+        return 1
+
+    Step = tuple[str, list[str], Path, dict[str, str]]
+    steps: list[Step] = [
+        ("everything imports",
+         [str(python), "-m", "compileall", "-q", "packages", "services", "apps/api"],
+         ROOT, {}),
+        ("the three package lists still agree",
+         [str(python), "-m", "pytest", "tests/test_packaging.py", "-q"], ROOT, {}),
+    ]
+
+    node = _node_on_path()
+    if node:
+        # npx is a node script: finding it is not enough, it has to be able to
+        # find node itself. On a machine where node lives under ~/.local/opt and
+        # is not on PATH, resolving npx and then running it fails with
+        # "env: node: No such file or directory" — which reads like a missing
+        # dependency rather than a missing PATH entry.
+        env = dict(os.environ)
+        env["PATH"] = str(Path(node).parent) + os.pathsep + env.get("PATH", "")
+        steps.append(("the interface builds and its tests pass",
+                      [node_exe(node, "npx"), "vitest", "run"],
+                      ROOT / "apps" / "web", env))
+    else:
+        print("! No node found — skipping the web tests. CI will still run them.")
+
+    if full:
+        steps.append(("the full backend suite",
+                      [str(python), "-m", "pytest", "tests", "-q"], ROOT, {}))
+
+    for label, command, cwd, env in steps:
+        print(f"\n── {label}")
+        result = subprocess.run(command, cwd=cwd, env=env or None)
+        if result.returncode != 0:
+            print(f"\nFAILED: {label}.", file=sys.stderr)
+            print("Nothing was pushed. Fix this first — it is the same check CI "
+                  "runs, so pushing would only move the failure somewhere more "
+                  "public.", file=sys.stderr)
+            return result.returncode
+
+    print("\nAll checks passed." if full else
+          "\nFast checks passed. Run with --full before pushing.")
+    return 0
+
+
+def node_exe(node_binary: str, name: str) -> str:
+    """
+    `npx` from beside the node that was actually found.
+
+    `_node_on_path` returns the node executable, so the sibling tool lives in its
+    parent directory. Falling back to the bare name matters on a machine where
+    node is on PATH but npx is installed elsewhere — the alternative is an
+    absolute path to a file that is not there, which fails less clearly.
+    """
+    beside = Path(node_binary).parent / (f"{name}.cmd" if WINDOWS else name)
+    return str(beside) if beside.exists() else name
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -257,10 +425,18 @@ def main() -> int:
     run = sub.add_parser("dev", help="run the API, a worker and the web interface")
     run.add_argument("--api-port", type=int, default=int(os.environ.get("PORT", 8080)))
     run.add_argument("--web-port", type=int, default=int(os.environ.get("WEB_PORT", 3000)))
+    sub.add_parser("sync", help="fetch, and show what everyone else is working on")
+    check = sub.add_parser("preflight", help="run CI's checks before pushing")
+    check.add_argument("--full", action="store_true",
+                       help="include the whole backend suite (about three minutes)")
     args = parser.parse_args()
 
     if args.command == "bootstrap":
         return bootstrap()
+    if args.command == "sync":
+        return sync()
+    if args.command == "preflight":
+        return preflight(args.full)
     return dev(args.api_port, args.web_port)
 
 
