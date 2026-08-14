@@ -1,7 +1,16 @@
 # Working on this together
 
-Three people are building this repository. Everything below exists because of a
+Two people are building this repository. Everything below exists because of a
 specific thing that already went wrong, not because it is standard practice.
+
+One of us commits under two different `user.name` values from different machines
+(`Fenil` and `thephenyl02-creator`, same address). That is harmless, and `sync`
+prints the email alongside the name so a second identity never reads as a second
+person — but setting the same name everywhere would be one less thing to explain:
+
+```bash
+git config --global user.name "..."
+```
 
 ## The loop
 

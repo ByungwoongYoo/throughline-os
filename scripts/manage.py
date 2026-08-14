@@ -329,7 +329,11 @@ def sync() -> int:
     for ref in others:
         if ref.endswith(f"/{branch}"):
             continue
-        when = _git("log", "-1", "--format=%ar by %an", ref, check=False)
+        # The address, not just the name: one person committing from two
+        # machines under two `user.name` values reads as two collaborators
+        # otherwise, which is exactly the wrong conclusion to draw from a tool
+        # whose whole job is telling you who is working on what.
+        when = _git("log", "-1", "--format=%ar by %an <%ae>", ref, check=False)
         theirs = _changed_against_main(ref)
         shared = sorted(mine & theirs)
         name = ref.replace("origin/", "")
