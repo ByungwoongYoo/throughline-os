@@ -136,6 +136,17 @@ def _label(encoding) -> str:
     return f"{label} ({encoding.unit})" if encoding.unit else label
 
 
+def _category_label(spec, category) -> str:
+    """Text for one category on an axis that lists them.
+
+    A forest plot's categories are column names, so the spec carries their
+    labels. Humanising is the fallback for a spec written before those labels
+    existed — not the intended path.
+    """
+    text = str(category)
+    return spec.category_labels.get(text) or text.replace("_", " ")
+
+
 def _scatter(spec, data: VisualData) -> dict[str, Any]:
     rows = [{"x": x, "y": y} for x, y in zip(data.x_values, data.y_values)]
     if data.group_values:
@@ -168,8 +179,11 @@ def _scatter(spec, data: VisualData) -> dict[str, Any]:
 
 
 def _forest(spec, data: VisualData) -> dict[str, Any]:
+    # The axis prints the field's values, so the label has to be substituted
+    # into the data rather than declared on the encoding.
     rows = [
-        {"predictor": name, "estimate": estimate, "low": low, "high": high}
+        {"predictor": _category_label(spec, name), "estimate": estimate,
+         "low": low, "high": high}
         for name, estimate, low, high in zip(
             data.categories, data.y_values, data.ci_low, data.ci_high)
     ]

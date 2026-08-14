@@ -186,7 +186,7 @@ def _forest(spec, data: VisualData, axes) -> None:
                   fmt="o", color=PALETTE[0], ecolor="#555555",
                   capsize=3, markersize=5, linewidth=1.1)
     axes.set_yticks(positions)
-    axes.set_yticklabels([c.replace("_", " ") for c in data.categories])
+    axes.set_yticklabels([_category_label(spec, c) for c in data.categories])
     axes.invert_yaxis()
     for annotation in spec.annotations:
         if annotation.kind == "reference_line" and annotation.value is not None:
@@ -288,6 +288,17 @@ def _decorate(spec: ResearchVisualSpec, data: VisualData, figure, axes) -> None:
 def _axis_label(encoding) -> str:
     label = encoding.label or encoding.field.replace("_", " ")
     return f"{label} ({encoding.unit})" if encoding.unit else label
+
+
+def _category_label(spec, category) -> str:
+    """Text for one tick on an axis that lists categories.
+
+    A forest plot's categories are column names, so the spec carries their
+    labels. Humanising is the fallback for a spec written before those labels
+    existed — not the intended path.
+    """
+    text = str(category)
+    return spec.category_labels.get(text) or text.replace("_", " ")
 
 
 def _wrap(text: str, width: int = 110) -> str:

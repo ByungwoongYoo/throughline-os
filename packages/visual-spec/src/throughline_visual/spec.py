@@ -138,6 +138,17 @@ class ResearchVisualSpec(BaseModel):
     uncertainty: UncertaintyDisplay = UncertaintyDisplay.NONE
     annotations: list[Annotation] = Field(default_factory=list)
 
+    #: Reader-facing text for category values, keyed by the value itself.
+    #:
+    #: Most category axes list data values — "north", "south" — which are the
+    #: researcher's own words and need no translation. A forest plot's axis is
+    #: the exception: it lists *column names*, one per predictor, and no
+    #: encoding describes them (`x` describes the estimate, `y` the row). This
+    #: is where their labels travel, so a renderer never has to decide for
+    #: itself whether a category is a variable or a value. Unlisted categories
+    #: render exactly as they arrive.
+    category_labels: dict[str, str] = Field(default_factory=dict)
+
     #: Cells across the x range for a binned figure.
     #:
     #: Explicit and required rather than a renderer default, because bin width
