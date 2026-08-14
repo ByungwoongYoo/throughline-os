@@ -1,13 +1,19 @@
 """
 The evaluation engine (§58).
 
-Six of the specification's categories can be evaluated with no model provider,
-and those six are implemented here. The other four — paper extraction quality,
-analysis-method appropriateness, hallucinated sources in generated prose, and
-video claim fidelity — need generation to evaluate, so they are declared and
-reported as `not_implemented` rather than silently omitted. A harness that
-reports 5/5 while quietly not testing four categories is a worse artifact than
-one that reports 5/5 and names the gap.
+Seven of the specification's categories are implemented here. The other three —
+paper extraction quality, analysis-method appropriateness, and video claim
+fidelity — need hand-labelled papers, a methodological judgement, or a subsystem
+that does not exist, so they are declared and reported as `not_implemented`
+rather than silently omitted. A harness that reports 5/5 while quietly not
+testing four categories is a worse artifact than one that reports 5/5 and names
+the gap.
+
+The hallucinated-sources category was in that list until recently, with the
+reason "nothing generates prose yet". That stopped being true when the journal
+began storing model-written answers as notes, and the reason outlived the fact
+it described — a stale exemption is the same defect as an untrue capability
+claim, failing in the flattering direction.
 
 Two of the implemented categories should be *provably* perfect rather than
 merely observed to pass, and the distinction matters:
@@ -36,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from dataclasses import dataclass, field
 from typing import Any
@@ -361,10 +368,6 @@ UNIMPLEMENTED = [
     ("Analysis selection", "§58",
      "Whether the chosen statistical method suited the data is a methodological "
      "judgement. The assumption checks bound it but do not answer it."),
-    ("Hallucination", "§58",
-     "Nothing generates prose yet, so there is no generated text in which a "
-     "nonexistent source could appear. Citations cannot be fabricated by "
-     "construction, which is a different guarantee from this one."),
     ("Video claim fidelity", "§58",
      "No video pipeline exists (§136 is unbuilt)."),
 ]
@@ -373,6 +376,94 @@ UNIMPLEMENTED = [
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
+
+#: A DOI, as it appears in prose. Trailing punctuation is stripped separately —
+#: a sentence ending "…10.1038/s41586-020-2649-2." must not be read as a DOI
+#: whose final character is a full stop, or every correctly-cited DOI at the end
+#: of a sentence would be reported as fabricated.
+_DOI = re.compile(r"\b10\.\d{4,9}/\S+", re.IGNORECASE)
+
+#: A notebook link. The notebook's own lint reports links to unwritten pages as
+#: a housekeeping matter; here the same shape means something sharper, because
+#: the text was written by a model rather than by a person who knows what they
+#: meant to write next.
+_WIKILINK = re.compile(r"\[\[([^\]]+)\]\]")
+
+
+def hallucinated_sources(cur, project_id: str) -> Category:
+    """
+    Does model-written prose refer to anything that does not exist.
+
+    This category was declared unimplemented with the reason "nothing generates
+    prose yet, so there is no generated text in which a nonexistent source could
+    appear." That stopped being true: `journal.ask` generates an answer and
+    stores it as a note attributed to the model, and those notes are prose in the
+    research record. The reason was left behind by the feature that invalidated
+    it, which is the same defect as an untrue capability claim — it just fails in
+    the flattering direction.
+
+    Structured citations genuinely cannot be fabricated: a citation is a foreign
+    key, and `citation_integrity` proves it. Free prose has no such protection. A
+    model writing a paragraph can name a DOI that was never ingested, and nothing
+    in the schema stops it, which is exactly why this needs checking rather than
+    arguing from construction.
+
+    Checked, not structural. A wrong reference here is a model being wrong, which
+    is a different and less alarming thing than a guarantee being circumvented.
+    """
+    category = Category(
+        name="Hallucinated sources", section="§58", guarantee="checked",
+        note=("Reads every model-authored note and resolves the references in "
+              "it: DOIs against ingested sources, and notebook links against "
+              "research objects. Prose that cites nothing is not a failure — "
+              "most prose cites nothing."),
+    )
+
+    cur.execute(
+        "SELECT id, body FROM notes "
+        "WHERE project_id = %s AND author_kind = 'model'", (project_id,))
+    notes = cur.fetchall()
+
+    if not notes:
+        category.note += " No model-authored prose exists in this project yet."
+        return category
+
+    cur.execute(
+        "SELECT lower(external_identifier) AS doi FROM sources "
+        "WHERE project_id = %s AND external_identifier IS NOT NULL",
+        (project_id,))
+    known_dois = {row["doi"] for row in cur.fetchall()}
+
+    cur.execute("SELECT lower(title) AS title FROM research_objects "
+                "WHERE project_id = %s", (project_id,))
+    known_objects = {row["title"] for row in cur.fetchall()}
+
+    for note in notes:
+        for raw in _DOI.findall(note["body"] or ""):
+            doi = raw.rstrip(".,;:)]}").lower()
+            resolved = doi in known_dois
+            category.cases.append(Case(
+                f"{note['id']}/doi/{doi}", resolved,
+                "Resolves to an ingested source." if resolved else
+                f"{doi} is cited in model-written prose and matches no source "
+                "in this project. Either it was never ingested, or the model "
+                "produced an identifier that does not exist."))
+
+        for raw in _WIKILINK.findall(note["body"] or ""):
+            target = raw.split("|")[0].strip().lower()
+            resolved = target in known_objects
+            category.cases.append(Case(
+                f"{note['id']}/link/{target}", resolved,
+                "Resolves to a research object." if resolved else
+                f"{target!r} is linked from model-written prose and names no "
+                "object in this project. A researcher following it finds "
+                "nothing, having been told something is there."))
+
+    if not category.cases:
+        category.note += (" The model-authored prose here cites nothing, so "
+                          "there is nothing to resolve — which is not a pass.")
+    return category
+
 
 def extraction_fidelity(cur, project_id: str) -> Category:
     """
@@ -451,6 +542,7 @@ CATEGORIES = (
     provenance_completeness,
     finding_classification,
     visualization_fidelity,
+    hallucinated_sources,
     extraction_fidelity,
 )
 
