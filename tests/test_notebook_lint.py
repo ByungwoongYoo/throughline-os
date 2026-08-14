@@ -231,3 +231,71 @@ def test_every_finding_says_why_it_matters_and_what_to_do(cur, project):
     assert len(report["by_kind"]) >= 3
     for finding in report["findings"]:
         assert finding["detail"] and finding["why"] and finding["do"]
+
+
+# ---------------------------------------------------------------------------
+# The index
+# ---------------------------------------------------------------------------
+
+def test_entry_points_come_from_the_notebook_s_own_linking(cur, project):
+    """
+    Not the newest note, not the longest — the one the notebook points at. That
+    ranking is the researcher's own judgement, already expressed in the links.
+    """
+    notebook.create(cur, project_id=project["id"], title="Resistance",
+                    body="The spine.", author=project["user"])
+    for title in ("Europe", "Stewardship", "Open ends"):
+        notebook.create(cur, project_id=project["id"], title=title,
+                        body="See [[Resistance]].", author=project["user"])
+
+    index = notebook.index(cur, project["id"])
+    assert index["entry_points"][0]["title"] == "Resistance"
+    assert index["entry_points"][0]["linked_from"] == 3
+
+
+def test_the_index_says_what_the_notebook_is_written_about(cur, project):
+    _object(cur, project, title="AMR panel", content_hash="h1")
+    notebook.create(cur, project_id=project["id"], title="One",
+                    body="From [[AMR panel]].", author=project["user"])
+    notebook.create(cur, project_id=project["id"], title="Two",
+                    body="Also [[AMR panel]].", author=project["user"])
+
+    subjects = notebook.index(cur, project["id"])["subjects"]
+    assert subjects[0]["title"] == "AMR panel"
+    assert subjects[0]["notes"] == 2
+
+
+def test_a_note_nothing_points_at_is_not_an_entry_point(cur, project):
+    notebook.create(cur, project_id=project["id"], title="Alone",
+                    body="Linked from nowhere.", author=project["user"])
+
+    index = notebook.index(cur, project["id"])
+    assert index["entry_points"] == []
+    # It is still catalogued — the index says what exists, lint says what is
+    # wrong with it, and conflating the two makes both harder to read.
+    assert index["notes"] == 1
+
+
+def test_an_empty_notebook_says_how_to_start_it(cur, project):
+    index = notebook.index(cur, project["id"])
+    assert index["notes"] == 0
+    assert "[[like this]]" in index["note"]
+
+
+def test_the_index_is_derived_and_stores_nothing(cur, project):
+    """
+    The reason it cannot go stale. A written index is a second copy of the
+    truth, and a second copy is a thing that can disagree with the first.
+    """
+    notebook.create(cur, project_id=project["id"], title="One",
+                    body="A note.", author=project["user"])
+    cur.execute("SELECT count(*) AS n FROM notes WHERE project_id = %s",
+                (project["id"],))
+    before = cur.fetchone()["n"]
+
+    notebook.index(cur, project["id"])
+    notebook.index(cur, project["id"])
+
+    cur.execute("SELECT count(*) AS n FROM notes WHERE project_id = %s",
+                (project["id"],))
+    assert cur.fetchone()["n"] == before

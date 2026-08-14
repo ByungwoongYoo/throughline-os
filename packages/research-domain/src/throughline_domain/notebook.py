@@ -335,6 +335,73 @@ _NOT_A_CLAIM = re.compile(
     r"note|day|week|month|year|v|version)\s*$")
 
 
+def index(cur, project_id: str) -> dict[str, Any]:
+    """
+    A catalogue of the notebook: where to start, and what it is about.
+
+    **Derived, never stored.** The pattern this follows keeps an index as a file
+    the assistant maintains — which is the one part of it worth improving on.
+    A written index is a second copy of the truth, and a second copy is a thing
+    that can be wrong: it goes stale the moment a page is renamed and nobody
+    can tell by looking at it. Computing it means it is never wrong and never
+    needs maintaining.
+
+    The useful question an index answers is not "what exists" — the listing
+    already says that — but "where do I start". So the entry points are the
+    notes the notebook itself points at most, which is the only ranking here
+    that comes from the researcher's own linking rather than from a heuristic.
+    """
+    cur.execute(
+        """
+        SELECT n.id, n.title, n.note_kind, n.updated_at,
+               count(inbound.id) AS linked_from
+        FROM notes n
+        LEFT JOIN note_links inbound ON inbound.to_note_id = n.id
+        WHERE n.project_id = %s AND n.title IS NOT NULL
+        GROUP BY n.id, n.title, n.note_kind, n.updated_at
+        ORDER BY count(inbound.id) DESC, n.updated_at DESC
+        """,
+        (project_id,))
+    notes = [dict(row) for row in cur.fetchall()]
+
+    # What the notebook has been written *about*: objects with notes attached,
+    # which is a different question from which notes exist.
+    cur.execute(
+        """
+        SELECT o.id, o.title, o.object_type, count(DISTINCT l.from_note_id) AS notes
+        FROM research_objects o
+        JOIN note_links l ON l.to_object_id = o.id
+        WHERE o.project_id = %s
+        GROUP BY o.id, o.title, o.object_type
+        ORDER BY count(DISTINCT l.from_note_id) DESC, o.title
+        """,
+        (project_id,))
+    subjects = [dict(row) for row in cur.fetchall()]
+
+    by_kind: dict[str, int] = {}
+    for note in notes:
+        kind = note["note_kind"] or "note"
+        by_kind[kind] = by_kind.get(kind, 0) + 1
+
+    # Entry points are notes the notebook points at, not the newest or longest.
+    hubs = [n for n in notes if n["linked_from"] > 0][:8]
+
+    return {
+        "notes": len(notes),
+        "by_kind": by_kind,
+        "entry_points": hubs,
+        "subjects": subjects[:20],
+        "recent": sorted(notes, key=lambda n: n["updated_at"],
+                         reverse=True)[:8],
+        "unwritten": unresolved(cur, project_id)[:10],
+        "note": (
+            f"{len(notes)} notes across {len(subjects)} sources and datasets."
+            if notes else
+            "Nothing written yet. A note linking [[like this]] to a source or "
+            "another note is what builds this."),
+    }
+
+
 def lint(cur, project_id: str) -> dict[str, Any]:
     """
     A health check over the notebook. It reports; it never edits.
@@ -515,5 +582,5 @@ def graph(cur, project_id: str) -> dict[str, Any]:
 __all__ = [
     "ANNOTATION", "DAILY", "NOTE", "NotebookError", "WIKI_LINK", "backlinks",
     "create", "daily", "get", "graph", "listing", "object_backlinks",
-    "lint", "outgoing", "parse_links", "unresolved", "update",
+    "index", "lint", "outgoing", "parse_links", "unresolved", "update",
 ]

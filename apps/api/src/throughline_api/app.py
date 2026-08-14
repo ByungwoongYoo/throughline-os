@@ -1489,6 +1489,21 @@ def edit_note(note_id: str, payload: NoteEdit,
         return notebook.get(cur, note_id)
 
 
+@app.get("/api/projects/{project_id}/notebook/index")
+def notebook_index(project_id: str,
+                   user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Where to start in the notebook, computed rather than kept.
+
+    A written index is a second copy of the truth and can therefore be wrong —
+    it goes stale on the first rename and nothing about reading it reveals
+    that. Deriving it means it never needs maintaining and never misleads.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        return notebook.index(cur, project_id)
+
+
 @app.get("/api/projects/{project_id}/notebook/lint")
 def notebook_lint(project_id: str,
                   user: dict = Depends(current_user)) -> dict[str, Any]:
