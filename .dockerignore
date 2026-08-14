@@ -1,0 +1,30 @@
+# Everything the image builds for itself, or must never contain.
+
+# Built inside the image, and copying a host build in would ship whatever
+# happened to be on that machine.
+.venv/
+**/node_modules/
+**/.next/
+**/__pycache__/
+**/*.pyc
+**/*.egg-info/
+
+# A researcher's corpus. This is the one that matters: THROUGHLINE_HOME sits
+# here during development, and copying it in would bake somebody's sources,
+# analyses and notebook into a distributable image.
+data/
+*.sqlite
+*.db
+
+.git/
+.pytest_cache/
+.claude/
+tests/
+docs/
+**/.DS_Store
+*.log
+
+# Never. The image reads configuration from the environment at runtime.
+.env
+.env.*
+!.env.example

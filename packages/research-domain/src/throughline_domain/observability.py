@@ -56,13 +56,6 @@ _NOISY = ("pgserver", "urllib3", "httpx", "httpcore", "neo4j",
           "multipart", "asyncio", "watchfiles")
 
 
-#: Libraries that log their own internals at INFO. Left at INFO they bury this
-#: system's own lines under postmaster status dumps — and an operator who cannot
-#: find the line they need has no observability, however structured the output.
-_NOISY = ("pgserver", "urllib3", "httpx", "httpcore", "neo4j",
-          "multipart", "asyncio", "watchfiles")
-
-
 def configure(level: str | None = None) -> None:
     """Install the formatter once, at startup."""
     handler = logging.StreamHandler()
@@ -70,8 +63,6 @@ def configure(level: str | None = None) -> None:
     root = logging.getLogger()
     root.handlers = [handler]
     root.setLevel((level or os.environ.get("THROUGHLINE_LOG_LEVEL", "info")).upper())
-    for name in _NOISY:
-        logging.getLogger(name).setLevel(logging.WARNING)
     for name in _NOISY:
         logging.getLogger(name).setLevel(logging.WARNING)
 

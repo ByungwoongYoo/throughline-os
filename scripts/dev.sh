@@ -7,7 +7,17 @@
 # means the `.venv/bin/python` path, which does not exist on Windows, is computed
 # in one place instead of assumed in several.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+
+# Resolve the repository from this script's own location, before anything else.
+#
+# Two things are load-bearing here. `$0` is not enough: when the launcher hands
+# this script a working directory that no longer exists, bash cannot resolve a
+# relative path and dies with "getcwd: cannot access parent directories" before
+# the first command runs. And the cd must not use $(...) — a command
+# substitution forks a subshell, and bash cannot fork from a missing directory
+# either. `${...%/*}` is pure parameter expansion, and the launcher always
+# invokes this by absolute path, so the result is absolute.
+cd -P -- "${BASH_SOURCE[0]%/*}/.."
 
 export PATH="$HOME/.local/opt/node/bin:$PATH"
 

@@ -46,7 +46,12 @@ WORKDIR /app
 COPY packages ./packages
 COPY services ./services
 COPY apps/api ./apps/api
-COPY pyproject.toml* ./
+
+# There was a `COPY pyproject.toml* ./` here. This workspace has no root
+# pyproject.toml — it is nine independent packages — so the glob matches nothing
+# and the line copies nothing in the best case and fails the build outright in
+# the worst, since that is what Docker does with a wildcard that matches no file.
+# Removed rather than kept: it cannot be doing anything useful either way.
 
 # No ./packages/workflow-sdk: it has never existed in this repository. The
 # durable-workflow code lives in research-domain as workflow.py, and pip cannot

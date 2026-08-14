@@ -59,6 +59,37 @@ type Note = {
   backlinks: Mention[];
 };
 
+type LintFinding = {
+  kind: "stale_evidence" | "unwritten_page" | "isolated" | "unsourced_figure";
+  note?: string;
+  note_id?: string;
+  object?: string;
+  target?: string;
+  figures?: string[];
+  detail: string;
+  why: string;
+  do: string;
+};
+
+type Index = {
+  notes: number;
+  by_kind: Record<string, number>;
+  entry_points: Array<{ id: string; title: string; linked_from: number }>;
+  subjects: Array<{ id: string; title: string; object_type: string;
+                    notes: number }>;
+  recent: Array<{ id: string; title: string }>;
+  unwritten: Array<{ target: string; mentions: number }>;
+  note: string;
+};
+
+type Lint = {
+  notes: number;
+  findings: LintFinding[];
+  by_kind: Record<string, number>;
+  clean: boolean;
+  note: string;
+};
+
 type Listing = {
   notes: NoteSummary[];
   unresolved: Array<{ target: string; mentions: number;
@@ -68,6 +99,22 @@ type Listing = {
 export function Notebook({ projectId }: { projectId: string }) {
   const [view, setView] = useState<"pages" | "graph">("pages");
   const [listing, setListing] = useState<Listing | null>(null);
+  /*
+   * Lint is fetched on demand, never on load.
+   *
+   * A health check that runs automatically becomes a permanent list of
+   * complaints beside the writing surface, and the writing surface is the
+   * point. It is a thing you ask for when you want to tidy up.
+   */
+  const [lint, setLint] = useState<Lint | null>(null);
+  /*
+   * Loaded with the listing, unlike lint. An index is orientation — it answers
+   * "where do I start", which is a question you have on arrival, not one you
+   * go looking for. And it is derived, so showing it costs nothing to keep
+   * correct.
+   */
+  const [index, setIndex] = useState<Index | null>(null);
+  const [linting, setLinting] = useState(false);
   const [open, setOpen] = useState<Note | null>(null);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<unknown>(null);
@@ -75,7 +122,14 @@ export function Notebook({ projectId }: { projectId: string }) {
   const [saving, setSaving] = useState(false);
 
   const reload = useCallback(async () => {
-    setListing(await api.get<Listing>(`/api/projects/${projectId}/notebook`));
+    // Both, together. The index is derived from the same notes, so fetching it
+    // separately would let the two disagree for as long as one request lags.
+    const [notes, catalogue] = await Promise.all([
+      api.get<Listing>(`/api/projects/${projectId}/notebook`),
+      api.get<Index>(`/api/projects/${projectId}/notebook/index`),
+    ]);
+    setListing(notes);
+    setIndex(catalogue);
   }, [projectId]);
 
   useEffect(() => {
@@ -196,6 +250,76 @@ export function Notebook({ projectId }: { projectId: string }) {
               </li>
             ))}
           </ul>
+
+          {index && index.entry_points.length > 0 && (
+            <section className="nb-index">
+              <h3 className="eyebrow">Where to start</h3>
+              {/* Ranked by what the notebook itself points at — the
+                  researcher's own judgement, already in the links. */}
+              <ul className="nb-index-hubs">
+                {index.entry_points.map((hub) => (
+                  <li key={hub.id}>
+                    <button onClick={() => void openNote(hub.id)}>
+                      {hub.title}
+                    </button>
+                    <span className="numeric">{hub.linked_from}</span>
+                  </li>
+                ))}
+              </ul>
+
+              {index.subjects.length > 0 && (
+                <>
+                  <h3 className="eyebrow">Written about</h3>
+                  <ul className="nb-index-subjects">
+                    {index.subjects.slice(0, 8).map((subject) => (
+                      <li key={subject.id}>
+                        <b>{subject.title}</b>
+                        <span className="numeric">
+                          {subject.notes} note{subject.notes === 1 ? "" : "s"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </section>
+          )}
+
+          <section className="nb-lint">
+            <button className="btn" disabled={linting} onClick={async () => {
+              setLinting(true);
+              try {
+                setLint(await api.get<Lint>(
+                  `/api/projects/${projectId}/notebook/lint`));
+              } finally { setLinting(false); }
+            }}>
+              {linting ? "Checking…" : "Check the notebook"}
+            </button>
+
+            {lint && (
+              <div className="nb-lint-out">
+                <p className="nb-lint-note">{lint.note}</p>
+                {lint.findings.map((finding, i) => (
+                  <details key={i} className="nb-lint-item"
+                           data-kind={finding.kind}>
+                    <summary>
+                      <span className="nb-lint-kind">
+                        {finding.kind === "stale_evidence" ? "evidence changed"
+                          : finding.kind === "unwritten_page" ? "not written"
+                          : finding.kind === "isolated" ? "unlinked"
+                          : "no source"}
+                      </span>
+                      {finding.detail}
+                    </summary>
+                    {/* Why it matters, then what to do. A lint entry that only
+                        names a problem gets ignored. */}
+                    <p className="nb-lint-why">{finding.why}</p>
+                    <p className="nb-lint-do">{finding.do}</p>
+                  </details>
+                ))}
+              </div>
+            )}
+          </section>
 
           {listing && listing.unresolved.length > 0 && (
             // A to-do list the researcher wrote without meaning to.

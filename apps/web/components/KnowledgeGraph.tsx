@@ -18,9 +18,12 @@
  *   mechanism was described wrongly; the outcome was fine.
  * - 60fps holds once the layout has settled — the simulation stops ticking and
  *   a frame is then a paint plus that scan. It does **not** hold while the
- *   layout runs: one force tick at 5,000 nodes measures ~155ms, which is 9x
- *   the frame budget, and the alpha decay needs about 300 ticks. A graph that
- *   size takes roughly 46 seconds to settle, at about 6fps throughout.
+ *   layout runs: one force tick at 5,000 nodes measures 150-220ms depending on
+ *   what else the machine is doing, which is 9-13x the frame budget, and the
+ *   alpha decay needs about 300 ticks. A graph that size spends the better
+ *   part of a minute laying out, at around 5fps throughout. The range is wide
+ *   because the absolute figure is a property of the machine; the ratio is
+ *   the part that travels.
  *
  * Real graphs here are far smaller and settle in well under a second, so this
  * is a ceiling that has not been hit rather than a bug being lived with. But

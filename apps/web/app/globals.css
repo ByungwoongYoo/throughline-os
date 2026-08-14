@@ -3073,6 +3073,53 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   letter-spacing: 0.01em;
 }
 
+
+/* --- notebook lint --------------------------------------------------------
+ * Findings are collapsed by default. The reason and the next step matter, but
+ * a wall of them beside the writing surface is how a health check gets ignored.
+ */
+.nb-lint { margin: 22px 0; }
+.nb-lint-out { margin-top: 12px; }
+.nb-lint-note { font-size: 12.5px; color: var(--ink-soft); margin: 0 0 10px; }
+.nb-lint-item {
+  border-left: 2px solid var(--line-strong);
+  padding: 6px 0 6px 12px; margin-bottom: 6px;
+}
+/* Only the check that cannot be made by rereading gets an accent. */
+.nb-lint-item[data-kind="stale_evidence"] { border-left-color: var(--warn); }
+.nb-lint-item summary {
+  font-size: 12.5px; cursor: pointer; color: var(--ink); list-style: none;
+}
+.nb-lint-item summary::-webkit-details-marker { display: none; }
+.nb-lint-kind {
+  display: inline-block; margin-right: 8px; font-size: 10.5px;
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint);
+}
+.nb-lint-why, .nb-lint-do {
+  margin: 6px 0 0 0; font-size: 12px; line-height: 1.55; color: var(--ink-soft);
+}
+.nb-lint-do { color: var(--ink-faint); }
+
+
+/* --- notebook index -------------------------------------------------------
+ * Orientation, not a second listing. Kept quiet: it answers "where do I start"
+ * once, and then the researcher is reading rather than looking at this.
+ */
+.nb-index { margin: 18px 0 26px; }
+.nb-index h3 { margin: 0 0 8px; }
+.nb-index h3 + ul + h3 { margin-top: 18px; }
+.nb-index ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.nb-index li {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; font-size: 12.5px; padding: 3px 0;
+}
+.nb-index-hubs button {
+  background: none; border: 0; padding: 0; font: inherit; font-weight: 600;
+  color: var(--ink); text-align: left; cursor: pointer;
+}
+.nb-index-hubs button:hover { color: var(--accent); }
+.nb-index li span { color: var(--ink-faint); font-size: 11.5px; flex: none; }
+.nb-index-subjects b { font-weight: 500; color: var(--ink-soft); }
 /* --- Part P: the table beside every figure -------------------------------- */
 
 /*

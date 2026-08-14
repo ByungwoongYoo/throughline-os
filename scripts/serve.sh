@@ -5,7 +5,8 @@
 # fresh database is how a worker ends up polling tables that do not exist yet,
 # and the failure looks like a hung queue rather than a startup order bug.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+# Absolute, and without a subshell: see scripts/dev.sh for why.
+cd -P -- "${BASH_SOURCE[0]%/*}/.."
 
 PORT="${PORT:-8080}"
 WEB_PORT="${WEB_PORT:-3000}"
