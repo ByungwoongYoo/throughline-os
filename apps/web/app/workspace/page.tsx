@@ -493,6 +493,29 @@ function FirstProject({ onCreated, user }: {
   onCreated: () => void; user: SignedInUser;
 }) {
   const [started, setStarted] = useState(false);
+  const [loadingExample, setLoadingExample] = useState(false);
+  const [exampleError, setExampleError] = useState("");
+
+  // The request returns as soon as the sources are queued; the workspace then
+  // shows them ingesting, which is the point — the researcher watches the
+  // pipeline run rather than being handed a finished screen.
+  const openExample = async () => {
+    setLoadingExample(true);
+    setExampleError("");
+    try {
+      const response = await fetch("/api/projects/example", { method: "POST" });
+      if (!response.ok) {
+        throw new Error(await response.text() || `HTTP ${response.status}`);
+      }
+      onCreated();
+    } catch (error) {
+      // §104 — say what failed. A dead button teaches nothing.
+      setExampleError(
+        `The example could not be created: ${
+          error instanceof Error ? error.message : String(error)}`);
+      setLoadingExample(false);
+    }
+  };
 
   if (started) return <NewProject onCreated={onCreated}
                                   onCancel={() => setStarted(false)} />;
@@ -514,10 +537,29 @@ function FirstProject({ onCreated, user }: {
           machine.
         </p>
 
-        <button className="btn btn-primary btn-lg" onClick={() => setStarted(true)}>
-          <IconPlus size={16} />
-          Create your first project
-        </button>
+        {/* Part B6 — something to open before committing anything.
+            Offered first, and deliberately not as the quiet secondary option:
+            a form is the highest-effort possible first action, and it explains
+            nothing about what the product does with the answer. The example is
+            a real project built by the real pipeline, so everything it shows
+            is something the researcher's own sources will also do. */}
+        <div className="first-actions">
+          <button className="btn btn-primary btn-lg"
+                  onClick={openExample}
+                  disabled={loadingExample}>
+            <IconSpark size={16} />
+            {loadingExample ? "Building the example…" : "Open a worked example"}
+          </button>
+          <button className="btn btn-lg" onClick={() => setStarted(true)}>
+            <IconPlus size={16} />
+            Start with your own question
+          </button>
+        </div>
+        {exampleError && <p className="first-error" role="alert">{exampleError}</p>}
+        <p className="first-note">
+          The example is a real project — two sources, ingested and analysed the
+          same way yours will be. Delete it whenever you like.
+        </p>
 
         <ul className="first-steps">
           <li>
