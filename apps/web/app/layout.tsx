@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import "./fonts.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -33,6 +34,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Tells the browser which form controls and scrollbars to draw, so
             native UI matches the page rather than staying stubbornly light. */}
         <meta name="color-scheme" content="light dark" />
+        {/* The two families that draw text above the fold: the interface sans
+            and the serif the landing headline and the sign-in screen are set
+            in. Without a preload the browser only discovers them after the
+            stylesheet parses, which is late enough to swap visibly. The Latin
+            subsets only — Latin-Extended is for glyphs that may never appear,
+            and preloading a file the page never uses is a wasted round trip.
+            `crossOrigin` is required on font preloads even same-origin; omit
+            it and the browser fetches the file a second time. */}
+        <link rel="preload" href="/fonts/inter-latin.woff2" as="font"
+              type="font/woff2" crossOrigin="anonymous" />
+        <link rel="preload" href="/fonts/source-serif-4-latin.woff2" as="font"
+              type="font/woff2" crossOrigin="anonymous" />
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
       <body>{children}</body>
