@@ -36,6 +36,7 @@ import { scaleLinear, scaleSqrt } from "d3-scale";
 import { geoEqualEarth, geoPath, geoGraticule10 } from "d3-geo";
 import { interpolateYlGnBu } from "d3-scale-chromatic";
 import type { FeatureCollection, Feature, Geometry } from "geojson";
+import { ChartTable } from "./ChartTable";
 
 export type Place = {
   /** ISO 3166-1 numeric id, matching the bundled topology. */
@@ -109,6 +110,16 @@ export function Geographic({
 
   const label = (f: Feature<Geometry, { name?: string }>) =>
     byId.get(String(f.id))?.label ?? f.properties?.name ?? String(f.id);
+
+  const hasDenominator = places.some((p) => p.denominator !== undefined);
+  const tableColumns = [
+    { key: "label", header: "Place" },
+    { key: "value", header: valueLabel, numeric: true },
+    ...(hasDenominator ? [{ key: "denominator", header: "Denominator", numeric: true }] : []),
+  ];
+  const tableRows = places.map((p) => ({
+    label: p.label, value: p.value, denominator: p.denominator,
+  }));
 
   return (
     <figure className="chart">
@@ -268,6 +279,12 @@ export function Geographic({
           <> Showing <b>{byId.get(hover)!.label}</b>.</>
         )}
       </figcaption>
+
+      <ChartTable
+        columns={tableColumns}
+        rows={tableRows}
+        label={title ?? `${valueLabel} by country`}
+      />
     </figure>
   );
 }

@@ -27,6 +27,7 @@ import { useId, useMemo } from "react";
 import { extent } from "d3-array";
 import { scaleLinear } from "d3-scale";
 import { semantic } from "@/lib/tokens";
+import { ChartTable } from "./ChartTable";
 
 export type Estimate = {
   id: string;
@@ -67,6 +68,28 @@ export function Interval({
 
   const ticks = xScale.ticks(6);
   const nullX = xScale(nullValue);
+
+  // n / significant only appear when at least one estimate actually carries
+  // them — most callers will have both, but neither is required.
+  const hasN = estimates.some((e) => e.n !== undefined);
+  const hasSignificance = estimates.some((e) => e.significant !== undefined);
+  const tableColumns = [
+    { key: "label", header: "Label" },
+    { key: "estimate", header: xLabel, numeric: true },
+    { key: "lo", header: "Low", numeric: true },
+    { key: "hi", header: "High", numeric: true },
+    ...(hasN ? [{ key: "n", header: "n", numeric: true }] : []),
+    ...(hasSignificance ? [{ key: "significant", header: "Significant" }] : []),
+  ];
+  const tableRows = estimates.map((e) => ({
+    id: e.id,
+    label: e.label,
+    estimate: e.estimate,
+    lo: e.lo,
+    hi: e.hi,
+    n: e.n,
+    significant: e.significant === undefined ? undefined : (e.significant ? "yes" : "no"),
+  }));
 
   return (
     <figure className="chart">
@@ -154,6 +177,12 @@ export function Interval({
       </svg>
 
       {caption && <figcaption className="chart-caption">{caption}</figcaption>}
+
+      <ChartTable
+        columns={tableColumns}
+        rows={tableRows}
+        label={title ?? `${xLabel} estimates with confidence intervals`}
+      />
     </figure>
   );
 }

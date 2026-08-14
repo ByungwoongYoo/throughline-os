@@ -30,6 +30,7 @@
 import { useId, useMemo } from "react";
 import { sankey, sankeyLinkHorizontal, sankeyJustify } from "d3-sankey";
 import { categorical } from "@/lib/tokens";
+import { ChartTable } from "./ChartTable";
 
 export type FlowNode = {
   /** Stable identity. Object constancy depends on it. */
@@ -181,6 +182,18 @@ export function Ribbon({
     .filter((n) => !laid.links.some((l) => l.target.id === n.id))
     .reduce((sum, n) => sum + n.value, 0);
 
+  // The table is built from the original links, not the laid-out ones — the
+  // ids are resolved to display labels the same way the refusal caption does.
+  const nodeLabel = (id: string) => nodes.find((n) => n.id === id)?.label ?? id;
+  const tableColumns = [
+    { key: "source", header: "From" },
+    { key: "target", header: "To" },
+    { key: "value", header: unitLabel, numeric: true },
+  ];
+  const tableRows = links.map((l) => ({
+    source: nodeLabel(l.source), target: nodeLabel(l.target), value: l.value,
+  }));
+
   return (
     <figure className="chart">
       {title && <figcaption className="chart-title">{title}</figcaption>}
@@ -262,6 +275,12 @@ export function Ribbon({
           </>
         )}
       </figcaption>
+
+      <ChartTable
+        columns={tableColumns}
+        rows={tableRows}
+        label={title ?? `${unitLabel} flowing between stages`}
+      />
     </figure>
   );
 }

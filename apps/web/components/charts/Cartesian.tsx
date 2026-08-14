@@ -27,6 +27,7 @@ import { extent, max } from "d3-array";
 import { scaleBand, scaleLinear } from "d3-scale";
 import { line as d3line, area as d3area, curveMonotoneX } from "d3-shape";
 import { categorical } from "@/lib/tokens";
+import { ChartTable } from "./ChartTable";
 
 export type Datum = {
   /** Stable identity. Object constancy depends on it. */
@@ -125,6 +126,23 @@ export function Cartesian({
 
   const axisTitle = (label: string, unit?: string) =>
     unit ? `${label} (${unit})` : label;
+
+  // Group / interval columns only appear when the data actually carries them —
+  // an all-empty column would be noise the reader has to rule out by hand.
+  const hasGroup = data.some((d) => d.group !== undefined);
+  const hasInterval = data.some((d) => d.lo !== undefined && d.hi !== undefined);
+  const tableColumns = [
+    { key: "x", header: xLabel, numeric: !categorical_x },
+    { key: "y", header: yLabel, numeric: true },
+    ...(hasGroup ? [{ key: "group", header: "Group" }] : []),
+    ...(hasInterval
+      ? [{ key: "lo", header: "Low", numeric: true },
+         { key: "hi", header: "High", numeric: true }]
+      : []),
+  ];
+  const tableRows = data.map((d) => ({
+    id: d.id, x: d.x, y: d.y, group: d.group, lo: d.lo, hi: d.hi,
+  }));
 
   return (
     <figure className="chart">
@@ -255,6 +273,12 @@ export function Cartesian({
       )}
 
       {caption && <figcaption className="chart-caption">{caption}</figcaption>}
+
+      <ChartTable
+        columns={tableColumns}
+        rows={tableRows}
+        label={title ?? `${xLabel} against ${yLabel}`}
+      />
     </figure>
   );
 }

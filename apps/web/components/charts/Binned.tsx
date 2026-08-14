@@ -38,6 +38,7 @@ import { useId, useMemo } from "react";
 import { extent, max } from "d3-array";
 import { scaleLinear } from "d3-scale";
 import { interpolateViridis } from "d3-scale-chromatic";
+import { ChartTable } from "./ChartTable";
 
 export type Cell = {
   /** Cell centre, in data space. */
@@ -161,6 +162,13 @@ export function Binned({
   const xTicks = x.ticks(6);
   const yTicks = y.ticks(5);
 
+  const tableColumns = [
+    { key: "x", header: xLabel, numeric: true },
+    { key: "y", header: yLabel, numeric: true },
+    { key: "count", header: "Count", numeric: true },
+  ];
+  const tableRows = cells.map((c) => ({ x: c.x, y: c.y, count: c.count }));
+
   return (
     <figure className="chart chart-binned">
       {title && <figcaption className="chart-title">{title}</figcaption>}
@@ -254,6 +262,14 @@ export function Binned({
           + "shade."}
       </p>
       {caption && <p className="chart-caption">{caption}</p>}
+
+      <ChartTable
+        columns={tableColumns}
+        rows={tableRows}
+        label={title ?? `Binned counts of ${yLabel} against ${xLabel}`}
+        maxRows={200}
+        totalRows={sampleSize}
+      />
     </figure>
   );
 }
