@@ -289,9 +289,15 @@ def analysis_run(run: dict[str, Any], cur: Any) -> dict[str, Any]:
 
     spec_row["_dataset"] = {"content_hash": location["content_hash"],
                             "row_count": location["row_count"]}
+    # The sandbox reads the file, so it only knows the headers as written. A
+    # spec may legitimately name the normalised form instead — discovery always
+    # does — and translating here is what makes both spellings actually run.
+    for_sandbox = analysis.to_file_columns(
+        cur, dataset_version_id=version_ids[0], spec=spec_row)
     spec_payload = {
-        "method": spec_row["method"], "variables": spec_row["variables"],
-        "filters": spec_row["filters"], "confidence_level": spec_row["confidence_level"],
+        "method": spec_row["method"], "variables": for_sandbox["variables"],
+        "filters": for_sandbox["filters"],
+        "confidence_level": spec_row["confidence_level"],
         "method_rationale": spec_row["method_rationale"],
         "random_seed": spec_row["random_seed"], "parameters": spec_row["parameters"],
     }

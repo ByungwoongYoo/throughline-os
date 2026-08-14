@@ -85,6 +85,57 @@ def _referenced_columns(method: str, variables: dict[str, Any]) -> list[str]:
     return referenced
 
 
+def file_column_names(cur, dataset_version_id: str) -> dict[str, str]:
+    """Every accepted spelling of a column, mapped to the header in the file.
+
+    An exact header always maps to itself, so a dataset holding both `a b` and
+    `a_b` cannot have one of them shadowed by the other's normalised form.
+    """
+    cur.execute(
+        "SELECT name, original_name FROM dataset_columns "
+        "WHERE dataset_version_id = %s ORDER BY ordinal",
+        (dataset_version_id,),
+    )
+    rows = list(cur.fetchall())
+    index: dict[str, str] = {}
+    for row in rows:
+        index.setdefault(row["name"], row["original_name"])
+    for row in rows:
+        index[row["original_name"]] = row["original_name"]
+    return index
+
+
+def to_file_columns(cur, *, dataset_version_id: str, spec: dict[str, Any]) -> dict[str, Any]:
+    """Rewrite a spec's column references to the headers the file actually has.
+
+    `validate_spec` accepts either the normalised name or the original header,
+    because either identifies the column unambiguously. The sandbox cannot make
+    that promise: it reads the stored file with pandas, so the only names it
+    ever sees are the headers as written. Without this translation a spec the
+    validator approved fails at compute time on a name the validator approved —
+    which is precisely the failure mode validation exists to prevent, and it
+    stayed invisible while every test dataset happened to be snake_case.
+
+    The stored spec is left alone. Only the payload handed to the sandbox is
+    translated, so provenance still records the names the researcher used.
+    """
+    index = file_column_names(cur, dataset_version_id)
+    variables = dict(spec.get("variables") or {})
+    for role in METHOD_VARIABLES.get(str(spec.get("method") or ""), ()):
+        value = variables.get(role)
+        if isinstance(value, str):
+            variables[role] = index.get(value, value)
+        elif isinstance(value, (list, tuple)):
+            variables[role] = [index.get(str(v), str(v)) for v in value]
+
+    filters = [
+        {**rule, "column": index.get(rule["column"], rule["column"])}
+        if isinstance(rule, dict) and "column" in rule else rule
+        for rule in (spec.get("filters") or [])
+    ]
+    return {**spec, "variables": variables, "filters": filters}
+
+
 def validate_spec(cur, *, project_id: str, spec: dict[str, Any]) -> dict[str, Any]:
     """Validate a specification against the real dataset schema.
 
