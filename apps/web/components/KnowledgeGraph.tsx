@@ -5,9 +5,28 @@
  *
  * Canvas 2D rather than SVG. At a few hundred nodes SVG is pleasant and its DOM
  * gives accessibility for free; past that, one element per node makes hover and
- * pan janky on exactly the graphs worth exploring. Canvas holds 5,000 nodes at
- * 60fps with a quadtree for hit-testing, and the keyboard path below restores
- * what leaving the DOM costs.
+ * pan janky on exactly the graphs worth exploring. The keyboard path below
+ * restores what leaving the DOM costs.
+ *
+ * This comment used to claim "5,000 nodes at 60fps with a quadtree for
+ * hit-testing". Both halves were wrong, and `tests/graph-performance.test.ts`
+ * is what established it — a comment is not a measurement.
+ *
+ * - There is no quadtree. Hit-testing is a linear scan (see `nodeAt` below).
+ *   It measures 0.43ms at 5,000 nodes, comfortably inside a frame, so the
+ *   spatial index is not missing so much as unnecessary at this size. The
+ *   mechanism was described wrongly; the outcome was fine.
+ * - 60fps holds once the layout has settled — the simulation stops ticking and
+ *   a frame is then a paint plus that scan. It does **not** hold while the
+ *   layout runs: one force tick at 5,000 nodes measures ~155ms, which is 9x
+ *   the frame budget, and the alpha decay needs about 300 ticks. A graph that
+ *   size takes roughly 46 seconds to settle, at about 6fps throughout.
+ *
+ * Real graphs here are far smaller and settle in well under a second, so this
+ * is a ceiling that has not been hit rather than a bug being lived with. But
+ * the ceiling is real and it is where the work goes if it is ever raised:
+ * `forceManyBody` dominates, and the usual answers are a lower `theta`
+ * ceiling, fewer `forceCollide` iterations, or not drawing every tick.
  *
  * The interaction rules that make it feel alive rather than merely animated:
  *
