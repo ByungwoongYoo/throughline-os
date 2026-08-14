@@ -1,13 +1,13 @@
 """
 Provider selection and prompt versioning.
 
- asks for routing by task type, cost, latency, context size, reasoning need,
-privacy and vision. Today there is one local backend, so routing has one honest
-answer — and the routing table exists anyway, because the alternative is that
+The brief asks for routing by task type, cost, latency, context size, reasoning
+need, privacy and vision. There are two backends now — one local, one hosted —
+and the routing table matters more than ever, because the alternative is that
 call sites hard-code a provider and the abstraction stops being real the first
 time a second backend appears.
 
- wants every model output traceable to the prompt that produced it. Prompts
+Every model output must be traceable to the prompt that produced it. Prompts
 are therefore values with names and versions, stored alongside the output, so
 "why did it say that" is answerable months later. Editing a prompt in place
 would break that, so a changed prompt gets a new version.
@@ -55,7 +55,7 @@ _LAWS = (
 )
 
 PLAIN_SUMMARY = Prompt(
-    name="plain_summary", version=2,
+    name="plain_summary", version=3,
     text=(
         _LAWS + "\n\n"
         "Explain a statistical result to a researcher who is not a statistician — "
@@ -65,9 +65,8 @@ PLAIN_SUMMARY = Prompt(
         "Be direct about weakness. If assumptions were violated, say plainly that the "
         "result deserves less weight than its p-value suggests, and why. A reader who "
         "walks away over-confident has been failed.\n\n"
-        "Refer to the variables ONLY by the names given below. Never write a raw "
-        "column name such as `consumption_ddd` — the reader has never seen the "
-        "spreadsheet and a column name tells them nothing.\n\n"
+        # Said once. It was in here twice, which cost tokens on every summary and
+        # taught nothing the first statement had not already said.
         "Refer to the variables ONLY by the names given below. Never write a raw "
         "column name such as `consumption_ddd` — the reader has never seen the "
         "spreadsheet and a column name tells them nothing.\n\n"
@@ -108,11 +107,10 @@ VISUAL_RECOMMENDATION = Prompt(
 )
 
 COMPATIBILITY = Prompt(
-    name="compatibility_assessment", version=1,
+    name="compatibility_assessment", version=2,
     text=(
         _LAWS + "\n\n"
-        "Decide whether these two research objects can be meaningfully compared "
-        ".\n\n"
+        "Decide whether these two research objects can be meaningfully compared.\n\n"
         "Refusing is a legitimate and often correct answer. Two things that share a "
         "topic but not a measurement are RELATED_BUT_NOT_COMPARABLE. Forcing a "
         "comparison manufactures a relationship that does not exist, which is worse "
@@ -160,11 +158,10 @@ INTENT = Prompt(
 )
 
 HYPOTHESIS = Prompt(
-    name="hypothesis", version=1,
+    name="hypothesis", version=2,
     text=(
         _LAWS + "\n\n"
-        "Propose hypotheses that the observed results suggest but do not establish "
-        ".\n\n"
+        "Propose hypotheses that the observed results suggest but do not establish.\n\n"
         "Every hypothesis must state what observation would falsify it. A hypothesis "
         "with no way to be wrong is a restatement of the data, not a hypothesis, and "
         "will be rejected.\n\n"
@@ -209,11 +206,10 @@ VARIABLE_LABELS = Prompt(
 )
 
 LOCATE_CLAIMS = Prompt(
-    name="locate_claims", version=1,
+    name="locate_claims", version=2,
     text=(
         _LAWS + "\n\n"
-        "Find the empirical claims in this paper that a dataset could test "
-        "(Part I).\n\n"
+        "Find the empirical claims in this paper that a dataset could test.\n\n"
         "A testable claim asserts a relationship between two things that could be "
         "measured. 'Antibiotic consumption is associated with resistance' is "
         "testable. 'More research is needed' and 'this has policy implications' "
@@ -224,7 +220,8 @@ LOCATE_CLAIMS = Prompt(
         "If the paper reports an effect size, quote it verbatim — 'r = 0.42', "
         "'OR 1.8'. Do not compute, convert or estimate one. The system parses "
         "the number itself so the parse can be checked against your quotation; "
-        "a figure you calculated would be a claim of your own (LAW 2).\n\n"
+        "a figure you calculated would be a claim of your own, and every number "
+        "in this system comes from a recorded computation.\n\n"
         "Report the study design the paper states. If it does not state one, say "
         "unknown rather than inferring from the topic: what a claim can support "
         "depends on how the data were collected, and guessing that wrongly is how "
@@ -305,16 +302,30 @@ def selection() -> dict[str, str | None]:
 
 
 def _build() -> ModelProvider:
+    """
+    The configured backend, or none.
+
+    `ollama` stays the default and nothing promotes the hosted provider
+    implicitly. The local default is the privacy guarantee the product makes —
+    a fallback that reached for a hosted model when the local one was missing
+    would silently move a researcher's unpublished data off their machine to
+    fix an availability problem, which is not a trade this code gets to make on
+    their behalf.
+    """
     configured = (_override["provider"]
                   or os.environ.get("THROUGHLINE_MODEL_PROVIDER", "ollama")).lower()
     if configured in ("none", "off", "disabled"):
         return NullProvider()
     if configured == "ollama":
-        provider = OllamaProvider(model=_override["model"])
-        # A provider that cannot answer is worse than none: it turns "this
-        # feature needs a model" into a runtime error at the moment of use.
-        return provider if provider.capability().text else NullProvider()
-    return NullProvider()
+        provider: ModelProvider = OllamaProvider(model=_override["model"])
+    elif configured == "anthropic":
+        from .anthropic_provider import AnthropicProvider
+        provider = AnthropicProvider(model=_override["model"])
+    else:
+        return NullProvider()
+    # A provider that cannot answer is worse than none: it turns "this
+    # feature needs a model" into a runtime error at the moment of use.
+    return provider if provider.capability().text else NullProvider()
 
 
 @lru_cache(maxsize=1)
