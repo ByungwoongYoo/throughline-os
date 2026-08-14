@@ -1,0 +1,240 @@
+"""
+The session exploration ledger.
+
+Correction over one discovery sweep was already correct arithmetic on the wrong
+family. What is tested here is the family: every look at the data in a session,
+across all the verbs, corrected together — and the one exemption that is
+legitimate, which is a hypothesis registered before anybody looked.
+
+The property most of these turn on is uncomfortable on purpose. A p-value is
+worth less after twenty tests than after one, so the *same* result gets a worse
+q-value as a session goes on. A system that quietly reported the first number
+would be flattering the researcher, and that is the failure this exists to
+prevent.
+"""
+
+from __future__ import annotations
+
+import pytest
+from throughline_domain import exploration
+from throughline_domain.ids import new_id
+
+
+@pytest.fixture()
+def project(cur):
+    user_id, project_id = new_id("usr"), new_id("prj")
+    cur.execute(
+        "INSERT INTO users(id, email, display_name, password_hash, password_salt) "
+        "VALUES (%s, %s, 'Ledger', 'x', 'y')", (user_id, f"{user_id}@test.local"))
+    cur.execute(
+        "INSERT INTO projects(id, owner_user_id, name, research_question) "
+        "VALUES (%s, %s, 'Ledger', 'q')", (project_id, user_id))
+    return {"id": project_id, "user": user_id, "session": new_id("ses")}
+
+
+def look(cur, project, p=None, verb="discovery", prereg=None, what="a test"):
+    return exploration.record(
+        cur, session_id=project["session"], project_id=project["id"],
+        verb=verb, description=what, p_value=p, preregistration_id=prereg)
+
+
+# ---------------------------------------------------------------------------
+# The family is the session, not the sweep
+# ---------------------------------------------------------------------------
+
+def test_looks_across_different_verbs_are_one_family(cur, project):
+    """
+    The whole point. A sweep, a claim test and a consistency check are three
+    interrogations of the same data, and correcting each against only its own
+    siblings reports the third with the confidence of the first.
+    """
+    look(cur, project, p=0.01, verb="discovery")
+    look(cur, project, p=0.02, verb="claim_test")
+    report = look(cur, project, p=0.03, verb="finding_consistency")
+
+    assert report["looks"] == 3
+    assert report["family_size"] == 3
+
+
+def test_the_same_p_value_is_worth_less_later_in_a_session(cur, project):
+    """The cost of having looked, made arithmetic."""
+    first = look(cur, project, p=0.04)
+    early_q = first["tests"][0]["q_value"]
+
+    for _ in range(19):
+        look(cur, project, p=0.5)
+
+    later = exploration.ledger(cur, project["session"])
+    same_test = next(t for t in later["tests"] if t["id"] == first["recorded"]["id"])
+    assert same_test["q_value"] > early_q
+
+
+def test_a_borderline_result_stops_surviving_once_enough_looks_pile_up(cur, project):
+    report = look(cur, project, p=0.04)
+    assert report["tests"][0]["survives"] is True
+
+    for _ in range(30):
+        look(cur, project, p=0.6)
+
+    final = exploration.ledger(cur, project["session"])
+    assert final["surviving"] == 0
+
+
+def test_two_sessions_do_not_pollute_each_other(cur, project):
+    """A researcher returning tomorrow starts a new family, not a worse one."""
+    look(cur, project, p=0.01)
+    other = dict(project, session=new_id("ses"))
+    report = look(cur, other, p=0.01)
+    assert report["looks"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Looks that produced nothing still count
+# ---------------------------------------------------------------------------
+
+def test_a_refusal_is_counted_even_though_it_cannot_be_corrected(cur, project):
+    """
+    Leaving out the looks that found nothing is how a family of twenty gets
+    reported as four.
+    """
+    look(cur, project, p=0.01)
+    report = look(cur, project, p=None, verb="compatibility",
+                  what="refused: no shared measurement")
+
+    assert report["looks"] == 2
+    assert report["family_size"] == 1
+    assert report["uncorrectable"] == 1
+
+
+def test_the_count_is_stated_in_words_not_only_as_a_number(cur, project):
+    """`family_size: 23` means nothing to a reader who does not already know."""
+    look(cur, project, p=0.01)
+    report = look(cur, project, p=0.02)
+    assert "2 looks at the data" in report["note"]
+    assert "cost of having looked" in report["note"]
+
+
+# ---------------------------------------------------------------------------
+# Pre-registration: the one legitimate exemption
+# ---------------------------------------------------------------------------
+
+def test_a_registered_hypothesis_is_left_out_of_the_family(cur, project):
+    registration = exploration.preregister(
+        cur, project_id=project["id"], hypothesis="Use increases resistance.",
+        predicted_direction="increase", author=project["user"])
+
+    look(cur, project, p=0.20)
+    report = look(cur, project, p=0.04, verb="claim_test",
+                  prereg=registration["id"])
+
+    assert report["recorded"]["confirmatory"] is True
+    assert report["confirmatory"] == 1
+    assert report["family_size"] == 1  # only the exploratory one
+
+
+def test_a_prediction_with_no_direction_is_refused(cur, project):
+    """
+    A pre-registration that cannot be wrong is a description, and exempting a
+    description would make this a way of laundering exploratory work.
+    """
+    with pytest.raises(ValueError, match="direction"):
+        exploration.preregister(cur, project_id=project["id"],
+                                hypothesis="Something happens.",
+                                predicted_direction="unspecified")
+
+
+def test_editing_the_hypothesis_afterwards_forfeits_the_exemption(cur, project):
+    registration = exploration.preregister(
+        cur, project_id=project["id"], hypothesis="Use increases resistance.",
+        predicted_direction="increase")
+
+    cur.execute("UPDATE preregistrations SET hypothesis = %s WHERE id = %s",
+                ("Use decreases resistance.", registration["id"]))
+
+    report = look(cur, project, p=0.04, verb="claim_test",
+                  prereg=registration["id"])
+    assert report["recorded"]["confirmatory"] is False
+    assert "edited" in report["recorded"]["why"]
+
+
+def test_a_registration_that_does_not_exist_is_not_believed(cur, project):
+    report = look(cur, project, p=0.04, prereg="prereg_nonexistent")
+    assert report["recorded"]["confirmatory"] is False
+    assert report["confirmatory"] == 0
+
+
+def test_ordering_comes_from_one_shared_counter(cur, project):
+    """
+    Why the two tables draw on a single sequence.
+
+    `now()` is transaction-stable, so a registration and a test written together
+    share a timestamp exactly and no clock can order them. Insertion order can —
+    but only if both tables are counted by the same counter. Two independent
+    BIGSERIALs would give two unrelated number lines, and comparing across them
+    would be arithmetic that looks like a check and is not one.
+    """
+    registration = exploration.preregister(
+        cur, project_id=project["id"], hypothesis="Registered first.",
+        predicted_direction="increase")
+    report = look(cur, project, p=0.04, prereg=registration["id"])
+
+    cur.execute("SELECT sequence FROM exploration_tests WHERE id = %s",
+                (report["recorded"]["id"],))
+    test_sequence = cur.fetchone()["sequence"]
+    assert registration["sequence"] < test_sequence
+    assert report["recorded"]["confirmatory"] is True
+
+
+def test_the_two_tables_share_one_number_line(cur, project):
+    """
+    The check above passes even with two independent counters, by luck of which
+    number each happens to be on. This is the one that does not: interleaved
+    writes across both tables have to come out strictly increasing, which is only
+    true if a single sequence issues every value.
+    """
+    issued: list[int] = []
+    for index in range(3):
+        registration = exploration.preregister(
+            cur, project_id=project["id"], hypothesis=f"Hypothesis {index}.",
+            predicted_direction="increase")
+        issued.append(registration["sequence"])
+
+        report = look(cur, project, p=0.1)
+        cur.execute("SELECT sequence FROM exploration_tests WHERE id = %s",
+                    (report["recorded"]["id"],))
+        issued.append(cur.fetchone()["sequence"])
+
+    assert issued == sorted(issued)
+    assert len(set(issued)) == len(issued)
+
+
+# ---------------------------------------------------------------------------
+# Restraint
+# ---------------------------------------------------------------------------
+
+def test_an_empty_session_says_so_without_inventing_a_correction(cur, project):
+    report = exploration.ledger(cur, project["session"])
+    assert report["looks"] == 0
+    assert report["tests"] == []
+    assert "first result needs no correction" in report["note"]
+
+
+def test_the_ledger_is_derived_and_stores_nothing(cur, project):
+    look(cur, project, p=0.01)
+    cur.execute("SELECT count(*) AS n FROM exploration_tests WHERE session_id = %s",
+                (project["session"],))
+    before = cur.fetchone()["n"]
+
+    exploration.ledger(cur, project["session"])
+    exploration.ledger(cur, project["session"])
+
+    cur.execute("SELECT count(*) AS n FROM exploration_tests WHERE session_id = %s",
+                (project["session"],))
+    assert cur.fetchone()["n"] == before
+
+
+def test_an_unknown_verb_is_refused_rather_than_recorded(cur, project):
+    with pytest.raises(ValueError, match="verb"):
+        exploration.record(cur, session_id=project["session"],
+                           project_id=project["id"], verb="vibes",
+                           description="a look")

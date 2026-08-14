@@ -1,8 +1,8 @@
 """
 The evaluation engine (§58).
 
-§58 lists nine categories. Five of them can be evaluated with no model provider,
-and those five are implemented here. The other four — paper extraction quality,
+Six of the specification's categories can be evaluated with no model provider,
+and those six are implemented here. The other four — paper extraction quality,
 analysis-method appropriateness, hallucinated sources in generated prose, and
 video claim fidelity — need generation to evaluate, so they are declared and
 reported as `not_implemented` rather than silently omitted. A harness that
@@ -374,6 +374,76 @@ UNIMPLEMENTED = [
 # Runner
 # ---------------------------------------------------------------------------
 
+def extraction_fidelity(cur, project_id: str) -> Category:
+    """
+    Every quotation stored from a paper is still verbatim in that paper.
+
+    Deliberately *not* the "paper extraction quality" category, which stays
+    unimplemented. Quality asks whether the model found the right sample size and
+    the right limitation, and answering it needs papers with hand-labelled
+    ground truth. This asks something narrower and fully decidable: of the
+    sentences it did keep, is each one actually in the document it claims to
+    quote.
+
+    Worth checking even though extraction verifies quotes at write time, because
+    verification happened against the text as it read *then*. A source re-ingested
+    with a better PDF parser, or re-uploaded, leaves every stored quotation
+    asserting something about a document that has since changed underneath it —
+    the same staleness the notebook lint exists for, in a place where the
+    consequence is a fabricated quotation in a comparison table.
+
+    Structural, because a failure is not a model being imprecise. Nothing in the
+    write path can store an unverified quote, so a failure here means the text
+    moved after the fact or the verifier was circumvented.
+    """
+    from throughline_domain.extraction import verify_quote
+
+    category = Category(
+        name="Extraction fidelity", section="§58", guarantee="structural",
+        note=("Re-reads every stored quotation against the source's current "
+              "indexed text. This is not extraction *quality* — whether the "
+              "right sentences were chosen needs hand-labelled papers, and that "
+              "category remains unimplemented below."),
+    )
+
+    cur.execute(
+        "SELECT e.id, e.source_id, e.fields, s.title "
+        "FROM paper_extractions e JOIN sources s ON s.id = e.source_id "
+        "WHERE e.project_id = %s", (project_id,))
+    extractions = cur.fetchall()
+
+    if not extractions:
+        category.note += " No papers have been read in this project yet."
+        return category
+
+    for extraction in extractions:
+        cur.execute(
+            "SELECT content FROM passages WHERE source_id = %s ORDER BY ordinal",
+            (extraction["source_id"],))
+        source_text = "\n".join(row["content"] for row in cur.fetchall())
+
+        for field, value in (extraction["fields"] or {}).items():
+            quote = (value or {}).get("quote", "")
+            name = f"{extraction['title']}/{field}"
+            if not source_text:
+                category.cases.append(Case(
+                    name, False,
+                    "The source has no indexed text at all, so a quotation "
+                    "stored against it cannot be checked — and a quotation that "
+                    "cannot be checked is not one that has been."))
+            elif verify_quote(quote, source_text):
+                category.cases.append(Case(name, True, "Found verbatim."))
+            else:
+                category.cases.append(Case(
+                    name, False,
+                    f"Not present in the source as indexed now: {quote[:120]!r}. "
+                    "It was verified when it was stored, so the document has "
+                    "changed since — anything quoting this is quoting a paper "
+                    "that no longer says it."))
+
+    return category
+
+
 CATEGORIES = (
     numerical_fidelity,
     citation_integrity,
@@ -381,7 +451,43 @@ CATEGORIES = (
     provenance_completeness,
     finding_classification,
     visualization_fidelity,
+    extraction_fidelity,
 )
+
+
+#: Checks that are not among the specification's categories. Counted separately
+#: so that adding one never moves the coverage figure — otherwise the way to
+#: report better coverage becomes writing more checks of one's own choosing,
+#: which is the failure this harness exists to make impossible.
+BEYOND_SPEC = frozenset({"Extraction fidelity"})
+
+
+def _summary(results: list[Category]) -> str:
+    """
+    Coverage, derived rather than asserted.
+
+    The denominator is the specified categories implemented plus those declared
+    unimplemented — a number this file can actually establish. It used to be a
+    hardcoded nine while the code carried six implemented and four declared,
+    which is ten: the constant and the code had disagreed for some time, and a
+    coverage figure that does not match its own parts is worse than none. The
+    specification is not in this repository, so the honest denominator is the
+    one derived from what is here.
+    """
+    from_spec = [c for c in results if c.name not in BEYOND_SPEC]
+    specified = len(from_spec) + len(UNIMPLEMENTED)
+    extra = len(results) - len(from_spec)
+
+    text = (f"{len(from_spec)} of {specified} specified categories are "
+            f"implemented; {len(UNIMPLEMENTED)} need a model provider or an "
+            "unbuilt subsystem and are reported rather than skipped.")
+    if extra:
+        text += (f" {extra} further check{' runs' if extra == 1 else 's run'} "
+                 "beyond the specification, and is not counted toward that "
+                 "total." if extra == 1 else
+                 f" {extra} further checks run beyond the specification, and "
+                 "are not counted toward that total.")
+    return text
 
 
 def run(project_id: str) -> dict[str, Any]:
@@ -413,11 +519,7 @@ def run(project_id: str) -> dict[str, Any]:
             {"name": n, "section": s, "reason": r} for n, s, r in UNIMPLEMENTED
         ],
         "structural_guarantees_held": structural_failures == 0,
-        "summary": (
-            f"{len(results)} of {len(results) + len(UNIMPLEMENTED)} §58 categories are "
-            f"implemented; {len(UNIMPLEMENTED)} need a model provider or an unbuilt "
-            "subsystem and are reported rather than skipped."
-        ),
+        "summary": _summary(results),
     }
 
 
