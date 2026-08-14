@@ -1,0 +1,168 @@
+# Clean-environment verification.
+#
+# The point of this file is narrow and worth stating: every defect this project
+# has shipped so far was invisible because nothing ever installed it or ran it
+# anywhere but the machine it was written on. A broken bootstrap script, a Docker
+# build referencing a directory that never existed, two libraries imported but
+# never declared, and the one test covering the whole §137 workflow skipping
+# itself everywhere else — all of it survives a developer's own laptop and none of
+# it survives a fresh checkout.
+#
+# So this job does the least clever thing available: clones, installs the way the
+# README tells a researcher to install, and runs the suite.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  # A superseded run tells you about code nobody is looking at any more.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  suite:
+    name: ${{ matrix.os }} · python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One failing platform must not hide the others: knowing whether a break is
+      # universal or platform-specific is most of the diagnosis.
+      fail-fast: false
+      matrix:
+        # 3.12 exactly, for the reason bootstrap.sh states — the packages need
+        # >= 3.12 and pgserver publishes no wheel past cp312.
+        python: ["3.12"]
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install the way the README says to
+        # Deliberately ./scripts/bootstrap.sh rather than a hand-written pip
+        # invocation. A CI job that installs differently from the documented path
+        # verifies a route no researcher takes, and the documented one is exactly
+        # what was broken.
+        run: ./scripts/bootstrap.sh
+
+      - name: Run the suite
+        run: |
+          set -o pipefail
+          ./.venv/bin/python -m pytest -q -rs | tee pytest.out
+
+      - name: Every skip must be accounted for
+        # A skipped test renders as passing. Three tests skipped themselves on
+        # every machine but one for months, which is how the §137 workflow came to
+        # be advertised as working end to end while missing its final step.
+        #
+        # The allowlist is every skip reason this project accepts, and each one is
+        # an optional capability the product already reports as unavailable at
+        # runtime rather than a test that stopped working:
+        #
+        #   Neo4j            — a derived projection (ADR 0002), extra: [graph]
+        #   cv2              — figure digitising, extra: [digitise]
+        #   embedding model  — semantic search; /api/system/capabilities says so
+        #
+        # Anything else fails the build. Adding a line here should feel like a
+        # decision, because that is what it is.
+        run: |
+          if grep '^SKIPPED' pytest.out \
+              | grep -v 'no Neo4j configured' \
+              | grep -v "could not import 'cv2'" \
+              | grep -v 'no local embedding model installed'; then
+            echo "::error::A test skipped for a reason that is not allowlisted."
+            echo "Either make it run everywhere, or add its reason above on purpose."
+            exit 1
+          fi
+          echo "All skips accounted for."
+
+  windows-sandbox:
+    name: windows · sandbox
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: python scripts/manage.py bootstrap
+
+      # Scoped to the sandbox rather than running the whole suite, on purpose.
+      #
+      # This job exists to exercise the code that only runs on Windows — the Job
+      # Object limits, the process-tree kill, the read-only-attribute cleanup, and
+      # the policy report that must describe this platform rather than POSIX. That
+      # is what a Windows runner is uniquely able to check.
+      #
+      # The full suite is deliberately not run here. It spawns a sandboxed
+      # subprocess per analysis and Windows process creation is several times more
+      # expensive, so 541 tests take long enough to be a poor gate. Two platforms
+      # run the whole thing already; this one covers what they cannot reach.
+      #
+      # Known fragility, seen while porting: if a previous pgserver instance is
+      # killed rather than shut down, the stale data directory makes the next
+      # `pg_ctl start` time out, and without a per-test timeout that reads as an
+      # indefinite hang. A fresh runner never has that state.
+      - name: The Windows sandbox actually confines
+        run: .venv\Scripts\python -m pytest tests/test_sandbox.py -q
+
+  web:
+    name: web interface
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - run: npm ci --no-audit --no-fund
+        working-directory: apps/web
+
+      - run: npm test
+        working-directory: apps/web
+
+      # The build catches what unit tests cannot: a type error or a bad import in
+      # a component no test renders.
+      - run: npm run build
+        working-directory: apps/web
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+
+  container:
+    name: docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # `docker compose up` is the install route offered to anyone not on Linux
+      # or macOS, so it needs the same protection as the script. It was broken by
+      # a single path in the Dockerfile that had never existed in this repository.
+      - name: Build the image
+        run: docker build -t throughline-os:ci .
+
+      - name: The API answers in the built image
+        run: |
+          docker run -d --name throughline -p 8080:8080 throughline-os:ci
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8080/api/health >/dev/null 2>&1; then
+              echo "healthy"
+              docker rm -f throughline
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::The API never became healthy."
+          docker logs throughline
+          docker rm -f throughline
+          exit 1

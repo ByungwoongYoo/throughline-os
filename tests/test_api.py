@@ -84,6 +84,20 @@ def test_reuploading_the_same_bytes_reuses_the_ingest_run(client):
     assert first["workflow_run_id"] == second["workflow_run_id"]
     assert second["file"]["deduplicated"] is True
 
+    # Found by dropping the same file twice in the browser by accident.
+    #
+    # Reusing the run was already true and already tested. What was not tested is
+    # what the second upload left behind: a brand-new source row whose ingestion
+    # run had been deduplicated away, so no worker would ever touch it. It sat at
+    # 'uploaded' for the life of the project, and the interface said it was
+    # waiting for a worker to pick it up.
+    assert second["source_reused"] is True
+    assert second["source_id"] == first["source_id"]
+
+    sources = client.get(f"/api/projects/{project_id}/sources").json()
+    assert len(sources) == 1, sources
+    assert sources[0]["id"] == first["source_id"]
+
 
 def test_another_account_cannot_see_a_project(client):
     """§97 — isolation is server-side, and a stranger gets 404, not 403."""

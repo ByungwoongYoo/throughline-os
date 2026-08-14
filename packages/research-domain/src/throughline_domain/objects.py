@@ -82,6 +82,42 @@ def create_source(
     return source_id
 
 
+def find_source_by_content_hash(
+    cur,
+    *,
+    project_id: str,
+    content_hash: str,
+    source_type: SourceType = SourceType.UPLOAD,
+) -> dict[str, Any] | None:
+    """The source already holding these bytes in this project, if there is one.
+
+    Scoped to a source type on purpose. `files` is unique on
+    (project_id, content_hash) but `sources` deliberately is not: the same bytes
+    can legitimately arrive twice by different routes — an upload and a connector
+    import — and those are two sources with different provenance, not one. Only
+    two uploads of the same bytes are the same act.
+
+    Oldest first, so a duplicate resolves to the source that has had the most
+    time to finish ingesting rather than to an arbitrary one.
+    """
+    cur.execute(
+        """
+        SELECT s.id, s.title, s.ingestion_status, s.ingestion_detail, s.created_at,
+               (SELECT r.id FROM workflow_runs r
+                 WHERE r.workflow_name = 'ingest.source'
+                   AND r.input->>'source_id' = s.id
+                 ORDER BY r.created_at ASC
+                 LIMIT 1) AS ingest_run_id
+        FROM sources s
+        WHERE s.project_id = %s AND s.content_hash = %s AND s.source_type = %s
+        ORDER BY s.created_at ASC
+        LIMIT 1
+        """,
+        (project_id, content_hash, str(source_type)),
+    )
+    return cur.fetchone()
+
+
 def advance_ingestion(
     cur,
     *,

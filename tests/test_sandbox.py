@@ -30,6 +30,41 @@ def _spec(method: str, **variables) -> dict:
             "random_seed": 7, "filters": [], "method_rationale": "test"}
 
 
+def test_the_policy_report_describes_this_platform_and_not_another():
+    """
+    Every field in this report was once a hardcoded True sitting beside a real
+    `platform.system()` call — a report that named the platform correctly and then
+    described a different platform's guarantees. It is stored with every analysis
+    run, so a result would have carried a claim nobody had checked.
+
+    Asserted against the running platform rather than a fixed expectation, so the
+    test is meaningful on whichever one CI happens to be.
+    """
+    report = executor.policy_report()
+
+    if executor.WINDOWS:  # pragma: no cover - selected by platform
+        assert report["mechanism"] == "windows_job_object"
+        # chmod(0o444) sets an attribute the analysis could clear; POSIX mode bits
+        # deny the write outright. Claiming the stronger one here would be the
+        # exact overstatement this test exists to prevent.
+        assert report["enforced"]["read_only_inputs"] is False
+        assert report["best_effort"]["read_only_inputs"] == "read_only_attribute_only"
+    else:
+        assert report["mechanism"] == "posix_rlimit_process_group"
+        assert report["enforced"]["read_only_inputs"] is True
+        assert "read_only_inputs" not in report["best_effort"]
+
+    # True on both, by different mechanisms — that is the point of the port.
+    for control in ("separate_process", "cpu_limit", "memory_limit",
+                    "process_tree_killed_together", "no_shell",
+                    "scrubbed_environment", "wall_clock_timeout"):
+        assert report["enforced"][control] is True, control
+
+    # Never claimed anywhere: this is a process sandbox, not a container.
+    assert report["not_enforced"]["kernel_level_filesystem_isolation"] is True
+    assert report["best_effort"]["network_egress_disabled"] == "python_level_only"
+
+
 def test_analysis_runs_in_a_separate_process(dataset):
     result = run_analysis(spec=_spec("pearson_correlation", x="x", y="y"),
                           input_path=dataset, input_suffix=".csv")

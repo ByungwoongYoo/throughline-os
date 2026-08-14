@@ -16,10 +16,6 @@ from throughline_workers.runner import Worker
 
 # The three periodontal-disease PDFs from the previous product, used as real
 # input rather than a synthetic fixture.
-LEGACY_PDFS = sorted(
-    Path("/Users/sarthakpattnaik/Downloads/throughline_v18_zero_motion_1_8_0/"
-         "data/files/workspace_default").glob("*.pdf")
-)
 
 
 @pytest.fixture()
@@ -49,9 +45,12 @@ def _upload(project_id: str, filename: str, payload: bytes) -> str:
             title=filename, actor="test", file_id=str(record["id"]),
             content_hash=str(record["content_hash"]),
         )
+        # Keyed per source, mirroring the API. Keying on the content hash meant a
+        # second source with identical bytes was handed the first one's finished
+        # run and then never advanced past 'uploaded'.
         workflow.enqueue(cur, workflow_name="ingest.source", project_id=project_id,
                          payload={"source_id": source_id},
-                         idempotency_key=f"ingest:{project_id}:{record['content_hash']}")
+                         idempotency_key=f"ingest:{source_id}")
     return source_id
 
 
@@ -89,9 +88,8 @@ def test_plain_text_anchors_resolve_exactly():
     assert {p.section for p in parsed.passages} >= {"methods", "results"}
 
 
-@pytest.mark.skipif(not LEGACY_PDFS, reason="legacy PDFs not present")
-def test_real_pdf_parses_with_resolvable_anchors():
-    parsed = document_parser.parse_pdf(LEGACY_PDFS[0])
+def test_real_pdf_parses_with_resolvable_anchors(paper_pdf):
+    parsed = document_parser.parse_pdf(paper_pdf)
     assert parsed.passages and parsed.page_count > 0
     assert parsed.verify_anchors() == []
     # The column-aware reader must not splice unrelated sentences together.
@@ -200,9 +198,35 @@ def test_failed_ingestion_preserves_the_stages_it_completed(committed_project):
         assert storage.path_for(cur.fetchone()["storage_key"]).exists()
 
 
-@pytest.mark.skipif(not LEGACY_PDFS, reason="legacy PDFs not present")
-def test_real_pdf_ingests_end_to_end_with_lineage(committed_project):
-    source_id = _upload(committed_project, LEGACY_PDFS[0].name, LEGACY_PDFS[0].read_bytes())
+def test_no_source_is_left_without_a_run_to_finish_it(committed_project):
+    """
+    Every source row must reach a terminal ingestion state.
+
+    The failure this covers: two sources carrying identical bytes shared one
+    idempotency key, so the second was handed the first one's already-completed
+    run. Nothing was left to advance it, and it stayed at 'uploaded' permanently
+    while the interface reported it as waiting for a worker.
+
+    Written against the queue rather than the HTTP endpoint on purpose. The API
+    now refuses to create the second source at all, but the invariant being
+    protected is the queue's — a source without a live run of its own is stranded
+    no matter which caller created it.
+    """
+    payload = b"country,year,rate\nIND,2019,31.2\nUSA,2019,18.6\nGBR,2020,15.0\n"
+    first = _upload(committed_project, "one.csv", payload)
+    second = _upload(committed_project, "two.csv", payload)
+    assert first != second
+    _drain()
+
+    for source_id in (first, second):
+        status = _source(source_id)["ingestion_status"]
+        assert status != str(IngestionStatus.UPLOADED), (
+            f"{source_id} never left 'uploaded' — it has no run to finish it")
+        assert status == str(IngestionStatus.READY), _source(source_id)
+
+
+def test_real_pdf_ingests_end_to_end_with_lineage(committed_project, paper_pdf):
+    source_id = _upload(committed_project, paper_pdf.name, paper_pdf.read_bytes())
     _drain()
 
     source = _source(source_id)
