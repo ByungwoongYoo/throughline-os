@@ -13,9 +13,15 @@ compiles, the tests that touch it fail, and the ones that do not stay green
 while the feature is broken.
 
 So this reads the migrations for what exists and the source for what is asked
-for, and compares. It is deliberately narrow — tables, not columns — because
-columns need alias resolution to check properly, and a guard that is
-occasionally wrong gets suppressed rather than fixed.
+for, and compares.
+
+Columns are checked only where the table is unambiguous: an `INSERT INTO t(...)`
+column list, and the assignments in `UPDATE t SET ...`. A column in a SELECT
+usually arrives through an alias — `c.method`, `vr.created_at` — and resolving
+those properly needs to track every alias in every join. A guard that is
+occasionally wrong about that gets suppressed rather than fixed, so it does not
+try. The narrow version still covers every write in the codebase, which is where
+a missing column corrupts rather than merely fails.
 """
 
 from __future__ import annotations
@@ -69,6 +75,64 @@ _SQL_COMMENT = re.compile(r"--[^\n]*")
 #: query shaped like that left the check green. Python merges implicit
 #: concatenation during parsing, so reading the AST sees one string with the
 #: whole query in it.
+
+
+#: Not columns: the constraint keywords that begin a line inside a CREATE TABLE
+#: body and would otherwise be read as one.
+_NOT_A_COLUMN = {"PRIMARY", "UNIQUE", "FOREIGN", "CHECK", "CONSTRAINT", "EXCLUDE"}
+
+_CREATE_TABLE = re.compile(
+    r"CREATE TABLE(?:\s+IF NOT EXISTS)?\s+([a-z_]\w*)\s*\((.*?)\n\);", re.S | re.I)
+_ALTER_TABLE = re.compile(r"ALTER TABLE\s+([a-z_]\w*)(.*?);", re.S | re.I)
+_ADD_COLUMN = re.compile(r"ADD COLUMN(?:\s+IF NOT EXISTS)?\s+([a-z_]\w*)", re.I)
+_COLUMN_LINE = re.compile(r"([a-z_]\w*)\s+[A-Za-z]")
+
+_INSERT_COLUMNS = re.compile(
+    r"INSERT\s+INTO\s+([a-z_]\w*)\s*\(([^)]*)\)", re.I | re.S)
+_UPDATE_SET = re.compile(
+    r"UPDATE\s+([a-z_]\w*)\s+SET\s+(.*?)(?:\s+WHERE|\s+RETURNING|$)", re.I | re.S)
+_ASSIGNED = re.compile(r"([a-z_]\w*)\s*=")
+
+
+def defined_columns() -> dict[str, set[str]]:
+    """Table -> its columns, from CREATE TABLE bodies and later ADD COLUMNs."""
+    columns: dict[str, set[str]] = {}
+    for path in sorted(MIGRATIONS.glob("*.sql")):
+        text = _SQL_COMMENT.sub(" ", path.read_text())
+
+        for table, body in _CREATE_TABLE.findall(text):
+            found = set()
+            for line in body.split("\n"):
+                match = _COLUMN_LINE.match(line.strip())
+                if match and match.group(1).upper() not in _NOT_A_COLUMN:
+                    found.add(match.group(1).lower())
+            columns.setdefault(table.lower(), set()).update(found)
+
+        for table, body in _ALTER_TABLE.findall(text):
+            for column in _ADD_COLUMN.findall(body):
+                columns.setdefault(table.lower(), set()).add(column.lower())
+    return columns
+
+
+def written_columns() -> list[tuple[str, str, str, str]]:
+    """(file, statement, table, column) for every INSERT and UPDATE write."""
+    writes: list[tuple[str, str, str, str]] = []
+    for path in source_files():
+        where = str(path.relative_to(ROOT))
+        for literal in string_literals(path):
+            if not SQL_START.search(literal):
+                continue
+            query = _SQL_COMMENT.sub(" ", literal)
+
+            for table, listed in _INSERT_COLUMNS.findall(query):
+                for column in (c.strip().lower() for c in listed.split(",")):
+                    if column and re.fullmatch(r"[a-z_]\w*", column):
+                        writes.append((where, "INSERT", table.lower(), column))
+
+            for table, assignments in _UPDATE_SET.findall(query):
+                for column in _ASSIGNED.findall(assignments):
+                    writes.append((where, "UPDATE", table.lower(), column.lower()))
+    return writes
 
 
 def defined_tables() -> set[str]:
@@ -150,6 +214,46 @@ def test_every_queried_table_exists():
         "These tables are queried but defined in no migration:\n"
         + "\n".join(f"  {name}: {', '.join(sorted(files))}"
                     for name, files in sorted(unknown.items())))
+
+
+def test_every_written_column_exists():
+    columns = defined_columns()
+    unknown = [(where, kind, table, column)
+               for where, kind, table, column in written_columns()
+               if table in columns and column not in columns[table]]
+    assert not unknown, (
+        "These columns are written but defined in no migration:\n"
+        + "\n".join(f"  {kind} {table}.{column} in {where}"
+                     for where, kind, table, column in sorted(unknown)))
+
+
+def test_the_column_check_inspects_a_meaningful_number_of_writes():
+    """
+    A clean result is only worth having if something was looked at. The table
+    check passed for a while over almost nothing, so this asserts the volume
+    rather than trusting the silence.
+    """
+    writes = written_columns()
+    assert len({(t, c) for _, k, t, c in writes if k == "INSERT"}) > 40
+    assert len([w for w in writes if w[1] == "UPDATE"]) > 20
+
+
+def test_the_column_check_notices_a_column_that_does_not_exist():
+    columns = defined_columns()
+    assert "withdrawn_reason" in columns["sources"]
+    assert "retraction_note" not in columns["sources"]
+
+
+def test_a_constraint_line_is_not_read_as_a_column():
+    """`PRIMARY KEY (a, b)` and `CHECK (...)` open lines inside a table body."""
+    columns = defined_columns()
+    assert not ({"primary", "unique", "foreign", "check", "constraint"}
+                & columns["sources"])
+
+
+def test_a_column_added_by_a_later_migration_is_known():
+    """0027 added these to a table first created in 0001."""
+    assert {"withdrawn_at", "withdrawn_reason"} <= defined_columns()["sources"]
 
 
 def test_the_check_notices_a_table_that_does_not_exist():
