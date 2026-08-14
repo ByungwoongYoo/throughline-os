@@ -75,6 +75,11 @@ class SourceRecord:
     pmid: str | None = None
     pmcid: str | None = None
     openalex_id: str | None = None
+    #: The record's identifier within an OAI-PMH repository. Repository-scoped
+    #: rather than global, so it is only meaningful alongside the base URL in
+    #: `source` — but it is the stable key a re-harvest matches on, and without
+    #: it the same record arrives as a new one every time.
+    oai_identifier: str | None = None
     abstract: str = ""
     venue: str = ""
     url: str = ""
