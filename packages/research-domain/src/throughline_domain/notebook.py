@@ -58,7 +58,8 @@ def parse_links(body: str) -> list[str]:
 # Resolution
 # ---------------------------------------------------------------------------
 
-def _resolve(cur, *, project_id: str, target: str) -> dict[str, str | None]:
+def _resolve(cur, *, project_id: str,
+             target: str) -> dict[str, str | None]:
     """
     Find what a link points at: another note, a research object, or nothing yet.
 
@@ -72,17 +73,22 @@ def _resolve(cur, *, project_id: str, target: str) -> dict[str, str | None]:
         "LIMIT 1", (project_id, key))
     note = cur.fetchone()
     if note:
-        return {"to_note_id": note["id"], "to_object_id": None}
+        return {"to_note_id": note["id"], "to_object_id": None,
+                "to_object_hash": None}
 
     cur.execute(
-        "SELECT id FROM research_objects WHERE project_id = %s "
+        "SELECT id, content_hash FROM research_objects WHERE project_id = %s "
         "AND lower(title) = %s LIMIT 1", (project_id, key))
     obj = cur.fetchone()
     if obj:
-        return {"to_note_id": None, "to_object_id": obj["id"]}
+        # The hash is captured here, at the moment the note was written against
+        # this object. Comparing it later is what makes staleness a recorded
+        # fact rather than an inference from clocks.
+        return {"to_note_id": None, "to_object_id": obj["id"],
+                "to_object_hash": obj["content_hash"]}
 
     # Unresolved, and kept. Writing a link before the thing exists is planning.
-    return {"to_note_id": None, "to_object_id": None}
+    return {"to_note_id": None, "to_object_id": None, "to_object_hash": None}
 
 
 def _rewrite_links(cur, *, project_id: str, note_id: str, body: str) -> list[dict]:
@@ -94,9 +100,10 @@ def _rewrite_links(cur, *, project_id: str, note_id: str, body: str) -> list[dic
         link_id = new_id("nlink")
         cur.execute(
             "INSERT INTO note_links(id, project_id, from_note_id, to_note_id, "
-            "to_object_id, target_text) VALUES (%s, %s, %s, %s, %s, %s)",
+            "to_object_id, to_object_hash, target_text) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
             (link_id, project_id, note_id, resolved["to_note_id"],
-             resolved["to_object_id"], target))
+             resolved["to_object_id"], resolved.get("to_object_hash"), target))
         written.append({"target": target, **resolved})
     return written
 
@@ -317,6 +324,159 @@ def unresolved(cur, project_id: str) -> list[dict[str, Any]]:
     return [dict(row) for row in cur.fetchall()]
 
 
+#: Numbers as they appear in a note. Deliberately loose — a note is prose, and
+#: this only needs to know whether the researcher wrote a figure down at all.
+_FIGURE = re.compile(r"(?<![\w.])-?\d+(?:[.,]\d+)?%?(?![\w])")
+
+#: Words that are almost always part of the writing rather than a measurement,
+#: so "section 2" and "the first three papers" do not read as claims.
+_NOT_A_CLAIM = re.compile(
+    r"(?i)\b(?:section|figure|fig\.?|table|step|page|p\.?|part|chapter|"
+    r"note|day|week|month|year|v|version)\s*$")
+
+
+def lint(cur, project_id: str) -> dict[str, Any]:
+    """
+    A health check over the notebook. It reports; it never edits.
+
+    A notebook decays in ways its author cannot see from inside it. Links point
+    at pages that were never written. Notes drift out of the graph entirely.
+    And — the one this system can check and a plain vault cannot — a note keeps
+    describing evidence that has since changed underneath it.
+
+    That last check is the reason this is worth having. Everything else here a
+    careful person could notice by reading; nobody can notice by reading that a
+    dataset was re-uploaded after they wrote about it.
+
+    Nothing is fixed automatically. A stale note may be exactly right and the
+    new evidence wrong, an orphan may be a deliberate scratch page, and a
+    reader who finds their notes rewritten stops trusting the notebook — which
+    costs more than any of these problems.
+    """
+    findings: list[dict[str, Any]] = []
+
+    # --- notes written against evidence that has since changed --------------
+    #
+    # Compared by content hash, never by timestamp. `now()` is transaction
+    # stable, so a note and an object written together share a timestamp
+    # exactly, and touching a row without changing it still moves `updated_at`.
+    # The hash answers the actual question: is this the same evidence.
+    cur.execute(
+        """
+        SELECT n.id, n.title, o.id AS object_id, o.title AS object_title,
+               l.to_object_hash AS read_hash, o.content_hash AS current_hash
+        FROM note_links l
+        JOIN notes n ON n.id = l.from_note_id
+        JOIN research_objects o ON o.id = l.to_object_id
+        WHERE l.project_id = %s
+          AND l.to_object_hash IS NOT NULL
+          AND o.content_hash IS NOT NULL
+          AND o.content_hash <> l.to_object_hash
+        ORDER BY n.title
+        """,
+        (project_id,))
+    for row in cur.fetchall():
+        findings.append({
+            "kind": "stale_evidence",
+            "note_id": row["id"], "note": row["title"],
+            "object_id": row["object_id"], "object": row["object_title"],
+            "detail": (f"{row['object_title']!r} has changed since this note was "
+                       "written against it."),
+            "why": ("The note may now describe something the source no longer "
+                    "says. This is the one problem here that cannot be found by "
+                    "rereading the note."),
+            "do": "Reread the note beside the current source and update or retire it.",
+        })
+
+    # --- links to pages that do not exist ------------------------------------
+    for row in unresolved(cur, project_id):
+        findings.append({
+            "kind": "unwritten_page",
+            "note": row["first_mentioned_in"], "target": row["target"],
+            "mentions": row["mentions"],
+            "detail": (f"{row['target']!r} is linked from {row['mentions']} "
+                       "place(s) and has never been written."),
+            "why": "A link written before its page exists is how planning looks.",
+            "do": f"Write {row['target']!r}, or reword the links if it is not needed.",
+        })
+
+    # --- notes with no way in and no way out ---------------------------------
+    cur.execute(
+        """
+        SELECT n.id, n.title
+        FROM notes n
+        WHERE n.project_id = %s AND n.title IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM note_links l WHERE l.to_note_id = n.id)
+          AND NOT EXISTS (SELECT 1 FROM note_links l WHERE l.from_note_id = n.id)
+        ORDER BY n.created_at DESC
+        """,
+        (project_id,))
+    for row in cur.fetchall():
+        findings.append({
+            "kind": "isolated",
+            "note_id": row["id"], "note": row["title"],
+            "detail": f"Nothing links to {row['title']!r} and it links to nothing.",
+            "why": ("An isolated note is one you will not find again except by "
+                    "searching for words you may not remember."),
+            "do": "Link it from wherever it belongs, or accept it as a scratch page.",
+        })
+
+    # --- figures written down with nothing behind them ------------------------
+    #
+    # The system's rule for reports applied to notes, but as a note rather than
+    # a refusal: prose is where a researcher thinks, and refusing to store a
+    # number they typed would make the notebook useless for thinking in.
+    cur.execute(
+        """
+        SELECT n.id, n.title, n.body
+        FROM notes n
+        WHERE n.project_id = %s AND n.title IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM note_links l
+            WHERE l.from_note_id = n.id AND l.to_object_id IS NOT NULL)
+        """,
+        (project_id,))
+    for row in cur.fetchall():
+        body = row["body"] or ""
+        figures = [m.group(0) for m in _FIGURE.finditer(body)
+                   if not _NOT_A_CLAIM.search(body[max(0, m.start() - 12):m.start()])]
+        if not figures:
+            continue
+        findings.append({
+            "kind": "unsourced_figure",
+            "note_id": row["id"], "note": row["title"],
+            "figures": figures[:6],
+            "detail": (f"{row['title']!r} states {', '.join(figures[:3])}"
+                       + (" and others" if len(figures) > 3 else "")
+                       + " and links to no source or analysis."),
+            "why": ("A number in a note becomes a number in a report. Once it is "
+                    "there with nothing behind it, nobody can tell later whether "
+                    "it was read off a result or remembered."),
+            "do": "Link the analysis or source it came from.",
+        })
+
+    by_kind: dict[str, int] = {}
+    for finding in findings:
+        by_kind[finding["kind"]] = by_kind.get(finding["kind"], 0) + 1
+
+    cur.execute("SELECT count(*) AS n FROM notes WHERE project_id = %s "
+                "AND title IS NOT NULL", (project_id,))
+    total = int(cur.fetchone()["n"])
+
+    return {
+        "notes": total,
+        "findings": findings,
+        "by_kind": by_kind,
+        "clean": not findings,
+        "note": (f"{len(findings)} thing(s) to look at across {total} notes. "
+                 "Nothing has been changed — a stale note may be right and the "
+                 "new evidence wrong, and that is not a judgement this can make."
+                 if findings else
+                 f"All {total} notes resolve, connect, and match the evidence "
+                 "they were written against."),
+    }
+
+
 def graph(cur, project_id: str) -> dict[str, Any]:
     """
     The notebook as a graph, kept separate from the provenance graph.
@@ -355,5 +515,5 @@ def graph(cur, project_id: str) -> dict[str, Any]:
 __all__ = [
     "ANNOTATION", "DAILY", "NOTE", "NotebookError", "WIKI_LINK", "backlinks",
     "create", "daily", "get", "graph", "listing", "object_backlinks",
-    "outgoing", "parse_links", "unresolved", "update",
+    "lint", "outgoing", "parse_links", "unresolved", "update",
 ]

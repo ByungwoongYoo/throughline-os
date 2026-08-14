@@ -3,9 +3,10 @@
   "configurations": [
     {
       "name": "throughline",
-      "runtimeExecutable": "scripts/dev.sh",
-      "runtimeArgs": [],
-      "port": 3000
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["scripts/dev.sh"],
+      "port": 3000,
+      "url": "http://127.0.0.1:3000"
     }
   ]
 }

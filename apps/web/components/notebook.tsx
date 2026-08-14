@@ -59,6 +59,26 @@ type Note = {
   backlinks: Mention[];
 };
 
+type LintFinding = {
+  kind: "stale_evidence" | "unwritten_page" | "isolated" | "unsourced_figure";
+  note?: string;
+  note_id?: string;
+  object?: string;
+  target?: string;
+  figures?: string[];
+  detail: string;
+  why: string;
+  do: string;
+};
+
+type Lint = {
+  notes: number;
+  findings: LintFinding[];
+  by_kind: Record<string, number>;
+  clean: boolean;
+  note: string;
+};
+
 type Listing = {
   notes: NoteSummary[];
   unresolved: Array<{ target: string; mentions: number;
@@ -68,6 +88,15 @@ type Listing = {
 export function Notebook({ projectId }: { projectId: string }) {
   const [view, setView] = useState<"pages" | "graph">("pages");
   const [listing, setListing] = useState<Listing | null>(null);
+  /*
+   * Lint is fetched on demand, never on load.
+   *
+   * A health check that runs automatically becomes a permanent list of
+   * complaints beside the writing surface, and the writing surface is the
+   * point. It is a thing you ask for when you want to tidy up.
+   */
+  const [lint, setLint] = useState<Lint | null>(null);
+  const [linting, setLinting] = useState(false);
   const [open, setOpen] = useState<Note | null>(null);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<unknown>(null);
@@ -196,6 +225,42 @@ export function Notebook({ projectId }: { projectId: string }) {
               </li>
             ))}
           </ul>
+
+          <section className="nb-lint">
+            <button className="btn" disabled={linting} onClick={async () => {
+              setLinting(true);
+              try {
+                setLint(await api.get<Lint>(
+                  `/api/projects/${projectId}/notebook/lint`));
+              } finally { setLinting(false); }
+            }}>
+              {linting ? "Checking…" : "Check the notebook"}
+            </button>
+
+            {lint && (
+              <div className="nb-lint-out">
+                <p className="nb-lint-note">{lint.note}</p>
+                {lint.findings.map((finding, i) => (
+                  <details key={i} className="nb-lint-item"
+                           data-kind={finding.kind}>
+                    <summary>
+                      <span className="nb-lint-kind">
+                        {finding.kind === "stale_evidence" ? "evidence changed"
+                          : finding.kind === "unwritten_page" ? "not written"
+                          : finding.kind === "isolated" ? "unlinked"
+                          : "no source"}
+                      </span>
+                      {finding.detail}
+                    </summary>
+                    {/* Why it matters, then what to do. A lint entry that only
+                        names a problem gets ignored. */}
+                    <p className="nb-lint-why">{finding.why}</p>
+                    <p className="nb-lint-do">{finding.do}</p>
+                  </details>
+                ))}
+              </div>
+            )}
+          </section>
 
           {listing && listing.unresolved.length > 0 && (
             // A to-do list the researcher wrote without meaning to.
