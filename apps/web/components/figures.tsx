@@ -13,6 +13,9 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Connection } from "@/lib/api";
 import { ApiState, useApi } from "@/lib/useApi";
+// Aliased: Matrix exports a `Cell` too, and its shape is row/column/value
+// rather than x/y/count.
+import { Binned, Cell as BinnedCell } from "./charts/Binned";
 import { Cartesian, CartesianMark, Datum } from "./charts/Cartesian";
 import { Estimate, Interval } from "./charts/Interval";
 import { Cell, Matrix } from "./charts/Matrix";
@@ -32,7 +35,17 @@ type Recommendation = {
   };
 };
 
-type Points = { x: number[]; y: number[]; statistics?: Record<string, number> };
+type Points = {
+  x: number[];
+  y: number[];
+  statistics?: Record<string, number>;
+  sample_size?: number;
+  /** Counted server-side, and present only for a binned recommendation. */
+  cells?: BinnedCell[] | null;
+  bin_count?: number | null;
+  bin_shape?: string;
+  count_scale?: string;
+};
 
 const MARK_FOR: Record<string, CartesianMark> = {
   scatter: "point", bubble: "point", strip: "point", beeswarm: "point",
@@ -422,17 +435,49 @@ function Figure({ connection, recommendation, labels }: {
                   hint="This analysis did not store the points behind its estimate." />;
   }
 
+  /**
+   * A binned recommendation must draw a binned figure.
+   *
+   * `MARK_FOR` has no entry for it and falls back to a point mark, so this used
+   * to render a scatter — at the sample size that triggers the recommendation,
+   * exactly the overplotted blob the primitive exists to replace. The
+   * recommender said one thing and the screen showed another.
+   *
+   * Cells arrive already counted from the same endpoint as the points, because
+   * binning is aggregation and a browser that re-aggregated could disagree with
+   * the analysis (LAW 2).
+   */
+  const cells = points.data?.cells;
+  const binned = recommendation.visual_type === "hexbin" && cells?.length;
+
   return (
     <>
       <div className="card" ref={svgHost}>
-        <Cartesian
-          data={data}
-          mark={mark}
-          xLabel={xLabel}
-          yLabel={yLabel}
-          title={recommendation.spec?.title}
-          caption={recommendation.caption}
-        />
+        {binned ? (
+          <Binned
+            cells={cells}
+            xLabel={xLabel}
+            yLabel={yLabel}
+            binCount={points.data?.bin_count ?? 30}
+            binShape={points.data?.bin_shape === "square" ? "square" : "hex"}
+            countScale={
+              points.data?.count_scale === "linear" ? "linear"
+              : points.data?.count_scale === "sqrt" ? "sqrt" : "log"
+            }
+            sampleSize={points.data?.sample_size ?? data.length}
+            title={recommendation.spec?.title}
+            caption={recommendation.caption}
+          />
+        ) : (
+          <Cartesian
+            data={data}
+            mark={mark}
+            xLabel={xLabel}
+            yLabel={yLabel}
+            title={recommendation.spec?.title}
+            caption={recommendation.caption}
+          />
+        )}
       </div>
 
       {/* The reason, stated. This is where visualisation judgment transfers. */}

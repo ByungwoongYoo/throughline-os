@@ -19,8 +19,10 @@ from typing import Any, Sequence
 
 from throughline_schemas.enums import LineageType, ObjectType
 from throughline_visual import critic as visual_critic
+from throughline_visual import labels as labels_module
 from throughline_visual import prepare as visual_prepare
 from throughline_visual import recommend as visual_recommend
+from throughline_visual.labels import LabelBook
 from throughline_visual.renderers import publication, web
 from throughline_visual.spec import ResearchVisualSpec, VisualData
 
@@ -49,7 +51,7 @@ _DATA_BEARING_FIELDS = {"x", "y", "group", "facet", "filters", "aggregation",
 #: Fields that only affect presentation and may be edited freely.
 _PRESENTATION_FIELDS = {"title", "subtitle", "caption", "citations", "theme",
                         "uncertainty", "annotations", "interaction",
-                        "animation_semantics", "visual_type"}
+                        "animation_semantics", "visual_type", "category_labels"}
 
 
 def spec_hash(spec: ResearchVisualSpec) -> str:
@@ -57,6 +59,74 @@ def spec_hash(spec: ResearchVisualSpec) -> str:
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
+
+
+def variable_labels(cur, *, project_id: str, dataset_version_id: str) -> LabelBook:
+    """What a reader should see instead of each raw column name.
+
+    The recommender is deliberately database-free, so this is where the
+    canonical variable layer is consulted: it already holds a `display_label`
+    for exactly this purpose, and a figure that prints `resistance_pct` is
+    ignoring data the project has already curated.
+
+    The unit is the part worth being careful about. `canonical_unit` describes
+    the harmonised quantity, but a figure plots the *column's* values, and an
+    approved mapping may still record `transformation_required` — the numbers
+    have not been converted just because the mapping exists. Labelling an axis
+    with a unit the values are not in would be a worse failure than printing a
+    raw name, so the column's own unit wins, and the canonical one is used only
+    where the column declares none and no transformation stands between them.
+    """
+    cur.execute(
+        """
+        SELECT DISTINCT ON (dc.id)
+               dc.name, dc.original_name, dc.unit AS column_unit,
+               cv.display_label, cv.canonical_unit, vm.transformation_required
+        FROM dataset_columns dc
+        LEFT JOIN variable_mappings vm
+               ON vm.dataset_column_id = dc.id
+              AND vm.status = 'approved'
+              AND vm.project_id = %s
+        LEFT JOIN canonical_variables cv
+               ON cv.id = vm.canonical_variable_id
+        WHERE dc.dataset_version_id = %s
+        -- One column can carry more than one approved mapping; take the most
+        -- confident, and break ties by id so the label never depends on scan
+        -- order. A figure that renamed itself between two runs of the same
+        -- analysis would be its own kind of dishonesty.
+        ORDER BY dc.id, vm.confidence DESC NULLS LAST, cv.id
+        """,
+        (project_id, dataset_version_id),
+    )
+
+    entries: dict[str, dict[str, Any]] = {}
+    for row in cur.fetchall():
+        canonical_label = (row["display_label"] or "").strip()
+        header = (row["original_name"] or "").strip()
+        column_unit = (row["column_unit"] or "").strip()
+        canonical_unit = (row["canonical_unit"] or "").strip()
+        transformed = bool((row["transformation_required"] or "").strip())
+
+        unit = column_unit or (canonical_unit if not transformed else "")
+
+        if canonical_label:
+            label, source = canonical_label, labels_module.CANONICAL
+        elif header and header != row["name"]:
+            # The header the researcher typed. Not curated, but written by a
+            # person for people, which the normalised key never was.
+            label = labels_module.humanise(
+                labels_module.strip_trailing_unit(header, unit))
+            source = labels_module.DATASET_HEADER
+        else:
+            label, source = labels_module.humanise(row["name"]), labels_module.COLUMN_NAME
+
+        entry = {"label": label, "unit": unit or None, "source": source}
+        entries[row["name"]] = entry
+        if header:
+            # A spec may name either spelling; both must resolve.
+            entries.setdefault(header, entry)
+
+    return LabelBook(entries)
 
 
 def recommend_for_run(
@@ -73,11 +143,16 @@ def recommend_for_run(
             "run has results to visualise."
         )
     version_ids = run["dataset_version_ids"] or []
+    version_id = version_ids[0] if version_ids else None
+    book = (
+        variable_labels(cur, project_id=run["project_id"], dataset_version_id=version_id)
+        if version_id else LabelBook()
+    )
     return visual_recommend.recommend(
         analysis_run_id=analysis_run_id, method=run["method"],
         variables=run["variables"], result=run["result"] or {},
-        dataset_version_id=version_ids[0] if version_ids else None,
-        goal=goal, audience=audience,
+        dataset_version_id=version_id,
+        goal=goal, audience=audience, labels=book,
     )
 
 

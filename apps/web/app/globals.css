@@ -3120,3 +3120,157 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .nb-index-hubs button:hover { color: var(--accent); }
 .nb-index li span { color: var(--ink-faint); font-size: 11.5px; flex: none; }
 .nb-index-subjects b { font-weight: 500; color: var(--ink-soft); }
+/* --- Part P: the table beside every figure -------------------------------- */
+
+/*
+ * Each primitive renders one. The chart answers "what shape is this"; the
+ * table answers "what is the value", and only the second one survives a screen
+ * reader, a low-vision reader, or a reader who wants to check a number rather
+ * than estimate it off an axis.
+ *
+ * Collapsed by default and never hidden: `<details>` keeps the content in the
+ * accessibility tree and in the page's find-in-page, which `display:none`
+ * would not.
+ */
+.chart-table {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.chart-table > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--ink-faint);
+  padding: 8px 0;
+  list-style-position: outside;
+}
+.chart-table > summary:hover { color: var(--ink); }
+
+.chart-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  /* A long table scrolls inside the figure rather than widening the page. */
+  display: block;
+  max-height: 340px;
+  overflow: auto;
+}
+
+.chart-table th,
+.chart-table td {
+  padding: 5px 10px 5px 0;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: baseline;
+}
+
+.chart-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--paper);
+  color: var(--ink-soft);
+  font-weight: 560;
+  white-space: nowrap;
+}
+
+.chart-table tbody th {
+  font-weight: 400;
+  color: var(--ink);
+}
+
+/* Digits line up in columns, so magnitudes can be compared down the column
+   without reading every number. */
+.chart-table .numeric {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.chart-table .note {
+  margin: 8px 0 4px;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+
+/* --- prefers-contrast (Part A / §118) ------------------------------------ */
+
+/*
+ * A reader who asks the operating system for more contrast is telling us the
+ * default is not readable for them. The defaults here are deliberately quiet —
+ * hairline rules, faint gridlines, 35%-alpha box fills — and quiet is exactly
+ * what fails first.
+ *
+ * Tokens are remapped rather than individual rules being overridden, so this
+ * reaches every component at once instead of only the ones somebody remembered.
+ */
+@media (prefers-contrast: more) {
+  :root {
+    --line: var(--n-400);
+    --line-strong: var(--n-600);
+    --ink-faint: var(--n-600);
+    --ink-soft: var(--n-800);
+    --ink: var(--n-900);
+    --accent: #1443B8;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --line: var(--n-500);
+      --line-strong: var(--n-600);
+      --ink-faint: var(--n-600);
+      --ink-soft: var(--n-800);
+      --ink: var(--n-900);
+      --accent: #7FA8FF;
+    }
+  }
+
+  /* Structure the eye has to find, rather than merely notice. */
+  .chart-grid { stroke-width: 1.25; }
+  .chart-axis { stroke-width: 1.75; }
+  .chart-tick, .chart-axis-label { font-size: 12px; }
+
+  /* A translucent mark on a pale ground is the first thing to disappear. */
+  .chart-point, .chart-rect, .chart-cell, .chart-area { fill-opacity: 1; }
+  .chart-point { stroke: var(--paper); stroke-width: 0.75; }
+  .chart-line, .chart-fit, .chart-interval { stroke-width: 2; }
+
+  :focus-visible { outline-width: 3px; }
+  .chart-table th, .chart-table td { border-bottom-color: var(--line-strong); }
+}
+
+/* --- forced-colors (Windows High Contrast) -------------------------------- */
+
+/*
+ * A different mechanism from `prefers-contrast`, and it needs its own block:
+ * the browser replaces the whole palette with the user's system colours, but
+ * it does not touch `fill` and `stroke` on SVG. Left alone, a chart keeps its
+ * own colours on a palette chosen to override them — usually invisible marks
+ * on an inverted ground.
+ *
+ * Marks become outlines in the system text colour: shape and position survive,
+ * the colour encoding does not — which is why the table beside every figure is
+ * what this mode actually relies on.
+ */
+@media (forced-colors: active) {
+  .chart-grid, .chart-axis, .chart-line, .chart-fit, .chart-interval,
+  .raster-line {
+    stroke: CanvasText;
+  }
+  .chart-point, .chart-rect, .chart-cell, .chart-area {
+    fill: Canvas;
+    stroke: CanvasText;
+    stroke-width: 1;
+    fill-opacity: 1;
+  }
+  .chart-tick, .chart-axis-label { fill: CanvasText; }
+  .chart-legend i { border: 1px solid CanvasText; }
+
+  /* Keep the disclosure and the table legible in the system palette. */
+  .chart-table, .chart-table th, .chart-table td {
+    border-color: CanvasText;
+  }
+  .chart-table thead th { background: Canvas; }
+
+  /* The default focus ring is a custom colour, which this mode discards. */
+  :focus-visible { outline: 3px solid Highlight; }
+}

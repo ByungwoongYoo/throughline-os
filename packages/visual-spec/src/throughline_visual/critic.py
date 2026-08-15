@@ -77,6 +77,7 @@ def critique(
     report = CritiqueReport(spec=spec)
 
     _axis_integrity(spec, report, autofix)
+    _bin_transparency(spec, report, autofix)
     _uncertainty(spec, data, analysis, report, autofix)
     _sample_visibility(spec, data, report, autofix)
     _category_overload(spec, data, report)
@@ -153,6 +154,61 @@ def _axis_integrity(spec: ResearchVisualSpec, report: CritiqueReport, autofix: b
         report.critiques.append(Critique(
             check="axis_integrity", outcome="violated", severity="blocking",
             detail="A bar chart's value axis must include zero.",
+        ))
+
+
+#: The default used when a binned figure arrives without a bin count.
+#:
+#: Chosen rather than computed so it is one reviewable number: around 30 cells
+#: across the range holds up from a few thousand rows to a few hundred thousand,
+#: which is the span where binning is the right answer at all.
+DEFAULT_BIN_COUNT = 30
+
+
+def _bin_transparency(spec: ResearchVisualSpec, report: CritiqueReport,
+                      autofix: bool) -> None:
+    """A binned figure must say how it was binned.
+
+    Bin width is not a rendering detail. Widen it and two modes merge into one;
+    narrow it and sampling noise reads as structure. Both are defensible
+    figures, they disagree, and a reader cannot tell them apart from the picture
+    — so the number that produced the shape belongs on the figure, exactly as a
+    density plot states its bandwidth.
+    """
+    if spec.visual_type is not VisualType.HEXBIN:
+        report.critiques.append(Critique(
+            check="bin_transparency", outcome="passed", severity="serious",
+            detail=f"{spec.visual_type} does not bin, so no bin width shapes it.",
+        ))
+        return
+
+    if spec.bin_count:
+        # Both decisions are recorded, not only the bin count. A logarithmic
+        # colour scale changes the apparent ratio between two cells by an order
+        # of magnitude, so a reader who assumes linear misreads the figure as
+        # surely as one who assumes a different bin width.
+        report.critiques.append(Critique(
+            check="bin_transparency", outcome="passed", severity="blocking",
+            detail=f"Binned into {spec.bin_count} {spec.bin_shape} cells across "
+                   f"the range, with counts on a {spec.count_scale} colour "
+                   f"scale. Both are stated on the figure.",
+        ))
+        return
+
+    if autofix:
+        spec.bin_count = DEFAULT_BIN_COUNT
+        report.critiques.append(Critique(
+            check="bin_transparency", outcome="fixed", severity="blocking",
+            detail="A binned figure did not state its bin count, so its shape "
+                   "could not be interpreted or reproduced.",
+            fix_applied=f"Set the bin count to {DEFAULT_BIN_COUNT} and stated it "
+                        f"in the caption.",
+        ))
+    else:
+        report.critiques.append(Critique(
+            check="bin_transparency", outcome="violated", severity="blocking",
+            detail="A binned figure must state its bin count: bin width decides "
+                   "how many modes the distribution appears to have.",
         ))
 
 

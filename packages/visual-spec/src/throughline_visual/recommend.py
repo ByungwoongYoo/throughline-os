@@ -13,8 +13,9 @@ answer.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 
+from .labels import LabelBook
 from .spec import (
     Annotation,
     Encoding,
@@ -29,6 +30,12 @@ class RecommendationError(ValueError):
     pass
 
 
+#: The book a caller gets when it supplies none: every label falls back to the
+#: humanised column name, which is exactly the behaviour that existed before
+#: labels were plumbed through. Shared because `LabelBook` has no mutators.
+_NO_LABELS = LabelBook()
+
+
 def recommend(
     *,
     analysis_run_id: str,
@@ -38,8 +45,16 @@ def recommend(
     dataset_version_id: str | None = None,
     goal: str = "show the relationship",
     audience: str = "researcher",
+    labels: LabelBook | Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Choose a figure for an analysis result."""
+    """Choose a figure for an analysis result.
+
+    `labels` maps each raw column name to what a reader should see instead —
+    normally built from the canonical variable layer by the caller that holds a
+    database cursor. Omitting it is supported and produces the humanised raw
+    name, which is the only label available when nothing else is known.
+    """
+    book = LabelBook.coerce(labels)
     builders = {
         "pearson_correlation": _correlation,
         "spearman_correlation": _correlation,
@@ -58,7 +73,8 @@ def recommend(
             f"No visualization is defined for {method!r}. "
             f"Supported: {', '.join(sorted(builders))}"
         )
-    recommendation = builder(analysis_run_id, dataset_version_id, variables, result, audience)
+    recommendation = builder(analysis_run_id, dataset_version_id, variables, result,
+                             audience, book)
     recommendation["goal"] = goal
     recommendation["audience"] = audience
     return recommendation
@@ -79,20 +95,38 @@ def _significance_note(result: dict[str, Any]) -> str:
     return "; ".join(parts)
 
 
-def _correlation(run_id, version_id, variables, result, audience) -> dict[str, Any]:
+#: Sample size beyond which one mark per observation stops being readable.
+#:
+#: Overplotting has no threshold of its own — a scatter degrades continuously and
+#: never announces it. This is the point where, at publication figure sizes, the
+#: dense region of a typical correlation goes solid and the reader can no longer
+#: tell fifty points from five thousand. Below it a scatter is strictly better,
+#: because it shows every observation; above it the scatter is showing ink.
+OVERPLOTTING_THRESHOLD = 5_000
+
+
+def _correlation(run_id, version_id, variables, result, audience,
+                 book=_NO_LABELS) -> dict[str, Any]:
     x_name, y_name = variables["x"], variables["y"]
     has_ci = result.get("ci_low") is not None
+    sample_size = int(result.get("sample_size") or 0)
+
+    if sample_size >= OVERPLOTTING_THRESHOLD:
+        return _binned_correlation(run_id, version_id, x_name, y_name,
+                                   result, sample_size, book)
+
     spec = ResearchVisualSpec(
         visual_type=VisualType.SCATTER,
         analysis_run_id=run_id, dataset_version_id=version_id,
-        x=Encoding(field=x_name, label=x_name.replace("_", " ")),
-        y=Encoding(field=y_name, label=y_name.replace("_", " ")),
+        x=book.encoding(x_name),
+        y=book.encoding(y_name),
         uncertainty=UncertaintyDisplay.BAND if has_ci else UncertaintyDisplay.NONE,
         annotations=[Annotation(kind="regression_line",
                                 text="least-squares fit, shown for orientation only")],
-        title=f"{y_name.replace('_', ' ')} against {x_name.replace('_', ' ')}",
+        title=f"{book.label(y_name)} against {book.label(x_name)}",
         #  — the caption must not imply causation from a correlation.
-        caption=(f"Association between {x_name} and {y_name}. {_significance_note(result)}. "
+        caption=(f"Association between {book.described(x_name)} and "
+                 f"{book.described(y_name)}. {_significance_note(result)}. "
                  "Association does not establish causation."),
         interaction=["hover", "brush", "underlying_table"],
     )
@@ -112,7 +146,55 @@ def _correlation(run_id, version_id, variables, result, audience) -> dict[str, A
     }
 
 
-def _regression(run_id, version_id, variables, result, audience) -> dict[str, Any]:
+def _binned_correlation(run_id, version_id, x_name, y_name, result,
+                        sample_size, book=_NO_LABELS) -> dict[str, Any]:
+    """The same relationship, at a sample size where marks would overplot.
+
+    Not a downgrade of the scatter. At this many rows a scatter answers "is
+    there ink here" rather than "how much data is here", and the two questions
+    have visibly different answers in the middle of a dense cloud.
+    """
+    bins = 30
+    spec = ResearchVisualSpec(
+        visual_type=VisualType.HEXBIN,
+        analysis_run_id=run_id, dataset_version_id=version_id,
+        x=book.encoding(x_name),
+        y=book.encoding(y_name),
+        bin_count=bins,
+        annotations=[Annotation(kind="regression_line",
+                                text="least-squares fit, shown for orientation only")],
+        title=f"{book.label(y_name)} against {book.label(x_name)}",
+        caption=(f"Association between {book.described(x_name)} and "
+                 f"{book.described(y_name)} across "
+                 f"{sample_size:,} observations, binned into {bins} hexagonal "
+                 f"cells per axis; shade shows how many observations fall in "
+                 f"each cell, on a logarithmic scale — binned counts are "
+                 f"heavy-tailed, and a linear ramp would collapse everything "
+                 f"outside the densest cells into one shade. "
+                 f"{_significance_note(result)}. "
+                 f"Association does not establish causation."),
+        interaction=["hover", "brush", "underlying_table"],
+    )
+    return {
+        "visual_type": VisualType.HEXBIN,
+        "reason": (f"{sample_size:,} observations would overplot as a scatter — "
+                   f"the dense region fills in and a reader cannot tell where "
+                   f"most of the data lies. Binning shades each cell by how many "
+                   f"observations it holds, so density stays visible."),
+        "spec": spec,
+        "interpretation": result.get("interpretation", ""),
+        "alternatives": [
+            {"visual_type": VisualType.SCATTER,
+             "when": "the individual observations matter more than their density, "
+                     "such as when hunting outliers"},
+            {"visual_type": VisualType.BOX,
+             "when": "one variable is better treated as categorical"},
+        ],
+    }
+
+
+def _regression(run_id, version_id, variables, result, audience,
+                book=_NO_LABELS) -> dict[str, Any]:
     predictors = list(variables.get("predictors") or [])
     outcome = variables["outcome"]
     multiple = len(predictors) > 1
@@ -124,12 +206,17 @@ def _regression(run_id, version_id, variables, result, audience) -> dict[str, An
             analysis_run_id=run_id, dataset_version_id=version_id,
             x=Encoding(field="estimate", label="coefficient (95% CI)", include_zero=True),
             y=Encoding(field="predictor", label="predictor"),
+            # The y axis of a forest plot is a list of column names. Without
+            # these, that axis is the one place a reader still meets the raw
+            # schema — the encodings above describe the estimate, not the rows.
+            category_labels=book.category_labels(predictors),
             uncertainty=UncertaintyDisplay.CONFIDENCE_INTERVAL,
             annotations=[Annotation(kind="reference_line", value=0.0,
                                     orientation="vertical", text="no effect")],
-            title=f"Adjusted associations with {outcome.replace('_', ' ')}",
-            caption=(f"Coefficients from a multiple regression of {outcome} on "
-                     f"{', '.join(predictors)}. {_significance_note(result)}. "
+            title=f"Adjusted associations with {book.label(outcome)}",
+            caption=(f"Coefficients from a multiple regression of "
+                     f"{book.described(outcome)} on {book.joined(predictors)}. "
+                     f"{_significance_note(result)}. "
                      "Intervals crossing zero are compatible with no effect."),
         )
         reason = ("With several predictors, a coefficient plot shows each adjusted "
@@ -140,12 +227,13 @@ def _regression(run_id, version_id, variables, result, audience) -> dict[str, An
         spec = ResearchVisualSpec(
             visual_type=VisualType.SCATTER,
             analysis_run_id=run_id, dataset_version_id=version_id,
-            x=Encoding(field=predictors[0], label=predictors[0].replace("_", " ")),
-            y=Encoding(field=outcome, label=outcome.replace("_", " ")),
+            x=book.encoding(predictors[0]),
+            y=book.encoding(outcome),
             uncertainty=UncertaintyDisplay.BAND,
             annotations=[Annotation(kind="regression_line", text="fitted line with interval")],
-            title=f"{outcome.replace('_', ' ')} against {predictors[0].replace('_', ' ')}",
-            caption=(f"Simple linear regression. {_significance_note(result)}. "
+            title=f"{book.label(outcome)} against {book.label(predictors[0])}",
+            caption=(f"Simple linear regression of {book.described(outcome)} on "
+                     f"{book.described(predictors[0])}. {_significance_note(result)}. "
                      "Association does not establish causation."),
         )
         reason = ("A single predictor is best shown as a scatter plot with the fitted "
@@ -157,7 +245,8 @@ def _regression(run_id, version_id, variables, result, audience) -> dict[str, An
             "interpretation": result.get("interpretation", ""), "alternatives": alternatives}
 
 
-def _group_comparison(run_id, version_id, variables, result, audience) -> dict[str, Any]:
+def _group_comparison(run_id, version_id, variables, result, audience,
+                      book=_NO_LABELS) -> dict[str, Any]:
     value, group = variables["value"], variables["group"]
     groups = (result.get("extra") or {}).get("groups") or {}
     many = len(groups) > 2
@@ -168,12 +257,13 @@ def _group_comparison(run_id, version_id, variables, result, audience) -> dict[s
     spec = ResearchVisualSpec(
         visual_type=VisualType.BOX,
         analysis_run_id=run_id, dataset_version_id=version_id,
-        x=Encoding(field=group, label=group.replace("_", " ")),
-        y=Encoding(field=value, label=value.replace("_", " ")),
-        group=Encoding(field=group, label=group.replace("_", " ")),
+        x=book.encoding(group),
+        y=book.encoding(value),
+        group=book.encoding(group),
         uncertainty=UncertaintyDisplay.NONE,
-        title=f"{value.replace('_', ' ')} by {group.replace('_', ' ')}",
-        caption=(f"Distribution of {value} across {group}. {_significance_note(result)}. "
+        title=f"{book.label(value)} by {book.label(group)}",
+        caption=(f"Distribution of {book.described(value)} across "
+                 f"{book.described(group)}. {_significance_note(result)}. "
                  "Boxes show the median and interquartile range."),
     )
     return {
@@ -193,16 +283,17 @@ def _group_comparison(run_id, version_id, variables, result, audience) -> dict[s
     }
 
 
-def _contingency(run_id, version_id, variables, result, audience) -> dict[str, Any]:
+def _contingency(run_id, version_id, variables, result, audience,
+                 book=_NO_LABELS) -> dict[str, Any]:
     x_name, y_name = variables["x"], variables["y"]
     spec = ResearchVisualSpec(
         visual_type=VisualType.HEATMAP,
         analysis_run_id=run_id, dataset_version_id=version_id,
-        x=Encoding(field=x_name, label=x_name.replace("_", " ")),
-        y=Encoding(field=y_name, label=y_name.replace("_", " ")),
-        title=f"{x_name.replace('_', ' ')} by {y_name.replace('_', ' ')}",
-        caption=(f"Contingency table of {x_name} against {y_name}. "
-                 f"{_significance_note(result)}."),
+        x=book.encoding(x_name),
+        y=book.encoding(y_name),
+        title=f"{book.label(x_name)} by {book.label(y_name)}",
+        caption=(f"Contingency table of {book.described(x_name)} against "
+                 f"{book.described(y_name)}. {_significance_note(result)}."),
     )
     return {
         "visual_type": VisualType.HEATMAP,
@@ -215,17 +306,19 @@ def _contingency(run_id, version_id, variables, result, audience) -> dict[str, A
     }
 
 
-def _descriptive(run_id, version_id, variables, result, audience) -> dict[str, Any]:
+def _descriptive(run_id, version_id, variables, result, audience,
+                 book=_NO_LABELS) -> dict[str, Any]:
     columns = list(variables.get("columns") or [])
     if not columns:
         raise RecommendationError("descriptive analysis named no columns to plot")
     spec = ResearchVisualSpec(
         visual_type=VisualType.HISTOGRAM,
         analysis_run_id=run_id, dataset_version_id=version_id,
-        x=Encoding(field=columns[0], label=columns[0].replace("_", " ")),
+        x=book.encoding(columns[0]),
         y=Encoding(field="count", label="count", include_zero=True),
-        title=f"Distribution of {columns[0].replace('_', ' ')}",
-        caption=(f"Distribution of {columns[0]}. {_significance_note(result)}."),
+        title=f"Distribution of {book.label(columns[0])}",
+        caption=(f"Distribution of {book.described(columns[0])}. "
+                 f"{_significance_note(result)}."),
     )
     return {
         "visual_type": VisualType.HISTOGRAM,

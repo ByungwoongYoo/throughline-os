@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { Hierarchy, TreeNode } from "@/components/charts/Hierarchy";
 import { Ribbon, FlowNode, FlowLink } from "@/components/charts/Ribbon";
 import { SetRegions } from "@/components/charts/SetRegions";
@@ -148,7 +148,11 @@ describe("P10 set regions", () => {
 
     expect(screen.getByText(/have no papers at all|has no papers at all/i))
       .toBeInTheDocument();
-    expect(screen.getByText(/Reports MIC \+ Shares raw data/)).toBeInTheDocument();
+    // Scoped to the caption: the same combination also appears as a row in
+    // the figure's data table, which is a second, equally valid match.
+    const caption = document.querySelector<HTMLElement>(".chart-caption")!;
+    expect(within(caption).getByText(/Reports MIC \+ Shares raw data/))
+      .toBeInTheDocument();
   });
 
   it("states that rows are exclusive, so they sum rather than overlap", () => {

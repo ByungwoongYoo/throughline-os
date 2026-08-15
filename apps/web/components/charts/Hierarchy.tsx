@@ -27,6 +27,7 @@
 import { useId, useMemo } from "react";
 import { hierarchy, treemap, partition, cluster, HierarchyNode } from "d3-hierarchy";
 import { categorical } from "@/lib/tokens";
+import { ChartTable } from "./ChartTable";
 
 export type TreeNode = {
   /** Stable identity. Object constancy depends on it. */
@@ -96,6 +97,13 @@ function unrepresentable(root: TreeNode): string[] {
   return bad;
 }
 
+/** Every leaf beneath a node, flattened depth-first — the table reads sizes
+    linearly, so containment is dropped and only label/value survive. */
+function leavesOf(node: TreeNode): TreeNode[] {
+  if (!node.children || node.children.length === 0) return [node];
+  return node.children.flatMap(leavesOf);
+}
+
 export function Hierarchy({
   root, layout = "treemap", valueLabel, title, caption,
   width = 720, height = 420,
@@ -162,6 +170,11 @@ export function Hierarchy({
 
   const total = laid.value ?? 0;
   const nodes = laid.descendants().filter((d) => d.depth > 0);
+  const tableColumns = [
+    { key: "label", header: "Label" },
+    { key: "value", header: valueLabel, numeric: true },
+  ];
+  const tableRows = leavesOf(root).map((n) => ({ label: n.label, value: n.value }));
   const colour = (d: HierarchyNode<TreeNode>) => {
     const branches = laid.children ?? [];
     const i = branches.findIndex((b) => b.data.id === branchOf(d));
@@ -264,6 +277,12 @@ export function Hierarchy({
             + "ones, so each value is printed rather than left to be judged by "
             + "eye. For ranking these precisely, use a bar chart."}
       </figcaption>
+
+      <ChartTable
+        columns={tableColumns}
+        rows={tableRows}
+        label={title ?? `${valueLabel} for each item in the hierarchy`}
+      />
     </figure>
   );
 }

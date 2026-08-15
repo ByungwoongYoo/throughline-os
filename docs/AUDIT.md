@@ -1,5 +1,18 @@
 # Audit against the unified brief
 
+> **Superseded — this is a snapshot, not current status.** It was written when
+> the suite held 199 tests and `apps/web` had three dependencies. The suite now
+> holds 565 and the web app renders fourteen chart primitives, so this document's
+> headline finding below — that no chart is drawn in the browser — has not been
+> true for some time.
+>
+> It is kept because the reasoning still reads well and the "retain / redesign /
+> remove" judgements mostly still hold. For where the project actually stands and
+> what is left, see `ROADMAP.md`.
+>
+> Undated audits are how a project ends up quoting its own stale conclusions back
+> at itself; the figures in the next paragraph are this one's date stamp.
+
 Per Part Q. Grounded in the code as it stands: ~13,300 lines of Python, ~4,600
 of TypeScript/CSS, 50 tables, 55 endpoints, 199 tests.
 

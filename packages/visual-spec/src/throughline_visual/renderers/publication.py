@@ -18,8 +18,11 @@ matplotlib.use("Agg")  # no display, no interactive backend
 
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+from matplotlib.colors import LogNorm, PowerNorm  # noqa: E402
 
-from ..spec import ResearchVisualSpec, Scale, UncertaintyDisplay, VisualData, VisualType  # noqa: E402
+from ..spec import (  # noqa: E402
+    BinShape, ResearchVisualSpec, Scale, UncertaintyDisplay, VisualData, VisualType,
+)
 
 #:  — journal-style defaults. Restrained, legible at column width.
 PUBLICATION_STYLE: dict[str, Any] = {
@@ -81,11 +84,63 @@ def _draw(spec: ResearchVisualSpec, data: VisualData, axes) -> None:
         VisualType.BAR: _bar,
         VisualType.HISTOGRAM: _histogram,
         VisualType.HEATMAP: _heatmap,
+        VisualType.HEXBIN: _hexbin,
     }
     drawer = drawers.get(spec.visual_type)
     if drawer is None:
         raise RenderError(f"No publication renderer for {spec.visual_type}")
     drawer(spec, data, axes)
+
+
+def _hexbin(spec, data: VisualData, axes) -> None:
+    """Density by cell, for sample sizes where marks would overplot.
+
+    Hexagons rather than squares: a square grid produces horizontal and vertical
+    banding that reads as structure in the data, and every point in a hexagon is
+    closer to its centre than in a square of equal area, so the count in a cell
+    is a fairer summary of the neighbourhood.
+
+    A sequential, perceptually uniform colour map, because the encoded quantity
+    is a count — ordered, single-ended, with a meaningful zero. Diverging would
+    invent a midpoint that does not exist.
+    """
+    xs = np.asarray(data.x_values, dtype=float)
+    ys = np.asarray(data.y_values, dtype=float)
+    if xs.size == 0:
+        raise RenderError("A binned figure needs observations to bin.")
+
+    bins = spec.bin_count or 30
+    scale = str(spec.count_scale)
+
+    if spec.bin_shape is BinShape.SQUARE:
+        norm = (LogNorm() if scale == "log"
+                else PowerNorm(0.5) if scale == "sqrt" else None)
+        counts, _, _, mesh = axes.hist2d(xs, ys, bins=bins, cmap="viridis",
+                                         norm=norm, cmin=1)
+    else:
+        # matplotlib's own log binning for hexagons; sqrt via PowerNorm.
+        mesh = axes.hexbin(
+            xs, ys, gridsize=bins, cmap="viridis", mincnt=1,
+            linewidths=0.2, edgecolors="white",
+            bins="log" if scale == "log" else None,
+            norm=PowerNorm(0.5) if scale == "sqrt" else None,
+        )
+
+    bar = axes.get_figure().colorbar(mesh, ax=axes, pad=0.02)
+    # The scale is named, not implied. A reader assuming linear when the ramp is
+    # logarithmic misjudges the ratio between two cells by an order of
+    # magnitude — the same class of error as an unstated bin width.
+    suffix = "" if scale == "linear" else f" ({scale} scale)"
+    bar.set_label(f"observations per cell{suffix}", fontsize=8)
+    bar.ax.tick_params(labelsize=7)
+
+    # Empty cells are left unpainted (mincnt=1) rather than drawn as the lowest
+    # colour, so "no data here" and "a little data here" stay distinguishable.
+    if any(a.kind == "regression_line" for a in spec.annotations) and xs.size > 1:
+        slope, intercept = np.polyfit(xs, ys, 1)
+        line_x = np.linspace(xs.min(), xs.max(), 100)
+        axes.plot(line_x, slope * line_x + intercept, color="#B91C1C",
+                  linewidth=1.4, linestyle="--", label="_nolegend_")
 
 
 def _scatter(spec, data: VisualData, axes) -> None:
@@ -131,7 +186,7 @@ def _forest(spec, data: VisualData, axes) -> None:
                   fmt="o", color=PALETTE[0], ecolor="#555555",
                   capsize=3, markersize=5, linewidth=1.1)
     axes.set_yticks(positions)
-    axes.set_yticklabels([c.replace("_", " ") for c in data.categories])
+    axes.set_yticklabels([_category_label(spec, c) for c in data.categories])
     axes.invert_yaxis()
     for annotation in spec.annotations:
         if annotation.kind == "reference_line" and annotation.value is not None:
@@ -233,6 +288,17 @@ def _decorate(spec: ResearchVisualSpec, data: VisualData, figure, axes) -> None:
 def _axis_label(encoding) -> str:
     label = encoding.label or encoding.field.replace("_", " ")
     return f"{label} ({encoding.unit})" if encoding.unit else label
+
+
+def _category_label(spec, category) -> str:
+    """Text for one tick on an axis that lists categories.
+
+    A forest plot's categories are column names, so the spec carries their
+    labels. Humanising is the fallback for a spec written before those labels
+    existed — not the intended path.
+    """
+    text = str(category)
+    return spec.category_labels.get(text) or text.replace("_", " ")
 
 
 def _wrap(text: str, width: int = 110) -> str:

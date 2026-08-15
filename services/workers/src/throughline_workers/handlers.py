@@ -221,7 +221,12 @@ def _ingest_dataset(
     schema_passages = [
         document_parser.Passage(
             ordinal=column.ordinal,
-            content=(f"Column {column.name} ({column.physical_type}, {column.semantic_type})"
+            # The file's own label leads where there is one. A researcher
+            # searches for "antibiotic use", not for `q7a_rec`, and on an SPSS
+            # or Stata import the file already told us which is which.
+            content=(f"Column {column.name}"
+                     + (f" — {label}" if (label := getattr(column, "label", "")) else "")
+                     + f" ({column.physical_type}, {column.semantic_type})"
                      + (f" in {column.unit}" if column.unit else "")
                      + f". {column.unique_count} distinct values, "
                        f"{column.missing_count} missing."),
@@ -284,9 +289,15 @@ def analysis_run(run: dict[str, Any], cur: Any) -> dict[str, Any]:
 
     spec_row["_dataset"] = {"content_hash": location["content_hash"],
                             "row_count": location["row_count"]}
+    # The sandbox reads the file, so it only knows the headers as written. A
+    # spec may legitimately name the normalised form instead — discovery always
+    # does — and translating here is what makes both spellings actually run.
+    for_sandbox = analysis.to_file_columns(
+        cur, dataset_version_id=version_ids[0], spec=spec_row)
     spec_payload = {
-        "method": spec_row["method"], "variables": spec_row["variables"],
-        "filters": spec_row["filters"], "confidence_level": spec_row["confidence_level"],
+        "method": spec_row["method"], "variables": for_sandbox["variables"],
+        "filters": for_sandbox["filters"],
+        "confidence_level": spec_row["confidence_level"],
         "method_rationale": spec_row["method_rationale"],
         "random_seed": spec_row["random_seed"], "parameters": spec_row["parameters"],
     }

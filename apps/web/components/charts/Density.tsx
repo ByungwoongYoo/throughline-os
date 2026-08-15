@@ -27,6 +27,7 @@ import { max } from "d3-array";
 import { scaleLinear } from "d3-scale";
 import { area as d3area, curveBasis } from "d3-shape";
 import { categorical } from "@/lib/tokens";
+import { ChartTable } from "./ChartTable";
 
 export type DensityCurve = {
   /** Stable identity, so a re-render moves the path rather than redrawing it. */
@@ -38,6 +39,17 @@ export type DensityCurve = {
   quartiles?: number[];
   n: number;
 };
+
+/** The x-value where a curve's density is highest — the mode, read directly
+    off the arrays the curve was already given rather than re-estimated. */
+function peakOf(curve: DensityCurve): number | undefined {
+  if (!curve.x.length || !curve.density.length) return undefined;
+  let bestIndex = 0;
+  for (let i = 1; i < curve.density.length; i += 1) {
+    if (curve.density[i] > curve.density[bestIndex]) bestIndex = i;
+  }
+  return curve.x[bestIndex];
+}
 
 const M = { top: 14, right: 18, bottom: 46, left: 56 };
 
@@ -78,6 +90,19 @@ export function Density({
     [xScale, yScale, inner.h]);
 
   const ticks = xScale.ticks(6);
+
+  // The median column only appears when at least one curve actually carries
+  // quartiles — peak is always trivially available from the curve's own arrays.
+  const hasMedian = curves.some((c) => c.quartiles?.[1] !== undefined);
+  const tableColumns = [
+    { key: "label", header: "Group" },
+    { key: "n", header: "n", numeric: true },
+    { key: "peak", header: "Peak", numeric: true },
+    ...(hasMedian ? [{ key: "median", header: "Median", numeric: true }] : []),
+  ];
+  const tableRows = curves.map((c) => ({
+    id: c.id, label: c.label, n: c.n, peak: peakOf(c), median: c.quartiles?.[1],
+  }));
 
   return (
     <figure className="chart">
@@ -168,6 +193,12 @@ export function Density({
 
       {bandwidthNote && <p className="chart-caption">{bandwidthNote}</p>}
       {caption && <figcaption className="chart-caption">{caption}</figcaption>}
+
+      <ChartTable
+        columns={tableColumns}
+        rows={tableRows}
+        label={title ?? `Distribution of ${xLabel}`}
+      />
     </figure>
   );
 }

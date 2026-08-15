@@ -33,6 +33,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { extent } from "d3-array";
 import { scaleLinear } from "d3-scale";
 import { interpolateYlGnBu } from "d3-scale-chromatic";
+import { ChartTable } from "./ChartTable";
 
 export type Point3D = {
   /** Stable identity. */
@@ -262,6 +263,18 @@ export function Volume({
     setMoved(true);
   }, []);
 
+  const hasValue = points.some((p) => p.value !== undefined);
+  const tableColumns = [
+    { key: "label", header: "Label" },
+    { key: "x", header: xLabel, numeric: true },
+    { key: "y", header: yLabel, numeric: true },
+    { key: "z", header: zLabel, numeric: true },
+    ...(hasValue ? [{ key: "value", header: valueLabel ?? "Value", numeric: true }] : []),
+  ];
+  const tableRows = points.map((p) => ({
+    id: p.id, label: p.label, x: p.x, y: p.y, z: p.z, value: p.value,
+  }));
+
   return (
     <figure className="chart">
       {title && <figcaption className="chart-title">{title}</figcaption>}
@@ -319,6 +332,12 @@ export function Volume({
         If two of these three variables answer your question, a flat scatter
         will answer it more accurately than this will.
       </figcaption>
+
+      <ChartTable
+        columns={tableColumns}
+        rows={tableRows}
+        label={title ?? `Points positioned by ${xLabel}, ${yLabel} and ${zLabel}`}
+      />
     </figure>
   );
 }

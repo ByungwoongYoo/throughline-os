@@ -32,6 +32,7 @@
 import { useId, useMemo, useState } from "react";
 import { scaleLinear } from "d3-scale";
 import { categorical } from "@/lib/tokens";
+import { ChartTable } from "./ChartTable";
 
 export type TemporalEvent = {
   /** Stable identity. Object constancy depends on it. */
@@ -128,6 +129,21 @@ export function Temporal({
 
   /** Where the curve drops below half, if it ever does. */
   const median = steps.find((s) => s.survival <= 0.5);
+
+  const hasGroup = events.some((e) => e.group !== undefined);
+  const tableColumns = [
+    { key: "label", header: "Label" },
+    { key: "time", header: unitLabel, numeric: true },
+    { key: "observed", header: "Status" },
+    ...(hasGroup ? [{ key: "group", header: "Group" }] : []),
+  ];
+  const tableRows = events.map((e) => ({
+    id: e.id,
+    label: e.label,
+    time: e.time,
+    observed: e.observed ? "event" : "censored",
+    group: e.group,
+  }));
 
   const path = steps.map((step, i) => {
     const px = x(step.time);
@@ -271,6 +287,12 @@ export function Temporal({
             remaining of {hover.atRisk} at risk.</>
         )}
       </figcaption>
+
+      <ChartTable
+        columns={tableColumns}
+        rows={tableRows}
+        label={title ?? `Time to ${outcomeLabel} since ${originLabel}`}
+      />
     </figure>
   );
 }

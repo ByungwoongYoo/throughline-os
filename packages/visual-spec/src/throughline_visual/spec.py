@@ -34,11 +34,55 @@ class VisualType(StrEnum):
     LINE = "line"
     FOREST = "forest"
     HEATMAP = "heatmap"
+    #: Two continuous variables at a sample size where one mark per row stops
+    #: being readable. A scatter does not fail loudly when it overplots — it
+    #: fills in, and a region holding fifty points and one holding five thousand
+    #: both render as solid ink. Binning counts per cell and shades by that
+    #: count, so density becomes visible instead of saturating.
+    HEXBIN = "hexbin"
 
 
 class Scale(StrEnum):
     LINEAR = "linear"
     LOG = "log"
+
+
+class BinShape(StrEnum):
+    """How a binned figure tiles the plane.
+
+    One primitive, two arguments — a hexbin and a 2-D histogram differ only in
+    the shape of the cell, which is why the catalogue lists them together.
+
+    They are not interchangeable in use. Hexagons avoid the horizontal and
+    vertical banding a square grid produces, which the eye reads as structure in
+    the data, and every point in a hexagon sits closer to its centre than in a
+    square of equal area. Squares give that up and buy something back: a cell
+    maps onto a readable x-range and y-range, and the marginal distributions can
+    be recovered by summing rows and columns. Seeing density favours hexagons;
+    reading values off the axes favours squares.
+    """
+
+    HEX = "hex"
+    SQUARE = "square"
+
+
+class CountScale(StrEnum):
+    """How cell counts map onto colour.
+
+    Rarely linear, and the default reflects that. Binned counts are usually
+    heavy-tailed: a few central cells hold most of the observations, so a linear
+    ramp gives them the top of the range and collapses everything else into the
+    darkest two or three shades — a more colourful version of the overplotting
+    the chart exists to cure.
+
+    The choice changes how dramatic the density looks, so it is named on the
+    colour bar. A reader assuming linear when the scale is logarithmic misjudges
+    the ratio between two cells by an order of magnitude.
+    """
+
+    LINEAR = "linear"
+    LOG = "log"
+    SQRT = "sqrt"
 
 
 class UncertaintyDisplay(StrEnum):
@@ -93,6 +137,37 @@ class ResearchVisualSpec(BaseModel):
 
     uncertainty: UncertaintyDisplay = UncertaintyDisplay.NONE
     annotations: list[Annotation] = Field(default_factory=list)
+
+    #: Reader-facing text for category values, keyed by the value itself.
+    #:
+    #: Most category axes list data values — "north", "south" — which are the
+    #: researcher's own words and need no translation. A forest plot's axis is
+    #: the exception: it lists *column names*, one per predictor, and no
+    #: encoding describes them (`x` describes the estimate, `y` the row). This
+    #: is where their labels travel, so a renderer never has to decide for
+    #: itself whether a category is a variable or a value. Unlisted categories
+    #: render exactly as they arrive.
+    category_labels: dict[str, str] = Field(default_factory=dict)
+
+    #: Cells across the x range for a binned figure.
+    #:
+    #: Explicit and required rather than a renderer default, because bin width
+    #: is not a cosmetic choice: widen it and a two-humped distribution becomes
+    #: one hump, narrow it and noise becomes structure. Same data, opposite
+    #: readings, with nothing on the figure saying which was chosen. It is
+    #: stated in the caption for the same reason a density plot states its
+    #: bandwidth — the shape is partly a decision, so the decision is published.
+    bin_count: int | None = Field(default=None, ge=4, le=200)
+
+    #: Cell shape for a binned figure. Hexagons by default: the banding a square
+    #: grid produces is read as structure, and structure is the thing this chart
+    #: is being trusted to report.
+    bin_shape: BinShape = BinShape.HEX
+
+    #: How counts map onto colour. Logarithmic by default because binned counts
+    #: are heavy-tailed; stated on the colour bar because it changes the apparent
+    #: ratio between cells.
+    count_scale: CountScale = CountScale.LOG
 
     # --- editorial -----------------------------------------------------------
     title: str = ""
