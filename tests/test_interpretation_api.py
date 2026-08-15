@@ -282,8 +282,11 @@ def test_a_recorded_challenge_is_readable(client):
             "'association', 'validated')", (project_id,))
         write.execute(
             "INSERT INTO challenges(id, project_id, finding_id, lifecycle_before, "
-            "verdict, summary) VALUES ('chal_1', %s, 'fnd_argued', 'validated', "
-            "'weakened', 'The effect does not survive the outlier being removed.')",
+            "verdict, summary, probes) VALUES ('chal_1', %s, 'fnd_argued', "
+            "'validated', 'weakened', "
+            "'The effect does not survive the outlier being removed.', "
+            """'[{"name": "outlier_sensitivity", "outcome": "fails", '
+            '"detail": "Dropping the single largest residual removes the effect."}]'::jsonb)""",
             (project_id,))
         conn.commit()
 
@@ -293,6 +296,13 @@ def test_a_recorded_challenge_is_readable(client):
     assert len(body["challenges"]) == 1
     assert body["challenges"][0]["verdict"] == "weakened"
     assert "outlier" in body["challenges"][0]["summary"]
+
+    # The argument, not only the conclusion. Returning a verdict while leaving
+    # the probes that produced it in the database is the same failure the critic
+    # exists to prevent, one level down.
+    probes = body["challenges"][0]["probes"]
+    assert probes and probes[0]["name"] == "outlier_sensitivity"
+    assert "largest residual" in probes[0]["detail"]
 
     with connection() as conn, conn.cursor() as write:
         write.execute("DELETE FROM challenges WHERE id = 'chal_1'")

@@ -318,4 +318,27 @@ def challenges(project_id: str, finding_id: str,
     }
 
 
+@router.get("/projects/{project_id}/withdrawn")
+def withdrawn_sources(project_id: str,
+                      user: dict = Depends(signed_in)) -> dict[str, Any]:
+    """
+    What has been taken back upstream, and what still rests on it.
+
+    Harvesting marks a withdrawn source rather than deleting it, which is right —
+    by then it may already be quoted or cited, and deleting it would destroy both
+    the reference and the evidence that it was withdrawn. But the mark was
+    written and never read, so a retracted paper could sit in a corpus, be quoted
+    verbatim, be cited in an exported report, and nothing would say so.
+
+    A fact recorded where nobody looks is barely better than one not recorded,
+    and on a retraction it is worse: the record implies somebody is watching.
+    """
+    _scoped(project_id, user)
+
+    from throughline_domain import withdrawals
+
+    with transaction() as cur:
+        return withdrawals.withdrawn(cur, project_id)
+
+
 __all__ = ["router"]

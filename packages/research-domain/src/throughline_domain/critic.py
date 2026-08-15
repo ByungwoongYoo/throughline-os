@@ -178,8 +178,15 @@ def _summary(verdict: str, probes: list[dict[str, Any]]) -> str:
 
 def challenges_for(cur, finding_id: str) -> list[dict[str, Any]]:
     cur.execute(
-        "SELECT id, verdict, summary, lifecycle_before, lifecycle_after, created_at, "
-        "finished_at FROM challenges WHERE finding_id = %s ORDER BY created_at DESC",
+        # `probes` is the argument. Without it this returns a verdict and a
+        # one-line summary — the conclusion, with the reasoning that produced it
+        # left in the database. That is the same failure the critic exists to
+        # prevent, one level down: a machine deciding a finding is weaker and
+        # not showing its working. It was written by every challenge and read by
+        # nothing until this line included it.
+        "SELECT id, verdict, summary, probes, lifecycle_before, lifecycle_after, "
+        "created_at, finished_at FROM challenges WHERE finding_id = %s "
+        "ORDER BY created_at DESC",
         (finding_id,),
     )
     return list(cur.fetchall())
