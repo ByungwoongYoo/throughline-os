@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -365,6 +366,53 @@ def sync() -> int:
     return 0
 
 
+def _undeclared_but_needed(python: Path) -> list[str]:
+    """
+    Dependencies the packages declare that the virtualenv does not have.
+
+    Merging somebody's branch can add a dependency, and an editable install does
+    not notice: the metadata was written when the package was installed, so pip
+    sees nothing wrong. What the developer sees instead is a test failing on an
+    unrelated-looking assertion — a `.sav` file reported as needing a runtime
+    that is not installed reads like a broken merge, and the search starts in
+    entirely the wrong place. Naming it costs one subprocess.
+
+    Distribution names are normalised because `pyreadstat>=1.2`,
+    `python-docx` and `Pillow` all arrive spelled differently from the module
+    they install.
+    """
+    import tomllib
+
+    wanted: set[str] = set()
+    for package in PACKAGES:
+        pyproject = ROOT / package / "pyproject.toml"
+        if not pyproject.exists():
+            continue
+        # Parsed rather than pattern-matched. The first version read the file
+        # line by line and broke on `services/workers`, which declares its
+        # dependencies on a single line — every entry after the first became one
+        # mangled string, and preflight reported a package missing that was
+        # installed. tomllib has been in the standard library since 3.11, so
+        # this costs nothing and cannot misread a valid file.
+        declared = tomllib.loads(pyproject.read_text())
+        project = declared.get("project", {})
+        for entry in project.get("dependencies", []):
+            name = re.split(r"[<>=!~\[; ]", entry, 1)[0].strip()
+            if name:
+                wanted.add(name.lower().replace("_", "-"))
+
+    check = (
+        "import importlib.metadata as m, sys;"
+        "want = sys.argv[1:];"
+        "have = {d.metadata['Name'].lower().replace('_','-') "
+        "        for d in m.distributions() if d.metadata['Name']};"
+        "print('\\n'.join(sorted(set(want) - have)))"
+    )
+    result = subprocess.run([str(python), "-c", check, *sorted(wanted)],
+                            capture_output=True, text=True)
+    return [line for line in result.stdout.split() if line]
+
+
 def _other_suites() -> list[str]:
     """
     Test runs already in flight, excluding this process and its children.
@@ -402,6 +450,19 @@ def preflight(full: bool) -> int:
     python = venv_python()
     if not python.exists():
         print("No virtualenv. Run bootstrap first.", file=sys.stderr)
+        return 1
+
+    missing = _undeclared_but_needed(python)
+    if missing:
+        print("The virtualenv is behind what the packages declare. Missing:",
+              file=sys.stderr)
+        for name in missing:
+            print(f"  {name}", file=sys.stderr)
+        print("\nRun bootstrap. This usually means somebody added a dependency "
+              "and your environment predates it — a stale venv fails as a "
+              "puzzling test failure rather than as a missing package, which "
+              "reads like a broken merge and sends you looking in the wrong "
+              "place.", file=sys.stderr)
         return 1
 
     others = _other_suites()
