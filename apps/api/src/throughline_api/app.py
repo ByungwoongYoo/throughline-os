@@ -18,6 +18,7 @@ from fastapi import Cookie, Depends, FastAPI, File, HTTPException, Query, Reques
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from throughline_domain import (
+    example,
     analysis, auth, critic, discovery, embeddings, findings, graphs,
     harmonize, lineage, objects, observability, retrieval, storage,
     validation, visuals, workflow,
@@ -420,6 +421,28 @@ def create_project(payload: ProjectCreate, user: dict = Depends(current_user)) -
              payload.description),
         )
         return cur.fetchone()
+
+
+
+@app.post("/api/projects/example", status_code=201)
+def create_example_project(user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Seed the worked example (Part B6).
+
+    Returns as soon as the sources are queued rather than waiting for them.
+    Ingesting a PDF takes seconds, the workspace already knows how to show a
+    source that is still being read, and watching the example assemble itself
+    is a better introduction to the pipeline than a spinner followed by a
+    finished screen.
+
+    Idempotent per user: asking twice returns the project that already exists,
+    because two identical examples would leave nobody able to tell which one
+    they had been reading.
+    """
+    with transaction() as cur:
+        result = example.create(cur, user_id=user["id"], actor=user["id"])
+        cur.execute("SELECT * FROM projects WHERE id = %s", (result["project_id"],))
+        project = cur.fetchone()
+    return {**project, "created": result["created"]}
 
 
 @app.delete("/api/projects/{project_id}", status_code=200)

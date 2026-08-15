@@ -3274,3 +3274,29 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   /* The default focus ring is a custom colour, which this mode discards. */
   :focus-visible { outline: 3px solid Highlight; }
 }
+
+/* --- the worked example on the first screen (Part B6) --------------------- */
+
+.first-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+/* Sits under the pair of buttons rather than beside either: it qualifies both
+   choices, and a researcher deciding between them should read it before
+   clicking, not after. */
+.first-note {
+  margin: 0 0 26px;
+  font-size: 12.5px;
+  color: var(--ink-faint);
+  max-width: 52ch;
+}
+
+.first-error {
+  margin: 0 0 20px;
+  font-size: 12.5px;
+  color: var(--danger, #B42318);
+  max-width: 60ch;
+}
