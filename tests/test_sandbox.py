@@ -206,3 +206,73 @@ def test_network_egress_is_blocked_inside_the_sandbox(dataset, tmp_path):
     assert payload["notes"] == ["socket_connect_blocked"]
     assert payload["outcome"].startswith("blocked:")
     assert payload["ssl"] == "ssl"
+
+
+# ---------------------------------------------------------------------------
+# A limit that could not be applied must not pass silently
+# ---------------------------------------------------------------------------
+
+def test_an_unapplied_memory_limit_is_admitted_in_the_run(monkeypatch, tmp_path):
+    """
+    Both RLIMIT_AS and RLIMIT_DATA can be refused — macOS refuses the first for
+    large values, and some hosts refuse both. That used to be caught and
+    discarded, so the sandbox claimed a ceiling it was not applying while
+    everything downstream went on believing it.
+
+    Running anyway is right: refusing would make the platform unusable wherever
+    this happens. Being quiet about it is not. The parent captures the child's
+    stderr into the recorded result, so the run carries the admission.
+    """
+    import os
+    import resource as resource_module
+
+    from throughline_runtime import executor
+
+    written: list[bytes] = []
+
+    def refuse_memory_only(which, _limits):
+        # Faithful to the real case: macOS refuses the address-space limit, not
+        # the CPU one, so refusing everything would raise before the memory
+        # block is reached.
+        #
+        # The other limits are swallowed rather than applied. This helper is
+        # written to run in a forked child immediately before exec; calling it
+        # in-process applies the limits to pytest itself, and RLIMIT_NPROC(64)
+        # on the test runner breaks every subprocess for the rest of the session.
+        if which in (resource_module.RLIMIT_AS, resource_module.RLIMIT_DATA):
+            raise OSError("not permitted on this platform")
+        return None
+
+    monkeypatch.setattr(resource_module, "setrlimit", refuse_memory_only)
+    monkeypatch.setattr(executor.os, "setsid", lambda: None)
+    monkeypatch.setattr(executor.os, "write",
+                        lambda fd, data: written.append(data))
+
+    executor._limit_child(executor.SandboxPolicy(memory_mb=512))
+
+    assert written, "no warning was written when the limit could not be applied"
+    message = b"".join(written).decode()
+    assert "WITHOUT a memory ceiling" in message
+    assert "512MB" in message
+
+
+def test_the_warning_names_the_limit_that_was_requested(monkeypatch):
+    """A warning that does not say what was asked for cannot be acted on."""
+    import resource as resource_module
+
+    from throughline_runtime import executor
+
+    written: list[bytes] = []
+
+    def refuse_memory_only(which, _limits):
+        if which in (resource_module.RLIMIT_AS, resource_module.RLIMIT_DATA):
+            raise ValueError("no")
+        return None
+
+    monkeypatch.setattr(resource_module, "setrlimit", refuse_memory_only)
+    monkeypatch.setattr(executor.os, "setsid", lambda: None)
+    monkeypatch.setattr(executor.os, "write", lambda fd, data: written.append(data))
+
+    executor._limit_child(executor.SandboxPolicy(memory_mb=2048))
+
+    assert "2048MB" in b"".join(written).decode()

@@ -2994,3 +2994,18 @@ async def unhandled(request: Request, exc: Exception) -> JSONResponse:
             "hint": "The request was rolled back; no partial state was written.",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# The interpretation layer
+# ---------------------------------------------------------------------------
+#
+# Mounted from its own module rather than written here. Two other branches are
+# open against this file, and several hundred more lines in it would produce a
+# three-way merge that gets resolved wrongly in places. One line does not.
+#
+# Imported at the bottom on purpose: that module reaches back for `current_user`
+# and `scoped_project`, so both have to exist before it loads.
+from .interpretation import router as interpretation_router  # noqa: E402
+
+app.include_router(interpretation_router)

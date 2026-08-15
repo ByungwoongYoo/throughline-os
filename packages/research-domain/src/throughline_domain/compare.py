@@ -286,7 +286,8 @@ def _check_power(left: dict, right: dict) -> Mismatch | None:
 # ---------------------------------------------------------------------------
 
 def assess_datasets(cur, *, project_id: str, left_version_id: str,
-                    right_version_id: str) -> dict[str, Any]:
+                    right_version_id: str,
+                    session_id: str | None = None) -> dict[str, Any]:
     """
     Decide whether two datasets can honestly be compared, and record it.
 
@@ -369,9 +370,25 @@ def assess_datasets(cur, *, project_id: str, left_version_id: str,
          1.0),
     )
 
+    assessment_id = cur.fetchone()["id"]
+
+    # One look at the data, counted. Optional because only the caller knows
+    # whether this belongs to a researcher's working session; without one the
+    # comparison still happens and simply is not counted. Inventing a session id
+    # here would be worse than not counting — it would create a family of one
+    # and report the result as though it were the first thing anybody tried.
+    if session_id:
+        from .exploration import record as record_look
+        record_look(cur, session_id=session_id, project_id=project_id,
+                    verb="compatibility",
+                    description=f"{left_version_id} vs {right_version_id}",
+                    # Deterministic throughout: there is no test statistic to
+                    # correct. It is still a look, and a refusal is still a look.
+                    p_value=None)
+
     return {
         **payload,
-        "assessment_id": cur.fetchone()["id"],
+        "assessment_id": assessment_id,
         "left": {"id": left_version_id, "name": left["source_title"],
                  "rows": left["row_count"], "design": left["study_design"]},
         "right": {"id": right_version_id, "name": right["source_title"],

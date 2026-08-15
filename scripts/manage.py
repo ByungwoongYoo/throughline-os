@@ -354,16 +354,52 @@ def sync() -> int:
     return 0
 
 
+def _other_suites() -> list[str]:
+    """
+    Test runs already in flight, excluding this process and its children.
+
+    Matched on the command line rather than a lock file, because a lock file
+    outlives a run that was killed and then blocks every later one until
+    somebody works out what the stale file is — the fix becoming the next
+    problem. `pgrep -f` needs the self-exclusion below: this process's own
+    command line contains the pattern, so an unfiltered match always finds
+    itself and reports a conflict that is not there. That exact mistake once
+    left five waiter shells spinning for over an hour.
+    """
+    result = subprocess.run(
+        ["pgrep", "-f", "pytest tests"], text=True, capture_output=True)
+    mine = {str(os.getpid()), str(os.getppid())}
+    return [pid for pid in result.stdout.split() if pid not in mine]
+
+
 def preflight(full: bool) -> int:
     """
     Everything CI will check, before anyone else can see it fail.
 
     Deliberately the same checks rather than a cheaper subset: a preflight that
     passes while CI fails teaches you to ignore the preflight.
+
+    It refuses to start while another run is in flight, and that refusal is the
+    most load-bearing line in this function. The suite drives one embedded
+    PostgreSQL, and several fixtures clear whole tables between tests — two runs
+    at once delete each other's rows and produce failures that belong to
+    neither. Observed directly: two concurrent runs of identical code reported
+    11 failures and 15 failures, on different tests, while the code was in fact
+    clean. Either number would have sent somebody hunting a bug that was not
+    there, and a *passing* overlap would have been worse still.
     """
     python = venv_python()
     if not python.exists():
         print("No virtualenv. Run bootstrap first.", file=sys.stderr)
+        return 1
+
+    others = _other_suites()
+    if others:
+        print("Another test run is already using the database "
+              f"(pid {', '.join(others)}).", file=sys.stderr)
+        print("Two runs share one PostgreSQL and clear each other's tables, so "
+              "the result would describe neither. Wait for it, or stop it.",
+              file=sys.stderr)
         return 1
 
     Step = tuple[str, list[str], Path, dict[str, str]]

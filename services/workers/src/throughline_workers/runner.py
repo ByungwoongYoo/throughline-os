@@ -56,6 +56,11 @@ class Worker:
         self.worker_id = worker_id or workflow.WORKER_ID
         self.poll_seconds = poll_seconds
         self._stop = False
+        # Negative infinity rather than 0.0: `time.monotonic()` counts from an
+        # arbitrary point, often boot, so a zero start would make the first
+        # housekeeping run happen at an unpredictable time. This makes it happen
+        # on the first idle tick, which is when there is least to interrupt.
+        self._last_housekeeping = float("-inf")
 
     def request_stop(self, *_: Any) -> None:
         """Finish the run in flight, then exit. No work is abandoned mid-node."""
@@ -79,7 +84,41 @@ class Worker:
                             idle_backoff, type(exc).__name__, exc)
                 worked = False
             if not worked:
+                self._housekeeping()
                 time.sleep(idle_backoff or self.poll_seconds)
+
+    #: How often the idle loop does housekeeping. Long, because none of it is
+    #: urgent and a worker that spends its idle time querying is not idle.
+    HOUSEKEEPING_SECONDS = 3600.0
+
+    def _housekeeping(self) -> None:
+        """
+        Work nothing else was ever going to do.
+
+        `auth.purge_expired_sessions` existed and was called by nothing, so every
+        sign-in left a row that outlived its own expiry forever. Not a security
+        hole — `resolve_session` filters on `expires_at`, so a stale token
+        authenticates nobody — but on an installation meant to run for years it
+        is a table that only grows, and the cost lands on whoever eventually
+        backs it up or restores it.
+
+        Runs on the idle path only, and never fails the worker: this is
+        tidying, and a worker that stops processing research because it could
+        not delete an old session row has its priorities backwards.
+        """
+        now = time.monotonic()
+        if now - self._last_housekeeping < self.HOUSEKEEPING_SECONDS:
+            return
+        self._last_housekeeping = now
+        try:
+            from throughline_domain import auth
+
+            with connection() as conn, conn.cursor() as cur:
+                removed = auth.purge_expired_sessions(cur)
+            if removed:
+                log.info("removed %d expired session(s)", removed)
+        except Exception as exc:  # noqa: BLE001 — tidying must not stop work
+            log.debug("housekeeping skipped: %s: %s", type(exc).__name__, exc)
 
     def run_once(self) -> bool:
         """Process at most one run. Returns True if work was picked up."""

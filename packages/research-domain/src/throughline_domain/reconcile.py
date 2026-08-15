@@ -188,7 +188,8 @@ def _shared_provenance(cur, left_source: str, right_source: str,
 # ---------------------------------------------------------------------------
 
 def reconcile(cur, *, project_id: str, left: dict[str, Any],
-              right: dict[str, Any]) -> dict[str, Any]:
+              right: dict[str, Any],
+              session_id: str | None = None) -> dict[str, Any]:
     """
     Can these two claims be compared, and if so do they agree?
 
@@ -208,6 +209,24 @@ def reconcile(cur, *, project_id: str, left: dict[str, Any],
             kwargs["caveats"] = [*kwargs.get("caveats", []), *design_caveats]
         body = Verdict(outcome_code=code, reason_code=reason,
                        confidence=confidence, evidence_refs=refs, **kwargs)
+
+        # Counted here rather than at each of the ten exits. Every one of them
+        # comes through this closure, including the refusals — and a refusal is
+        # a look at the data like any other. Recording only the comparisons that
+        # produced an answer would report a smaller family than the number of
+        # times the papers were actually interrogated.
+        if session_id:
+            from .exploration import record as record_look
+            record_look(cur, session_id=session_id, project_id=project_id,
+                        verb="paper_reconciliation",
+                        description=(f"{_summary(left).get('title', 'a claim')} "
+                                     f"vs {_summary(right).get('title', 'another')}"
+                                     f" — {code}"),
+                        # Deterministic: constructs are matched through the
+                        # approved vocabulary, so there is no statistic here to
+                        # correct.
+                        p_value=None)
+
         return {"verdict": body.to_dict(),
                 "left": _summary(left), "right": _summary(right),
                 "checks_passed": list(checks)}

@@ -32,6 +32,22 @@ def project(cur):
     return {"id": project_id, "user": user_id, "session": new_id("ses")}
 
 
+def dataset_version(cur, project) -> str:
+    """The chain a discovery run needs: source -> dataset -> version."""
+    source_id, dataset_id, version_id = new_id("src"), new_id("dst"), new_id("dsv")
+    cur.execute(
+        "INSERT INTO sources(id, project_id, title, source_type) "
+        "VALUES (%s, %s, 'A table', 'upload')", (source_id, project["id"]))
+    cur.execute(
+        "INSERT INTO datasets(id, project_id, source_id, name, format) "
+        "VALUES (%s, %s, %s, 'panel', 'csv')",
+        (dataset_id, project["id"], source_id))
+    cur.execute(
+        "INSERT INTO dataset_versions(id, dataset_id, version, content_hash) "
+        "VALUES (%s, %s, 1, 'hash-1')", (version_id, dataset_id))
+    return version_id
+
+
 def look(cur, project, p=None, verb="discovery", prereg=None, what="a test"):
     return exploration.record(
         cur, session_id=project["session"], project_id=project["id"],
@@ -238,3 +254,78 @@ def test_an_unknown_verb_is_refused_rather_than_recorded(cur, project):
         exploration.record(cur, session_id=project["session"],
                            project_id=project["id"], verb="vibes",
                            description="a look")
+
+
+# ---------------------------------------------------------------------------
+# The verbs feed it
+# ---------------------------------------------------------------------------
+#
+# Until these existed the ledger had no source but a manual API call, so in
+# practice it read zero forever — and a library note would say the count was
+# "not recorded" on every finding, which reads as *this does not apply* rather
+# than *nobody counted*. A ledger nothing populates is not a safeguard.
+
+def test_a_discovery_sweep_counts_every_pair_it_tested(cur, project):
+    """
+    The case that produces the most tests by far. A sweep of twelve pairs is a
+    family of twelve, and it forms without anybody remembering to say so.
+    """
+    from throughline_domain import discovery
+
+    run_id = discovery.create_run(cur, project_id=project["id"],
+                                  dataset_version_id=dataset_version(cur, project))
+    for index in range(12):
+        discovery.record_connection(
+            cur, project_id=project["id"], discovery_run_id=run_id,
+            candidate={"left_variable": f"x{index}", "right_variable": "y",
+                       "method": "spearman", "rationale": "both numeric"},
+            analysis_run_id=None,
+            result={"p_value": 0.01 * (index + 1), "sample_size": 40,
+                    "evidence_quality": "moderate"},
+            q_value=None)
+
+    report = exploration.ledger(cur, run_id)
+    assert report["looks"] == 12
+    assert report["family_size"] == 12
+
+
+def test_a_pair_that_could_not_be_tested_still_counts_as_a_look(cur, project):
+    from throughline_domain import discovery
+
+    run_id = discovery.create_run(cur, project_id=project["id"],
+                                  dataset_version_id=dataset_version(cur, project))
+    discovery.record_connection(
+        cur, project_id=project["id"], discovery_run_id=run_id,
+        candidate={"left_variable": "a", "right_variable": "b",
+                   "method": "spearman", "rationale": "both numeric"},
+        analysis_run_id=None, result={"sample_size": 3}, q_value=None)
+
+    report = exploration.ledger(cur, run_id)
+    assert report["looks"] == 1
+    assert report["family_size"] == 0
+    assert report["uncorrectable"] == 1
+
+
+def test_a_sweep_joins_a_wider_session_when_one_is_given(cur, project):
+    """
+    The default makes a sweep its own family, which is right on its own. Given a
+    session, the sweep joins everything else the researcher has looked at — and
+    that wider family is the one the correction should really run over.
+    """
+    from throughline_domain import discovery
+
+    session_id = new_id("ses")
+    exploration.record(cur, session_id=session_id, project_id=project["id"],
+                       verb="claim_test", description="a claim", p_value=0.02)
+
+    run_id = discovery.create_run(cur, project_id=project["id"],
+                                  dataset_version_id=dataset_version(cur, project))
+    discovery.record_connection(
+        cur, project_id=project["id"], discovery_run_id=run_id,
+        candidate={"left_variable": "a", "right_variable": "b",
+                   "method": "spearman", "rationale": "both numeric"},
+        analysis_run_id=None, result={"p_value": 0.03}, q_value=None,
+        session_id=session_id)
+
+    assert exploration.ledger(cur, session_id)["looks"] == 2
+    assert exploration.ledger(cur, run_id)["looks"] == 0
