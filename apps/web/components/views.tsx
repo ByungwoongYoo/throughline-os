@@ -633,6 +633,38 @@ export function ConnectionsTable({ connections, error, loading, reload, onSelect
 // Findings (§13) and the evidence graph (§62)
 // ---------------------------------------------------------------------------
 
+
+/**
+ * Make a non-button element behave like one, for a keyboard as well as a mouse.
+ *
+ * `cursor: pointer` and an `onClick` make something clickable and nothing more:
+ * there is no tab stop, no Enter or Space handling, and a screen reader
+ * announces a div. Measuring the click depth from a finding back to its rows is
+ * what surfaced this — the one click that mattered on that path was reachable
+ * only with a mouse, which makes the depth not five but unreachable.
+ *
+ * Deliberately not applied to the clickable table rows in this file. A row is
+ * not a button, and `role="button"` on a `<tr>` trades one broken semantic for
+ * another; those need a real control inside the row instead, which is a change
+ * to the table markup rather than a prop spread.
+ */
+function activatable(onActivate: () => void) {
+  return {
+    role: "button",
+    tabIndex: 0,
+    style: { cursor: "pointer" },
+    onClick: onActivate,
+    onKeyDown: (event: React.KeyboardEvent) => {
+      // Space scrolls the page by default, so it has to be prevented — the
+      // omission is why "it works with Enter" is usually where this stops.
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        onActivate();
+      }
+    },
+  };
+}
+
 export function Findings({ projectId, onSelect }: {
   projectId: string; onSelect: (id: string) => void;
 }) {
@@ -653,7 +685,7 @@ export function Findings({ projectId, onSelect }: {
         <Empty title="No findings recorded" hint="Validate a connection, then record what it shows as a finding." />
       )}
       {findings.data?.map((finding) => (
-        <div className="card" key={finding.id} style={{ cursor: "pointer" }} onClick={() => onSelect(finding.id)}>
+        <div className="card" key={finding.id} {...activatable(() => onSelect(finding.id))}>
           <div className="row">
             <div style={{ fontWeight: 560 }}>{finding.title}</div>
             <Status value={finding.lifecycle_status} />
