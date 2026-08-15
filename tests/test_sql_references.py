@@ -319,3 +319,113 @@ def test_a_common_table_expression_is_not_expected_in_the_schema():
                "SELECT * FROM reachable")
     local = {name.lower() for name in _CTE.findall(literal)}
     assert "reachable" in local
+
+
+# ---------------------------------------------------------------------------
+# Columns written where nobody reads them
+# ---------------------------------------------------------------------------
+#
+# Three times in one day the same defect shipped: an exploration ledger with no
+# writer, a withdrawal mark with no reader, and `challenges.probes` — the
+# critic's actual evidence — selected by nothing, so a route returned a verdict
+# and left the reasoning in the database.
+#
+# None of those was carelessness about tests. Each was the writing side being
+# finished and the feature being treated as done. A guard notices that; a
+# resolution to be careful does not.
+
+#: Columns that exist to be written and not read back by code, with the reason.
+#: This list is the dangerous part of the check — anything can be silenced by
+#: adding a line to it — so each entry says what makes it legitimately
+#: write-only, and "we do not use it yet" is not one of the reasons.
+WRITE_ONLY = {
+    # Reproducibility: recorded so a run can be repeated or audited by a person
+    # years later. Code reading them back is not the point; their existence is.
+    ("analysis_runs", "dependency_versions"),
+    ("analysis_runs", "environment"),
+    ("analysis_runs", "input_hashes"),
+    ("analysis_runs", "random_seed"),
+    ("analysis_runs", "runtime"),
+    ("analysis_runs", "sandbox_policy"),
+    ("analysis_runs", "duration_ms"),
+    ("analysis_runs", "logs"),
+    ("analysis_runs", "warnings"),
+    # Written for a human reading the audit trail or an export, not for a query.
+    ("audit_log", "action"),
+    ("artifact_renders", "artifact_version"),
+    ("artifact_renders", "byte_size"),
+    ("block_citations", "checked_at"),
+    ("passages", "paragraph_index"),
+    ("sessions", "last_seen_at"),
+    ("plain_summaries", "prompt_tokens"),
+    ("plain_summaries", "completion_tokens"),
+    ("plain_summaries", "duration_ms"),
+    ("variable_aliases", "decided_at"),
+    ("variable_aliases", "decided_by"),
+    ("variable_mappings", "decided_at"),
+    ("variable_mappings", "decided_by"),
+    ("variable_mappings", "mapping_type"),
+    ("dataset_versions", "parent_version_id"),
+    # Named rather than defended: a fork records its ancestry "so a sensitivity
+    # branch is legible", and nothing reads it, so that legibility does not
+    # exist yet. Making it real means building fork lineage — a feature, not a
+    # fix — so it sits here with the reason stated rather than blending in.
+    ("analysis_runs", "forked_from_run_id"),
+    ("analysis_runs", "fork_reason"),
+}
+
+_SELECT_LIST = re.compile(r"SELECT\s+(.+?)\s+FROM", re.S)
+_READ_CONTEXT = re.compile(
+    r"(?:SELECT|WHERE|ORDER BY|RETURNING|GROUP BY|HAVING|ON)\s+(.+?)"
+    r"(?=$|\bFROM\b|\bWHERE\b|\bORDER BY\b|\bLIMIT\b|\bRETURNING\b|\bGROUP BY\b)",
+    re.S)
+
+
+def _read_surface() -> tuple[set[str], set[str]]:
+    """Column names appearing in any read position, and tables read with `*`."""
+    starred: set[str] = set()
+    words: set[str] = set()
+    for path in source_files():
+        for literal in string_literals(path):
+            if not SQL_START.search(literal):
+                continue
+            query = _SQL_COMMENT.sub(" ", literal)
+            for selected in _SELECT_LIST.findall(query):
+                if selected.strip() == "*" or selected.strip().endswith(".*"):
+                    # `SELECT *` reads everything, so nothing in those tables can
+                    # be judged unread. Excluded rather than guessed at.
+                    starred |= {t.lower() for t in
+                                re.findall(r"(?:FROM|JOIN)\s+([a-z_]\w*)", query)}
+            for chunk in _READ_CONTEXT.findall(query):
+                words |= {w.lower() for w in re.findall(r"[a-z_]\w*", chunk)}
+    return words, starred
+
+
+def test_no_column_is_written_where_nothing_reads_it():
+    read_words, starred = _read_surface()
+    unread = sorted(
+        (table, column) for _, _, table, column in written_columns()
+        if table not in starred
+        and column not in read_words
+        and (table, column) not in WRITE_ONLY)
+
+    assert not unread, (
+        "These columns are written and never read anywhere:\n"
+        + "\n".join(f"  {t}.{c}" for t, c in unread)
+        + "\n\nEither something should read them, or add them to WRITE_ONLY "
+          "with the reason they are legitimately write-only. "
+          "'Not used yet' is not one of those reasons — that is the defect "
+          "this check exists to find.")
+
+
+def test_the_allowlist_does_not_outlive_its_entries():
+    """
+    An allowlist nobody prunes becomes a list of things that used to be true.
+    `challenges.probes` is read now; if an entry stops being written at all, it
+    should leave rather than sit here implying a decision was made about it.
+    """
+    written = {(t, c) for _, _, t, c in written_columns()}
+    stale = sorted(entry for entry in WRITE_ONLY if entry not in written)
+    assert not stale, (
+        "These are allowlisted as write-only but nothing writes them any more:\n"
+        + "\n".join(f"  {t}.{c}" for t, c in stale))
