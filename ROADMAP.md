@@ -35,7 +35,46 @@ frontier model. Those are the subject of what follows.
 
 ---
 
-## Wave 0 — things that claim to be finished and are not
+## Wave 0 — done
+
+Closed by building up to each claim rather than trimming it back. The suite went
+541 → 571 passing, with the same nine optional-capability skips throughout.
+
+| Claim | How it closed |
+|---|---|
+| Nine formats advertised, five readable | Thirteen readable, nine more behind opt-in extras |
+| P5 marked `renders` with nothing behind it | Built end to end, and reachable from the workspace |
+| Gallery: "All 14 primitives render", showed eight | Shows fourteen |
+| `AUDIT.md` stating stale facts in the present tense | Dated and superseded |
+
+**Four bugs surfaced that nobody was looking for**, three of them pre-existing. A
+malformed `.xlsx` raised a bare pandas `ValueError` that escaped every
+`except UnsupportedDataset` upstream, so §104's "never a generic error" was
+already being broken. `/api/analyses/{run_id}/points` was defined twice — FastAPI
+matches the first, so the second was dead and would have silently swallowed any
+edit made to it. And the binned figure was unreachable: `figures.tsx` fell back to
+a scatter for any visual type it did not recognise, so the recommender said one
+thing and the screen showed another. The fourth was introduced here: a linear
+colour ramp on heavy-tailed counts, which reproduced the exact overplotting the
+chart exists to cure.
+
+Two lessons worth carrying into later waves. **A capability a researcher cannot
+reach is not a capability** — the primitive was built, tested, and drawn only in
+the gallery, while real analyses got a scatter. And **a guard that checks a
+component exists does not check that anything reaches it**; the registry test
+written to prevent exactly this class of drift passed throughout, because those
+are different claims.
+
+**One claim is still unverified here: `.sas7bdat`.** No Python library writes one
+and `pyreadstat` ships no samples, so there is no round-trip to run. The dispatch
+is tested and the test says so out loud, but the reader itself rests on
+`pyreadstat` being right rather than on evidence in this repository. Closing it
+properly needs a small committed sample file — a justified exception to
+generating fixtures rather than committing them, since this format cannot be
+generated.
+
+<details>
+<summary>The original statement of the problem</summary>
 
 Small, and first, because every other claim rests on the project being accurate
 about its own state. §123 is the standard it sells itself on.
@@ -81,6 +120,10 @@ does not exist yet. The card displays the truth.
 appear to do. Digitise has no visible control; `preRegistered` displays an
 accurate value. Neither breaks the rule. The only useful action is a line in each
 saying the backend is ready and the surface is pending.
+
+*(Both now carry that line. The judgement above held: neither was a defect.)*
+
+</details>
 
 ---
 
@@ -200,13 +243,20 @@ them rather than as a separate campaign.
 
 Model tier and effort per item, per the working preferences in `CLAUDE.md`.
 
+Wave 0 is struck through: done, on `feat/wave-0-build-to-claims`. Its estimates
+are left visible rather than deleted, because two of them were wrong in a way
+worth remembering — "build or mark honestly" turned into a full primitive plus a
+server-side binning endpoint, and the format work quadrupled once building up to
+the claim replaced trimming it down.
+
 | Item | Wave | Tier | Effort |
 |---|---|---|---|
-| Binned primitive: build or mark honestly | 0 | Sonnet | medium |
-| Derive primitive status from real components | 0 | Opus | medium |
-| Connector/ingestion format contradiction | 0 | Sonnet | low |
-| Date and supersede `AUDIT.md` | 0 | Sonnet | low |
-| Note pending surfaces in digitise / preRegistered | 0 | Sonnet | low |
+| ~~Binned primitive: build or mark honestly~~ | 0 ✓ | Sonnet | medium *(became Opus/high)* |
+| ~~Derive primitive status from real components~~ | 0 ✓ | Opus | medium |
+| ~~Connector/ingestion format contradiction~~ | 0 ✓ | Sonnet | low *(became Opus/high)* |
+| ~~Date and supersede `AUDIT.md`~~ | 0 ✓ | Sonnet | low |
+| ~~Note pending surfaces in digitise / preRegistered~~ | 0 ✓ | Sonnet | low |
+| Commit a `.sas7bdat` sample so the last format claim is evidenced | 0 | Sonnet | low |
 | Labels via `display_label` instead of raw names | 1 | Opus | medium |
 | Load the three fonts | 1 | Sonnet | low |
 | Worked-example empty state | 1 | Opus | medium |

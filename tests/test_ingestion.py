@@ -177,12 +177,38 @@ def test_dataset_ingests_to_ready_with_a_version(committed_project):
 
 
 def test_unsupported_upload_fails_with_a_useful_reason(committed_project):
-    """§104 — never a generic error."""
-    source_id = _upload(committed_project, "notes.sav", b"\x00binary")
+    """§104 — never a generic error.
+
+    Previously used a `.sav` file, which was then unreadable. SPSS is now read,
+    so the case moved to a format nothing here claims: the point of the test is
+    the quality of the refusal, not the particular extension.
+    """
+    source_id = _upload(committed_project, "notes.rtf", b"{\\rtf1 not a dataset}")
     _drain()
     source = _source(source_id)
     assert source["ingestion_status"] == str(IngestionStatus.FAILED)
-    assert ".sav" in source["ingestion_detail"] and "Supported" in source["ingestion_detail"]
+    detail = source["ingestion_detail"]
+    assert ".rtf" in detail and "Supported" in detail
+    # The refusal names something that would work, rather than only what did not.
+    assert ".csv" in detail
+
+
+def test_a_corrupt_file_in_a_supported_format_says_so(committed_project):
+    """A readable format and a readable file are different claims.
+
+    `.sav` is supported now, so a broken one must fail as a broken file — not as
+    an unsupported format, which would send a researcher off to convert a file
+    that was already the right kind.
+    """
+    source_id = _upload(committed_project, "survey.sav", b"\x00not really spss")
+    _drain()
+    source = _source(source_id)
+    assert source["ingestion_status"] == str(IngestionStatus.FAILED)
+    detail = source["ingestion_detail"]
+    assert ".sav" in detail
+    assert "could not be read" in detail
+    # Nothing suggesting the format itself is the problem.
+    assert "Supported" not in detail
 
 
 def test_failed_ingestion_preserves_the_stages_it_completed(committed_project):

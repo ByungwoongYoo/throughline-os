@@ -221,7 +221,12 @@ def _ingest_dataset(
     schema_passages = [
         document_parser.Passage(
             ordinal=column.ordinal,
-            content=(f"Column {column.name} ({column.physical_type}, {column.semantic_type})"
+            # The file's own label leads where there is one. A researcher
+            # searches for "antibiotic use", not for `q7a_rec`, and on an SPSS
+            # or Stata import the file already told us which is which.
+            content=(f"Column {column.name}"
+                     + (f" — {label}" if (label := getattr(column, "label", "")) else "")
+                     + f" ({column.physical_type}, {column.semantic_type})"
                      + (f" in {column.unit}" if column.unit else "")
                      + f". {column.unique_count} distinct values, "
                        f"{column.missing_count} missing."),
@@ -284,9 +289,15 @@ def analysis_run(run: dict[str, Any], cur: Any) -> dict[str, Any]:
 
     spec_row["_dataset"] = {"content_hash": location["content_hash"],
                             "row_count": location["row_count"]}
+    # The sandbox reads the file, so it only knows the headers as written. A
+    # spec may legitimately name the normalised form instead — discovery always
+    # does — and translating here is what makes both spellings actually run.
+    for_sandbox = analysis.to_file_columns(
+        cur, dataset_version_id=version_ids[0], spec=spec_row)
     spec_payload = {
-        "method": spec_row["method"], "variables": spec_row["variables"],
-        "filters": spec_row["filters"], "confidence_level": spec_row["confidence_level"],
+        "method": spec_row["method"], "variables": for_sandbox["variables"],
+        "filters": for_sandbox["filters"],
+        "confidence_level": spec_row["confidence_level"],
         "method_rationale": spec_row["method_rationale"],
         "random_seed": spec_row["random_seed"], "parameters": spec_row["parameters"],
     }
@@ -411,6 +422,97 @@ def discovery_run(run: dict[str, Any], cur: Any) -> dict[str, Any]:
         "survived_correction": exploratory, "connection_ids": connection_ids,
     }
 
+
+
+class ExampleNotReady(RuntimeError):
+    """The worked example is waiting on a step that has not finished yet.
+
+    Raised rather than polled: the workflow runner already knows how to retry
+    with backoff, and a handler that sleeps holds a worker slot for no reason.
+    """
+
+
+@REGISTRY.register("example.assemble")
+def example_assemble(run: dict[str, Any], cur: Any) -> dict[str, Any]:
+    """Turn the seeded example's sources into a discovery and a finding.
+
+    The example's project, its paper and its dataset are created up front; this
+    is everything that cannot happen until ingestion has finished. It runs the
+    real discovery over the real profiled columns, so the connections a
+    researcher sees on their first screen were computed in the sandbox like any
+    other — which is the only reason the example is worth showing at all.
+    """
+    from throughline_domain import discovery, findings
+    from throughline_schemas.enums import CausalStatus, FindingType
+
+    project_id = run["input"]["project_id"]
+
+    cur.execute(
+        """
+        SELECT dv.id
+        FROM dataset_versions dv
+        JOIN datasets d ON d.id = dv.dataset_id
+        WHERE d.project_id = %s
+        ORDER BY dv.created_at DESC
+        LIMIT 1
+        """,
+        (project_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        raise ExampleNotReady("the example's dataset has not been profiled yet")
+    version_id = row["id"]
+
+    cur.execute("SELECT count(*) AS n FROM dataset_columns WHERE dataset_version_id = %s",
+                (version_id,))
+    if not cur.fetchone()["n"]:
+        raise ExampleNotReady("the example's dataset has no columns yet")
+
+    # Idempotent: a retry after a partial run must not produce a second
+    # discovery, which would double every connection on the first screen.
+    cur.execute("SELECT id FROM discovery_runs WHERE project_id = %s LIMIT 1",
+                (project_id,))
+    existing = cur.fetchone()
+    if existing:
+        discovery_run_id = existing["id"]
+    else:
+        discovery_run_id = discovery.create_run(
+            cur, project_id=project_id, dataset_version_id=version_id)
+        discovery_run({"input": {"discovery_run_id": discovery_run_id}}, cur)
+
+    connections = discovery.list_connections(cur, project_id=project_id, limit=50)
+    if not connections:
+        return {"project_id": project_id, "discovery_run_id": discovery_run_id,
+                "finding_id": None, "note": "discovery surfaced nothing to promote"}
+
+    cur.execute("SELECT id FROM findings WHERE project_id = %s LIMIT 1", (project_id,))
+    if cur.fetchone():
+        return {"project_id": project_id, "discovery_run_id": discovery_run_id,
+                "finding_id": None, "note": "already assembled"}
+
+    # The strongest surviving relationship, which for this dataset is
+    # consumption against resistance. Chosen by the recorded effect rather than
+    # by name, so the example does not quietly assert an answer the computation
+    # did not produce.
+    best = max(connections, key=lambda c: abs(c.get("effect_size") or 0))
+    finding_id = findings.create_finding(
+        cur, project_id=project_id,
+        title=f"{best['left_variable']} tracks {best['right_variable']}",
+        finding_type=FindingType.STATISTICAL,
+        statement=("The two move together across the panel. This is an "
+                   "association between measured quantities; the design cannot "
+                   "establish direction, and GDP per capita was tested as a "
+                   "confounder rather than assumed away."),
+        summary="Promoted from the discovery run on the example dataset.",
+        # Assessed, and the assessment is "association". Not NOT_ASSESSED:
+        # discovery really did test GDP per capita as a confounder, and saying
+        # nothing was looked at would understate what the run did. This is also
+        # what stops the visual critic passing a caption that claims cause.
+        causal_status=CausalStatus.ASSOCIATION_ONLY,
+        actor="system:example",
+    )
+    return {"project_id": project_id, "discovery_run_id": discovery_run_id,
+            "finding_id": finding_id}
 
 @REGISTRY.register("connection.validate")
 def connection_validate(run: dict[str, Any], cur: Any) -> dict[str, Any]:

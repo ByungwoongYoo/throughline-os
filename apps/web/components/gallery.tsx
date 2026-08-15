@@ -18,6 +18,12 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FeatureCollection, Geometry } from "geojson";
 import { PRIMITIVES } from "@/lib/primitives";
+import { Binned, Cell } from "./charts/Binned";
+import { Cartesian, Datum } from "./charts/Cartesian";
+import { Density, DensityCurve } from "./charts/Density";
+import { Estimate, Interval } from "./charts/Interval";
+import { Matrix, Cell as MatrixCell } from "./charts/Matrix";
+import { GraphEdge, GraphNode, KnowledgeGraph } from "./KnowledgeGraph";
 import { Hierarchy, TreeNode } from "./charts/Hierarchy";
 import { Radial, Spoke } from "./charts/Radial";
 import { Ribbon, FlowNode, FlowLink } from "./charts/Ribbon";
@@ -175,6 +181,89 @@ const FOLLOW_UP: TemporalEvent[] = (() => {
   return out.sort((a, b) => a.time - b.time);
 })();
 
+// A dense cloud with a real ridge in it, so the shading has something to show.
+// Deterministic: a gallery whose illustration changes between reloads teaches
+// the reader not to trust it.
+const DENSITY: Cell[] = (() => {
+  const cells: Cell[] = [];
+  for (let i = 0; i < 18; i += 1) {
+    for (let j = 0; j < 14; j += 1) {
+      const cx = 6 + i * 1.6;
+      const cy = 8 + j * 2.4;
+      // Counts fall away from the regression ridge, which is what a real
+      // correlation at scale looks like once it is binned.
+      const distance = Math.abs(cy - (0.82 * cx + 2.1));
+      const count = Math.round(420 * Math.exp(-(distance ** 2) / 120));
+      if (count > 0) cells.push({ x: cx, y: cy, count });
+    }
+  }
+  return cells;
+})();
+
+// --- P1–P4 and P6 illustrative data -----------------------------------------
+// Deterministic, for the reason stated in the note above: an illustration that
+// changes between reloads teaches the reader not to trust it.
+
+const SCATTER: Datum[] = Array.from({ length: 60 }, (_, i) => {
+  const x = 6 + (i * 17) % 40 + ((i % 7) * 0.6);
+  return { id: `s${i}`, x, y: 0.82 * x + 2 + ((i % 11) - 5) * 1.4 };
+});
+
+const ESTIMATES: Estimate[] = [
+  { id: "e1", label: "Consumption (DDD/1000/day)", estimate: 0.88,
+    lo: 0.79, hi: 0.94, significant: true, n: 120 },
+  { id: "e2", label: "GDP per capita", estimate: -0.21,
+    lo: -0.44, hi: 0.03, significant: false, n: 120 },
+  { id: "e3", label: "Hospital beds per 1000", estimate: 0.14,
+    lo: -0.09, hi: 0.36, significant: false, n: 118 },
+  { id: "e4", label: "Prescriptions without culture", estimate: 0.52,
+    lo: 0.31, hi: 0.69, significant: true, n: 96 },
+];
+
+const CURVES: DensityCurve[] = ["Northern Europe", "Southern Europe"].map(
+  (label, series) => {
+    const centre = series ? 31 : 19;
+    const x = Array.from({ length: 60 }, (_, i) => 4 + i * 0.8);
+    return {
+      id: `c${series}`,
+      label,
+      x,
+      density: x.map((v) => Math.exp(-((v - centre) ** 2) / (2 * 6 ** 2))),
+      // The rug is not decoration: a smooth bump over four observations looks
+      // identical to one over four hundred without it.
+      observations: Array.from({ length: 26 },
+                               (_, i) => centre - 9 + ((i * 13) % 19)),
+      n: 26,
+    };
+  });
+
+const MATRIX_VARIABLES = ["consumption", "resistance", "GDP", "beds"];
+const MATRIX: MatrixCell[] = MATRIX_VARIABLES.flatMap((row, i) =>
+  MATRIX_VARIABLES.map((column, j) => ({
+    row,
+    column,
+    // A plausible correlation structure, symmetric with a unit diagonal.
+    value: i === j ? 1 : [[0, 0.88, -0.19, 0.14],
+                          [0.88, 0, -0.21, 0.11],
+                          [-0.19, -0.21, 0, 0.42],
+                          [0.14, 0.11, 0.42, 0]][i][j],
+  })));
+
+const GRAPH_NODES: GraphNode[] = [
+  { id: "p1", title: "Consumption and resistance", object_type: "paper", importance: 9 },
+  { id: "p2", title: "Stewardship trial", object_type: "paper", importance: 5 },
+  { id: "p3", title: "Surveillance methods", object_type: "paper", importance: 4 },
+  { id: "d1", title: "ECDC panel", object_type: "dataset", importance: 7 },
+  { id: "f1", title: "Association survives adjustment", object_type: "finding", importance: 6 },
+  { id: "a1", title: "Partial correlation", object_type: "analysis", importance: 3 },
+];
+
+const GRAPH_EDGES: GraphEdge[] = [
+  { source: "p1", target: "d1" }, { source: "d1", target: "a1" },
+  { source: "a1", target: "f1" }, { source: "p2", target: "f1" },
+  { source: "p3", target: "p1" }, { source: "p2", target: "d1" },
+];
+
 function Section({ code, children }: { code: string; children: React.ReactNode }) {
   const meta = PRIMITIVES.find((p) => p.code === code);
   return (
@@ -236,6 +325,44 @@ export function Gallery() {
         primitives, and a gallery showing only the cases that work would
         misdescribe them.
       </p>
+
+      <Section code="P1">
+        <Cartesian data={SCATTER} mark="point"
+                   xLabel="consumption" yLabel="resistance"
+                   xUnit="DDD/1000/day" yUnit="%"
+                   title="Resistance against consumption — 60 countries" />
+      </Section>
+
+      <Section code="P2">
+        <Interval estimates={ESTIMATES}
+                  xLabel="standardised coefficient"
+                  title="Adjusted associations with resistance" />
+      </Section>
+
+      <Section code="P3">
+        <Density curves={CURVES} xLabel="resistant isolates" xUnit="%"
+                 bandwidthNote="Gaussian kernel, bandwidth 6 percentage points"
+                 title="Distribution of resistance by region" />
+      </Section>
+
+      <Section code="P4">
+        <Matrix cells={MATRIX} rows={MATRIX_VARIABLES}
+                columns={MATRIX_VARIABLES}
+                title="Correlation between every pair" />
+      </Section>
+
+      <Section code="P5">
+        <Binned cells={DENSITY} xLabel="consumption" yLabel="resistance"
+                xUnit="DDD/1000/day" yUnit="%" binCount={18} sampleSize={40_000}
+                fit={{ slope: 0.82, intercept: 2.1 }}
+                title="Resistance against consumption — 40,000 observations" />
+      </Section>
+
+      <Section code="P6">
+        {/* The one primitive that is a surface rather than a figure, so it is
+            drawn by KnowledgeGraph rather than by anything under charts/. */}
+        <KnowledgeGraph nodes={GRAPH_NODES} edges={GRAPH_EDGES} height={340} />
+      </Section>
 
       <Section code="P7">
         <Hierarchy root={CORPUS} layout="treemap" valueLabel="passages"

@@ -18,6 +18,7 @@ from fastapi import Cookie, Depends, FastAPI, File, HTTPException, Query, Reques
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from throughline_domain import (
+    example,
     analysis, auth, critic, discovery, embeddings, findings, graphs,
     harmonize, lineage, objects, observability, retrieval, storage,
     validation, visuals, workflow,
@@ -420,6 +421,28 @@ def create_project(payload: ProjectCreate, user: dict = Depends(current_user)) -
              payload.description),
         )
         return cur.fetchone()
+
+
+
+@app.post("/api/projects/example", status_code=201)
+def create_example_project(user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Seed the worked example (Part B6).
+
+    Returns as soon as the sources are queued rather than waiting for them.
+    Ingesting a PDF takes seconds, the workspace already knows how to show a
+    source that is still being read, and watching the example assemble itself
+    is a better introduction to the pipeline than a spinner followed by a
+    finished screen.
+
+    Idempotent per user: asking twice returns the project that already exists,
+    because two identical examples would leave nobody able to tell which one
+    they had been reading.
+    """
+    with transaction() as cur:
+        result = example.create(cur, user_id=user["id"], actor=user["id"])
+        cur.execute("SELECT * FROM projects WHERE id = %s", (result["project_id"],))
+        project = cur.fetchone()
+    return {**project, "created": result["created"]}
 
 
 @app.delete("/api/projects/{project_id}", status_code=200)
@@ -1854,6 +1877,30 @@ def capabilities() -> dict[str, Any]:
             "isolation": sandbox_policy_report(),
         },
         "llm": {"configured": False, "note": "No model provider is configured yet."},
+        # What this installation can open, asked of the layer that reads them
+        # rather than from a list kept here. Optional formats report the extra
+        # that turns them on, so "we cannot read Parquet" and "Parquet needs one
+        # pip install" are distinguishable — they need different responses.
+        "formats": _dataset_formats(),
+    }
+
+
+def _dataset_formats() -> dict[str, Any]:
+    from throughline_ingestion.datasets import format_availability
+
+    availability = format_availability()
+    readable = sorted(s for s, state in availability.items() if state["readable"])
+    optional = {s: state for s, state in availability.items()
+                if not state["readable"]}
+    return {
+        "readable": readable,
+        "available_with_an_extra": {
+            suffix: {"describes": state["describes"], "install": state["install"]}
+            for suffix, state in optional.items()
+        },
+        "note": (f"{len(readable)} formats readable here."
+                 + (f" {len(optional)} more become readable by installing an "
+                    f"extra." if optional else "")),
     }
 
 
@@ -2615,7 +2662,59 @@ def analysis_points(run_id: str, user: dict = Depends(current_user)) -> dict[str
             # analysis cannot state different numbers.
             "statistics": data.statistics,
             "sample_size": data.sample_size,
+            # Present only when the recommendation is a binned figure. Computed
+            # here rather than in the browser: binning is aggregation, and a
+            # client that re-aggregated could disagree with the analysis (LAW 2).
+            "cells": _binned_cells(spec, data),
+            "bin_count": spec.bin_count,
+            "bin_shape": str(spec.bin_shape),
+            "count_scale": str(spec.count_scale),
         }
+
+
+def _binned_cells(spec, data) -> list[dict[str, Any]] | None:
+    """Counts per cell for a binned figure, or None for every other chart.
+
+    Without this the browser has points and no counts, so the workspace falls
+    back to drawing a scatter — which at the sample sizes that trigger this
+    recommendation is precisely the overplotted blob the binned primitive
+    exists to replace. The catalogue said P5 rendered; the figure a researcher
+    actually saw was a scatter.
+    """
+    from throughline_visual.spec import BinShape, VisualType
+
+    if spec.visual_type is not VisualType.HEXBIN:
+        return None
+    xs, ys = data.x_values, data.y_values
+    if not xs or not ys:
+        return None
+
+    bins = spec.bin_count or 30
+    x_low, x_high = min(xs), max(xs)
+    y_low, y_high = min(ys), max(ys)
+    x_step = (x_high - x_low) / bins or 1.0
+    y_step = (y_high - y_low) / bins or 1.0
+
+    counts: dict[tuple[int, int], int] = {}
+    for x, y in zip(xs, ys):
+        column = min(int((x - x_low) / x_step), bins - 1)
+        row = min(int((y - y_low) / y_step), bins - 1)
+        if spec.bin_shape is BinShape.HEX:
+            # Offset alternate rows by half a cell, which is what makes the
+            # lattice hexagonal rather than square.
+            column = min(int((x - x_low) / x_step - (0.5 if row % 2 else 0)),
+                         bins - 1)
+        counts[(column, row)] = counts.get((column, row), 0) + 1
+
+    offset = 0.5 if spec.bin_shape is BinShape.HEX else 0.0
+    return [
+        {
+            "x": x_low + (column + 0.5 + (offset if row % 2 else 0)) * x_step,
+            "y": y_low + (row + 0.5) * y_step,
+            "count": count,
+        }
+        for (column, row), count in sorted(counts.items())
+    ]
 
 
 class CompareRequest(BaseModel):

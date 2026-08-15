@@ -38,6 +38,7 @@ import { useId, useMemo, useState } from "react";
 import { extent } from "d3-array";
 import { scaleLinear } from "d3-scale";
 import { categorical } from "@/lib/tokens";
+import { ChartTable } from "./ChartTable";
 
 export type Projected = {
   /** Stable identity. Object constancy depends on it. */
@@ -103,6 +104,17 @@ export function Projection({
 
   const focused = focus ? points.find((p) => p.id === focus) ?? null : null;
   const byId = useMemo(() => new Map(points.map((p) => [p.id, p])), [points]);
+
+  const hasGroup = points.some((p) => p.group !== undefined);
+  const tableColumns = [
+    { key: "label", header: "Label" },
+    { key: "x", header: "x", numeric: true },
+    { key: "y", header: "y", numeric: true },
+    ...(hasGroup ? [{ key: "group", header: "Group" }] : []),
+  ];
+  const tableRows = points.map((p) => ({
+    id: p.id, label: p.label, x: p.x, y: p.y, group: p.group,
+  }));
 
   return (
     <figure className="chart">
@@ -229,6 +241,13 @@ export function Projection({
           </>
         )}
       </figcaption>
+
+      <ChartTable
+        columns={tableColumns}
+        rows={tableRows}
+        label={title ?? `${points.length} items placed by ${method.toUpperCase()}`}
+        note="Coordinates are relative to the projection, not a physical scale."
+      />
     </figure>
   );
 }

@@ -111,7 +111,18 @@ def bootstrap() -> int:
         if result.returncode != 0:
             print(f"\nFailed installing {package}.", file=sys.stderr)
             return result.returncode
-    subprocess.run([python, "-m", "pip", "install", "-q", "pytest", "httpx"], check=True)
+    # Test-only dependencies, installed here rather than declared on a package
+    # that does not need them at runtime.
+    #
+    # `xlwt` is the awkward one and is here on purpose. The .xls test writes its
+    # own fixture, and it is the only way to: pandas 2.x dropped its xlwt
+    # writer, and xlrd — which reads .xls — cannot write. Without it that test
+    # skips, and CI's skip allowlist accepts three reasons, none of them this
+    # one. So a fresh checkout would fail the build on a library nothing
+    # declared, which is precisely the class of defect this project's CI exists
+    # to catch. It ran here only because Wave 0 installed it by hand.
+    subprocess.run([python, "-m", "pip", "install", "-q",
+                    "pytest", "httpx", "xlwt"], check=True)
 
     print("Applying migrations (this boots the bundled PostgreSQL on first run)…")
     subprocess.run([python, "-c",

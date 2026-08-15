@@ -10,7 +10,27 @@ dependencies = [
   "numpy>=1.26",
   "openpyxl>=3.1",
   "python-docx>=1.1",
+  # SPSS, Stata and SAS. Chosen over pandas' own readers because it returns the
+  # file's metadata — the per-column labels, and the value labels for coded
+  # variables — which is the reason for reading these formats at all.
+  "pyreadstat>=1.2",
+  # The pre-2007 .xls binary format, which openpyxl does not read.
+  "xlrd>=2.0",
 ]
+
+[project.optional-dependencies]
+# Formats with a real reader behind an optional runtime. The trade is
+# deliberate: pyarrow alone is tens of megabytes and most researchers never hand
+# you a Parquet file, so the default install stays small and the people who need
+# these turn them on. An unavailable format is reported as "needs the X extra",
+# never as unreadable — see datasets.readable_suffixes().
+parquet = ["pyarrow>=15"]            # .parquet, .feather, .arrow
+rds = ["pyreadr>=0.5"]               # .rds, where it holds a data frame
+hdf5 = ["tables>=3.9"]               # .h5, .hdf5
+netcdf = ["xarray>=2024.1", "netCDF4>=1.6"]
+geo = ["pyshp>=2.3"]                 # .shp and zipped shapefiles
+formats = ["pyarrow>=15", "pyreadr>=0.5", "tables>=3.9", "xarray>=2024.1",
+           "netCDF4>=1.6", "pyshp>=2.3"]
 
 [build-system]
 requires = ["setuptools>=68"]

@@ -85,6 +85,11 @@ export type PlainSummary = {
 
 export function ResultCard({
   connection, labels = {}, summary, figure, sourceCount, onTrace,
+  // Always false today, and correctly so: every finding really was found by
+  // browsing, because the pre-registration gate does not exist yet. The prop is
+  // here because the marker belongs on the card rather than being retrofitted
+  // once the gate lands — and because a reader must be able to tell the two
+  // apart the moment both are possible.
   preRegistered = false,
 }: {
   connection: Connection;

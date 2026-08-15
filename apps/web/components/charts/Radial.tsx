@@ -35,6 +35,7 @@ import { max } from "d3-array";
 import { scaleLinear } from "d3-scale";
 import { lineRadial, curveLinearClosed } from "d3-shape";
 import { categorical } from "@/lib/tokens";
+import { ChartTable } from "./ChartTable";
 
 export type Spoke = {
   /** Stable identity. Object constancy depends on it. */
@@ -77,6 +78,17 @@ export function Radial({
   const outer = size / 2 - 46;
   const inner = 34; // A hole: near the centre every bar is a sliver of the same width.
 
+  const hasGroup = spokes.some((s) => s.group !== undefined);
+  const tableColumns = [
+    { key: "label", header: cycleLabel },
+    { key: "value", header: valueLabel, numeric: true },
+    ...(hasGroup ? [{ key: "group", header: "Group" }] : []),
+  ];
+  const tableRows = spokes.map((s) => ({
+    id: s.id, label: s.label, value: s.value, group: s.group,
+  }));
+  const tableLabel = title ?? `${valueLabel} across ${cycleLabel}`;
+
   const radius = useMemo(() => {
     const scale = scaleLinear().domain([0, peak || 1]).range([0, 1]);
     return (value: number) => {
@@ -117,6 +129,8 @@ export function Radial({
           so a ring would assert a neighbour that is not there, and would trade
           length for angle, which is read less accurately.
         </figcaption>
+
+        <ChartTable columns={tableColumns} rows={tableRows} label={tableLabel} />
       </figure>
     );
   }
@@ -206,6 +220,8 @@ export function Radial({
         Angle is read less precisely than length, so use this to find *when*
         something peaks, not to compare two positions closely.
       </figcaption>
+
+      <ChartTable columns={tableColumns} rows={tableRows} label={tableLabel} />
     </figure>
   );
 }

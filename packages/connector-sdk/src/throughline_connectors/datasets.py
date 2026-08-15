@@ -37,10 +37,39 @@ from typing import Any
 
 from .base import Connector, ConnectorError, clean_doi, clean_text, year_of
 
-#: Formats this system can actually read and compute on. Everything else is
-#: reported honestly as "present, not readable here" rather than being offered
-#: as though the workspace could open it.
-TABULAR = {"csv", "tsv", "xlsx", "xls", "parquet", "json", "sav", "dta", "rds"}
+#: Fallback list of formats the ingestion layer reads, for when this package is
+#: used on its own.
+#:
+#: Not the authority. The authority is
+#: :func:`throughline_ingestion.datasets.readable_suffixes`, which answers for
+#: the *installation* — including any optional format extras that are present —
+#: and :func:`_readable_formats` below defers to it whenever it can be imported.
+#:
+#: This list existed alone once and drifted: it advertised `parquet`, `sav`,
+#: `dta` and `rds` while ingestion read none of them, and omitted `xlsm` which
+#: it did. Since `readable_files()` is what tells a researcher "3 readable here"
+#: in dataset search, that was a promise the import could not keep. A test in
+#: `tests/test_dataset_formats.py` now fails if this drifts from the core set
+#: again.
+TABULAR = {"csv", "tsv", "xlsx", "xlsm", "xls", "json", "geojson",
+           "sav", "por", "dta", "sas7bdat", "xpt"}
+
+
+def _readable_formats() -> set[str]:
+    """What this installation can actually read, asked of the layer that knows.
+
+    A soft import rather than a declared dependency: the connector SDK is
+    deliberately dependency-free so it can be used to search repositories
+    without the rest of the system, and adding an edge to ingestion for one
+    constant would be the wrong trade. Where ingestion *is* installed — which is
+    every real deployment — its answer wins, so installing the `parquet` extra
+    makes Parquet files show as readable here without anything else changing.
+    """
+    try:
+        from throughline_ingestion.datasets import readable_suffixes
+    except ImportError:  # pragma: no cover - exercised by the standalone path
+        return TABULAR
+    return {suffix.lstrip(".") for suffix in readable_suffixes()}
 
 
 @dataclass
@@ -76,8 +105,9 @@ class DatasetRecord:
 
     def readable_files(self) -> list[dict[str, Any]]:
         """The files this workspace could actually open."""
+        readable = _readable_formats()
         return [f for f in self.files
-                if str(f.get("format", "")).lower() in TABULAR]
+                if str(f.get("format", "")).lower() in readable]
 
     def usability(self) -> dict[str, Any]:
         """

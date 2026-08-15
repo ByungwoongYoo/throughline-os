@@ -1,6 +1,13 @@
 """
 Figure → dataset — reading numbers back out of a published chart (pair 6).
 
+**Status: the engine is here, the surface is not.** Nothing imports this module
+yet — no route, no component — so a researcher cannot reach it. That is
+deliberate sequencing rather than abandonment: the refusal taxonomy below is the
+hard part and is finished, and wiring it up is a later wave. Recorded here
+because unreached code is otherwise indistinguishable from dead code, and the
+next person to audit this repository will reasonably wonder.
+
 Not a comparison: an extraction that then feeds the claim test. Which is exactly
 why it is dangerous. Digitised values *look* like measured values by the time
 they reach a correlation, and a P1 "supported" built on points read off a

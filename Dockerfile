@@ -22,11 +22,11 @@ RUN npm ci --no-audit --no-fund
 COPY apps/web ./
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# `public/` is optional in Next.js and this project has none, so the runtime stage
-# below had nothing to copy and the build failed there instead of here. Created
-# rather than made conditional: Docker has no optional COPY, and the alternatives
-# either flatten the directory into the wrong place or need editing again the day
-# somebody adds a favicon.
+# `public/` is optional in Next.js, and this project had none until the fonts
+# arrived — so the runtime stage below had nothing to copy and the build failed
+# there instead of here. The directory is now real and tracked, but the line
+# stays: it costs nothing, and it is what keeps the failure from moving back to
+# the runtime stage if the last file in `public/` is ever removed.
 RUN mkdir -p public
 
 RUN npm run build
