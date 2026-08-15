@@ -26,6 +26,7 @@ import { Patterns } from "@/components/patterns";
 import { Literature } from "@/components/literature";
 import { Notebook } from "@/components/notebook";
 import { Settings } from "@/components/settings";
+import { WithdrawnSources } from "@/components/withdrawn";
 
 type AuthStatus = { needs_setup: boolean; authenticated: boolean; user: { display_name: string } | null };
 
@@ -366,10 +367,20 @@ function Workspace({ user }: { user: SignedInUser }) {
                   goSection("discover");
                 }}
               />
-            : <Sources
-                sources={sources} onSelect={select("source")}
-                upload={upload} uploading={uploading} uploadError={uploadError}
-              />
+            : <>
+                {/*
+                  Above the list, not in a section of its own. A withdrawal is a
+                  fact about these sources rather than a place to visit, and a
+                  nav item is something you have to remember to click — which
+                  nobody does until they already suspect something is wrong.
+                  When nothing is withdrawn this renders a single quiet line.
+                */}
+                <WithdrawnSources projectId={project.id} />
+                <Sources
+                  sources={sources} onSelect={select("source")}
+                  upload={upload} uploading={uploading} uploadError={uploadError}
+                />
+              </>
         )}
         {section === "search" && <Search projectId={project.id} />}
         {section === "discover" && (
