@@ -329,3 +329,78 @@ def test_a_sweep_joins_a_wider_session_when_one_is_given(cur, project):
 
     assert exploration.ledger(cur, session_id)["looks"] == 2
     assert exploration.ledger(cur, run_id)["looks"] == 0
+
+
+# ---------------------------------------------------------------------------
+# A sweep joins the researcher's session
+# ---------------------------------------------------------------------------
+#
+# The sweep does not happen during the request that starts it: the API queues a
+# run and returns, and a worker records the tested pairs minutes later. The run
+# row is the only place the session can survive that gap, which is why it is
+# stored rather than passed.
+
+def test_a_run_remembers_the_session_that_started_it(cur, project):
+    from throughline_domain import discovery
+
+    session_id = new_id("ses")
+    run_id = discovery.create_run(
+        cur, project_id=project["id"],
+        dataset_version_id=dataset_version(cur, project),
+        session_id=session_id)
+
+    cur.execute("SELECT session_id FROM discovery_runs WHERE id = %s", (run_id,))
+    assert cur.fetchone()["session_id"] == session_id
+
+
+def test_a_sweep_started_in_a_session_joins_that_family(cur, project):
+    """
+    The point of the whole column. Without it a sweep is its own family and a
+    claim tested in the same sitting is corrected as though nobody had looked.
+    """
+    from throughline_domain import discovery
+
+    session_id = new_id("ses")
+    exploration.record(cur, session_id=session_id, project_id=project["id"],
+                       verb="claim_test", description="a claim", p_value=0.02)
+
+    run_id = discovery.create_run(
+        cur, project_id=project["id"],
+        dataset_version_id=dataset_version(cur, project), session_id=session_id)
+
+    cur.execute("SELECT session_id FROM discovery_runs WHERE id = %s", (run_id,))
+    carried = cur.fetchone()["session_id"]
+    for index in range(3):
+        discovery.record_connection(
+            cur, project_id=project["id"], discovery_run_id=run_id,
+            candidate={"left_variable": f"x{index}", "right_variable": "y",
+                       "method": "spearman", "rationale": "both numeric"},
+            analysis_run_id=None, result={"p_value": 0.04}, q_value=None,
+            session_id=carried)
+
+    assert exploration.ledger(cur, session_id)["looks"] == 4
+    assert exploration.ledger(cur, run_id)["looks"] == 0
+
+
+def test_a_run_with_no_session_stays_its_own_family(cur, project):
+    """
+    A script or an older client has no session. Inventing one would drop
+    unrelated work into somebody's family and make their results look worse
+    than they are, so the run remains what it already was.
+    """
+    from throughline_domain import discovery
+
+    run_id = discovery.create_run(
+        cur, project_id=project["id"],
+        dataset_version_id=dataset_version(cur, project))
+
+    cur.execute("SELECT session_id FROM discovery_runs WHERE id = %s", (run_id,))
+    assert cur.fetchone()["session_id"] is None
+
+    discovery.record_connection(
+        cur, project_id=project["id"], discovery_run_id=run_id,
+        candidate={"left_variable": "a", "right_variable": "b",
+                   "method": "spearman", "rationale": "both numeric"},
+        analysis_run_id=None, result={"p_value": 0.04}, q_value=None)
+
+    assert exploration.ledger(cur, run_id)["looks"] == 1

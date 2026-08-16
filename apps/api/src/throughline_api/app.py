@@ -2023,6 +2023,11 @@ class DiscoveryRequest(BaseModel):
     false_discovery_rate: float = Field(default=0.05, gt=0, lt=1)
     #: Run again over data that has not changed. A decision, never a default.
     force: bool = False
+    #: The researcher's working session, so this sweep joins the same
+    #: multiple-comparison family as everything else they have looked at today.
+    #: Optional: without it the run is its own family, which is what happened
+    #: before this existed.
+    session_id: str | None = None
 
 
 
@@ -2076,7 +2081,8 @@ def start_discovery(project_id: str, payload: DiscoveryRequest,
 
         run_id = discovery.create_run(cur, project_id=project_id,
                                       dataset_version_id=payload.dataset_version_id,
-                                      fdr=payload.false_discovery_rate)
+                                      fdr=payload.false_discovery_rate,
+                                      session_id=payload.session_id)
         workflow.enqueue(cur, workflow_name="discovery.run", project_id=project_id,
                          payload={"discovery_run_id": run_id},
                          idempotency_key=f"discovery:{run_id}")

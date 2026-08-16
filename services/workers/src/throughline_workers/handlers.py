@@ -389,6 +389,11 @@ def discovery_run(run: dict[str, Any], cur: Any) -> dict[str, Any]:
             cur, project_id=project_id, discovery_run_id=discovery_run_id,
             candidate=item["candidate"], analysis_run_id=item["analysis_run_id"],
             result=item["run"]["result"] or {}, q_value=correction["q_value"],
+            # Carried from the run so the sweep joins the researcher's session
+            # rather than forming a family of its own. None when the run came
+            # from a script or an older client, and then it is its own family —
+            # which is the behaviour that already existed.
+            session_id=record.get("session_id"),
         )
         connection_ids.append(connection_id)
         # Step 10: only survivors of the correction become exploratory. The rest

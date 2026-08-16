@@ -16,6 +16,7 @@ import {
   ingestionStep, isIngesting,
 } from "@/lib/api";
 import { ApiState, useApi } from "@/lib/useApi";
+import { sessionId } from "@/lib/session";
 import { Section } from "./Shell";
 import { PlainSummary, ResultCard } from "./ResultCard";
 import { Empty, Failure, Loading, Meter, Num, Stat, Status } from "./primitives";
@@ -503,7 +504,11 @@ export function Discover({ projectId, sources, onSelectConnection, startWith, on
     try {
       const started = await api.post<{ reused: boolean; note?: string }>(
         `/api/projects/${projectId}/discoveries`,
-        { dataset_version_id: versionId, force },
+        // The session travels with the request so the sweep joins the family
+        // of everything else looked at in this sitting. Null in a private
+        // window, where storage is refused — the run is then its own family,
+        // which is what happened before any of this existed.
+        { dataset_version_id: versionId, force, session_id: sessionId() },
       );
       // §123 — if the server declined to start a second run, say so. A button
       // that appears to work and quietly does nothing is worse than an error.

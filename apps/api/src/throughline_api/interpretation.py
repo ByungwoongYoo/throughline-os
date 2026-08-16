@@ -341,4 +341,101 @@ def withdrawn_sources(project_id: str,
         return withdrawals.withdrawn(cur, project_id)
 
 
+@router.get("/projects/{project_id}/analyses/{run_id}/lineage")
+def analysis_lineage(project_id: str, run_id: str,
+                     user: dict = Depends(signed_in)) -> dict[str, Any]:
+    """
+    What this run descends from, and what was tried from it.
+
+    `forked_from_run_id` and `fork_reason` have been written since the schema
+    was first laid down, with a comment saying a fork records its ancestry so a
+    sensitivity branch is legible. Nothing read either column, so that
+    legibility did not exist — a researcher could fork a run, change one filter,
+    and afterwards have no way to see the two were related or why.
+    """
+    _scoped(project_id, user)
+
+    from throughline_domain import lineage_forks
+
+    with transaction() as cur:
+        cur.execute("SELECT id FROM analysis_runs WHERE id = %s AND project_id = %s",
+                    (run_id, project_id))
+        if not cur.fetchone():
+            raise HTTPException(404, "No such analysis run in this project.")
+        return lineage_forks.lineage(cur, run_id)
+
+
+# ---------------------------------------------------------------------------
+# Exports that no longer say what the analyses say
+# ---------------------------------------------------------------------------
+
+def _artifact_in_project(cur, project_id: str, artifact_id: str) -> None:
+    cur.execute(
+        "SELECT id FROM communication_artifacts WHERE id = %s AND project_id = %s",
+        (artifact_id, project_id))
+    if not cur.fetchone():
+        raise HTTPException(404, "No such document in this project.")
+
+
+@router.get("/projects/{project_id}/exports")
+def project_exports(project_id: str,
+                    user: dict = Depends(signed_in)) -> dict[str, Any]:
+    """
+    Which of this project's exported documents still hold.
+
+    `artifact_renders.resolved_hash` was written on every render since the
+    schema was laid down, under a comment saying that a later resolution
+    differing makes the render "provably stale — which is what makes §102
+    checkable rather than a matter of trust". Nothing ever compared it, so it
+    was a matter of trust.
+
+    The live document is safe by construction: it stores references, not
+    numbers, and re-resolves them on every read. The file that was exported does
+    not, and that is the copy somebody else has.
+    """
+    _scoped(project_id, user)
+
+    from throughline_domain import artifact_staleness
+
+    with transaction() as cur:
+        return artifact_staleness.across_project(cur, project_id)
+
+
+@router.post("/projects/{project_id}/exports/recheck")
+def recheck_exports(project_id: str,
+                    user: dict = Depends(signed_in)) -> dict[str, Any]:
+    """
+    Recompute the stored staleness flags.
+
+    Separate from the GET, and a POST, because it writes: `status` and
+    `stale_reason` are columns, and a read that quietly changed them would make
+    opening a report a modification.
+    """
+    _scoped(project_id, user)
+
+    from throughline_domain import artifact_staleness
+
+    with transaction() as cur:
+        return artifact_staleness.across_project(cur, project_id, write=True)
+
+
+@router.get("/projects/{project_id}/artifacts/{artifact_id}/staleness")
+def artifact_exports(project_id: str, artifact_id: str,
+                     user: dict = Depends(signed_in)) -> dict[str, Any]:
+    """
+    Every export of one document, and whether each still tells the truth.
+
+    An edit and a re-run both change what the document says, and only one of
+    them is something the researcher already knows about. They are reported
+    apart for that reason.
+    """
+    _scoped(project_id, user)
+
+    from throughline_domain import artifact_staleness
+
+    with transaction() as cur:
+        _artifact_in_project(cur, project_id, artifact_id)
+        return artifact_staleness.staleness(cur, artifact_id)
+
+
 __all__ = ["router"]

@@ -77,6 +77,9 @@ ROUTES = [
     ("get", "/api/projects/{p}/exploration/ses_1", None),
     ("post", "/api/projects/{p}/harvest", {"base_url": "https://example.org/oai"}),
     ("get", "/api/projects/{p}/findings/fnd_1/library-note", None),
+    ("get", "/api/projects/{p}/exports", None),
+    ("post", "/api/projects/{p}/exports/recheck", None),
+    ("get", "/api/projects/{p}/artifacts/art_1/staleness", None),
 ]
 
 
@@ -318,3 +321,86 @@ def test_challenges_for_another_accounts_finding_are_not_served(client):
 
     response = client.get(f"/api/projects/{theirs}/findings/fnd_x/challenges")
     assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Exports that no longer say what the analyses say
+# ---------------------------------------------------------------------------
+
+def test_a_project_with_no_exports_says_so_rather_than_reporting_clean(client):
+    """
+    "Nothing has been exported" and "everything exported is correct" are
+    different answers, and only one of them is reassuring. Collapsing them would
+    have an empty project report as verified.
+    """
+    account(client)
+    project_id = project(client)
+
+    body = client.get(f"/api/projects/{project_id}/exports").json()
+    assert body["artifacts"] == []
+    assert "Nothing has been exported" in body["note"]
+
+
+def test_another_accounts_document_is_not_reachable_through_ones_own_project(client):
+    """
+    The path carries both ids and only the project one is scoped by the shared
+    helper. Without the second check, a signed-in account could read any
+    document in the installation by pairing its id with a project they own —
+    the classic shape of this bug, and invisible to the route table above
+    because that only ever varies the project id.
+    """
+    account(client, "first@lab.local")
+    theirs = project(client)
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO communication_artifacts(id, project_id, artifact_type, "
+            "title) VALUES ('art_theirs', %s, 'report', 'Their draft')", (theirs,))
+        conn.commit()
+
+    client.post("/api/auth/logout")
+    second_account(client)
+    mine = project(client, name="Mine")
+
+    response = client.get(f"/api/projects/{mine}/artifacts/art_theirs/staleness")
+    assert response.status_code == 404, response.text
+    assert "Their draft" not in response.text
+
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM communication_artifacts WHERE id = 'art_theirs'")
+        conn.commit()
+
+
+def test_reading_the_report_does_not_write_the_flags(client):
+    """
+    `status` and `stale_reason` are columns. A GET that recomputed them would
+    make opening a report a modification, which is why the recheck is a
+    separate POST.
+    """
+    account(client)
+    project_id = project(client)
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO communication_artifacts(id, project_id, artifact_type, "
+            "title, status) VALUES ('art_read', %s, 'report', 'Draft', 'draft')",
+            (project_id,))
+        cur.execute(
+            "INSERT INTO artifact_renders(id, artifact_id, fmt, storage_key, "
+            "resolved_hash, artifact_version) VALUES ('ren_read', 'art_read', "
+            "'markdown', 'artifacts/x.md', 'hash-that-will-not-match', 1)")
+        conn.commit()
+
+    body = client.get(f"/api/projects/{project_id}/exports").json()
+    assert len(body["drifted"]) == 1
+
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT status FROM communication_artifacts WHERE id = 'art_read'")
+        assert cur.fetchone()["status"] == "draft"
+
+    assert client.post(
+        f"/api/projects/{project_id}/exports/recheck").status_code == 200
+
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT status FROM communication_artifacts WHERE id = 'art_read'")
+        assert cur.fetchone()["status"] == "stale"
+        cur.execute("DELETE FROM communication_artifacts WHERE id = 'art_read'")
+        conn.commit()

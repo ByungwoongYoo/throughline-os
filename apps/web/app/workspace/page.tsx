@@ -27,6 +27,13 @@ import { Literature } from "@/components/literature";
 import { Notebook } from "@/components/notebook";
 import { Settings } from "@/components/settings";
 import { WithdrawnSources } from "@/components/withdrawn";
+import { ExportedDocuments } from "@/components/exports";
+import { Challenges } from "@/components/challenges";
+import { ExplorationLedger } from "@/components/ledger";
+import { Harvest } from "@/components/harvest";
+import { LibraryNote } from "@/components/librarynote";
+import { ForkLineage } from "@/components/forklineage";
+import { sessionId } from "@/lib/session";
 
 type AuthStatus = { needs_setup: boolean; authenticated: boolean; user: { display_name: string } | null };
 
@@ -395,23 +402,66 @@ function Workspace({ user }: { user: SignedInUser }) {
         {section === "connections" && (
           selection?.kind === "connection"
             ? <ConnectionDetail connectionId={selection.id} projectId={project.id} />
-            : <ConnectionList projectId={project.id} onSelect={select("connection")} />
+            : <>
+                <ConnectionList projectId={project.id} onSelect={select("connection")} />
+                {/*
+                  Under the connections rather than beside the results. The
+                  count is context for what has just been read, and a reader who
+                  has scrolled a list of candidate relationships is exactly the
+                  reader who should see how many were tested to produce it.
+                */}
+                <ExplorationLedger projectId={project.id} sessionId={sessionId()} />
+              </>
         )}
         {section === "findings" && (
           selection?.kind === "finding"
-            ? <EvidenceGraphView findingId={selection.id} />
+            ? <>
+                <EvidenceGraphView findingId={selection.id} />
+                {/*
+                  Below the evidence, deliberately. The case for a finding is
+                  what a researcher came to read; the case against it is what
+                  they need to have read before they cite it. Putting the
+                  argument first would make the screen adversarial, and hiding
+                  it behind a tab means it is never opened.
+                */}
+                <Challenges projectId={project.id} findingId={selection.id} />
+                <LibraryNote projectId={project.id} findingId={selection.id}
+                             sessionId={sessionId()} />
+              </>
             : <Findings projectId={project.id} onSelect={select("finding")} />
         )}
         {section === "analyses" && (
           selection?.kind === "analysis"
-            ? <AnalysisDetail runId={selection.id} />
+            ? <>
+                <AnalysisDetail runId={selection.id} />
+                {/*
+                  Beneath the run, because the branch is context for the number
+                  above it. Renders nothing at all for an original analysis with
+                  no variants, which is most of them — a panel that appears on
+                  every run to say "no relationship" is noise.
+                */}
+                <ForkLineage projectId={project.id} runId={selection.id}
+                             onOpen={(id) => select("analysis")(id)} />
+              </>
             : <AnalysisList projectId={project.id} onSelect={select("analysis")} />
         )}
         {section === "reports" && (
           selection?.kind === "artifact"
             ? <ReportDetail artifactId={selection.id} />
-            : <Reports projectId={project.id} connections={connections}
-                       onSelect={select("artifact")} />
+            : <>
+                {/*
+                  Above the list, for the same reason the withdrawal notice sits
+                  above the sources: this is a fact about these documents, not a
+                  place to visit. Nobody navigates to a staleness screen until
+                  they already suspect something, and by then the wrong numbers
+                  have been sent. It renders nothing at all until the project has
+                  actually exported something.
+                */}
+                <ExportedDocuments projectId={project.id}
+                                   onOpen={select("artifact")} />
+                <Reports projectId={project.id} connections={connections}
+                         onSelect={select("artifact")} />
+              </>
         )}
         {section === "compare" && (
           <Compare projectId={project.id} sources={sources} />
@@ -425,7 +475,18 @@ function Workspace({ user }: { user: SignedInUser }) {
             columns={Object.keys(variables.data?.labels ?? {})}
           />
         )}
-        {section === "literature" && <Literature projectId={project.id} />}
+        {section === "literature" && (
+          <>
+            <Literature projectId={project.id} />
+            {/*
+              Beneath search, not instead of it. Searching four databases and
+              harvesting one repository are different acts — one asks a
+              question, the other takes a copy — and a researcher arrives here
+              wanting the first far more often than the second.
+            */}
+            <Harvest projectId={project.id} />
+          </>
+        )}
         {section === "notebook" && <Notebook projectId={project.id} />}
         {section === "settings" && <Settings />}
         {section === "graph" && (

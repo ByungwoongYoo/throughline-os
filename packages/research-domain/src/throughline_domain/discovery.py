@@ -291,12 +291,21 @@ class IllegalConnectionTransition(DiscoveryError):
     pass
 
 
-def create_run(cur, *, project_id: str, dataset_version_id: str, fdr: float = 0.05) -> str:
+def create_run(cur, *, project_id: str, dataset_version_id: str, fdr: float = 0.05,
+               session_id: str | None = None) -> str:
+    """
+    Open a sweep, and remember whose working session it belongs to.
+
+    The session is stored rather than passed through, because the sweep does not
+    happen during the request that starts it: this queues a run and returns, and
+    a worker records the tested pairs minutes later. By then the request is gone,
+    so the run itself is the only place that knowledge can survive.
+    """
     run_id = new_id("disc")
     cur.execute(
-        "INSERT INTO discovery_runs(id, project_id, dataset_version_id, false_discovery_rate) "
-        "VALUES (%s, %s, %s, %s)",
-        (run_id, project_id, dataset_version_id, fdr),
+        "INSERT INTO discovery_runs(id, project_id, dataset_version_id, "
+        "false_discovery_rate, session_id) VALUES (%s, %s, %s, %s, %s)",
+        (run_id, project_id, dataset_version_id, fdr, session_id),
     )
     return run_id
 
