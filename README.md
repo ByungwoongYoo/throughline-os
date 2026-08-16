@@ -15,6 +15,24 @@ provenance intact. Five of the six comparison verbs are wired with real refusal
 taxonomies — a comparison the system declines to make is a first-class answer,
 not an error.
 
+On top of that spine sits an interpretation layer, whose job is to make the
+system's own record legible to the person using it:
+
+- **The exploration ledger** counts every look at the data in a session and
+  applies Benjamini–Hochberg across the family. A pre-registered prediction with
+  a stated direction is exempt; a comparison the platform refused still counts,
+  because it was a look even though it produced no statistic.
+- **Withdrawn sources** — harvesting marks a source the repository stopped
+  publishing, and the report says what in the project still rests on it. It
+  never calls a withdrawal a retraction: an embargo, a correction and a
+  retraction arrive identically, and the feed does not say which.
+- **Fork lineage** reads `forked_from_run_id` and `fork_reason` back, so a
+  sensitivity branch is visible as a branch. Nothing counts forks against the
+  researcher — forking is how sensitivity analysis is done.
+- **Export staleness** compares the hash recorded when a document was exported
+  against what the analyses say now, and keeps "you edited this" apart from "the
+  numbers moved underneath it". Only the second is alarming.
+
 What is missing is the spatial canvas, most of the integration surface, and the
 video engine. `ROADMAP.md` is the live document: it records what exists, what
 does not, and the order the rest is being built in. Where an earlier audit was
@@ -24,6 +42,20 @@ wrong, the correction is kept rather than quietly edited out.
 the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
+
+The current suite is **848 backend tests and 161 web tests**, with 7 backend
+skips, each carrying a reason CI's allowlist recognises — a skip with an
+unrecognised reason fails the build, so the suite cannot quietly shrink.
+
+A recurring class of defect here is worth naming, because most of the last
+wave's work was it: **a column written by one part of the system and read by
+none.** A withdrawn source that no screen mentions, a fork reason recorded and
+never displayed, a render hash stored so staleness would be "provable" and
+compared by nothing. Each one passed every test, because nothing was broken —
+the feature simply had no reader. `tests/test_sql_references.py` catches the
+narrower version (a query naming a column that does not exist); the wider
+version is only found by reading the schema against the code, which is why
+`ROADMAP.md` and `TASKS.md` record where it has been found before.
 
 ## Layout
 
@@ -51,6 +83,23 @@ tests/                  Cross-package tests
 evals/                  Self-evaluation harness
 scripts/                manage.py, and the shell wrappers around it
 ```
+
+Database migrations are not a top-level directory: they live with the code that
+owns the schema, at
+`packages/research-domain/src/throughline_domain/migrations/`, applied in
+filename order by `migrate.py`.
+
+The Markdown files at the root are not interchangeable, and reading the wrong
+one is the usual way two people end up doing the same work twice:
+
+| File | Answers |
+|---|---|
+| `README.md` | How do I run this, and what is it? |
+| `ROADMAP.md` | What is the project trying to become, and what is honestly missing? Corrections to earlier audits are kept, not edited out. |
+| `TASKS.md` | Who is doing what **right now**. Where it disagrees with the roadmap, this one is current. |
+| `CONTRIBUTING.md` | The workflow two people share without colliding. |
+| `PLAN.md` | The original specification the section numbers (§55, §102) refer to. |
+| `CLAUDE.md` | Instructions for Claude sessions working in this repository. |
 
 Planned and not present: the Scientific Motion Grammar and the deterministic 4K
 scene renderer. Institutional sign-on and the licensed bibliographic databases
@@ -127,6 +176,33 @@ python scripts\manage.py bootstrap
 python scripts\manage.py dev
 ```
 
+## Working with someone else
+
+Two people build this repository, so the loop starts and ends with a command
+rather than with `git push`:
+
+```bash
+./scripts/sync.sh
+```
+
+```bash
+./scripts/preflight.sh --full
+```
+
+`sync` fetches and prints what everyone else is on — branches, and who is
+claiming what in `TASKS.md`. Running it first is not politeness: the same
+feature has been written twice from two clones before, which cost a day and is
+why the ledger exists at all.
+
+`CONTRIBUTING.md` has the rest, including why a single contributor showing up
+under two `user.name` values is harmless (`sync` prints the email beside the
+name, so a second identity never reads as a second person).
+
+New API surface goes in its **own router module** mounted with one line in
+`app.py`, rather than as more routes inside it. This is a merge decision, not an
+architectural one: `app.py` is the file two branches always both touch, and the
+last wave merged with zero conflicts because nothing new was added to it.
+
 ## Container
 
 The image ships the embedded PostgreSQL rather than expecting an external one,
@@ -152,17 +228,67 @@ The health check answers 200 while degraded on purpose. A workspace with no
 model still does everything deterministic, and restarting it would lose
 in-flight work to fix nothing. Only an unreachable database answers 503.
 
+## Backups
+
+Local-first means the researcher owns the only copy, so backup is part of the
+product rather than an operational afterthought.
+
+```bash
+./scripts/backup.sh
+```
+
+```bash
+./scripts/restore.sh <archive.tar> [--force]
+```
+
+One archive holds a `pg_dump` of the database *and* a tarball of the `objects`
+tree, because they reference each other: a figure render is a row pointing at a
+file, and restoring either alone produces a corpus whose provenance links
+resolve to nothing. The database is dumped rather than file-copied — a
+file-level copy of a running PostgreSQL is not a consistent snapshot.
+
 ## Tests
+
+Before pushing, run what CI runs, in one command:
+
+```bash
+python scripts/manage.py preflight
+```
+
+It finds node the same way `dev` does — including a user-local install at
+`~/.local/opt/node` that is not on `PATH` — so it works in a shell where a bare
+`npx` would not. It also refuses to start while another `pytest tests` is
+running: both suites share one embedded PostgreSQL, and two concurrent runs
+produce a scatter of unrelated failures that look like real regressions and are
+not.
+
+The suites individually:
 
 ```bash
 .venv/bin/python -m pytest tests -q
 ```
 
 ```bash
-cd apps/web && npx vitest run
+cd apps/web && npm test
 ```
+
+`npm test` is `vitest run` from `package.json`, which resolves the local binary;
+`npx vitest run` reaches for the network if the package is missing.
 
 CI runs the suite across Linux and macOS, a Windows job for the sandbox, the web
 build, and a Docker job that builds the image and polls `/api/health` until the
 API answers inside it — a Dockerfile that is written but never built is not
 evidence of anything.
+
+### What counts as a passing test here
+
+A test that passes is not evidence on its own; a test that fails when the
+behaviour it names is removed is. Several guards in this repository were written,
+seen green, and found to be checking nothing — `tests/test_sql_references.py`
+passed with the exact bug it existed to catch reintroduced, because it only
+inspected the first string literal in each statement.
+
+So the standard for anything load-bearing is: **break it deliberately and watch
+the test fail.** Where that has been done, `TASKS.md` records which mutation
+killed which test in the `Evidence` column. "Looks right" is not evidence, and
+neither is a green run.
