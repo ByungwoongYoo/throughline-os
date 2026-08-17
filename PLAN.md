@@ -92,10 +92,12 @@ The problems are not in the engine. They are in packaging and verification.
 
 ## Issues
 
-### 1. A fresh clone cannot install — every platform
+### 1. A fresh clone cannot install — every platform — **fixed**
 
-`scripts/bootstrap.sh` installs four workspace packages; the dependency graph
-needs nine. Missing: `packages/visual-spec` (required by `research-domain`),
+`scripts/bootstrap.sh` installed four workspace packages; the dependency graph
+needs nine. **Verified fixed on 2026-08-17:** `scripts/manage.py` `PACKAGES` now
+lists all nine, and `tests/test_packaging.py` fails if bootstrap, the Dockerfile
+and that list ever disagree. Missing: `packages/visual-spec` (required by `research-domain`),
 `packages/ingestion` and `services/scientific-runtime` (both required by
 `services/workers`). These exist only in this repo, so pip resolves them against
 the public index and fails.
@@ -115,7 +117,7 @@ Confirmed that `throughline-visual`, `throughline-ingestion`,
 `packages/model` and `packages/connector-sdk` are also omitted but nothing
 depends on them, so they do not break the install.
 
-### 2. The Docker build is broken too
+### 2. The Docker build is broken too — **fixed**
 
 `Dockerfile:46` installs `./packages/workflow-sdk`. That directory has **never
 existed** in this repository's git history (verified with `git log
@@ -128,13 +130,26 @@ Not verified by running `docker build` — Docker is not installed on the machin
 used. The cause is unambiguous (pip cannot install a path that does not exist),
 but removing the line is necessary, not provably sufficient.
 
+**Verified fixed on 2026-08-17:** the install line is gone and a comment stands
+in its place. Still not verified by running `docker build`, for the same reason
+— Docker is not installed on this machine either, and CI's Docker job remains
+the only place the image is really built. What is new is that the defect can no
+longer be reintroduced silently: `test_the_image_installs_nothing_that_does_not
+_exist` and `test_every_installed_path_is_a_python_package` fail on any install
+path that is missing or has no `pyproject.toml`. Both were checked by putting
+`./packages/workflow-sdk` back and watching them fail.
+
 Everything else in that install line is correct and in a valid order.
 
-### 3. Native Windows cannot run the API at all
+### 3. Native Windows cannot run the API at all — **fixed**
 
-`services/scientific-runtime/src/throughline_runtime/executor.py` uses
+`services/scientific-runtime/src/throughline_runtime/executor.py` used
 POSIX-only primitives: `import resource` at module level (line 37), plus
-`os.setsid()`, `preexec_fn=`, and `os.killpg()`.
+`os.setsid()`, `preexec_fn=`, and `os.killpg()`. **Verified fixed on
+2026-08-17:** the module now branches on `WINDOWS = sys.platform == "win32"`,
+guards `import resource` behind it, and holds the same ceilings in a Job Object
+on Windows. The Python 3.12 ceiling from `pgserver` stands and is documented in
+the README as a requirement on every platform.
 `apps/api/src/throughline_api/app.py:32` imports that module at import time, so
 the FastAPI app fails to import on Windows before any analysis runs.
 
@@ -145,7 +160,7 @@ past CPython 3.12 — a constraint on every platform, not just Windows.
 Verified indirectly: the same code imports and runs cleanly under WSL2 Ubuntu
 24.04, so the divide is POSIX vs Windows, not macOS vs Windows.
 
-### 4. Duplicate upload orphans a source permanently
+### 4. Duplicate upload orphans a source permanently — **fixed**
 
 Uploading a file whose bytes match one already in the project returns
 `202 Accepted` and creates a new `sources` row that never ingests. It sits at
@@ -160,19 +175,38 @@ own, and the original run has already completed.
 
 Observed live: 4 `sources` rows, 2 `workflow_runs`, 2 rows stuck.
 
-### 5. The §137 workflow does not finish in the browser
+**Verified fixed on 2026-08-17:** the key is now `ingest:{source_id}` rather
+than the content hash, so a retried POST for one source is still collapsed into
+a single run while a source that does get created can no longer end up without a
+run to finish it.
 
-After validation succeeds, the Overview says "Record a finding — NEXT". The
-Findings section renders **zero buttons**, and no `api.post` to `/findings`
-exists anywhere in `apps/web` (verified by enumerating every `api.post` call).
-The capability exists in the API and is exercised by the test suite, but it is
-unreachable by click.
+### 5. The §137 workflow does not finish in the browser — **fixed**
 
-The README states the workflow "runs end to end from the browser". That is not
-currently true. The landing page's otherwise admirable "Not built" ledger does
-not mention this gap either.
+After validation succeeded, the Overview said "Record a finding — NEXT". The
+Findings section rendered **zero buttons**, and no `api.post` to `/findings`
+existed anywhere in `apps/web` (verified by enumerating every `api.post` call).
+The capability existed in the API and was exercised by the test suite, but it
+was unreachable by click. The Findings empty state told the researcher to
+"record what it shows as a finding" — an instruction for an action the interface
+did not offer.
 
-### 6. Three tests are pinned to the author's laptop and silently skip
+`components/recordfinding.tsx` closes it, mounted on the connection detail
+rather than on the Findings list. A finding is recorded *from* a result, and the
+moment somebody wants to record one is the moment they are looking at something
+that survived; a bare "new finding" button on the list would invite one written
+from memory and detached from its analysis. The connection travels with the
+request as `from_connections`, which is what attaches the finding to the
+analysis, the dataset and the paper — so it is checkable the moment it exists.
+
+Two deliberate restraints. The button is offered before validation as well,
+because the lifecycle already refuses to promote an untested finding past
+candidate and a second, weaker enforcement here would only remove the
+researcher's judgement — the screen says plainly what an untested result is
+instead. And **no control is offered to call the result causal**: a dropdown
+offering "causal" beside a correlation, at the moment somebody is pleased their
+result survived, is the easiest place in the product to overclaim.
+
+### 6. Three tests are pinned to the author's laptop and silently skip — **fixed**
 
 `tests/test_mvp_end_to_end.py:21` and `tests/test_ingestion.py:19` both read:
 
@@ -181,16 +215,23 @@ Path("/Users/sarthakpattnaik/Downloads/throughline_v18_zero_motion_1_8_0/"
      "data/files/workspace_default").glob("*.pdf")
 ```
 
-Three tests are gated on that path existing and skip themselves everywhere else
-— including `test_paper_plus_dataset_to_validated_finding_with_full_provenance`,
+Three tests were gated on that path existing and skipped themselves everywhere
+else — including `test_paper_plus_dataset_to_validated_finding_with_full_provenance`,
 the single test that covers the whole product. This is why issue 5 went
 unnoticed.
 
-### 7. Two libraries are used but never declared
+**Verified fixed on 2026-08-17:** the absolute path appears nowhere in `tests/`,
+and `tests/test_mvp_end_to_end.py` runs 2 tests with no skips — the fixture
+paper is now generated rather than read from a laptop.
+
+### 7. Two libraries are used but never declared — **fixed**
 
 - `packages/research-domain/src/throughline_domain/render_artifact.py:322`
-  imports `pptx`. `python-pptx` appears in no `pyproject.toml`. **PPTX export
-  raises `ModuleNotFoundError` for every user.** Test failure:
+  imports `pptx`. `python-pptx` appeared in no `pyproject.toml`. **PPTX export
+  raised `ModuleNotFoundError` for every user.** Both `python-pptx>=0.6.23` and
+  `python-docx>=1.1` are now declared by `packages/research-domain`, the package
+  whose code imports them, with a comment recording that docx was previously
+  arriving by transitive accident from `packages/ingestion`. Test failure:
   `tests/test_communication.py::test_every_format_renders_from_one_resolved_artifact`
   — the test is correct; the declaration is missing.
 - The same file's line 255 imports `docx`. `python-docx` is declared in

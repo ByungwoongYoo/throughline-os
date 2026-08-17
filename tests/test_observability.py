@@ -130,3 +130,147 @@ def test_library_chatter_does_not_bury_this_system_s_own_logs():
 
     assert logging.getLogger("pgserver").level == logging.WARNING
     assert logging.getLogger("throughline.api").getEffectiveLevel() == logging.INFO
+
+
+# ---------------------------------------------------------------------------
+# Is anything actually draining the queue?
+# ---------------------------------------------------------------------------
+
+def _queue(cur, *, state, run_after_seconds_ago=0, heartbeat_seconds_ago=None,
+           lease_expired=False):
+    """
+    One workflow run in a chosen state, at a chosen age.
+
+    Intervals are interpolated as literals rather than bound as parameters: a
+    bound NULL inside `CASE WHEN %s IS NULL` gives Postgres nothing to infer a
+    type from, and it refuses with IndeterminateDatatype. The values are test
+    constants, not input.
+    """
+    from throughline_domain.ids import new_id
+
+    run_id = new_id("wfr")
+    heartbeat = ("NULL" if heartbeat_seconds_ago is None
+                 else f"now() - interval '{int(heartbeat_seconds_ago)} seconds'")
+    lease = ("now() - interval '1 minute'" if lease_expired else "NULL")
+    owner = "'worker-1'" if state == "running" else "NULL"
+
+    cur.execute(
+        f"INSERT INTO workflow_runs(id, workflow_name, state, run_after, "
+        f"heartbeat_at, lease_owner, lease_expires_at) "
+        f"VALUES (%s, 'system.echo', %s, "
+        f"now() - interval '{int(run_after_seconds_ago)} seconds', "
+        f"{heartbeat}, {owner}, {lease})",
+        (run_id, state))
+    return run_id
+
+
+def test_a_stalled_queue_is_reported_rather_than_reading_as_healthy(cur):
+    """
+    The failure this exists for. With the database up and no worker running,
+    every dependency check passes, the API answers every request correctly, and
+    nothing ever completes — the researcher watches "Waiting for a worker to
+    pick it up…" forever.
+
+    It is not hypothetical: an earlier audit recorded two rows stuck, and a
+    worked example on this branch sat at zero findings until somebody noticed no
+    worker had been started.
+    """
+    from throughline_domain import observability
+
+    _queue(cur, state="queued",
+           run_after_seconds_ago=observability.STALLED_AFTER_SECONDS + 60)
+    cur.connection.commit()
+
+    check = observability.health()["checks"]["workers"]
+
+    assert check["ok"] is False
+    assert check["queued_due"] >= 1
+    # An operator has to be told what to do, not just that something is wrong.
+    assert "throughline_workers" in check["impact"]
+
+
+def test_an_idle_queue_is_not_reported_as_a_failure(cur):
+    """
+    Most workspaces are idle most of the time. Failing on silence would cry wolf
+    constantly, after which nobody reads the field at all.
+    """
+    from throughline_domain import observability
+
+    cur.execute("DELETE FROM workflow_runs")
+    cur.connection.commit()
+
+    check = observability.health()["checks"]["workers"]
+    assert check["ok"] is True
+
+
+def test_an_idle_queue_is_not_reported_as_a_working_worker_either(cur):
+    """
+    The distinction the whole check turns on. Nothing waiting is not evidence
+    that anything is running — and claiming otherwise from silence is the
+    reassuring lie, which is the direction that actually hurts.
+    """
+    from throughline_domain import observability
+
+    cur.execute("DELETE FROM workflow_runs")
+    cur.connection.commit()
+
+    check = observability.health()["checks"]["workers"]
+    assert check["confirmed"] is False
+    assert "not evidence that a worker is running" in check["impact"]
+
+
+def test_a_recent_heartbeat_confirms_a_worker(cur):
+    from throughline_domain import observability
+
+    cur.execute("DELETE FROM workflow_runs")
+    _queue(cur, state="running", heartbeat_seconds_ago=2)
+    cur.connection.commit()
+
+    check = observability.health()["checks"]["workers"]
+    assert check["confirmed"] is True
+    assert check["ok"] is True
+    assert check["impact"] is None
+
+
+def test_work_not_yet_due_is_not_counted_as_waiting(cur):
+    """
+    A retry scheduled with backoff is not a stalled queue. Counting it would
+    report a failure every time something legitimately backed off.
+    """
+    from throughline_domain import observability
+
+    cur.execute("DELETE FROM workflow_runs")
+    cur.execute(
+        "INSERT INTO workflow_runs(id, workflow_name, state, run_after) "
+        "VALUES ('wfr_future', 'system.echo', 'queued', now() + interval '1 hour')")
+    cur.connection.commit()
+
+    check = observability.health()["checks"]["workers"]
+    assert check["queued_due"] == 0
+    assert check["ok"] is True
+
+
+def test_a_worker_that_died_mid_job_is_visible(cur):
+    """
+    A run still marked running with an expired lease is a worker that died
+    holding it. `claim` reclaims these, so it is a symptom rather than a leak —
+    but a rising count is the clearest sign of a crash loop.
+    """
+    from throughline_domain import observability
+
+    cur.execute("DELETE FROM workflow_runs")
+    _queue(cur, state="running", heartbeat_seconds_ago=5, lease_expired=True)
+    cur.connection.commit()
+
+    assert observability.health()["checks"]["workers"]["abandoned_leases"] == 1
+
+
+def test_the_worker_check_is_not_critical(cur):
+    """
+    A stalled queue must not take the API out of rotation. Reads still work,
+    every deterministic verdict still renders, and restarting the API would fix
+    nothing — the worker is the process to start.
+    """
+    from throughline_domain import observability
+
+    assert observability.health()["checks"]["workers"]["critical"] is False

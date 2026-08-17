@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -261,6 +262,274 @@ def dev(api_port: int, web_port: int) -> int:
             _stop(child)
 
 
+# ---------------------------------------------------------------------------
+# Working alongside somebody else
+# ---------------------------------------------------------------------------
+#
+# Two people building the same repository hit two failure modes, and only one of
+# them is a bug CI can see.
+#
+# The expensive one is invisible: both of us independently built a Dockerfile,
+# both fixed the same broken package list, both edited the same route file.
+# Nothing was broken — the work was simply done twice, and one copy had to be
+# thrown away. No test catches that, because at no point was anything wrong.
+# `sync` exists for exactly this: it looks at what everyone else's branches
+# already touch before you spend a day on it.
+#
+# The cheap one is a push that does not build. CI catches it, but only after it
+# is public and only after somebody waits. `preflight` runs the same checks
+# locally first.
+
+
+def _git(*args: str, check: bool = True) -> str:
+    result = subprocess.run(["git", *args], cwd=ROOT, text=True,
+                            capture_output=True)
+    if check and result.returncode != 0:
+        raise RuntimeError(f"git {' '.join(args)}: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def _changed_against_main(ref: str) -> set[str]:
+    """Files a ref has touched since it left main — not since main last moved."""
+    try:
+        base = _git("merge-base", "origin/main", ref)
+    except RuntimeError:
+        return set()
+    listing = _git("diff", "--name-only", f"{base}..{ref}", check=False)
+    return {line for line in listing.splitlines() if line}
+
+
+def sync() -> int:
+    """
+    Find out what everyone else is doing before writing code.
+
+    Read-only on purpose. It fetches, reports, and changes nothing: a command
+    that rebases your branch as a side effect of asking a question is one you
+    stop running.
+    """
+    print("Fetching…")
+    _git("fetch", "origin", "--prune")
+
+    branch = _git("rev-parse", "--abbrev-ref", "HEAD")
+    print(f"\nYou are on {branch}.")
+
+    if branch != "main":
+        behind = _git("rev-list", "--count", f"{branch}..origin/main")
+        if behind != "0":
+            print(f"  origin/main has moved {behind} commit(s) ahead of you.")
+            print(f"  Catch up before you push:  git rebase origin/main")
+        else:
+            print("  Up to date with origin/main.")
+
+    # Committed work *and* what is still in the working tree. Uncommitted edits
+    # are exactly the ones worth warning about — they are the work you can still
+    # cheaply decide not to do.
+    mine = _changed_against_main("HEAD")
+    mine |= {line[3:].strip().strip('"')
+             for line in _git("status", "--porcelain").splitlines() if line}
+
+    others = [line.strip() for line in
+              _git("branch", "-r", "--no-merged", "origin/main").splitlines()
+              if line.strip() and "origin/HEAD" not in line]
+
+    if not others:
+        print("\nNo other unmerged branches. Nobody else has work in flight.")
+        return 0
+
+    print("\nOther branches with work in flight:")
+    overlapping = False
+    for ref in others:
+        if ref.endswith(f"/{branch}"):
+            continue
+        # The address, not just the name: one person committing from two
+        # machines under two `user.name` values reads as two collaborators
+        # otherwise, which is exactly the wrong conclusion to draw from a tool
+        # whose whole job is telling you who is working on what.
+        when = _git("log", "-1", "--format=%ar by %an <%ae>", ref, check=False)
+        theirs = _changed_against_main(ref)
+        shared = sorted(mine & theirs)
+        name = ref.replace("origin/", "")
+        print(f"\n  {name}  ({when})")
+        for path in sorted(theirs)[:8]:
+            print(f"      {path}")
+        if len(theirs) > 8:
+            print(f"      … and {len(theirs) - 8} more")
+        if shared:
+            overlapping = True
+            print(f"    ⚠ You are both editing:")
+            for path in shared:
+                print(f"      {path}")
+
+    if overlapping:
+        print("\nOverlap is not an error — but it is where duplicated work and")
+        print("merge conflicts both come from. Worth a message before continuing.")
+    return 0
+
+
+def _undeclared_but_needed(python: Path) -> list[str]:
+    """
+    Dependencies the packages declare that the virtualenv does not have.
+
+    Merging somebody's branch can add a dependency, and an editable install does
+    not notice: the metadata was written when the package was installed, so pip
+    sees nothing wrong. What the developer sees instead is a test failing on an
+    unrelated-looking assertion — a `.sav` file reported as needing a runtime
+    that is not installed reads like a broken merge, and the search starts in
+    entirely the wrong place. Naming it costs one subprocess.
+
+    Distribution names are normalised because `pyreadstat>=1.2`,
+    `python-docx` and `Pillow` all arrive spelled differently from the module
+    they install.
+    """
+    import tomllib
+
+    wanted: set[str] = set()
+    for package in PACKAGES:
+        pyproject = ROOT / package / "pyproject.toml"
+        if not pyproject.exists():
+            continue
+        # Parsed rather than pattern-matched. The first version read the file
+        # line by line and broke on `services/workers`, which declares its
+        # dependencies on a single line — every entry after the first became one
+        # mangled string, and preflight reported a package missing that was
+        # installed. tomllib has been in the standard library since 3.11, so
+        # this costs nothing and cannot misread a valid file.
+        declared = tomllib.loads(pyproject.read_text())
+        project = declared.get("project", {})
+        for entry in project.get("dependencies", []):
+            name = re.split(r"[<>=!~\[; ]", entry, 1)[0].strip()
+            if name:
+                wanted.add(name.lower().replace("_", "-"))
+
+    check = (
+        "import importlib.metadata as m, sys;"
+        "want = sys.argv[1:];"
+        "have = {d.metadata['Name'].lower().replace('_','-') "
+        "        for d in m.distributions() if d.metadata['Name']};"
+        "print('\\n'.join(sorted(set(want) - have)))"
+    )
+    result = subprocess.run([str(python), "-c", check, *sorted(wanted)],
+                            capture_output=True, text=True)
+    return [line for line in result.stdout.split() if line]
+
+
+def _other_suites() -> list[str]:
+    """
+    Test runs already in flight, excluding this process and its children.
+
+    Matched on the command line rather than a lock file, because a lock file
+    outlives a run that was killed and then blocks every later one until
+    somebody works out what the stale file is — the fix becoming the next
+    problem. `pgrep -f` needs the self-exclusion below: this process's own
+    command line contains the pattern, so an unfiltered match always finds
+    itself and reports a conflict that is not there. That exact mistake once
+    left five waiter shells spinning for over an hour.
+    """
+    result = subprocess.run(
+        ["pgrep", "-f", "pytest tests"], text=True, capture_output=True)
+    mine = {str(os.getpid()), str(os.getppid())}
+    return [pid for pid in result.stdout.split() if pid not in mine]
+
+
+def preflight(full: bool) -> int:
+    """
+    Everything CI will check, before anyone else can see it fail.
+
+    Deliberately the same checks rather than a cheaper subset: a preflight that
+    passes while CI fails teaches you to ignore the preflight.
+
+    It refuses to start while another run is in flight, and that refusal is the
+    most load-bearing line in this function. The suite drives one embedded
+    PostgreSQL, and several fixtures clear whole tables between tests — two runs
+    at once delete each other's rows and produce failures that belong to
+    neither. Observed directly: two concurrent runs of identical code reported
+    11 failures and 15 failures, on different tests, while the code was in fact
+    clean. Either number would have sent somebody hunting a bug that was not
+    there, and a *passing* overlap would have been worse still.
+    """
+    python = venv_python()
+    if not python.exists():
+        print("No virtualenv. Run bootstrap first.", file=sys.stderr)
+        return 1
+
+    missing = _undeclared_but_needed(python)
+    if missing:
+        print("The virtualenv is behind what the packages declare. Missing:",
+              file=sys.stderr)
+        for name in missing:
+            print(f"  {name}", file=sys.stderr)
+        print("\nRun bootstrap. This usually means somebody added a dependency "
+              "and your environment predates it — a stale venv fails as a "
+              "puzzling test failure rather than as a missing package, which "
+              "reads like a broken merge and sends you looking in the wrong "
+              "place.", file=sys.stderr)
+        return 1
+
+    others = _other_suites()
+    if others:
+        print("Another test run is already using the database "
+              f"(pid {', '.join(others)}).", file=sys.stderr)
+        print("Two runs share one PostgreSQL and clear each other's tables, so "
+              "the result would describe neither. Wait for it, or stop it.",
+              file=sys.stderr)
+        return 1
+
+    Step = tuple[str, list[str], Path, dict[str, str]]
+    steps: list[Step] = [
+        ("everything imports",
+         [str(python), "-m", "compileall", "-q", "packages", "services", "apps/api"],
+         ROOT, {}),
+        ("the three package lists still agree",
+         [str(python), "-m", "pytest", "tests/test_packaging.py", "-q"], ROOT, {}),
+    ]
+
+    node = _node_on_path()
+    if node:
+        # npx is a node script: finding it is not enough, it has to be able to
+        # find node itself. On a machine where node lives under ~/.local/opt and
+        # is not on PATH, resolving npx and then running it fails with
+        # "env: node: No such file or directory" — which reads like a missing
+        # dependency rather than a missing PATH entry.
+        env = dict(os.environ)
+        env["PATH"] = str(Path(node).parent) + os.pathsep + env.get("PATH", "")
+        steps.append(("the interface builds and its tests pass",
+                      [node_exe(node, "npx"), "vitest", "run"],
+                      ROOT / "apps" / "web", env))
+    else:
+        print("! No node found — skipping the web tests. CI will still run them.")
+
+    if full:
+        steps.append(("the full backend suite",
+                      [str(python), "-m", "pytest", "tests", "-q"], ROOT, {}))
+
+    for label, command, cwd, env in steps:
+        print(f"\n── {label}")
+        result = subprocess.run(command, cwd=cwd, env=env or None)
+        if result.returncode != 0:
+            print(f"\nFAILED: {label}.", file=sys.stderr)
+            print("Nothing was pushed. Fix this first — it is the same check CI "
+                  "runs, so pushing would only move the failure somewhere more "
+                  "public.", file=sys.stderr)
+            return result.returncode
+
+    print("\nAll checks passed." if full else
+          "\nFast checks passed. Run with --full before pushing.")
+    return 0
+
+
+def node_exe(node_binary: str, name: str) -> str:
+    """
+    `npx` from beside the node that was actually found.
+
+    `_node_on_path` returns the node executable, so the sibling tool lives in its
+    parent directory. Falling back to the bare name matters on a machine where
+    node is on PATH but npx is installed elsewhere — the alternative is an
+    absolute path to a file that is not there, which fails less clearly.
+    """
+    beside = Path(node_binary).parent / (f"{name}.cmd" if WINDOWS else name)
+    return str(beside) if beside.exists() else name
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -268,10 +537,18 @@ def main() -> int:
     run = sub.add_parser("dev", help="run the API, a worker and the web interface")
     run.add_argument("--api-port", type=int, default=int(os.environ.get("PORT", 8080)))
     run.add_argument("--web-port", type=int, default=int(os.environ.get("WEB_PORT", 3000)))
+    sub.add_parser("sync", help="fetch, and show what everyone else is working on")
+    check = sub.add_parser("preflight", help="run CI's checks before pushing")
+    check.add_argument("--full", action="store_true",
+                       help="include the whole backend suite (about three minutes)")
     args = parser.parse_args()
 
     if args.command == "bootstrap":
         return bootstrap()
+    if args.command == "sync":
+        return sync()
+    if args.command == "preflight":
+        return preflight(args.full)
     return dev(args.api_port, args.web_port)
 
 

@@ -18,12 +18,12 @@ from fastapi import Cookie, Depends, FastAPI, File, HTTPException, Query, Reques
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from throughline_domain import (
-    example,
-    analysis, auth, critic, discovery, embeddings, findings, graphs,
-    harmonize, lineage, objects, observability, retrieval, storage,
-    validation, visuals, workflow,
+    analysis, auth, claim_test, compare, consistency, critic, discovery,
+    embeddings, example, extraction, findings, graph_projection, graphs,
+    harmonize, images, journal, lineage, notebook, objects, observability,
+    patterns, reconcile, retrieval, specification, storage, synthesis,
+    validation, visuals, vocabulary, workflow,
 )
-from throughline_visual.prepare import prepare as visual_prepare
 from throughline_visual.prepare import prepare as visual_prepare
 from throughline_visual.spec import ResearchVisualSpec
 from throughline_domain import settings as domain_settings
@@ -116,6 +116,14 @@ class FindingCreate(BaseModel):
     finding_type: FindingType
     statement: str = Field(default="", max_length=100_000)
     summary: str = Field(default="", max_length=100_000)
+    #: The connections this finding was drawn from.
+    #:
+    #: Optional, because a researcher may record a finding before anything has
+    #: computed one. Supplying it is what lets "why do we believe this?" answer
+    #: with the analysis and the dataset rather than with the claims alone —
+    #: `findings.object_id` was never set by any caller, and the whole
+    #: evidence-graph branch that reads it therefore never ran.
+    from_connections: list[str] = Field(default_factory=list)
 
 
 class FindingTransition(BaseModel):
@@ -152,7 +160,15 @@ def scoped_project(project_id: str, user: dict[str, Any]) -> str:
 
 
 @app.get("/health")
-def health() -> dict[str, Any]:
+def liveness() -> dict[str, Any]:
+    """
+    The bare liveness probe, kept distinct from `/api/health`.
+
+    Both used to be called `health`. The decorators had already registered each
+    function object by the time the second definition rebound the name, so both
+    routes worked — but the module-level name pointed at only one of them, and a
+    reader checking "what does health() do" saw the wrong body for this route.
+    """
     with transaction() as cur:
         cur.execute("SELECT 1 AS ok")
         db_ok = cur.fetchone()["ok"] == 1
@@ -251,33 +267,6 @@ def auth_register(payload: RegisterRequest, request: Request,
     return {"user": user, "first_account": first}
 
 
-class RegisterRequest(BaseModel):
-    email: str = Field(min_length=3, max_length=320)
-    display_name: str = Field(default="", max_length=200)
-    password: str = Field(min_length=12, max_length=1024)
-
-
-def _registration_is_open(request: Request) -> bool:
-    """
-    Whether a stranger may create an account on this installation.
-
-    Open sign-up and a local-first workspace are in genuine tension: anyone who
-    can reach the port could otherwise help themselves to a corpus that lives on
-    someone's laptop. So it is allowed from the machine itself, and off-machine
-    only when the operator has explicitly turned it on.
-
-    That keeps the ordinary case — a researcher installs this and signs up —
-    working exactly as expected, without turning a laptop on café wifi into an
-    open registration server.
-    """
-    with transaction() as cur:
-        if (domain_settings.get(cur, "open_registration") or "").lower() in (
-                "1", "true", "yes", "on"):
-            return True
-    host = (request.client.host if request.client else "") or ""
-    return host in ("127.0.0.1", "::1", "localhost")
-
-
 @app.post("/api/auth/login")
 def auth_login(payload: LoginRequest, response: Response) -> dict[str, Any]:
     with transaction() as cur:
@@ -356,17 +345,6 @@ def list_accounts(user: dict = Depends(current_user)) -> list[dict[str, Any]]:
             "SELECT id, email, display_name, is_admin, created_at FROM users "
             "ORDER BY created_at")
         return [dict(row) for row in cur.fetchall()]
-
-
-class NewAccount(BaseModel):
-    email: str = Field(min_length=3, max_length=320)
-    display_name: str = Field(default="", max_length=200)
-    password: str = Field(min_length=12, max_length=1024)
-
-
-class PasswordChange(BaseModel):
-    current_password: str = Field(min_length=1, max_length=1024)
-    new_password: str = Field(min_length=12, max_length=1024)
 
 
 @app.post("/api/auth/logout")
@@ -1238,28 +1216,6 @@ def import_record(project_id: str, payload: ImportRequest,
                 "already_present": False}
 
 
-class LiteratureSearch(BaseModel):
-    query: str = Field(min_length=2, max_length=400)
-    sources: list[str] = Field(default_factory=list, max_length=8)
-    limit: int = Field(default=20, ge=1, le=50)
-
-
-class ImportRequest(BaseModel):
-    """One record chosen from a search, imported as a source."""
-    title: str
-    doi: str | None = None
-    arxiv_id: str | None = None
-    pmid: str | None = None
-    url: str = ""
-    pdf_url: str = ""
-    authors: list[str] = Field(default_factory=list)
-    year: int | None = None
-    venue: str = ""
-    abstract: str = ""
-    source: str = ""
-    provenance: dict[str, str] = Field(default_factory=dict)
-
-
 class DatasetSetRequest(BaseModel):
     dataset_version_ids: list[str] = Field(min_length=2, max_length=8)
 
@@ -1328,28 +1284,6 @@ def compare_images(project_id: str, payload: ImageSetRequest,
         return images.compare_many(loaded)
     except images.ImageError as exc:
         raise HTTPException(400, str(exc)) from exc
-
-
-class SpecificationCurveRequest(BaseModel):
-    dataset_version_id: str
-    outcome: str
-    exposure: str
-    #: The covariates the *researcher* thinks might belong in the model. The
-    #: system never chooses these: deciding what to adjust for is a causal
-    #: judgement, and making it from the data is exactly what LAW 6 forbids.
-    candidates: list[str] = Field(default_factory=list, max_length=8)
-
-
-class SynthesisRequest(BaseModel):
-    source_ids: list[str] = Field(min_length=2, max_length=12)
-
-
-class DatasetSetRequest(BaseModel):
-    dataset_version_ids: list[str] = Field(min_length=2, max_length=8)
-
-
-class ImageSetRequest(BaseModel):
-    source_ids: list[str] = Field(min_length=2, max_length=20)
 
 
 class ReconcileRequest(BaseModel):
@@ -1424,17 +1358,6 @@ def reconcile_papers(project_id: str, payload: ReconcilePapersRequest,
             "reconciliations": pairs,
             "model": located["left"]["model"],
         }
-
-
-class ReconcileRequest(BaseModel):
-    """Two located claims, as they travel back for reconciliation."""
-    left: ClaimPayload
-    right: ClaimPayload
-
-
-class ReconcilePapersRequest(BaseModel):
-    left_source_id: str
-    right_source_id: str
 
 
 class ConsistencyRequest(BaseModel):
@@ -1614,30 +1537,6 @@ def object_mentions(object_id: str,
         return notebook.object_backlinks(cur, object_id)
 
 
-class NoteBody(BaseModel):
-    body: str
-    object_type: str = "unknown"
-    replies_to: str | None = None
-
-
-class Question(BaseModel):
-    question: str
-
-
-class ConsistencyRequest(BaseModel):
-    left_connection_id: str
-    right_connection_id: str
-
-
-class NewNote(BaseModel):
-    title: str
-    body: str = ""
-
-
-class NoteEdit(BaseModel):
-    body: str
-
-
 @app.get("/api/projects/{project_id}/patterns")
 def project_patterns(project_id: str,
                      user: dict = Depends(current_user)) -> dict[str, Any]:
@@ -1730,17 +1629,6 @@ def decide_alias(alias_id: str, payload: AliasDecision,
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
     return decided
-
-
-class AliasSuggestion(BaseModel):
-    phrase: str
-    canonical_variable_id: str
-    origin: str = "paper"
-    origin_ref: str | None = None
-
-
-class AliasDecision(BaseModel):
-    status: str
 
 
 class ModelChoice(BaseModel):
@@ -1844,11 +1732,6 @@ def health() -> dict[str, Any]:
     if report["status"] == "unhealthy":
         return JSONResponse(status_code=503, content=report)
     return report
-
-
-class ModelChoice(BaseModel):
-    provider: str = "ollama"
-    model: str | None = None
 
 
 @app.get("/api/system/capabilities")
@@ -2023,6 +1906,11 @@ class DiscoveryRequest(BaseModel):
     false_discovery_rate: float = Field(default=0.05, gt=0, lt=1)
     #: Run again over data that has not changed. A decision, never a default.
     force: bool = False
+    #: The researcher's working session, so this sweep joins the same
+    #: multiple-comparison family as everything else they have looked at today.
+    #: Optional: without it the run is its own family, which is what happened
+    #: before this existed.
+    session_id: str | None = None
 
 
 
@@ -2076,7 +1964,8 @@ def start_discovery(project_id: str, payload: DiscoveryRequest,
 
         run_id = discovery.create_run(cur, project_id=project_id,
                                       dataset_version_id=payload.dataset_version_id,
-                                      fdr=payload.false_discovery_rate)
+                                      fdr=payload.false_discovery_rate,
+                                      session_id=payload.session_id)
         workflow.enqueue(cur, workflow_name="discovery.run", project_id=project_id,
                          payload={"discovery_run_id": run_id},
                          idempotency_key=f"discovery:{run_id}")
@@ -2296,11 +2185,6 @@ def list_compatibility(project_id: str,
         return compare.list_assessments(cur, project_id)
 
 
-class CompareRequest(BaseModel):
-    left_dataset_version_id: str
-    right_dataset_version_id: str
-
-
 class ClaimPayload(BaseModel):
     """A located claim, as it travels back for adjudication."""
     statement: str
@@ -2315,6 +2199,14 @@ class ClaimPayload(BaseModel):
     #: check (P7) cannot run — and that check has to run before any other, since
     #: a paper tested against its own data produces agreement that means nothing.
     source_id: str | None = None
+    #: The recorded Claim this came from, as `locate_claims` returned it.
+    #:
+    #: The field was missing while the interface was already sending it, so
+    #: Pydantic dropped it on the way in and the adjudication had no way to
+    #: attach its outcome to a claim. That is why nothing ever wrote `evidence`
+    #: (D014): the row needs a `claim_id` and the id was being discarded one
+    #: layer above.
+    claim_id: str | None = None
 
 
 class ClaimTestRequest(BaseModel):
@@ -2381,27 +2273,6 @@ def test_claim(project_id: str, payload: ClaimTestRequest,
                 source_id=payload.claim.source_id)
         except claim_test.ClaimTestError as exc:
             raise HTTPException(400, str(exc)) from exc
-
-
-class ClaimPayload(BaseModel):
-    """A located claim, as it travels back for adjudication."""
-    statement: str
-    exposure: str
-    outcome: str
-    direction: str = "unclear"
-    claimed_design: str = "unknown"
-    claimed_effect: str = ""
-    population: str = ""
-    locator: str = ""
-    #: The paper the claim came from. Optional, but without it the circularity
-    #: check (P7) cannot run — and that check has to run before any other, since
-    #: a paper tested against its own data produces agreement that means nothing.
-    source_id: str | None = None
-
-
-class ClaimTestRequest(BaseModel):
-    claim: ClaimPayload
-    dataset_version_id: str
 
 
 @app.get("/api/dataset-versions/{version_id}/density")
@@ -2475,11 +2346,6 @@ def column_density(version_id: str, column: str = Query(...),
     }
 
 
-class CompareRequest(BaseModel):
-    left_dataset_version_id: str
-    right_dataset_version_id: str
-
-
 @app.get("/api/projects/{project_id}/correlation-matrix")
 def correlation_matrix(project_id: str,
                        user: dict = Depends(current_user)) -> dict[str, Any]:
@@ -2530,11 +2396,6 @@ def correlation_matrix(project_id: str,
         "note": ("Every pair the discovery run tested, from the recorded results — "
                  "not recomputed here. Blank cells were never tested."),
     }
-
-
-class CompareRequest(BaseModel):
-    left_dataset_version_id: str
-    right_dataset_version_id: str
 
 
 @app.get("/api/projects/{project_id}/estimates")
@@ -2614,11 +2475,6 @@ def project_estimates(project_id: str, limit: int = Query(30, ge=1, le=200),
                     " — they were tested for association and have no coefficient "
                     "or interval to plot." if without_estimate else "")),
     }
-
-
-class CompareRequest(BaseModel):
-    left_dataset_version_id: str
-    right_dataset_version_id: str
 
 
 @app.get("/api/analyses/{run_id}/points")
@@ -2715,11 +2571,6 @@ def _binned_cells(spec, data) -> list[dict[str, Any]] | None:
         }
         for (column, row), count in sorted(counts.items())
     ]
-
-
-class CompareRequest(BaseModel):
-    left_dataset_version_id: str
-    right_dataset_version_id: str
 
 
 @app.post("/api/projects/{project_id}/visuals", status_code=201)
@@ -2838,42 +2689,6 @@ def _column_values(version_id: str, column: str) -> list[float | None]:
     return [None if pd.isna(v) else float(v) for v in numeric]
 
 
-def _column_values(version_id: str, column: str) -> list[float | None]:
-    """
-    Every numeric value of one column, read server-side.
-
-    Unlike `_visual_sample` this is not capped: a density estimate over a
-    truncated head of the file would describe the first rows rather than the
-    distribution, and the shape would change silently with row order. The values
-    never leave the server — only the fitted curve does.
-    """
-    import pandas as pd
-
-    from throughline_ingestion.datasets import read_dataset
-
-    with transaction() as cur:
-        cur.execute(
-            """
-            SELECT f.storage_key, f.filename FROM dataset_versions dv
-            JOIN datasets d ON d.id = dv.dataset_id
-            JOIN sources s ON s.id = d.source_id
-            JOIN files f ON f.id = s.file_id
-            WHERE dv.id = %s
-            """,
-            (version_id,),
-        )
-        row = cur.fetchone()
-    if not row:
-        return []
-
-    frame, _ = read_dataset(storage.path_for(row["storage_key"]),
-                            suffix=Path(row["filename"] or "").suffix.lower())
-    if column not in frame.columns:
-        return []
-    numeric = pd.to_numeric(frame[column], errors="coerce")
-    return [None if pd.isna(v) else float(v) for v in numeric]
-
-
 def _visual_sample(cur, spec: ResearchVisualSpec, limit: int = 500) -> dict[str, Any]:
     """A bounded sample of the fields a figure draws.
 
@@ -2926,7 +2741,8 @@ def create_finding(project_id: str, payload: FindingCreate,
         finding_id = findings.create_finding(
             cur, project_id=project_id, title=payload.title,
             finding_type=payload.finding_type, statement=payload.statement,
-            summary=payload.summary, actor=user["id"],
+            summary=payload.summary, from_connections=payload.from_connections,
+            actor=user["id"],
         )
     return {"finding_id": finding_id, "lifecycle_status": str(FindingLifecycle.CANDIDATE)}
 
@@ -3073,14 +2889,6 @@ def decide_label(mapping_id: str, payload: LabelDecision,
             raise HTTPException(400, str(exc)) from exc
 
 
-class LabelDecision(BaseModel):
-    approve: bool
-
-
-class LabelDecision(BaseModel):
-    approve: bool
-
-
 @app.exception_handler(Exception)
 async def unhandled(request: Request, exc: Exception) -> JSONResponse:
     """never a bare "something went wrong"."""
@@ -3093,3 +2901,18 @@ async def unhandled(request: Request, exc: Exception) -> JSONResponse:
             "hint": "The request was rolled back; no partial state was written.",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# The interpretation layer
+# ---------------------------------------------------------------------------
+#
+# Mounted from its own module rather than written here. Two other branches are
+# open against this file, and several hundred more lines in it would produce a
+# three-way merge that gets resolved wrongly in places. One line does not.
+#
+# Imported at the bottom on purpose: that module reaches back for `current_user`
+# and `scoped_project`, so both have to exist before it loads.
+from .interpretation import router as interpretation_router  # noqa: E402
+
+app.include_router(interpretation_router)

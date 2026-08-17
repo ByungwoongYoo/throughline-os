@@ -184,3 +184,128 @@ def test_findings_can_be_listed_for_a_project(client):
     assert listed[0]["title"] == "Consumption tracks resistance"
     # LAW 3 — supporting and contradicting counts travel with the finding.
     assert "evidence" in listed[0]
+
+
+# ---------------------------------------------------------------------------
+# D018 — the edge that makes "why do we believe this?" answerable
+# ---------------------------------------------------------------------------
+
+def _analysed_connection(cur, project):
+    """A connection with a completed analysis run that has its own object."""
+    dataset_object = new_id("obj")
+    cur.execute(
+        "INSERT INTO research_objects(id, project_id, object_type, title, created_by) "
+        "VALUES (%s, %s, 'dataset', 'panel', 'test')", (dataset_object, project))
+
+    spec_id = new_id("asp")
+    cur.execute(
+        "INSERT INTO analysis_specs(id, project_id, analysis_type, method, "
+        "content_hash, created_by, research_question, dataset_version_ids) "
+        "VALUES (%s, %s, 'correlation', 'pearson', %s, 'test', 'q', '[]'::jsonb)",
+        (spec_id, project, new_id("h")[:64]))
+
+    run_object = new_id("obj")
+    cur.execute(
+        "INSERT INTO research_objects(id, project_id, object_type, title, created_by) "
+        "VALUES (%s, %s, 'analysis', 'run', 'test')", (run_object, project))
+    run_id = new_id("arun")
+    cur.execute(
+        "INSERT INTO analysis_runs(id, project_id, spec_id, status, object_id, result) "
+        "VALUES (%s, %s, %s, 'completed', %s, '{}'::jsonb)",
+        (run_id, project, spec_id, run_object))
+
+    connection_id = new_id("conn")
+    cur.execute(
+        "INSERT INTO connections(id, project_id, analysis_run_id, left_variable, "
+        "right_variable, method) VALUES (%s, %s, %s, 'ddd', 'res_pct', 'pearson')",
+        (connection_id, project, run_id))
+    return {"connection": connection_id, "run_object": run_object, "run": run_id,
+            "dataset_object": dataset_object}
+
+
+def test_a_finding_from_a_connection_is_attached_to_the_graph(cur, project):
+    """
+    `findings.object_id` was never set by any caller, so it was null for every
+    finding ever created — and `graphs.evidence_graph` gates its whole
+    analyses-and-connections branch on that column. The chain existed in the
+    database and joined up nowhere.
+    """
+    parts = _analysed_connection(cur, project)
+    finding_id = findings.create_finding(
+        cur, project_id=project, title="ddd tracks res_pct",
+        finding_type=FindingType.STATISTICAL,
+        from_connections=[parts["connection"]], actor="test")
+
+    cur.execute("SELECT object_id FROM findings WHERE id = %s", (finding_id,))
+    assert cur.fetchone()["object_id"] is not None
+
+
+def test_the_evidence_graph_reaches_the_analysis_behind_a_finding(cur, project):
+    """
+    Asserted through `evidence_graph` — the query behind "why do we believe
+    this?" — rather than through the lineage table. Checking the edge alone
+    would leave the thing a researcher actually opens unproven, which is how
+    this went unnoticed in the first place.
+    """
+    from throughline_domain import graphs
+
+    parts = _analysed_connection(cur, project)
+    finding_id = findings.create_finding(
+        cur, project_id=project, title="ddd tracks res_pct",
+        finding_type=FindingType.STATISTICAL,
+        from_connections=[parts["connection"]], actor="test")
+
+    graph = graphs.evidence_graph(cur, finding_id=finding_id)
+    assert [a["id"] for a in graph["analyses"]] == [parts["run"]]
+
+
+def test_a_finding_recorded_by_hand_is_still_allowed(cur, project):
+    """
+    A researcher may write a finding down before anything computes one.
+    Refusing that would be worse than a finding with a short chain — their
+    result is not contingent on this system's bookkeeping.
+    """
+    finding_id = findings.create_finding(
+        cur, project_id=project, title="Written by hand",
+        finding_type=FindingType.STATISTICAL, actor="test")
+
+    cur.execute("SELECT object_id FROM findings WHERE id = %s", (finding_id,))
+    assert cur.fetchone()["object_id"] is None
+
+
+def test_a_connection_whose_run_never_finished_does_not_break_recording(cur, project):
+    """
+    `create_object` refuses a derived artifact with no inputs, so a connection
+    with no completed run would raise on the way in. Losing the finding to
+    that would put this system's bookkeeping ahead of the researcher's result.
+    """
+    connection_id = new_id("conn")
+    cur.execute(
+        "INSERT INTO connections(id, project_id, left_variable, right_variable, "
+        "method) VALUES (%s, %s, 'a', 'b', 'pearson')", (connection_id, project))
+
+    finding_id = findings.create_finding(
+        cur, project_id=project, title="Unfinished", finding_type=FindingType.STATISTICAL,
+        from_connections=[connection_id], actor="test")
+
+    cur.execute("SELECT object_id FROM findings WHERE id = %s", (finding_id,))
+    assert cur.fetchone()["object_id"] is None
+
+
+def test_another_projects_connection_cannot_attach_a_finding(cur, project):
+    """The lookup is scoped, so a finding cannot be joined to someone else's analysis."""
+    parts = _analysed_connection(cur, project)
+
+    other = new_id("prj")
+    cur.execute("SELECT owner_user_id FROM projects WHERE id = %s", (project,))
+    owner = cur.fetchone()["owner_user_id"]
+    cur.execute(
+        "INSERT INTO projects(id, owner_user_id, name, research_question) "
+        "VALUES (%s, %s, 'Other', 'q')", (other, owner))
+
+    finding_id = findings.create_finding(
+        cur, project_id=other, title="Borrowed", finding_type=FindingType.STATISTICAL,
+        from_connections=[parts["connection"]], actor="test")
+
+    cur.execute("SELECT object_id FROM findings WHERE id = %s", (finding_id,))
+    assert cur.fetchone()["object_id"] is None

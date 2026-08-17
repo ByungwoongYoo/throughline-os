@@ -836,42 +836,321 @@ def test_a_claim_with_no_paper_records_no_edge(cur, project):
 # Located claims are a research artifact, not a transient computation
 # ---------------------------------------------------------------------------
 
-def test_a_re_read_replaces_the_previous_reading(cur, project):
-    """
-    Two extractions of one paper sitting side by side would silently double
-    every downstream comparison — each claim would be reconciled against the
-    other paper twice, and a reviewer counting agreements would count each one
-    two times.
-    """
-    source_id = _paper(cur, project, title="Paper", passages=["An association."])
-    for round_number in range(2):
-        cur.execute(
-            "INSERT INTO located_claims(id, project_id, source_id, statement, "
-            "model, prompt_name, prompt_version, ordinal) "
-            "VALUES (%s, %s, %s, %s, 'test-model', 'locate_claims', 1, 0)",
-            (new_id("lclm"), project, source_id, f"round {round_number}"))
-        # The real function deletes first; this asserts the invariant the delete
-        # exists to keep.
-        cur.execute("DELETE FROM located_claims WHERE source_id = %s AND "
-                    "statement <> %s", (source_id, f"round {round_number}"))
-
-    assert len(claim_test.stored_claims(cur, source_id)) == 1
 
 
-def test_stored_claims_carry_the_model_that_read_them(cur, project):
-    """
-    LAW 4 — a later disagreement between two extractions must be attributable
-    rather than argued about.
-    """
-    source_id = _paper(cur, project, title="Paper", passages=["An association."])
+# ---------------------------------------------------------------------------
+# D013/D014 — the two tables the system read and never wrote
+# ---------------------------------------------------------------------------
+
+def _paper_object(cur, project, source_id, title="A paper"):
+    object_id = new_id("obj")
     cur.execute(
-        "INSERT INTO located_claims(id, project_id, source_id, statement, "
-        "estimand, model, prompt_name, prompt_version, ordinal) "
-        "VALUES (%s, %s, %s, 'x', 'odds_ratio', 'qwen2.5:7b-instruct', "
-        "'locate_claims', 1, 0)",
-        (new_id("lclm"), project, source_id))
+        "INSERT INTO research_objects(id, project_id, object_type, title, "
+        "source_id, created_by) VALUES (%s, %s, 'paper', %s, %s, 'test')",
+        (object_id, project, title, source_id))
+    return object_id
+
+
+def _recorded_claim(cur, project, statement="Consumption raises resistance."):
+    claim_id = new_id("clm")
+    cur.execute(
+        "INSERT INTO claims(id, project_id, statement, claim_type, status, "
+        "created_by) VALUES (%s, %s, %s, 'literature_interpretation', "
+        "'proposed', 'test')", (claim_id, project, statement))
+    return claim_id
+
+
+def _tested(cur, project, *, estimate=0.90, claimed_effect="r = 0.88"):
+    """A claim adjudicated against data, with everything the graph needs."""
+    data = _mapped(cur, project)
+    _connection(cur, project, left="ddd", right="res_pct",
+                estimate=estimate, q_value=5.17e-66)
+    paper = _paper(cur, project, title="A paper", passages=["An association."])
+    paper_object = _paper_object(cur, project, paper)
+    claim_id = _recorded_claim(cur, project)
+
+    result = claim_test.test_claim(
+        cur, project_id=project,
+        claim={**CLAIM, "source_id": paper, "claim_id": claim_id,
+               "claimed_effect": claimed_effect},
+        dataset_version_id=data["version_id"])
+    return {"result": result, "claim_id": claim_id,
+            "paper_object": paper_object, "dataset": data}
+
+
+def test_a_tested_claim_records_evidence(cur, project):
+    """
+    `findings.evidence_summary` counts evidence by direction and nothing ever
+    wrote a row, so it returned zeros for every finding in every project. Zero
+    supporting evidence reads as "nothing bears on this claim"; the truth was
+    that nothing had ever been recorded.
+    """
+    tested = _tested(cur, project)
+    assert tested["result"]["verdict"]["family"] == "supported"
+
+    cur.execute("SELECT direction, evidence_type, confidence, metadata "
+                "FROM evidence WHERE claim_id = %s", (tested["claim_id"],))
+    rows = [dict(r) for r in cur.fetchall()]
+
+    assert len(rows) == 1
+    assert rows[0]["direction"] == "supports"
+    assert rows[0]["evidence_type"] == "analysis_result"
+    assert rows[0]["metadata"]["outcome"] == "P1"
+
+
+def test_the_direction_follows_the_verdict_family(cur, project):
+    """
+    A contradicted claim must not be filed as supporting evidence. The mapping
+    comes from the verdict taxonomy rather than being decided here, so a family
+    added later cannot be silently scored as agreement.
+    """
+    # Claimed positive, measured strongly negative.
+    tested = _tested(cur, project, estimate=-0.90, claimed_effect="r = 0.88")
+    assert tested["result"]["verdict"]["family"] == "contradicted"
+
+    cur.execute("SELECT direction FROM evidence WHERE claim_id = %s",
+                (tested["claim_id"],))
+    assert cur.fetchone()["direction"] == "contradicts"
+
+
+def test_a_refusal_records_no_evidence(cur, project):
+    """
+    The distinction that keeps the count meaningful. A claim that could not be
+    tested taught nothing about whether it is true — no statistic was read. A
+    neutral evidence row for it would put a number in `evidence_summary` for a
+    test that never happened, which is the Contradictions meter's defect one
+    table over.
+    """
+    data = _mapped(cur, project)                    # no connection: not tested
+    paper = _paper(cur, project, title="A paper", passages=["An association."])
+    _paper_object(cur, project, paper)
+    claim_id = _recorded_claim(cur, project)
+
+    result = claim_test.test_claim(
+        cur, project_id=project,
+        claim={**CLAIM, "source_id": paper, "claim_id": claim_id},
+        dataset_version_id=data["version_id"])
+
+    # D14 is `Family.UNDETERMINED` — the same family as a genuinely unstable
+    # result — while nothing has been analysed at all. Scoring on family alone
+    # recorded neutral evidence here, which is what this test caught. The
+    # state is what separates the two.
+    assert result["verdict"]["reason_code"] == "not_yet_analysed"
+    assert result["verdict"]["state"] == RunState.NEEDS_INPUT.value
+
+    cur.execute("SELECT count(*) AS n FROM evidence WHERE claim_id = %s",
+                (claim_id,))
+    assert cur.fetchone()["n"] == 0
+
+    # The lineage edge is still written — "this pairing was tried and could not
+    # be tested" is worth keeping so the dead end is not rediscovered. It is a
+    # fact about the pairing, not about the claim.
+    cur.execute("SELECT count(*) AS n FROM artifact_lineage_edges "
+                "WHERE project_id = %s", (project,))
+    assert cur.fetchone()["n"] == 1
+
+
+def test_a_tested_claim_asserts_a_research_edge(cur, project):
+    """
+    `research_edges` is the asserted half of the knowledge graph — the half
+    `graphs.neighbourhood` documents as one of "two kinds of edge, one graph".
+    Nothing had ever written a row, so every graph ever drawn showed derivation
+    and no asserted relationship at all.
+    """
+    tested = _tested(cur, project)
+
+    cur.execute(
+        "SELECT relationship_type, status, confidence, evidence_id "
+        "FROM research_edges WHERE project_id = %s AND target_object_id = %s",
+        (project, tested["paper_object"]))
+    edges = [dict(r) for r in cur.fetchall()]
+
+    assert len(edges) == 1
+    assert edges[0]["relationship_type"] == "supports"
+    assert edges[0]["status"] == "asserted"
+    # The edge points at the evidence that backs it, rather than asserting a
+    # relationship with nothing behind it.
+    assert edges[0]["evidence_id"] is not None
+
+
+def test_the_asserted_edge_reaches_the_neighbourhood_query(cur, project):
+    """
+    Asserted through the query the graph view actually runs, not the table.
+    Checking the row alone would leave the visible defect — a graph with no
+    asserted edges — unproven.
+    """
+    from throughline_domain import graphs
+
+    tested = _tested(cur, project)
+    graph = graphs.knowledge_graph(
+        cur, project_id=project, focus_object_id=tested["paper_object"], depth=1)
+
+    kinds = {edge["relationship_type"] for edge in graph["edges"]}
+    assert "supports" in kinds, kinds
+    # Both halves are present: the asserted relationship and the derivation.
+    assert kinds - {"supports"}, "the lineage half should still be drawn"
+
+
+def test_re_testing_updates_the_edge_rather_than_adding_one(cur, project):
+    """
+    Detection-style writes run repeatedly. One edge per run would make the
+    graph's density a measure of how often the button was pressed.
+    """
+    tested = _tested(cur, project)
+    claim_test.test_claim(
+        cur, project_id=project,
+        claim={**CLAIM, "source_id": None, "claim_id": tested["claim_id"],
+               "claimed_effect": "r = 0.88"},
+        dataset_version_id=tested["dataset"]["version_id"],
+        source_id=None)
+
+    cur.execute("SELECT count(*) AS n FROM research_edges WHERE project_id = %s",
+                (project,))
+    assert cur.fetchone()["n"] == 1
+
+
+def test_evidence_is_not_recorded_for_a_claim_that_was_never_stored(cur, project):
+    """
+    `evidence.claim_id` is NOT NULL. A claim typed by hand and adjudicated has
+    no Claim row, and inventing one here would create a permanent record the
+    caller never asked for.
+    """
+    data = _mapped(cur, project)
+    _connection(cur, project, left="ddd", right="res_pct",
+                estimate=0.90, q_value=5.17e-66)
+    paper = _paper(cur, project, title="A paper", passages=["An association."])
+    _paper_object(cur, project, paper)
+
+    claim_test.test_claim(
+        cur, project_id=project,
+        claim={**CLAIM, "source_id": paper, "claimed_effect": "r = 0.88"},
+        dataset_version_id=data["version_id"])
+
+    cur.execute("SELECT count(*) AS n FROM evidence WHERE project_id = %s",
+                (project,))
+    assert cur.fetchone()["n"] == 0
+
+
+def test_the_evidence_summary_a_finding_shows_stops_being_empty(cur, project):
+    """
+    The number a researcher actually reads, asserted through
+    `findings.evidence_summary` rather than the table underneath it.
+    """
+    from throughline_domain import findings
+
+    tested = _tested(cur, project)
+    finding_id = new_id("fnd")
+    # Only project_id, title and finding_type are required without a default —
+    # read from the migration rather than discovered one failed insert at a
+    # time, which is the mistake that produced this comment.
+    cur.execute(
+        "INSERT INTO findings(id, project_id, title, finding_type) "
+        "VALUES (%s, %s, 'F', 'association_only')", (finding_id, project))
+    cur.execute("INSERT INTO finding_claims(finding_id, claim_id) VALUES (%s, %s)",
+                (finding_id, tested["claim_id"]))
+
+    assert findings.evidence_summary(cur, finding_id)["supports"] == 1
+
+
+# ---------------------------------------------------------------------------
+# D015 — locating a claim persists what was read, and replaces the last reading
+# ---------------------------------------------------------------------------
+
+class _Completion:
+    model = "test-model"
+    prompt_name = "locate_claims"
+    prompt_version = 3
+
+
+class _Template:
+    name = "locate_claims"
+    version = 3
+
+    def render(self):
+        return "instructions"
+
+
+def _stub_model(monkeypatch, statements):
+    """
+    Drive `locate_claims` without a model.
+
+    Nothing had ever called this function in a test — only its refusal path
+    when a paper has no passages — so the extraction body itself was unexercised
+    and the missing `located_claims` write sat there unnoticed.
+    """
+    import throughline_model
+    from throughline_model.schemas import TestableClaim, TestableClaims
+
+    claims = [TestableClaim(
+        statement=statement, exposure="consumption", outcome="resistance",
+        direction="positive", claimed_design="cross_sectional",
+        claimed_effect="r = 0.88", claimed_interval="", estimand="unknown",
+        outcome_definition="", population="nine countries", period="2019",
+        locator="p. 4", choice_confidence=0.8) for statement in statements]
+
+    class _Provider:
+        def generate_structured(self, **_kwargs):
+            return TestableClaims(claims=claims, note=""), _Completion()
+
+    monkeypatch.setattr(throughline_model, "prompt", lambda _name: _Template())
+    monkeypatch.setattr(throughline_model, "provider", _Provider)
+
+
+def test_locating_a_claim_stores_how_it_was_read(cur, project, monkeypatch):
+    """
+    `claims` holds the statement; everything about *how* it was read — the
+    constructs, the design, the locator, and which model at which prompt
+    version produced them — belongs in `located_claims`. All of it was computed
+    on every extraction and dropped, so `stored_claims` returned an empty list
+    for every paper ever read.
+    """
+    _stub_model(monkeypatch, ["Consumption raises resistance."])
+    source_id = _paper(cur, project, title="Paper", passages=["An association."])
+
+    claim_test.locate_claims(cur, project_id=project, source_id=source_id)
 
     stored = claim_test.stored_claims(cur, source_id)
-    assert stored[0]["model"] == "qwen2.5:7b-instruct"
-    assert stored[0]["prompt_version"] == 1
-    assert stored[0]["estimand"] == "odds_ratio"
+    assert len(stored) == 1
+    assert stored[0]["exposure"] == "consumption"
+    assert stored[0]["claimed_design"] == "cross_sectional"
+    assert stored[0]["locator"] == "p. 4"
+    # LAW 4 — a later disagreement between two readings has to be attributable.
+    assert stored[0]["model"] == "test-model"
+    assert stored[0]["prompt_version"] == 3
+    # And it is tied to the Claim record, so the two cannot drift apart.
+    assert stored[0]["claim_id"] is not None
+
+
+def test_re_reading_a_paper_replaces_the_previous_reading(cur, project, monkeypatch):
+    """
+    Two readings side by side would silently double every downstream
+    comparison: each claim reconciled against the other paper twice, and a
+    reviewer counting agreements counting each one two times.
+
+    `test_a_re_read_replaces_the_previous_reading` has asserted this invariant
+    since the table was added, but it performed the delete itself with the
+    comment "the real function deletes first" — which the real function did not.
+    So the invariant was documented, asserted, and unimplemented at once.
+    """
+    source_id = _paper(cur, project, title="Paper", passages=["An association."])
+
+    _stub_model(monkeypatch, ["First reading."])
+    claim_test.locate_claims(cur, project_id=project, source_id=source_id)
+
+    _stub_model(monkeypatch, ["Second reading."])
+    claim_test.locate_claims(cur, project_id=project, source_id=source_id)
+
+    stored = claim_test.stored_claims(cur, source_id)
+    assert [row["statement"] for row in stored] == ["Second reading."]
+
+
+def test_claims_are_stored_in_the_order_they_were_read(cur, project, monkeypatch):
+    """`stored_claims` orders by ordinal so the sequence is the one the reader saw."""
+    _stub_model(monkeypatch, ["First.", "Second.", "Third."])
+    source_id = _paper(cur, project, title="Paper", passages=["An association."])
+
+    claim_test.locate_claims(cur, project_id=project, source_id=source_id)
+
+    stored = claim_test.stored_claims(cur, source_id)
+    assert [row["statement"] for row in stored] == ["First.", "Second.", "Third."]
+    assert [row["ordinal"] for row in stored] == [0, 1, 2]

@@ -75,6 +75,11 @@ class SourceRecord:
     pmid: str | None = None
     pmcid: str | None = None
     openalex_id: str | None = None
+    #: The record's identifier within an OAI-PMH repository. Repository-scoped
+    #: rather than global, so it is only meaningful alongside the base URL in
+    #: `source` — but it is the stable key a re-harvest matches on, and without
+    #: it the same record arrives as a new one every time.
+    oai_identifier: str | None = None
     abstract: str = ""
     venue: str = ""
     url: str = ""
@@ -220,6 +225,54 @@ class Connector:
         raise ConnectorError(
             f"{self.name} could not be reached ({last}). Other sources are "
             "unaffected.")
+
+    def _send(self, url: str, *, method: str, payload: Any,
+              headers: dict[str, str] | None = None) -> tuple[int, Any]:
+        """
+        A write. Deliberately without the retry that `_get` has.
+
+        `_get` retries 5xx and timeouts because fetching twice costs nothing. A
+        write is not like that. When a request times out, the client cannot tell
+        whether the server committed it — and retrying a create that already
+        succeeded puts a second copy in somebody's reference library, which is
+        the exact harm the caller is trying to avoid. One attempt, and an error
+        that says the outcome is unknown, is more useful than a retry that might
+        duplicate.
+
+        Returns the status alongside the body because callers need to
+        distinguish outcomes the HTTP layer treats as failures — a 412 here means
+        somebody else edited the record first, which is a reason to stop, not an
+        error to report as a network problem.
+        """
+        import urllib.error
+
+        body = json.dumps(payload).encode("utf-8")
+        request_headers = {
+            "User-Agent": USER_AGENT.format(mailto=self.mailto or "unknown"),
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            **(headers or {}),
+        }
+
+        self._bucket.take()
+        request = urllib.request.Request(url, data=body, method=method,
+                                         headers=request_headers)
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as r:
+                raw = r.read()
+                return r.status, (json.loads(raw.decode("utf-8")) if raw else None)
+        except urllib.error.HTTPError as exc:
+            raw = exc.read()
+            try:
+                return exc.code, json.loads(raw.decode("utf-8")) if raw else None
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                return exc.code, None
+        except (urllib.error.URLError, TimeoutError) as exc:
+            raise ConnectorError(
+                f"{self.name} could not be reached, and this was a write: it is "
+                f"not known whether it took effect ({exc}). Check the library "
+                "before trying again — retrying automatically could write it "
+                "twice.") from exc
 
     def _json(self, url: str, **kwargs: Any) -> Any:
         raw = self._get(url, **kwargs)

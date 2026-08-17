@@ -37,6 +37,46 @@ REQUIRED_VALIDATION_CHECKS: frozenset[str] = frozenset(
 )
 
 
+def _object_for(cur, *, project_id: str, title: str,
+                from_connections: Sequence[str], actor: str) -> str | None:
+    """
+    The finding's own research object, joined to the analyses that produced it.
+
+    Returns None when there is nothing to attach to. A finding with no object is
+    the state every finding used to be in, and it is still reachable — a
+    researcher may write one down before any analysis exists — but it is now the
+    exception rather than the silent default.
+
+    The inputs are the analysis runs' objects, not the connections themselves: a
+    connection is a row about a relationship, and `evidence_graph` walks from
+    the finding to `analysis_runs` through their objects. Using anything else
+    here would build an edge nothing reads, which is the defect this exists to
+    close.
+    """
+    from throughline_schemas.enums import LineageType, ObjectType
+
+    from .objects import create_object
+
+    if not from_connections:
+        return None
+
+    cur.execute(
+        "SELECT DISTINCT r.object_id FROM connections c "
+        "JOIN analysis_runs r ON r.id = c.analysis_run_id "
+        "WHERE c.id = ANY(%s) AND c.project_id = %s AND r.object_id IS NOT NULL",
+        (list(from_connections), project_id))
+    inputs = [row["object_id"] for row in cur.fetchall()]
+
+    # A connection whose run never completed has no object, and `create_object`
+    # refuses a derived artifact with no inputs. Recording the finding without
+    # the chain beats refusing to record it at all — the researcher's result is
+    # not contingent on this system's bookkeeping.
+    return create_object(
+        cur, project_id=project_id, object_type=ObjectType.FINDING, title=title,
+        actor=actor, derived_from=inputs,
+        lineage_type=LineageType.DERIVED_FROM) if inputs else None
+
+
 class FindingError(RuntimeError):
     pass
 
@@ -62,13 +102,44 @@ def create_finding(
     statement: str = "",
     summary: str = "",
     object_id: str | None = None,
+    from_connections: Sequence[str] = (),
     importance: float | None = None,
     confidence: float | None = None,
     causal_status: CausalStatus = CausalStatus.NOT_ASSESSED,
     actor: str,
 ) -> str:
-    """Create a finding. It always starts as CANDIDATE."""
+    """
+    Create a finding. It always starts as CANDIDATE.
+
+    `from_connections` is what attaches the finding to the graph, and leaving it
+    empty is how the product's central claim quietly stopped being true.
+
+    `findings.object_id` was never set by either caller, so it was null for
+    every finding ever made. `graphs.evidence_graph` — the query behind "why do
+    we believe this?" — gates its whole analyses-and-connections branch on that
+    column, so it returned claims and nothing else, always. Measuring the
+    provenance depth (T005c) found the consequence at the other end: a
+    researcher can open a finding and there is no route back to the analysis
+    that produced it, the dataset it ran on, or the paper beside it. The chain
+    was complete in the database and unwalkable, because the one edge joining
+    the two halves was never written.
+
+    So a finding now gets a research object of its own, derived from the objects
+    of the analysis runs behind its connections. That is the same shape
+    `analysis.py` already uses when it records a run as `calculated_from` its
+    dataset version — this adds the last link rather than inventing a mechanism.
+
+    Passing nothing is still allowed, because a researcher may record a finding
+    by hand before anything computes one, and refusing that would be worse than
+    a finding with a short chain. But an unattached finding is a finding nobody
+    can check, so the caller has to choose it rather than get it by default.
+    """
     finding_id = new_id("fnd")
+
+    if object_id is None:
+        object_id = _object_for(
+            cur, project_id=project_id, title=title,
+            from_connections=from_connections, actor=actor)
     cur.execute(
         """
         INSERT INTO findings

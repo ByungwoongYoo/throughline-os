@@ -291,12 +291,21 @@ class IllegalConnectionTransition(DiscoveryError):
     pass
 
 
-def create_run(cur, *, project_id: str, dataset_version_id: str, fdr: float = 0.05) -> str:
+def create_run(cur, *, project_id: str, dataset_version_id: str, fdr: float = 0.05,
+               session_id: str | None = None) -> str:
+    """
+    Open a sweep, and remember whose working session it belongs to.
+
+    The session is stored rather than passed through, because the sweep does not
+    happen during the request that starts it: this queues a run and returns, and
+    a worker records the tested pairs minutes later. By then the request is gone,
+    so the run itself is the only place that knowledge can survive.
+    """
     run_id = new_id("disc")
     cur.execute(
-        "INSERT INTO discovery_runs(id, project_id, dataset_version_id, false_discovery_rate) "
-        "VALUES (%s, %s, %s, %s)",
-        (run_id, project_id, dataset_version_id, fdr),
+        "INSERT INTO discovery_runs(id, project_id, dataset_version_id, "
+        "false_discovery_rate, session_id) VALUES (%s, %s, %s, %s, %s)",
+        (run_id, project_id, dataset_version_id, fdr, session_id),
     )
     return run_id
 
@@ -304,7 +313,24 @@ def create_run(cur, *, project_id: str, dataset_version_id: str, fdr: float = 0.
 def record_connection(
     cur, *, project_id: str, discovery_run_id: str, candidate: dict[str, Any],
     analysis_run_id: str | None, result: dict[str, Any], q_value: float | None,
+    session_id: str | None = None,
 ) -> str:
+    """
+    Store one tested pair, and count the look.
+
+    The ledger entry is the point of the `session_id` argument. Correction
+    within a sweep was already right — `benjamini_hochberg` runs across the
+    whole candidate family — but a sweep is not the only time the data gets
+    interrogated, and a researcher who sweeps, then tests a claim, then checks a
+    finding has looked three times. The ledger is what makes those one family,
+    and it can only do that if the verbs feed it.
+
+    Defaulting to `discovery_run_id` matters more than it looks. Without it the
+    ledger stays empty for the case that produces the most tests by far, and an
+    empty ledger reports "not recorded" on every finding — which reads as *this
+    does not apply* rather than *nobody counted*. A sweep is a real family on its
+    own; when a wider session id is supplied the sweep joins that instead.
+    """
     effect = (result.get("effect_size") or {}) if result else {}
     effect_value = effect.get("value")
     score, components = rank_score(
@@ -336,6 +362,24 @@ def record_connection(
         "INSERT INTO connection_lifecycle_events(id, connection_id, from_status, to_status, "
         "reason, actor) VALUES (%s, %s, NULL, 'candidate', %s, 'system:discovery')",
         (new_id("cle"), connection_id, candidate["rationale"]),
+    )
+
+    # Imported here rather than at module scope: exploration reads
+    # `benjamini_hochberg` from this module, and a top-level import would be
+    # circular.
+    from .exploration import record as record_look
+
+    record_look(
+        cur,
+        session_id=session_id or discovery_run_id,
+        project_id=project_id,
+        verb="discovery",
+        description=(f"{candidate['left_variable']} vs "
+                     f"{candidate['right_variable']} ({candidate['method']})"),
+        # A pair the analysis could not test still counts as a look. It has no
+        # p-value to correct, and leaving it out would report a family smaller
+        # than the number of times the data was actually interrogated.
+        p_value=result.get("p_value") if result else None,
     )
     return connection_id
 

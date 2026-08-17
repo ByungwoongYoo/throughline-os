@@ -409,3 +409,29 @@ def test_estimates_never_include_a_pair_with_no_coefficient(client):
     assert all(e["estimate"] is not None for e in body["estimates"])
     assert body["excluded_without_estimate"] == 1
     assert "no coefficient" in body["note"]
+
+
+# ---------------------------------------------------------------------------
+# Routes that never ran
+# ---------------------------------------------------------------------------
+
+def test_the_patterns_routes_answer_rather_than_raising(client):
+    """
+    Both of these raised `NameError: name 'patterns' is not defined` on every
+    request ever made to them, because `app.py` called a module it never
+    imported. Nothing caught it: `compileall` compiles an undefined name
+    happily, and no test touched either route — so 900 passing tests coexisted
+    with two endpoints that could not answer at all.
+
+    Found by reading the dev server's log while the interface was open, not by
+    the suite. The Patterns screen is what calls these.
+    """
+    _account(client)
+    project_id = client.post("/api/projects", json={
+        "name": "Patterns", "research_question": "q"}).json()["id"]
+
+    for path in (f"/api/projects/{project_id}/patterns",
+                 f"/api/projects/{project_id}/key-findings"):
+        response = client.get(path)
+        assert response.status_code == 200, f"{path} → {response.status_code} {response.text[:300]}"
+        assert isinstance(response.json(), (dict, list)), path

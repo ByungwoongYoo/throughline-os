@@ -2,24 +2,24 @@
 The model provider interface.
 
 Every capability the platform needs from a language model is declared here, and
-nothing above this layer may import a vendor SDK.  asks for swappable models;
-the way you get that is by making the abstraction the only thing anyone codes
+nothing above this layer may import a vendor SDK. Swappable models are the
+requirement; the way you get them is by making the abstraction the only thing anyone codes
 against, so a second backend is an addition rather than a migration.
 
 Three rules shape this file more than anything else:
 
-**a model may never produce a numerical result.** So there is no method
+**A model may never produce a numerical result.** So there is no method
 here that returns a number. `generate_structured` validates against a schema you
 supply, and the schemas that matter carry *references* to recorded
 computations rather than values. A model may say which analysis to run and how
 to describe the outcome; the outcome comes from the sandbox.
 
-** — retrieved content is untrusted data.** `generate_text` takes trusted
+**Retrieved content is untrusted data.** `generate_text` takes trusted
 instructions and untrusted context as separate arguments, and they are separated
 in the assembled prompt too. A caller cannot accidentally concatenate a paper
 into its own instructions, because there is no argument that would let it.
 
-** — never expose private chain-of-thought.** Responses carry a short
+**Private chain-of-thought is never exposed.** Responses carry a short
 operational summary, not reasoning. Where a model emits thinking tags, they are
 stripped before the text is returned.
 """
@@ -43,8 +43,8 @@ class ModelError(RuntimeError):
 class ModelUnavailable(ModelError):
     """No provider is configured or reachable.
 
-    Distinct from other failures because  wants "this installation has no
-    model" said plainly, not surfaced as a generic error.
+    Distinct from other failures because "this installation has no model" has to
+    be said plainly, not surfaced as a generic error.
     """
 
 
@@ -66,13 +66,13 @@ class Usage:
 
 @dataclass(slots=True)
 class Completion:
-    """A model response, with everything  needs to reproduce it."""
+    """A model response, with everything needed to reproduce it."""
     text: str
     model: str
     prompt_name: str
     prompt_version: int
     usage: Usage = field(default_factory=Usage)
-    #  — what the model *did*, in one line, for the researcher to read.
+    # What the model *did*, in one line, for the researcher to read.
     operational_summary: str = ""
     finish_reason: str = "stop"
 
@@ -153,8 +153,8 @@ class ModelProvider(ABC):
         A validated object.
 
         Malformed output is rejected and retried, and after `max_attempts` this
-        raises. It does not fall back to parsing prose:  is explicit that
-        critical product state must not be read out of arbitrary text, and a
+        raises. It does not fall back to parsing prose: critical product state
+        must not be read out of arbitrary text, and a
         lenient parser is how that rule gets broken quietly.
         """
 
