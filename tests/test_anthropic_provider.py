@@ -21,6 +21,9 @@ each of which fails silently if it is wrong:
 
 from __future__ import annotations
 
+import sys
+import types
+
 import pytest
 from pydantic import BaseModel
 
@@ -185,11 +188,47 @@ def test_the_capability_says_plainly_that_data_leaves_the_machine():
 
 
 def test_no_key_is_unavailable_rather_than_an_error(monkeypatch):
+    """
+    The SDK is forced present, rather than left to whether it happens to be.
+
+    `_sdk()` checks the import first and the key second, so which of the two
+    notes comes back depends on an *optional* dependency. This test asserted the
+    key branch unconditionally and passed on any machine with
+    `throughline-model[anthropic]` installed — including the one it was written
+    on — while failing in CI, where the extra is deliberately absent. That is the
+    worst shape for a test to have: green for the author, red for everyone else,
+    and about an optional package rather than the behaviour under test.
+
+    Stubbing `sys.modules["anthropic"]` makes the import succeed everywhere, so
+    what is exercised is the key check and only the key check.
+    """
+    monkeypatch.setitem(sys.modules, "anthropic", types.ModuleType("anthropic"))
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    provider = AnthropicProvider()
-    capability = provider.capability()
+
+    capability = AnthropicProvider().capability()
+
     assert capability.text is False
     assert "ANTHROPIC_API_KEY" in capability.note
+
+
+def test_a_missing_sdk_says_how_to_install_it(monkeypatch):
+    """
+    The other branch, which is what CI actually runs: the extra is not
+    installed, and the note has to name the fix rather than the key.
+
+    `sys.modules[name] = None` is what makes `import name` raise ImportError, so
+    this holds on a machine where the SDK *is* installed too — the pair covers
+    both notes regardless of which happens to be true locally.
+    """
+    monkeypatch.setitem(sys.modules, "anthropic", None)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-not-used-here")
+
+    capability = AnthropicProvider().capability()
+
+    assert capability.text is False
+    assert "pip install anthropic" in capability.note
+    # Still says the local option, because that is the answer for most people.
+    assert "ollama" in capability.note
 
 
 def test_the_registry_never_reaches_for_the_hosted_model_on_its_own(monkeypatch):

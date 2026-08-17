@@ -92,10 +92,12 @@ The problems are not in the engine. They are in packaging and verification.
 
 ## Issues
 
-### 1. A fresh clone cannot install — every platform
+### 1. A fresh clone cannot install — every platform — **fixed**
 
-`scripts/bootstrap.sh` installs four workspace packages; the dependency graph
-needs nine. Missing: `packages/visual-spec` (required by `research-domain`),
+`scripts/bootstrap.sh` installed four workspace packages; the dependency graph
+needs nine. **Verified fixed on 2026-08-17:** `scripts/manage.py` `PACKAGES` now
+lists all nine, and `tests/test_packaging.py` fails if bootstrap, the Dockerfile
+and that list ever disagree. Missing: `packages/visual-spec` (required by `research-domain`),
 `packages/ingestion` and `services/scientific-runtime` (both required by
 `services/workers`). These exist only in this repo, so pip resolves them against
 the public index and fails.
@@ -115,7 +117,7 @@ Confirmed that `throughline-visual`, `throughline-ingestion`,
 `packages/model` and `packages/connector-sdk` are also omitted but nothing
 depends on them, so they do not break the install.
 
-### 2. The Docker build is broken too
+### 2. The Docker build is broken too — **fixed**
 
 `Dockerfile:46` installs `./packages/workflow-sdk`. That directory has **never
 existed** in this repository's git history (verified with `git log
@@ -128,13 +130,26 @@ Not verified by running `docker build` — Docker is not installed on the machin
 used. The cause is unambiguous (pip cannot install a path that does not exist),
 but removing the line is necessary, not provably sufficient.
 
+**Verified fixed on 2026-08-17:** the install line is gone and a comment stands
+in its place. Still not verified by running `docker build`, for the same reason
+— Docker is not installed on this machine either, and CI's Docker job remains
+the only place the image is really built. What is new is that the defect can no
+longer be reintroduced silently: `test_the_image_installs_nothing_that_does_not
+_exist` and `test_every_installed_path_is_a_python_package` fail on any install
+path that is missing or has no `pyproject.toml`. Both were checked by putting
+`./packages/workflow-sdk` back and watching them fail.
+
 Everything else in that install line is correct and in a valid order.
 
-### 3. Native Windows cannot run the API at all
+### 3. Native Windows cannot run the API at all — **fixed**
 
-`services/scientific-runtime/src/throughline_runtime/executor.py` uses
+`services/scientific-runtime/src/throughline_runtime/executor.py` used
 POSIX-only primitives: `import resource` at module level (line 37), plus
-`os.setsid()`, `preexec_fn=`, and `os.killpg()`.
+`os.setsid()`, `preexec_fn=`, and `os.killpg()`. **Verified fixed on
+2026-08-17:** the module now branches on `WINDOWS = sys.platform == "win32"`,
+guards `import resource` behind it, and holds the same ceilings in a Job Object
+on Windows. The Python 3.12 ceiling from `pgserver` stands and is documented in
+the README as a requirement on every platform.
 `apps/api/src/throughline_api/app.py:32` imports that module at import time, so
 the FastAPI app fails to import on Windows before any analysis runs.
 
@@ -145,7 +160,7 @@ past CPython 3.12 — a constraint on every platform, not just Windows.
 Verified indirectly: the same code imports and runs cleanly under WSL2 Ubuntu
 24.04, so the divide is POSIX vs Windows, not macOS vs Windows.
 
-### 4. Duplicate upload orphans a source permanently
+### 4. Duplicate upload orphans a source permanently — **fixed**
 
 Uploading a file whose bytes match one already in the project returns
 `202 Accepted` and creates a new `sources` row that never ingests. It sits at
@@ -159,6 +174,11 @@ already present. For duplicate content the new row therefore gets no run of its
 own, and the original run has already completed.
 
 Observed live: 4 `sources` rows, 2 `workflow_runs`, 2 rows stuck.
+
+**Verified fixed on 2026-08-17:** the key is now `ingest:{source_id}` rather
+than the content hash, so a retried POST for one source is still collapsed into
+a single run while a source that does get created can no longer end up without a
+run to finish it.
 
 ### 5. The §137 workflow does not finish in the browser — **fixed**
 

@@ -212,6 +212,21 @@ def test_network_egress_is_blocked_inside_the_sandbox(dataset, tmp_path):
 # A limit that could not be applied must not pass silently
 # ---------------------------------------------------------------------------
 
+#: POSIX `rlimit` has no Windows counterpart at all — the executor holds the same
+#: ceilings in a Job Object there instead. The two tests below monkeypatch
+#: `resource.setrlimit` to refuse, so they are about a mechanism that does not
+#: exist on Windows rather than about a capability that is merely missing.
+#:
+#: They were failing the Windows job with `ModuleNotFoundError: No module named
+#: 'resource'`, which reads as the sandbox being broken on Windows when what is
+#: broken is the test's assumption. Skipped with the reason stated, and the
+#: Windows equivalent — whether an unapplied Job Object limit is admitted the
+#: same way — recorded as a gap rather than implied to be covered.
+posix_rlimit_only = pytest.mark.skipif(
+    executor.WINDOWS, reason="POSIX rlimit only; Windows uses a Job Object")
+
+
+@posix_rlimit_only
 def test_an_unapplied_memory_limit_is_admitted_in_the_run(monkeypatch, tmp_path):
     """
     Both RLIMIT_AS and RLIMIT_DATA can be refused — macOS refuses the first for
@@ -256,6 +271,7 @@ def test_an_unapplied_memory_limit_is_admitted_in_the_run(monkeypatch, tmp_path)
     assert "512MB" in message
 
 
+@posix_rlimit_only
 def test_the_warning_names_the_limit_that_was_requested(monkeypatch):
     """A warning that does not say what was asked for cannot be acted on."""
     import resource as resource_module
