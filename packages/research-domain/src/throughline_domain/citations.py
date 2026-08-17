@@ -261,23 +261,6 @@ def _matches(claimed: float, is_percent: bool, available: list[tuple[float, bool
     return False
 
 
-def _matches(claimed: float, is_percent: bool, available: list[tuple[float, bool]]) -> bool:
-    """
-    Match a claimed number against the values available in the cited text.
-
-    A number written as a percentage may also match the same quantity stored as
-    a proportion. That allowance is deliberately one-directional and gated on
-    the `%` actually being present in the claim: it recognises a formatting
-    convention, and does not let an arbitrary factor of a hundred pass.
-    """
-    for value, _ in available:
-        if _close(claimed, value):
-            return True
-        if is_percent and _close(claimed / 100.0, value):
-            return True
-    return False
-
-
 def check_entailment(cur, citation_id: str, claim_text: str) -> dict[str, Any]:
     """
     Check a citation against the sentence it is attached to (§58).

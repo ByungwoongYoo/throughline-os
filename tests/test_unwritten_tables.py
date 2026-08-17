@@ -71,15 +71,7 @@ LEGITIMATELY_UNWRITTEN: dict[str, str] = {
 #: can still catch a *new* instance. Deleting a line from this dict is part of
 #: fixing the row it names; a fix that leaves the entry behind makes the guard
 #: blind again.
-KNOWN_DEFECTS: dict[str, str] = {
-    "research_edges": "D013 — the asserted-relationship half of the knowledge "
-                      "graph. Read by graphs.neighbourhood and graph_projection, "
-                      "written by nothing at all, not even a test.",
-    "evidence": "D014 — a finding's supporting evidence. Read by findings.py, "
-                "graphs.py and objects.py; written only by tests, so it comes "
-                "back empty in production for every finding.",
-    "located_claims": "D015 — read by claim_test.py, written only by tests.",
-}
+KNOWN_DEFECTS: dict[str, str] = {}
 
 
 def _tables() -> set[str]:
@@ -203,3 +195,58 @@ def test_the_guard_catches_a_table_that_loses_its_writer() -> None:
                and name not in LEGITIMATELY_UNWRITTEN
                and name not in KNOWN_DEFECTS]
     assert "contradictions" in missing
+
+
+# ---------------------------------------------------------------------------
+# The neighbouring defect: a name defined twice, where the later silently wins
+# ---------------------------------------------------------------------------
+
+def _duplicate_definitions() -> list[str]:
+    """
+    Names bound twice in one scope. Python keeps the last, so the first is dead.
+
+    D002 found this shape at the route level — 76 duplicate route definitions
+    where FastAPI served the first, so any edit landing in a later copy was a
+    silent no-op. The same file had 30 duplicate *class and function*
+    definitions left over, plus five more across the domain, and there the
+    arrow points the other way: the later definition wins, so an edit to the
+    earlier copy does nothing at all.
+
+    None of them differed in behaviour when found, which is exactly why nothing
+    caught them — the damage is to the next person who edits one.
+    """
+    found: list[str] = []
+    for path in ROOT.rglob("*.py"):
+        if set(path.parts) & {"node_modules", ".venv", ".next", "build", "dist",
+                              "__pycache__"}:
+            continue
+        try:
+            tree = ast.parse(path.read_text(errors="ignore"))
+        except SyntaxError:
+            continue
+
+        scopes = [tree] + [n for n in ast.walk(tree)
+                           if isinstance(n, (ast.ClassDef, ast.FunctionDef))]
+        for scope in scopes:
+            seen: dict[str, int] = {}
+            for node in getattr(scope, "body", []):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                     ast.ClassDef)):
+                    if node.name in seen:
+                        where = getattr(scope, "name", "<module>")
+                        found.append(
+                            f"{path.relative_to(ROOT)}:{node.lineno} "
+                            f"{where}.{node.name} (first at line {seen[node.name]})")
+                    seen[node.name] = node.lineno
+    return found
+
+
+def test_no_name_is_defined_twice_in_one_scope() -> None:
+    duplicates = _duplicate_definitions()
+    assert not duplicates, (
+        "These names are defined more than once in the same scope. Python keeps "
+        "the last one, so every earlier copy is dead code and editing it does "
+        "nothing:\n  " + "\n  ".join(duplicates)
+        + "\n\nTwo of these were duplicated test functions, which means the file "
+          "reported more tests than it ran."
+    )
