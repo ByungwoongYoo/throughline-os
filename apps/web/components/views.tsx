@@ -20,6 +20,7 @@ import { sessionId } from "@/lib/session";
 import { Section } from "./Shell";
 import { PlainSummary, ResultCard } from "./ResultCard";
 import { Empty, Failure, Loading, Meter, Num, Stat, Status } from "./primitives";
+import { RecordFinding } from "./recordfinding";
 
 // ---------------------------------------------------------------------------
 // Overview (§70)
@@ -863,8 +864,11 @@ export function AnalysisDetail({ runId }: { runId: string }) {
 // Validation (§51)
 // ---------------------------------------------------------------------------
 
-export function ConnectionDetail({ connectionId, projectId }: {
-  connectionId: string; projectId: string;
+export function ConnectionDetail({ connectionId, projectId, onRecordFinding }: {
+  connectionId: string;
+  projectId: string;
+  /** Open the finding once it is recorded, so the researcher lands on it. */
+  onRecordFinding?: (findingId: string) => void;
 }) {
   const connections = useApi<Connection[]>(`/api/projects/${projectId}/connections?limit=200`);
   const connection = connections.data?.find((c) => c.id === connectionId);
@@ -1013,6 +1017,23 @@ export function ConnectionDetail({ connectionId, projectId }: {
       </div>
 
       <ValidationReports reports={reports} />
+
+      {/*
+        The last step of the §137 workflow, and the one that was missing. After
+        validation the overview said "Record a finding — NEXT" while the
+        interface offered no way to record one: the capability existed in the
+        API and was exercised by the suite, and no `api.post` to `/findings`
+        existed anywhere in this app. It belongs here rather than on the
+        Findings list because a finding is recorded *from* a result, and the
+        connection travels with it — which is what makes it checkable later.
+      */}
+      <RecordFinding
+        projectId={projectId}
+        connectionId={connectionId}
+        defaultTitle={`${left} tracks ${right}`}
+        validated={(reports.data ?? []).some((r) => r.status === "complete")}
+        onRecorded={onRecordFinding}
+      />
     </>
   );
 }

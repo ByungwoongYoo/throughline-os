@@ -403,7 +403,8 @@ function Workspace({ user }: { user: SignedInUser }) {
         {section === "search" && <Search projectId={project.id} />}
         {section === "discover" && (
           selection?.kind === "connection"
-            ? <ConnectionDetail connectionId={selection.id} projectId={project.id} />
+            ? <ConnectionDetail connectionId={selection.id} projectId={project.id}
+                                  onRecordFinding={select("finding")} />
             : <Discover
                 projectId={project.id} sources={sources}
                 onSelectConnection={select("connection")}
@@ -412,7 +413,8 @@ function Workspace({ user }: { user: SignedInUser }) {
         )}
         {section === "connections" && (
           selection?.kind === "connection"
-            ? <ConnectionDetail connectionId={selection.id} projectId={project.id} />
+            ? <ConnectionDetail connectionId={selection.id} projectId={project.id}
+                                  onRecordFinding={select("finding")} />
             : <>
                 <ConnectionList projectId={project.id} onSelect={select("connection")} />
                 {/*
