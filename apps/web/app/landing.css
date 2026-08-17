@@ -170,6 +170,43 @@
 
 .l-scrolling .l-layer { will-change: transform; }
 
+/*
+ * The hero's layers are sized from the viewport, not from the hero.
+ *
+ * D008: the self-hosted display face rewraps the headline when it swaps, the
+ * hero grows by ~107px, and `top: -22%` / `height: 144%` resolve against that
+ * height — so a decorative band 1.44 screens tall moves and resizes. Measured
+ * at 1280x900 over Slow 4G it was the *entire* CLS of the page: 0.1044, all of
+ * it attributed to `div.l-layer.l-depth-2.l-halo`, against 0.0000 with the font
+ * requests blocked. That is over Google's 0.1 "good" threshold, and it is a
+ * band nobody can see move.
+ *
+ * A metric-matched fallback was tried first and reverted: an average
+ * glyph-width correction cannot fix *wrap points* at display size, which is
+ * what actually changes the height. `font-display: optional` would also work
+ * and costs the serif on a first slow visit, which is the one thing this page
+ * is for.
+ *
+ * Sizing from the viewport removes the dependency instead of compensating for
+ * it: `vh` does not reflow, so there is nothing to shift.
+ *
+ * Being generous is free. `.l-scene` clips its overflow, so a band taller than
+ * the hero is cut off rather than drawn — there is no cost to over-covering and
+ * a visible gap if it under-covers. The hero was measured at 1.00, 1.24 and
+ * 1.27 viewports across 390 to 1920 wide, so it needs at most ~171vh of band;
+ * 200vh clears that everywhere with room for a headline that wraps onto another
+ * line at some width nobody has tried yet.
+ *
+ * `max(144vh, 144%)` was written here first and was wrong for a reason worth
+ * keeping: at 1280x900 the hero is 1115px, so 144% is 1606px, `max()` picks the
+ * percentage, and the height tracks the reflow exactly as before. A fallback
+ * that reintroduces the dependency is not a fallback.
+ */
+.l-hero .l-layer {
+  top: -22vh;
+  height: 200vh;
+}
+
 .l-content { position: relative; z-index: 1; }
 
 /* Field of faint rules — a measurement grid, not decoration. */
