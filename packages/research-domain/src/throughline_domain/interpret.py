@@ -27,6 +27,7 @@ from typing import Any
 from throughline_model import ModelUnavailable, provider, prompt
 from throughline_model.schemas import PlainSummary
 
+from . import harmonize
 from .db import jsonb
 from .ids import new_id
 

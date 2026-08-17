@@ -18,12 +18,12 @@ from fastapi import Cookie, Depends, FastAPI, File, HTTPException, Query, Reques
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from throughline_domain import (
-    example,
-    analysis, auth, critic, discovery, embeddings, findings, graphs,
-    harmonize, lineage, objects, observability, retrieval, storage,
-    validation, visuals, workflow,
+    analysis, auth, claim_test, compare, consistency, critic, discovery,
+    embeddings, example, extraction, findings, graph_projection, graphs,
+    harmonize, images, journal, lineage, notebook, objects, observability,
+    patterns, reconcile, retrieval, specification, storage, synthesis,
+    validation, visuals, vocabulary, workflow,
 )
-from throughline_visual.prepare import prepare as visual_prepare
 from throughline_visual.prepare import prepare as visual_prepare
 from throughline_visual.spec import ResearchVisualSpec
 from throughline_domain import settings as domain_settings
