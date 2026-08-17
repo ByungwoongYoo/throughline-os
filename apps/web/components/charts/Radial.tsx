@@ -36,6 +36,7 @@ import { scaleLinear } from "d3-scale";
 import { lineRadial, curveLinearClosed } from "d3-shape";
 import { categorical } from "@/lib/tokens";
 import { ChartTable } from "./ChartTable";
+import { ChartTooltip, readable, useChartHover } from "./interaction";
 
 export type Spoke = {
   /** Stable identity. Object constancy depends on it. */
@@ -72,6 +73,8 @@ export function Radial({
   caption?: string;
   size?: number;
 }) {
+  const hoverUI = useChartHover();
+  const hit = spokes.find((s) => s.id === hoverUI.hovered) ?? null;
   const clipId = useId();
 
   const peak = max(spokes, (s) => s.value) ?? 0;
@@ -112,7 +115,9 @@ export function Radial({
              aria-label={`${title ?? "Chart"}. ${spokes.length} categories by `
                + `${valueLabel}, drawn as bars because ${cycleLabel} is not cyclical.`}>
           {spokes.map((s, i) => (
-            <g key={s.id} transform={`translate(0,${i * 24 + 16})`}>
+            <g key={s.id}
+                  {...hoverUI.markProps(s.id)}
+                  style={{ opacity: hoverUI.emphasis(s.id) }} transform={`translate(0,${i * 24 + 16})`}>
               <text x={150} y={0} dy="0.32em" textAnchor="end"
                     className="chart-axis-label">{s.label}</text>
               <rect x={158} y={-7} width={Math.max(0, scale(s.value))} height={14}
@@ -130,7 +135,11 @@ export function Radial({
           length for angle, which is read less accurately.
         </figcaption>
 
-        <ChartTable columns={tableColumns} rows={tableRows} label={tableLabel} />
+        <ChartTooltip pointer={hoverUI.pointer} title={hit?.label} rows={hit ? [{ label: valueLabel, value: readable(hit.value) }] : []} />
+
+        <ChartTable
+        highlightId={hoverUI.hovered}
+        onHighlight={hoverUI.setHovered} columns={tableColumns} rows={tableRows} label={tableLabel} />
       </figure>
     );
   }
