@@ -25,6 +25,7 @@
 
 import { useId, useMemo, useState } from "react";
 import { ChartTable } from "./ChartTable";
+import { ChartTooltip, readable, useChartHover } from "./interaction";
 
 export type Cell = {
   row: string;
@@ -65,7 +66,9 @@ export function Matrix({
   symmetricAt?: number;
 }) {
   const clipId = useId();
-  const [hover, setHover] = useState<Cell | null>(null);
+  const hover = useChartHover();
+  const hovered = cells.find(
+    (c) => `${c.row}\u0000${c.column}` === hover.hovered) ?? null;
 
   // A left gutter wide enough for the longest label, so nothing is clipped.
   const gutter = Math.min(
@@ -87,7 +90,12 @@ export function Matrix({
     { key: "column", header: "Column" },
     { key: "value", header: valueLabel, numeric: true },
   ];
-  const tableRows = cells.map((c) => ({ row: c.row, column: c.column, value: c.value }));
+  // `id` is what ties a table row to its cell for the shared highlight, and
+  // it is the same coordinate pair the grid looks cells up by.
+  const tableRows = cells.map((c) => ({
+    id: `${c.row}\u0000${c.column}`,
+    row: c.row, column: c.column, value: c.value,
+  }));
 
   return (
     <figure className="chart">
@@ -143,10 +151,10 @@ export function Matrix({
                     // does not keep the reader waiting.
                     style={{
                       fill: isDiagonal ? "var(--n-200)" : fillFor(cell.value, symmetricAt),
+                      opacity: hover.emphasis(`${row}\u0000${column}`),
                       animationDelay: `${Math.min((r + c) * 4, 400)}ms`,
                     }}
-                    onMouseEnter={() => setHover(cell)}
-                    onMouseLeave={() => setHover(null)}
+                    {...hover.markProps(`${row}\u0000${column}`)}
                   >
                     <title>
                       {isDiagonal
@@ -178,9 +186,9 @@ export function Matrix({
         <span>0 — no relationship</span>
         <span className="matrix-swatch" style={{ background: fillFor(symmetricAt, symmetricAt) }} />
         <span>+{symmetricAt}</span>
-        {hover && hover.value !== null && (
+        {hovered && hovered.value !== null && (
           <span className="matrix-readout numeric">
-            {hover.row} × {hover.column}: {hover.value.toFixed(3)}
+            {hovered.row} × {hovered.column}: {hovered.value.toFixed(3)}
           </span>
         )}
       </div>
@@ -191,6 +199,14 @@ export function Matrix({
         columns={tableColumns}
         rows={tableRows}
         label={title ?? `${rows.length} by ${columns.length} grid of ${valueLabel} values`}
+        highlightId={hover.hovered}
+        onHighlight={hover.setHovered}
+      />
+
+      <ChartTooltip
+        pointer={hover.pointer}
+        title={hovered ? `${hovered.row} × ${hovered.column}` : undefined}
+        rows={hovered ? [{ label: valueLabel, value: readable(hovered.value) }] : []}
       />
     </figure>
   );

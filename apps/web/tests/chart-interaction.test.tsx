@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 
 import { Cartesian } from "@/components/charts/Cartesian";
 import { Interval } from "@/components/charts/Interval";
+import { Matrix } from "@/components/charts/Matrix";
 
 const POINTS = [
   { id: "a", x: 10, y: 1.5 },
@@ -171,5 +172,50 @@ describe("the forest plot", () => {
     expect(within(tip).getByText("0.7 to 0.94")).toBeInTheDocument();
     expect(within(tip).getByText("excludes the null")).toBeInTheDocument();
     expect(Number((rows[1] as SVGElement).style.opacity)).toBeLessThan(1);
+  });
+});
+
+
+describe("the correlation matrix", () => {
+  // Reached by real analyses through figures.tsx, not gallery-only — which I
+  // had wrongly filed as already-interactive because it owned a little hover
+  // state of its own. It had no tooltip, no emphasis and no link to its table.
+  const CELLS = [
+    { row: "consumption", column: "resistance", value: 0.88 },
+    { row: "consumption", column: "gdp", value: 0.02 },
+    { row: "resistance", column: "gdp", value: -0.04 },
+  ];
+
+  function matrix() {
+    return render(
+      <Matrix rows={["consumption", "resistance"]} columns={["resistance", "gdp"]}
+              cells={CELLS} valueLabel="correlation" />);
+  }
+
+  it("shows the pair and its value on hover", () => {
+    const { container } = matrix();
+    const cells = container.querySelectorAll("rect.chart-cell");
+    expect(cells.length).toBeGreaterThan(0);
+
+    fireEvent.mouseEnter(cells[0], { clientX: 40, clientY: 40 });
+    const tip = document.querySelector(".chart-tip") as HTMLElement;
+    expect(tip, "no tooltip on a matrix cell").not.toBeNull();
+    expect(within(tip).getByText("correlation")).toBeInTheDocument();
+  });
+
+  it("recedes the cells that are not hovered", () => {
+    const { container } = matrix();
+    const cells = container.querySelectorAll("rect.chart-cell");
+    fireEvent.mouseEnter(cells[0], { clientX: 1, clientY: 1 });
+    const others = [...cells].slice(1)
+      .map((c) => Number((c as SVGElement).style.opacity));
+    expect(others.some((o) => o < 1), "no cell receded").toBe(true);
+  });
+
+  it("lights the matching table row", () => {
+    const { container } = matrix();
+    const cells = container.querySelectorAll("rect.chart-cell");
+    fireEvent.mouseEnter(cells[0], { clientX: 1, clientY: 1 });
+    expect(container.querySelectorAll("tr.is-highlighted").length).toBe(1);
   });
 });
