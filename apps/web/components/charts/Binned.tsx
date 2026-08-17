@@ -39,6 +39,7 @@ import { extent, max } from "d3-array";
 import { scaleLinear } from "d3-scale";
 import { interpolateViridis } from "d3-scale-chromatic";
 import { ChartTable } from "./ChartTable";
+import { ChartTooltip, readable, useChartHover } from "./interaction";
 
 export type Cell = {
   /** Cell centre, in data space. */
@@ -114,6 +115,10 @@ export function Binned({
   width?: number;
   height?: number;
 }) {
+  const hover = useChartHover();
+  // A cell has no id of its own: its coordinates are its identity, and they
+  // are stable because the binning is deterministic.
+  const hoveredCell = cells.find((c) => `${c.x}:${c.y}` === hover.hovered) ?? null;
   const clipId = useId();
   const plotWidth = width - M.left - M.right;
   const plotHeight = height - M.top - M.bottom;
@@ -263,7 +268,15 @@ export function Binned({
       </p>
       {caption && <p className="chart-caption">{caption}</p>}
 
+      <ChartTooltip pointer={hover.pointer} rows={hoveredCell ? [
+        { label: xLabel, value: readable(hoveredCell.x) },
+        { label: yLabel, value: readable(hoveredCell.y) },
+        { label: "observations", value: readable(hoveredCell.count) },
+      ] : []} />
+
       <ChartTable
+        highlightId={hover.hovered}
+        onHighlight={hover.setHovered}
         columns={tableColumns}
         rows={tableRows}
         label={title ?? `Binned counts of ${yLabel} against ${xLabel}`}

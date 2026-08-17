@@ -28,6 +28,7 @@ import { extent } from "d3-array";
 import { scaleLinear } from "d3-scale";
 import { semantic } from "@/lib/tokens";
 import { ChartTable } from "./ChartTable";
+import { ChartTooltip, readable, useChartHover } from "./interaction";
 
 export type Estimate = {
   id: string;
@@ -55,6 +56,8 @@ export function Interval({
   nullValue?: number;
   width?: number;
 }) {
+  const hover = useChartHover();
+  const hoveredEstimate = estimates.find((e) => e.id === hover.hovered) ?? null;
   const clipId = useId();
   const height = M.top + M.bottom + estimates.length * ROW;
   const inner = { w: width - M.left - M.right, h: estimates.length * ROW };
@@ -126,7 +129,9 @@ export function Interval({
                 // Keyed by estimate id, so re-sorting moves a row rather than
                 // rebuilding it — the reader can follow one study through a
                 // reorder (Part D2, object constancy).
-                <g key={e.id} className="chart-row" transform={`translate(0,${y})`}>
+                <g key={e.id} className="chart-row" transform={`translate(0,${y})`}
+                   style={{ opacity: hover.emphasis(e.id) }}
+                   {...hover.markProps(e.id)}>
                   <line
                     className="chart-ci"
                     x1={xScale(e.lo)} x2={xScale(e.hi)} y1={0} y2={0}
@@ -178,7 +183,23 @@ export function Interval({
 
       {caption && <figcaption className="chart-caption">{caption}</figcaption>}
 
+      <ChartTooltip
+        pointer={hover.pointer}
+        title={hoveredEstimate?.label}
+        rows={hoveredEstimate ? [
+          { label: xLabel, value: readable(hoveredEstimate.estimate) },
+          { label: "interval",
+            value: `${readable(hoveredEstimate.lo)} to ${readable(hoveredEstimate.hi)}` },
+          ...(hoveredEstimate.n !== undefined
+            ? [{ label: "n", value: readable(hoveredEstimate.n) }] : []),
+          { label: "after correction",
+            value: hoveredEstimate.significant ? "excludes the null" : "consistent with none" },
+        ] : []}
+      />
+
       <ChartTable
+        highlightId={hover.hovered}
+        onHighlight={hover.setHovered}
         columns={tableColumns}
         rows={tableRows}
         label={title ?? `${xLabel} estimates with confidence intervals`}

@@ -3312,3 +3312,94 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   color: var(--danger, #B42318);
   max-width: 60ch;
 }
+
+/* --- chart interaction (T011) --------------------------------------------- */
+
+/*
+ * Hover emphasis, a readable tooltip, and a brush.
+ *
+ * `recommend.py` has declared `interaction: ["hover", "brush",
+ * "underlying_table"]` on every scatter and hexbin since the spec was written.
+ * Only the table existed. These are the other two.
+ *
+ * The rule is `KnowledgeGraph.tsx`'s, because it is the one surface here that
+ * already feels alive: neighbourhood reaction, not global reaction. One mark
+ * lifts, the rest recede, and nothing is torn down and rebuilt.
+ */
+
+.chart-point,
+.chart-rect,
+.chart-row {
+  transition: opacity var(--quick, 120ms) ease, r var(--quick, 120ms) ease;
+}
+.chart-point { cursor: pointer; }
+
+/* The tooltip. Fixed, and never under the pointer: a tooltip that takes the
+   cursor flickers and reads as a broken chart. */
+.chart-tip {
+  position: fixed;
+  z-index: 60;
+  pointer-events: none;
+  display: grid;
+  gap: 2px;
+  padding: 8px 11px;
+  max-width: 260px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: 0 2px 4px rgba(0,0,0,.04), 0 4px 12px rgba(0,0,0,.08);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.chart-tip b { font-weight: 560; }
+.chart-tip span { color: var(--ink-faint); display: flex; gap: 10px; justify-content: space-between; }
+.chart-tip em {
+  font-style: normal;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The brush, and what it selected. */
+.chart-brush-surface { cursor: crosshair; }
+.chart-brush {
+  fill: var(--accent);
+  fill-opacity: 0.10;
+  stroke: var(--accent);
+  stroke-opacity: 0.45;
+}
+.chart-selection {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--ink-soft);
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+.chart-selection button {
+  border: 0; background: none; padding: 0;
+  color: var(--accent); font-size: 12px; text-decoration: underline;
+}
+
+/* The row matching the hovered mark. Both directions: the table is an index of
+   the picture, not an appendix to it. */
+.chart-table tbody tr.is-highlighted { background: var(--hover); }
+.chart-table tbody tr { transition: background var(--quick, 120ms) ease; }
+.chart-table tbody tr:hover { background: var(--hover); }
+
+@media (prefers-reduced-motion: reduce) {
+  .chart-point, .chart-rect, .chart-row, .chart-table tbody tr { transition: none; }
+}
+
+@media (prefers-contrast: more) {
+  /* Emphasis by opacity alone is the first thing to fail here. */
+  .chart-tip { border-width: 2px; }
+  .chart-brush { fill-opacity: 0.2; stroke-opacity: 1; stroke-width: 2; }
+  .chart-table tbody tr.is-highlighted { outline: 2px solid var(--accent); outline-offset: -2px; }
+}
+
+@media (forced-colors: active) {
+  .chart-tip { border-color: CanvasText; background: Canvas; }
+  .chart-brush { fill: Highlight; fill-opacity: 0.3; stroke: Highlight; }
+  .chart-table tbody tr.is-highlighted { outline: 2px solid Highlight; }
+}

@@ -22,11 +22,12 @@
  * physical rather than redrawn.
  */
 
-import { useCallback, useId, useMemo } from "react";
+import { useCallback, useId, useMemo, useState } from "react";
 import { extent, max } from "d3-array";
 import { scaleBand, scaleLinear } from "d3-scale";
 import { line as d3line, area as d3area, curveMonotoneX } from "d3-shape";
 import { categorical } from "@/lib/tokens";
+import { ChartTooltip, readable, useChartHover } from "./interaction";
 import { ChartTable } from "./ChartTable";
 
 export type Datum = {
@@ -67,6 +68,10 @@ export function Cartesian({
   width = 620, height = 360, fit = null, zeroBaseline,
 }: CartesianProps) {
   const clipId = useId();
+  const hover = useChartHover();
+  // Brush: an x-range the reader drags out. null until they do.
+  const [brush, setBrush] = useState<{ from: number; to: number } | null>(null);
+  const [dragging, setDragging] = useState<number | null>(null);
   const inner = { w: width - M.left - M.right, h: height - M.top - M.bottom };
 
   const categorical_x = typeof data[0]?.x === "string";
@@ -118,6 +123,21 @@ export function Cartesian({
     }
     return null;
   }, [data, mark, px, yScale]);
+
+  const hovered = useMemo(
+    () => data.find((d) => d.id === hover.hovered) ?? null,
+    [data, hover.hovered]);
+
+  // The brush in data units, not pixels — a selection nobody can read is
+  // decoration.
+  const brushed = useMemo(() => {
+    if (!brush || categorical_x) return null;
+    const scale = xScale as ReturnType<typeof scaleLinear<number, number>>;
+    const from = scale.invert(brush.from);
+    const to = scale.invert(brush.to);
+    const count = data.filter((d) => Number(d.x) >= from && Number(d.x) <= to).length;
+    return { from, to, count };
+  }, [brush, categorical_x, xScale, data]);
 
   const xTicks = categorical_x
     ? (xScale as ReturnType<typeof scaleBand<string>>).domain()
@@ -215,7 +235,8 @@ export function Cartesian({
                   width={categorical_x ? band.bandwidth() : 8}
                   y={Math.min(yScale(d.y), zero)}
                   height={Math.abs(zero - yScale(d.y))}
-                  style={{ fill: colourOf(d.group) }}
+                  style={{ fill: colourOf(d.group), opacity: hover.emphasis(d.id) }}
+                  {...hover.markProps(d.id)}
                 />
               );
             })}
@@ -226,13 +247,45 @@ export function Cartesian({
                 className="chart-point"
                 cx={px(d)}
                 cy={yScale(d.y)}
-                r={3.2}
-                style={{ fill: colourOf(d.group) }}
-              >
-                <title>{`${xLabel}: ${d.x} · ${yLabel}: ${d.y}`}</title>
-              </circle>
+                // The hovered mark grows a little as well as staying opaque:
+                // opacity alone is hard to see on a sparse scatter.
+                r={hover.hovered === d.id ? 5 : 3.2}
+                style={{ fill: colourOf(d.group), opacity: hover.emphasis(d.id) }}
+                {...hover.markProps(d.id)}
+              />
             ))}
           </g>
+
+          {/* Brush: drag across the plot to select an x-range.
+              `recommend.py` has declared `interaction: ["hover", "brush",
+              "underlying_table"]` on every scatter since the spec was written,
+              and until now the React side implemented none of the first two. */}
+          {!categorical_x && (
+            <rect
+              className="chart-brush-surface"
+              x={0} y={0} width={inner.w} height={inner.h}
+              fill="transparent"
+              onMouseDown={(event) => {
+                const box = event.currentTarget.getBoundingClientRect();
+                const at = event.clientX - box.left;
+                setDragging(at);
+                setBrush(null);
+              }}
+              onMouseMove={(event) => {
+                if (dragging === null) return;
+                const box = event.currentTarget.getBoundingClientRect();
+                const at = event.clientX - box.left;
+                setBrush({ from: Math.min(dragging, at), to: Math.max(dragging, at) });
+              }}
+              onMouseUp={() => setDragging(null)}
+              onMouseLeave={() => setDragging(null)}
+            />
+          )}
+          {brush && (
+            <rect className="chart-brush" x={brush.from} y={0}
+                  width={Math.max(1, brush.to - brush.from)} height={inner.h}
+                  pointerEvents="none" />
+          )}
 
           {/* Axes last, so marks never paint over them. */}
           <line className="chart-axis" x1={0} x2={inner.w} y1={inner.h} y2={inner.h} />
@@ -272,12 +325,37 @@ export function Cartesian({
         </div>
       )}
 
+      {brushed !== null && (
+        // What a selection is *for*: the count, and where it starts and ends in
+        // the reader's own units rather than in pixels.
+        <p className="chart-selection" role="status">
+          {brushed.count.toLocaleString()} of {data.length.toLocaleString()} selected
+          {" · "}{xLabel} {readable(brushed.from)} to {readable(brushed.to)}
+          <button type="button" onClick={() => setBrush(null)}>clear</button>
+        </p>
+      )}
+
       {caption && <figcaption className="chart-caption">{caption}</figcaption>}
 
       <ChartTable
         columns={tableColumns}
         rows={tableRows}
         label={title ?? `${xLabel} against ${yLabel}`}
+        highlightId={hover.hovered}
+        onHighlight={hover.setHovered}
+      />
+
+      <ChartTooltip
+        pointer={hover.pointer}
+        title={hovered?.group}
+        rows={hovered ? [
+          { label: xLabel, value: readable(hovered.x) },
+          { label: yLabel, value: readable(hovered.y) },
+          ...(hovered.lo !== undefined && hovered.hi !== undefined
+            ? [{ label: "interval",
+                 value: `${readable(hovered.lo)} to ${readable(hovered.hi)}` }]
+            : []),
+        ] : []}
       />
     </figure>
   );

@@ -1,0 +1,175 @@
+/**
+ * T011 — the charts respond to a pointer, and say what the numbers are.
+ *
+ * `recommend.py` declares `interaction: ["hover", "brush", "underlying_table"]`
+ * on every scatter and hexbin. Before this, only the table existed: eight of
+ * thirteen primitives had no interaction handlers at all, and the rest offered
+ * a native SVG `<title>` — a browser tooltip that appears after about a second,
+ * cannot be positioned, and shows nothing on touch.
+ *
+ * These assert the behaviour a reader gets, not that a handler is attached.
+ */
+
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+
+import { Cartesian } from "@/components/charts/Cartesian";
+import { Interval } from "@/components/charts/Interval";
+
+const POINTS = [
+  { id: "a", x: 10, y: 1.5 },
+  { id: "b", x: 20, y: 2.5 },
+  { id: "c", x: 30, y: 3.5 },
+];
+
+function scatter(extra = {}) {
+  return render(
+    <Cartesian mark="point" xLabel="Antibiotic consumption" yLabel="Resistance"
+               data={POINTS} {...extra} />);
+}
+
+describe("hovering a mark", () => {
+  it("shows the values, not a browser tooltip", () => {
+    const { container } = scatter();
+    const marks = container.querySelectorAll("circle.chart-point");
+    expect(marks).toHaveLength(3);
+
+    // The old affordance must be gone: a native <title> is what this replaces.
+    expect(container.querySelectorAll("circle.chart-point title")).toHaveLength(0);
+    expect(document.querySelector(".chart-tip")).toBeNull();
+
+    fireEvent.mouseEnter(marks[1], { clientX: 300, clientY: 200 });
+
+    const tip = document.querySelector(".chart-tip");
+    expect(tip, "no tooltip appeared on hover").not.toBeNull();
+    // The axis labels name the values, so the tooltip is readable on its own.
+    expect(within(tip as HTMLElement).getByText("Antibiotic consumption")).toBeInTheDocument();
+    expect(within(tip as HTMLElement).getByText("20")).toBeInTheDocument();
+    expect(within(tip as HTMLElement).getByText("2.5")).toBeInTheDocument();
+  });
+
+  it("lifts the hovered mark and recedes the others", () => {
+    const { container } = scatter();
+    const marks = container.querySelectorAll("circle.chart-point");
+
+    for (const mark of marks) {
+      expect((mark as SVGElement).style.opacity).toBe("1");
+    }
+
+    fireEvent.mouseEnter(marks[0], { clientX: 100, clientY: 100 });
+
+    // Neighbourhood reaction, not global reaction: one lifts, the rest recede
+    // rather than vanish — context has to survive the hover.
+    expect((marks[0] as SVGElement).style.opacity).toBe("1");
+    expect(Number((marks[1] as SVGElement).style.opacity)).toBeLessThan(1);
+    expect(Number((marks[1] as SVGElement).style.opacity)).toBeGreaterThan(0);
+    expect(marks[0].getAttribute("r")).not.toBe(marks[1].getAttribute("r"));
+  });
+
+  it("clears when the pointer leaves", () => {
+    const { container } = scatter();
+    const marks = container.querySelectorAll("circle.chart-point");
+    fireEvent.mouseEnter(marks[0], { clientX: 100, clientY: 100 });
+    expect(document.querySelector(".chart-tip")).not.toBeNull();
+    fireEvent.mouseLeave(marks[0]);
+    expect(document.querySelector(".chart-tip")).toBeNull();
+  });
+
+  it("shows the same tooltip on keyboard focus, positioned over the mark", () => {
+    // A tooltip only a mouse can summon is not an affordance for everybody.
+    const { container } = scatter();
+    const marks = container.querySelectorAll("circle.chart-point");
+    fireEvent.focus(marks[2]);
+    expect(document.querySelector(".chart-tip")).not.toBeNull();
+    fireEvent.blur(marks[2]);
+    expect(document.querySelector(".chart-tip")).toBeNull();
+  });
+});
+
+describe("the chart and its table share one highlight", () => {
+  it("lights the row for the hovered mark", () => {
+    const { container } = scatter();
+    const marks = container.querySelectorAll("circle.chart-point");
+    expect(container.querySelectorAll("tr.is-highlighted")).toHaveLength(0);
+
+    fireEvent.mouseEnter(marks[1], { clientX: 1, clientY: 1 });
+
+    const lit = container.querySelectorAll("tr.is-highlighted");
+    expect(lit, "hovering a mark did not light its row").toHaveLength(1);
+    expect(lit[0].textContent).toContain("20");
+  });
+
+  it("lights the mark for the hovered row", () => {
+    const { container } = scatter();
+    const rows = container.querySelectorAll("tbody tr");
+    expect(rows.length).toBe(3);
+
+    fireEvent.mouseEnter(rows[0]);
+
+    // The link runs both ways, which is what makes the table an index of the
+    // figure rather than an appendix to it.
+    const marks = container.querySelectorAll("circle.chart-point");
+    expect((marks[0] as SVGElement).style.opacity).toBe("1");
+    expect(Number((marks[1] as SVGElement).style.opacity)).toBeLessThan(1);
+  });
+});
+
+describe("brushing a range", () => {
+  it("reports what was selected, in the reader's units", () => {
+    const { container } = scatter();
+    const surface = container.querySelector("rect.chart-brush-surface");
+    expect(surface, "no brush surface on a continuous scatter").not.toBeNull();
+
+    fireEvent.mouseDown(surface!, { clientX: 0 });
+    fireEvent.mouseMove(surface!, { clientX: 400 });
+    fireEvent.mouseUp(surface!);
+
+    const readout = container.querySelector(".chart-selection");
+    expect(readout, "brushing produced no readout").not.toBeNull();
+    // A count of selected points, not a pixel range.
+    expect(readout!.textContent).toMatch(/\d+ of 3 selected/);
+    expect(readout!.textContent).toContain("Antibiotic consumption");
+  });
+
+  it("can be cleared", () => {
+    const { container } = scatter();
+    const surface = container.querySelector("rect.chart-brush-surface")!;
+    fireEvent.mouseDown(surface, { clientX: 0 });
+    fireEvent.mouseMove(surface, { clientX: 400 });
+    fireEvent.mouseUp(surface);
+    expect(container.querySelector(".chart-selection")).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /clear/i }));
+    expect(container.querySelector(".chart-selection")).toBeNull();
+  });
+
+  it("is absent on a categorical axis, where a range means nothing", () => {
+    const { container } = render(
+      <Cartesian mark="rect" xLabel="Country" yLabel="Resistance"
+                 data={[{ id: "a", x: "IND", y: 1 }, { id: "b", x: "USA", y: 2 }]} />);
+    expect(container.querySelector("rect.chart-brush-surface")).toBeNull();
+  });
+});
+
+describe("the forest plot", () => {
+  it("shows an estimate's interval and its correction verdict on hover", () => {
+    const { container } = render(
+      <Interval xLabel="correlation" estimates={[
+        { id: "1", label: "consumption vs resistance", estimate: 0.85,
+          lo: 0.7, hi: 0.94, significant: true, n: 120 },
+        { id: "2", label: "GDP vs resistance", estimate: 0.02,
+          lo: -0.2, hi: 0.24, significant: false },
+      ]} />);
+
+    const rows = container.querySelectorAll("g.chart-row");
+    expect(rows).toHaveLength(2);
+    fireEvent.mouseEnter(rows[0], { clientX: 10, clientY: 10 });
+
+    const tip = document.querySelector(".chart-tip") as HTMLElement;
+    expect(tip).not.toBeNull();
+    expect(within(tip).getByText("consumption vs resistance")).toBeInTheDocument();
+    expect(within(tip).getByText("0.7 to 0.94")).toBeInTheDocument();
+    expect(within(tip).getByText("excludes the null")).toBeInTheDocument();
+    expect(Number((rows[1] as SVGElement).style.opacity)).toBeLessThan(1);
+  });
+});
