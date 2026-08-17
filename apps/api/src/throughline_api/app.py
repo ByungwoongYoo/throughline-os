@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Cookie, Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from throughline_domain import (
     analysis, auth, claim_test, compare, consistency, critic, discovery,
@@ -25,6 +25,7 @@ from throughline_domain import (
     validation, visuals, vocabulary, workflow,
 )
 from throughline_visual.prepare import prepare as visual_prepare
+from throughline_visual.renderers import publication as publication_render
 from throughline_visual.spec import ResearchVisualSpec
 from throughline_domain import settings as domain_settings
 from throughline_domain.db import connection, jsonb, transaction
@@ -2617,8 +2618,19 @@ def get_visual(visual_id: str, user: dict = Depends(current_user)) -> dict[str, 
 
 @app.post("/api/visuals/{visual_id}/render")
 def render_visual(visual_id: str, format: str = Query("svg"),
+                  height: int | None = Query(None, ge=120, le=8000),
                   user: dict = Depends(current_user)) -> dict[str, Any]:
-    """/one spec, rendered by whichever backend was asked for."""
+    """
+    One spec, rendered by whichever backend was asked for.
+
+    `height` is an exact pixel height for a raster export; the width follows
+    from the figure's own proportions rather than from a 16:9 video frame. It is
+    refused for a vector format rather than ignored — an SVG has no pixel size,
+    and pretending to honour one leaves the caller believing something false.
+
+    The response carries a `warning` when the chosen format will damage the
+    figure, so the interface can say so *before* the download rather than after.
+    """
     with transaction() as cur:
         try:
             row = visuals.load_visual(cur, visual_id)
@@ -2626,10 +2638,73 @@ def render_visual(visual_id: str, format: str = Query("svg"),
             raise HTTPException(404, str(exc)) from exc
         scoped_project(row["project_id"], user)
         try:
-            return visuals.render_visual(cur, visual_id=visual_id, fmt=format)
+            return visuals.render_visual(cur, visual_id=visual_id, fmt=format,
+                                         height_px=height)
         except visuals.VisualError as exc:
             # A figure that failed the critic is refused, not quietly drawn.
             raise HTTPException(409, str(exc)) from exc
+        except publication_render.RenderError as exc:
+            # An unsupported format, or a pixel height asked of a vector one.
+            raise HTTPException(400, str(exc)) from exc
+
+
+#: Content types for the formats a figure may be downloaded in. Kept beside the
+#: route rather than guessed from the extension, because a wrong type makes a
+#: browser download a file it could have displayed — or worse, display one it
+#: should have downloaded.
+FIGURE_MEDIA_TYPES = {
+    "svg": "image/svg+xml", "pdf": "application/pdf", "eps": "application/postscript",
+    "png": "image/png", "tiff": "image/tiff", "jpeg": "image/jpeg",
+    "jpg": "image/jpeg", "webp": "image/webp",
+}
+
+
+@app.get("/api/visuals/{visual_id}/download")
+def download_visual(visual_id: str, format: str = Query("png"),
+                    height: int | None = Query(None, ge=120, le=8000),
+                    user: dict = Depends(current_user)) -> FileResponse:
+    """
+    The rendered file itself, as a download.
+
+    Renders on demand when that size has not been made yet, rather than
+    returning 404 and asking the caller to POST first — a download link that
+    works only after a separate request is a link that fails the first time
+    somebody clicks it.
+
+    The filename carries the figure id and the size, so a folder of downloads is
+    still legible a month later. That matters more here than it sounds: this is
+    the point where a figure leaves the system, and a file called `chart.png` is
+    one nobody can trace back.
+    """
+    with transaction() as cur:
+        try:
+            row = visuals.load_visual(cur, visual_id)
+        except visuals.VisualError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        scoped_project(row["project_id"], user)
+        try:
+            rendered = visuals.render_visual(cur, visual_id=visual_id,
+                                             fmt=format, height_px=height)
+        except visuals.VisualError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except publication_render.RenderError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    key = rendered.get("storage_key")
+    if not key:
+        raise HTTPException(
+            400, f"{format} is a web specification rather than a file. Ask for "
+                 "svg, pdf, png, tiff, jpeg or webp to download one.")
+
+    path = storage.storage_root() / key
+    if not path.exists():
+        raise HTTPException(500, "The figure was recorded but its file is missing.")
+
+    size = "" if height is None else f"-{height}px"
+    return FileResponse(
+        path,
+        media_type=FIGURE_MEDIA_TYPES.get(format.lower(), "application/octet-stream"),
+        filename=f"{visual_id}{size}.{format.lower()}")
 
 
 @app.patch("/api/visuals/{visual_id}")

@@ -41,7 +41,41 @@ PUBLICATION_STYLE: dict[str, Any] = {
     "savefig.bbox": "tight",
 }
 
-SUPPORTED_FORMATS = ("svg", "pdf", "png")
+#: Formats a figure may be written in.
+#:
+#: Split by what they are *for*, because the choice is not cosmetic:
+#:
+#: **Vector** — `svg`, `pdf`, `eps`. Resolution-independent: the same file is
+#: correct on a phone and on a poster. This is what a journal wants, and what a
+#: reader can zoom into to check a value. A pixel height means nothing here, and
+#: asking for one is reported rather than silently ignored.
+#:
+#: **Lossless raster** — `png`, `tiff`. For slides, and for journals that demand
+#: raster at a stated resolution. `tiff` is the one several still specify.
+#:
+#: **Lossy raster** — `jpeg`, `webp`. Included because they are asked for, and
+#: **wrong for almost every figure here.** These are line art and text on a flat
+#: ground: JPEG's DCT rings around glyph edges and thin rules, and it has no
+#: alpha, so a transparent background becomes black or white without asking. For
+#: this content class PNG is usually *smaller as well as* exact. They are
+#: offered for the one case where they help — a figure carrying a photograph or
+#: a digitised scan — and `warn_about_format` says so rather than leaving a
+#: researcher to discover it in review.
+VECTOR_FORMATS = ("svg", "pdf", "eps")
+LOSSLESS_RASTER_FORMATS = ("png", "tiff")
+LOSSY_RASTER_FORMATS = ("jpeg", "jpg", "webp")
+RASTER_FORMATS = LOSSLESS_RASTER_FORMATS + LOSSY_RASTER_FORMATS
+SUPPORTED_FORMATS = VECTOR_FORMATS + RASTER_FORMATS
+
+#: Named heights, in pixels. Deliberately heights rather than "1080p"/"720p".
+#:
+#: Those names mean a 16:9 *video frame*, and a figure's aspect ratio is set by
+#: its content — the publication default is 6.5x4.2in, roughly 1.55:1. Forcing
+#: 16:9 would either letterbox the figure or distort it, and nobody asking for
+#: "1080p" wants their axes stretched. What they want is a predictable, large
+#: enough image: so the height is honoured exactly and the width follows from
+#: the figure.
+HEIGHTS = {"720p": 720, "1080p": 1080, "1440p": 1440, "4k": 2160}
 
 #: Colourblind-safe (Okabe-Ito).  — colour is never the only encoder, so
 #: markers vary too.
@@ -53,24 +87,96 @@ class RenderError(ValueError):
     pass
 
 
+def warn_about_format(fmt: str, *, has_photograph: bool = False) -> str | None:
+    """
+    What a researcher should know about this format before publishing it.
+
+    Returns None when there is nothing to say. Separated from `render` so the
+    interface can show it *before* the download rather than after — a warning
+    that arrives with the file has already lost.
+    """
+    fmt = fmt.lower()
+    if fmt in LOSSY_RASTER_FORMATS and not has_photograph:
+        return (
+            f"{fmt.upper()} is lossy. This figure is line art and text, so the "
+            "compression will ring around glyph edges and thin rules, and there "
+            "is no transparency. PNG is exact and usually smaller for this kind "
+            "of image; SVG or PDF is what most journals ask for.")
+    if fmt in VECTOR_FORMATS:
+        return None
+    return None
+
+
 def render(
     spec: ResearchVisualSpec, data: VisualData, *, path: Path, fmt: str = "svg",
+    height_px: int | None = None, metadata: dict[str, str] | None = None,
 ) -> Path:
-    """Render to `path`. Returns the written path."""
+    """
+    Render to `path`. Returns the written path.
+
+    `height_px` sets the exact pixel height of a raster export; the width
+    follows from the figure's own proportions. It is refused for a vector format
+    rather than ignored, because a caller asking for 1080px of SVG has
+    misunderstood something and a silent no-op leaves them believing it worked.
+
+    **Exact dimensions need the tight bounding box switched off.** The
+    publication style trims to content, which is right for a figure dropped into
+    a manuscript and makes the output size unpredictable — the very thing a
+    caller asking for a height is trying to pin down. A constrained layout fits
+    the labels *inside* the figure instead of growing it, so nothing is clipped
+    and the height is the height that was asked for.
+    """
     fmt = fmt.lower()
     if fmt not in SUPPORTED_FORMATS:
         raise RenderError(
             f"{fmt!r} is not a supported publication format. "
             f"Supported: {', '.join(SUPPORTED_FORMATS)}"
         )
+    if height_px is not None and fmt in VECTOR_FORMATS:
+        raise RenderError(
+            f"A pixel height means nothing for {fmt}, which is vector: the same "
+            "file is correct at any size. Ask for a raster format, or drop the "
+            "height.")
+    if height_px is not None and height_px < 120:
+        raise RenderError(
+            f"{height_px}px is too small to carry axis labels legibly. A figure "
+            "nobody can read is not a smaller figure.")
+
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    with plt.rc_context(PUBLICATION_STYLE):
-        figure, axes = plt.subplots()
+    style = dict(PUBLICATION_STYLE)
+    saving: dict[str, Any] = {"format": fmt if fmt != "jpg" else "jpeg"}
+
+    if height_px is not None:
+        inches_high = style["figure.figsize"][1]
+        saving["dpi"] = height_px / inches_high
+        # Content is fitted inside the figure rather than the figure grown to
+        # fit the content, so the requested height is the delivered height.
+        style["savefig.bbox"] = None
+        saving["bbox_inches"] = None
+
+    if fmt in ("jpeg", "jpg"):
+        # Quality high and chroma subsampling off. It is still lossy — this
+        # limits the damage rather than undoing it.
+        saving["pil_kwargs"] = {"quality": 95, "subsampling": 0}
+
+    if metadata:
+        # Provenance travels with the file. A figure that leaves the building
+        # and cannot be traced back to the spec that produced it is exactly what
+        # this system refuses to do internally.
+        if fmt == "png":
+            saving["metadata"] = dict(metadata)
+        elif fmt in ("pdf", "svg", "eps"):
+            saving["metadata"] = {"Creator": metadata.get("Creator", "Throughline"),
+                                  "Title": metadata.get("Title", "")}
+
+    with plt.rc_context(style):
+        figure, axes = plt.subplots(
+            layout="constrained" if height_px is not None else None)
         try:
             _draw(spec, data, axes)
             _decorate(spec, data, figure, axes)
-            figure.savefig(path, format=fmt)
+            figure.savefig(path, **saving)
         finally:
             plt.close(figure)
     return path

@@ -231,8 +231,16 @@ def load_visual(cur, visual_id: str) -> dict[str, Any]:
     return row
 
 
-def render_visual(cur, *, visual_id: str, fmt: str) -> dict[str, Any]:
-    """Render a stored figure.  formats plus the web spec, from one source."""
+def render_visual(cur, *, visual_id: str, fmt: str,
+                  height_px: int | None = None) -> dict[str, Any]:
+    """
+    Render a stored figure. Publication formats plus the web spec, one source.
+
+    `height_px` gives an exact pixel height for a raster export; the width
+    follows from the figure's own proportions rather than from a video frame.
+    It is refused for a vector format by the renderer, because an SVG has no
+    pixel height and a silent no-op would leave the caller believing otherwise.
+    """
     row = load_visual(cur, visual_id)
     if not row["publishable"]:
         blocking = [c["check"] for c in (row["critique"].get("critiques") or [])
@@ -258,23 +266,44 @@ def render_visual(cur, *, visual_id: str, fmt: str) -> dict[str, Any]:
         return {"visual_id": visual_id, "format": fmt, "payload": payload,
                 "render_id": cur.fetchone()["id"]}
 
+    # The filename carries the spec hash and the size, not just the format.
+    #
+    # It used to be `{visual_id}.{fmt}` while the row was keyed on
+    # (visual_id, format, spec_hash) — so editing a figure and re-rendering
+    # produced a second row pointing at the same file, and the first row's
+    # content_hash described bytes that were gone. `stale_renders` then reported
+    # a file as out of date while pointing at the one that had replaced it.
+    # Adding a size without this would collide again: 720px and 1080px are the
+    # same name.
     directory = storage_root() / "figures" / visual_id
-    path = directory / f"{visual_id}.{fmt}"
-    publication.render(spec, data, path=path, fmt=fmt)
-    size = path.stat().st_size
+    size = "" if height_px is None else f"-{height_px}"
+    path = directory / f"{visual_id}-{current_hash[:12]}{size}.{fmt}"
+    publication.render(
+        spec, data, path=path, fmt=fmt, height_px=height_px,
+        # Provenance travels inside the file, because a figure that leaves the
+        # building is the one output whose link back cannot be a foreign key.
+        metadata={
+            "Title": visual_id,
+            "Description": f"spec_hash={current_hash}",
+            "Creator": "Throughline",
+        })
+    byte_size = path.stat().st_size
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     storage_key = str(path.relative_to(storage_root()))
 
     cur.execute(
         "INSERT INTO visual_renders(id, visual_id, format, storage_key, content_hash, "
-        "spec_hash, bytes) VALUES (%s, %s, %s, %s, %s, %s, %s) "
-        "ON CONFLICT (visual_id, format, spec_hash) DO UPDATE "
+        "spec_hash, bytes, height_px) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
+        "ON CONFLICT (visual_id, format, spec_hash, COALESCE(height_px, -1)) DO UPDATE "
         "SET storage_key = EXCLUDED.storage_key, content_hash = EXCLUDED.content_hash, "
         "bytes = EXCLUDED.bytes RETURNING id",
-        (new_id("vren"), visual_id, fmt, storage_key, digest, current_hash, size),
+        (new_id("vren"), visual_id, fmt, storage_key, digest, current_hash,
+         byte_size, height_px),
     )
     return {"visual_id": visual_id, "format": fmt, "storage_key": storage_key,
-            "content_hash": digest, "bytes": size, "render_id": cur.fetchone()["id"]}
+            "content_hash": digest, "bytes": byte_size, "height_px": height_px,
+            "warning": publication.warn_about_format(fmt),
+            "render_id": cur.fetchone()["id"]}
 
 
 def apply_edit(

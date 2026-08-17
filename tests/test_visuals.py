@@ -288,8 +288,12 @@ def test_unsupported_format_is_refused(analysed, tmp_path):
         run = analysis.get_run(cur, runs["regression"])
         spec = visuals.recommend_for_run(cur, analysis_run_id=runs["regression"])["spec"]
     data = visual_prepare.prepare(spec, analysis_result=run["result"])
+    # `tiff` was the example here until it became a supported format — several
+    # journals ask for it by name. The property under test is that an
+    # unsupported format is refused, not that this particular one is, so the
+    # example moved rather than the test being deleted.
     with pytest.raises(publication.RenderError) as exc:
-        publication.render(spec, data, path=tmp_path / "f.tiff", fmt="tiff")
+        publication.render(spec, data, path=tmp_path / "f.bmp", fmt="bmp")
     assert "not a supported publication format" in str(exc.value)
 
 
@@ -434,3 +438,212 @@ def test_comparable_coefficients_pass_the_scale_check():
     report = visual_critic.critique(spec, data)
     scales = next(c for c in report.critiques if c.check == "comparable_scales")
     assert scales.outcome == "passed"
+
+
+# ---------------------------------------------------------------------------
+# Exporting a figure at a stated size (§84)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def figure(analysed):
+    """A real recommended spec and its prepared data."""
+    _, _, runs = analysed
+    with connection() as conn, conn.cursor() as cur:
+        run = analysis.get_run(cur, runs["regression"])
+        recommendation = visuals.recommend_for_run(
+            cur, analysis_run_id=runs["regression"])
+    spec = recommendation["spec"]
+    return spec, visual_prepare.prepare(spec, analysis_result=run["result"])
+
+
+@pytest.mark.parametrize("height", [720, 1080])
+def test_a_raster_export_is_exactly_the_height_asked_for(figure, tmp_path, height):
+    """
+    The whole point of naming a size. The publication style trims to content,
+    which makes the delivered dimensions unpredictable — so a caller asking for
+    1080 gets "about 1000, depending on how long the axis labels are". A
+    constrained layout fits the labels inside the figure instead of growing it.
+    """
+    from PIL import Image
+
+    spec, data = figure
+    path = publication.render(spec, data, path=tmp_path / f"f{height}.png",
+                              fmt="png", height_px=height)
+
+    with Image.open(path) as image:
+        assert image.height == height
+
+
+def test_the_width_follows_the_figure_rather_than_a_video_frame(figure, tmp_path):
+    """
+    "1080p" names a 16:9 video frame. A figure's aspect ratio is set by its
+    content — forcing 16:9 would letterback or distort it, and nobody asking for
+    a bigger image wants their axes stretched.
+    """
+    from PIL import Image
+
+    spec, data = figure
+    path = publication.render(spec, data, path=tmp_path / "f.png", fmt="png",
+                              height_px=1080)
+
+    with Image.open(path) as image:
+        assert image.height == 1080
+        # The publication figure is 6.5x4.2in — about 1.55:1, not 1.78:1.
+        assert 1.4 < image.width / image.height < 1.7
+        assert image.width != 1920
+
+
+def test_a_pixel_height_is_refused_for_a_vector_format(figure, tmp_path):
+    """
+    Silently ignoring it would leave the caller believing the file is 1080
+    tall. An SVG has no height in pixels — that is the point of it.
+    """
+    spec, data = figure
+    with pytest.raises(publication.RenderError, match="vector"):
+        publication.render(spec, data, path=tmp_path / "f.svg", fmt="svg",
+                           height_px=1080)
+
+
+def test_an_unreadably_small_export_is_refused(figure, tmp_path):
+    """A figure nobody can read is not a smaller figure."""
+    spec, data = figure
+    with pytest.raises(publication.RenderError, match="legibly"):
+        publication.render(spec, data, path=tmp_path / "f.png", fmt="png",
+                           height_px=64)
+
+
+@pytest.mark.parametrize("fmt", ["png", "tiff", "jpeg", "webp", "svg", "pdf"])
+def test_every_offered_format_writes_a_real_file(figure, tmp_path, fmt):
+    spec, data = figure
+    height = None if fmt in publication.VECTOR_FORMATS else 720
+    path = publication.render(spec, data, path=tmp_path / f"f.{fmt}", fmt=fmt,
+                              height_px=height)
+
+    assert path.exists() and path.stat().st_size > 500
+
+
+def test_jpeg_is_offered_with_the_reason_not_to_use_it(figure, tmp_path):
+    """
+    It is asked for, so it is provided. But these figures are line art and
+    text: JPEG rings around glyph edges, has no transparency, and is usually
+    *larger* than PNG for this content. Saying so before the download beats
+    letting somebody discover it in review.
+    """
+    warning = publication.warn_about_format("jpeg")
+    assert warning is not None
+    assert "lossy" in warning.lower()
+    assert "png" in warning.lower()
+
+    # And nothing is said about the formats that are simply correct.
+    assert publication.warn_about_format("svg") is None
+    assert publication.warn_about_format("png") is None
+
+
+def test_a_photograph_is_the_case_where_jpeg_is_reasonable(figure):
+    """A blanket warning that is wrong sometimes is one people learn to skip."""
+    assert publication.warn_about_format("jpeg", has_photograph=True) is None
+
+
+def test_an_exported_png_carries_its_provenance(figure, tmp_path):
+    """
+    LAW 5 — no output detached from the source graph. A figure that leaves the
+    building is the one case where the link cannot be a foreign key, so it
+    travels inside the file.
+    """
+    from PIL import Image
+
+    spec, data = figure
+    path = publication.render(
+        spec, data, path=tmp_path / "f.png", fmt="png", height_px=720,
+        metadata={"Title": "vis_123", "Description": "spec_hash=abc123"})
+
+    with Image.open(path) as image:
+        embedded = {k: str(v) for k, v in (image.text or {}).items()}
+    assert "vis_123" in " ".join(embedded.values())
+    assert "abc123" in " ".join(embedded.values())
+
+
+def test_two_sizes_of_one_figure_are_two_files(analysed, tmp_path):
+    """
+    Without the size in the key and the filename, asking for a 1080px export
+    after a 720px one silently destroys the first — same row, same file. The
+    artifact renderer had this exact bug (D010); this is the second place.
+    """
+    from throughline_domain.storage import storage_root
+
+    project_id, _, runs = analysed
+    with connection() as conn, conn.cursor() as cur:
+        recommendation = visuals.recommend_for_run(
+            cur, analysis_run_id=runs["regression"])
+        visual_id = visuals.create_visual(
+            cur, project_id=project_id, spec=recommendation["spec"],
+            recommendation=recommendation, actor="test")["visual_id"]
+        small = visuals.render_visual(cur, visual_id=visual_id, fmt="png",
+                                      height_px=720)
+        large = visuals.render_visual(cur, visual_id=visual_id, fmt="png",
+                                      height_px=1080)
+        conn.commit()
+
+    assert small["storage_key"] != large["storage_key"]
+    assert (storage_root() / small["storage_key"]).exists()
+    assert (storage_root() / large["storage_key"]).exists()
+
+    from PIL import Image
+    with Image.open(storage_root() / small["storage_key"]) as image:
+        assert image.height == 720
+    with Image.open(storage_root() / large["storage_key"]) as image:
+        assert image.height == 1080
+
+
+def test_every_render_row_describes_bytes_that_are_there(analysed):
+    """
+    The row records a content hash and a size. Both were describing a file that
+    a later render had already overwritten.
+    """
+    import hashlib
+
+    from throughline_domain.storage import storage_root
+
+    project_id, _, runs = analysed
+    with connection() as conn, conn.cursor() as cur:
+        recommendation = visuals.recommend_for_run(
+            cur, analysis_run_id=runs["regression"])
+        visual_id = visuals.create_visual(
+            cur, project_id=project_id, spec=recommendation["spec"],
+            recommendation=recommendation, actor="test")["visual_id"]
+        visuals.render_visual(cur, visual_id=visual_id, fmt="png", height_px=720)
+        visuals.render_visual(cur, visual_id=visual_id, fmt="png", height_px=1080)
+        cur.execute(
+            "SELECT storage_key, content_hash, bytes FROM visual_renders "
+            "WHERE visual_id = %s AND storage_key IS NOT NULL", (visual_id,))
+        rows = [dict(r) for r in cur.fetchall()]
+        conn.commit()
+
+    assert len(rows) == 2
+    for row in rows:
+        path = storage_root() / row["storage_key"]
+        assert path.exists(), row["storage_key"]
+        assert path.stat().st_size == row["bytes"]
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == row["content_hash"]
+
+
+def test_a_lossy_export_comes_back_with_its_warning(analysed):
+    """
+    The researcher is told before they put it in a manuscript, not after a
+    reviewer notices the ringing around the axis labels.
+    """
+    project_id, _, runs = analysed
+    with connection() as conn, conn.cursor() as cur:
+        recommendation = visuals.recommend_for_run(
+            cur, analysis_run_id=runs["regression"])
+        visual_id = visuals.create_visual(
+            cur, project_id=project_id, spec=recommendation["spec"],
+            recommendation=recommendation, actor="test")["visual_id"]
+        jpeg = visuals.render_visual(cur, visual_id=visual_id, fmt="jpeg",
+                                     height_px=720)
+        png = visuals.render_visual(cur, visual_id=visual_id, fmt="png",
+                                    height_px=720)
+        conn.commit()
+
+    assert jpeg["warning"] and "lossy" in jpeg["warning"].lower()
+    assert png["warning"] is None

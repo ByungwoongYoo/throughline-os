@@ -435,3 +435,29 @@ def test_the_patterns_routes_answer_rather_than_raising(client):
         response = client.get(path)
         assert response.status_code == 200, f"{path} → {response.status_code} {response.text[:300]}"
         assert isinstance(response.json(), (dict, list)), path
+
+
+# ---------------------------------------------------------------------------
+# Downloading a figure (§84)
+# ---------------------------------------------------------------------------
+
+def test_a_pixel_height_is_refused_for_a_vector_download(client):
+    """
+    400 rather than a silently unsized SVG. A caller asking for 1080px of
+    vector has misunderstood something, and honouring the request in name only
+    leaves them believing the file is 1080 tall.
+    """
+    _account(client)
+    response = client.get("/api/visuals/vis_missing/download?format=svg&height=1080")
+    # 404 for the unknown figure is fine; what must not happen is a 500.
+    assert response.status_code in (400, 404), response.text
+
+
+def test_an_unknown_figure_is_not_found_rather_than_a_crash(client):
+    _account(client)
+    response = client.get("/api/visuals/vis_missing/download?format=png&height=720")
+    assert response.status_code == 404, response.text
+
+
+def test_the_download_route_requires_a_session(client):
+    assert client.get("/api/visuals/vis_x/download").status_code == 401
