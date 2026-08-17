@@ -438,4 +438,82 @@ def artifact_exports(project_id: str, artifact_id: str,
         return artifact_staleness.staleness(cur, artifact_id)
 
 
+# ---------------------------------------------------------------------------
+# Results in a project that disagree (§55)
+# ---------------------------------------------------------------------------
+
+class Resolution(BaseModel):
+    status: str = Field(min_length=1)
+    #: Required by the domain, and declared required here so the refusal is a
+    #: 422 with a field name rather than a 400 the caller has to parse.
+    note: str = Field(min_length=1)
+
+
+@router.get("/projects/{project_id}/contradictions")
+def project_contradictions(project_id: str, include_resolved: bool = False,
+                           user: dict = Depends(signed_in)) -> dict[str, Any]:
+    """
+    Recorded disagreements between this project's own results.
+
+    The `contradictions` table has existed since migration 0004 and nothing ever
+    wrote to it, while `graphs.discovery_map` counted it and the overview
+    rendered that count as a meter. Every project has therefore always displayed
+    zero contradictions — which reads as "nothing here disagrees" when what was
+    true is that nobody had ever checked.
+    """
+    _scoped(project_id, user)
+
+    from throughline_domain import contradictions
+
+    with transaction() as cur:
+        return contradictions.ledger(cur, project_id,
+                                     include_resolved=include_resolved)
+
+
+@router.post("/projects/{project_id}/contradictions/sweep")
+def sweep_contradictions(project_id: str,
+                         user: dict = Depends(signed_in)) -> dict[str, Any]:
+    """
+    Compare this project's results and record any disagreement that survives.
+
+    A POST because it writes. Idempotent: a second sweep refreshes the reasoning
+    on rows it already wrote rather than adding more, and never reopens a
+    contradiction a researcher has closed.
+    """
+    _scoped(project_id, user)
+
+    from throughline_domain import contradictions
+
+    with transaction() as cur:
+        return contradictions.record(cur, project_id)
+
+
+@router.post("/projects/{project_id}/contradictions/{contradiction_id}")
+def close_contradiction(project_id: str, contradiction_id: str, body: Resolution,
+                        user: dict = Depends(signed_in)) -> dict[str, Any]:
+    """
+    Close a disagreement, with the reason.
+
+    The reason is not optional. A contradiction closed silently cannot be told
+    apart from one dismissed to clear the count, and the next sweep reads the
+    resolution in order to leave it closed — so an empty reason means honouring
+    a decision nobody recorded.
+    """
+    _scoped(project_id, user)
+
+    from throughline_domain import contradictions
+
+    with transaction() as cur:
+        cur.execute(
+            "SELECT id FROM contradictions WHERE id = %s AND project_id = %s",
+            (contradiction_id, project_id))
+        if not cur.fetchone():
+            raise HTTPException(404, "No such contradiction in this project.")
+        try:
+            return contradictions.resolve(cur, contradiction_id,
+                                          status=body.status, note=body.note)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+
 __all__ = ["router"]

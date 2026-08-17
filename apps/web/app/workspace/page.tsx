@@ -28,6 +28,7 @@ import { Notebook } from "@/components/notebook";
 import { Settings } from "@/components/settings";
 import { WithdrawnSources } from "@/components/withdrawn";
 import { ExportedDocuments } from "@/components/exports";
+import { Contradictions } from "@/components/contradictions";
 import { Challenges } from "@/components/challenges";
 import { ExplorationLedger } from "@/components/ledger";
 import { Harvest } from "@/components/harvest";
@@ -363,7 +364,17 @@ function Workspace({ user }: { user: SignedInUser }) {
         }
       >
         {section === "overview" && (
-          <Overview project={project} map={map.data} onGo={goSection} />
+          <>
+            <Overview project={project} map={map.data} onGo={goSection} />
+            {/*
+              Directly under the meters, because the Contradictions meter is
+              what this panel makes honest. The count read from a table nothing
+              wrote to, so it showed zero for every project that has ever
+              existed — and a meter a reader cannot click through to is a number
+              they have to take on trust, which is how it stayed wrong.
+            */}
+            <Contradictions projectId={project.id} />
+          </>
         )}
         {section === "sources" && (
           selection?.kind === "source"

@@ -80,6 +80,10 @@ ROUTES = [
     ("get", "/api/projects/{p}/exports", None),
     ("post", "/api/projects/{p}/exports/recheck", None),
     ("get", "/api/projects/{p}/artifacts/art_1/staleness", None),
+    ("get", "/api/projects/{p}/contradictions", None),
+    ("post", "/api/projects/{p}/contradictions/sweep", None),
+    ("post", "/api/projects/{p}/contradictions/con_1",
+     {"status": "resolved", "note": "known"}),
 ]
 
 
@@ -403,4 +407,64 @@ def test_reading_the_report_does_not_write_the_flags(client):
         cur.execute("SELECT status FROM communication_artifacts WHERE id = 'art_read'")
         assert cur.fetchone()["status"] == "stale"
         cur.execute("DELETE FROM communication_artifacts WHERE id = 'art_read'")
+        conn.commit()
+
+
+def test_an_empty_contradiction_ledger_does_not_claim_agreement(client):
+    """
+    The original defect, at the HTTP boundary. Before a sweep has run the table
+    is empty, and the honest reading of that is "nobody has looked" — not "your
+    results agree".
+    """
+    account(client)
+    project_id = project(client)
+
+    body = client.get(f"/api/projects/{project_id}/contradictions").json()
+    assert body["open"] == 0
+    assert "nobody has looked" in body["note"]
+
+
+def test_closing_a_contradiction_without_a_reason_is_refused(client):
+    """
+    422 from the schema rather than 500 from the domain: the caller has to be
+    able to tell a researcher which field was missing.
+    """
+    account(client)
+    project_id = project(client)
+
+    response = client.post(
+        f"/api/projects/{project_id}/contradictions/con_x",
+        json={"status": "resolved"})
+    assert response.status_code == 422, response.text
+
+
+def test_closing_another_accounts_contradiction_is_not_found(client):
+    """
+    The path carries both ids and only the project one is scoped by the shared
+    helper, so the contradiction has to be checked against the project too.
+    Without that check a signed-in account could close any contradiction in the
+    installation by pairing its id with a project they own.
+    """
+    account(client, "first@lab.local")
+    theirs = project(client)
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO contradictions(id, project_id, kind, left_ref_type, "
+            "left_ref_id, right_ref_type, right_ref_id) VALUES "
+            "('con_theirs', %s, 'contradiction_under_multiplicity', "
+            "'connection', 'con_a', 'connection', 'con_b')", (theirs,))
+        conn.commit()
+
+    client.post("/api/auth/logout")
+    second_account(client)
+    mine = project(client, name="Mine")
+
+    response = client.post(f"/api/projects/{mine}/contradictions/con_theirs",
+                           json={"status": "resolved", "note": "not mine"})
+    assert response.status_code == 404, response.text
+
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT status FROM contradictions WHERE id = 'con_theirs'")
+        assert cur.fetchone()["status"] == "open"
+        cur.execute("DELETE FROM contradictions WHERE id = 'con_theirs'")
         conn.commit()
