@@ -72,6 +72,97 @@ def log(logger: logging.Logger, level: int, message: str, **context: Any) -> Non
     logger.log(level, message, extra={"context": context})
 
 
+#: How long a job that is due may sit unclaimed before nobody is draining the
+#: queue. Generous on purpose: a worker mid-analysis is not polling, and a
+#: threshold tight enough to fire during one sandboxed run would cry wolf on a
+#: healthy workspace, after which nobody reads this field.
+STALLED_AFTER_SECONDS = 90
+
+
+def _worker_check() -> dict[str, Any]:
+    """
+    Is anything actually draining the queue?
+
+    Every dependency check above asks whether a *service* is reachable. None of
+    them asks the question an operator of this product actually has, which is
+    whether work is getting done — and here those are different questions,
+    because ingestion, discovery and analysis all run through the durable queue.
+    With the database healthy and no worker running, the API answers every
+    request correctly, `/api/health` reports ok, and nothing ever completes. The
+    researcher sees "Waiting for a worker to pick it up…" indefinitely.
+
+    That is not hypothetical: it is what an earlier audit recorded as four
+    sources and two workflow runs with two rows stuck, and it is what happened
+    while measuring the provenance depth on this branch — a worked example sat
+    at zero findings until somebody noticed no worker had been started.
+
+    **An idle queue is not evidence of a live worker, and is not reported as
+    one.** Most workspaces are idle most of the time, so failing on silence
+    would cry wolf constantly; claiming health from silence would be the
+    reassuring lie. `confirmed` carries the difference: it is true only when a
+    worker has actually heartbeated recently, and `ok` goes false only when work
+    is genuinely overdue — which is unambiguous.
+    """
+    try:
+        from .db import connection
+
+        with connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                  count(*) FILTER (WHERE state = 'queued'
+                                     AND run_after <= now())            AS due,
+                  count(*) FILTER (WHERE state = 'running')             AS running,
+                  count(*) FILTER (WHERE state = 'running'
+                                     AND lease_expires_at IS NOT NULL
+                                     AND lease_expires_at < now())      AS abandoned,
+                  EXTRACT(EPOCH FROM now() - min(run_after) FILTER (
+                      WHERE state = 'queued' AND run_after <= now()))   AS waiting_s,
+                  EXTRACT(EPOCH FROM now() - max(heartbeat_at))         AS since_beat
+                FROM workflow_runs
+                """)
+            row = dict(cur.fetchone())
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "critical": False, "error": str(exc)[:200],
+                "impact": "Whether anything is processing work is unknown."}
+
+    due = int(row["due"] or 0)
+    waiting = float(row["waiting_s"] or 0)
+    since_beat = row["since_beat"]
+    confirmed = since_beat is not None and float(since_beat) <= STALLED_AFTER_SECONDS
+
+    check: dict[str, Any] = {
+        "ok": True,
+        "critical": False,
+        "confirmed": confirmed,
+        "queued_due": due,
+        "running": int(row["running"] or 0),
+        # A run whose lease expired while still marked running is a worker that
+        # died mid-job. `claim` reclaims these, so it is a symptom rather than a
+        # leak — but a rising count is the clearest sign of a crash loop.
+        "abandoned_leases": int(row["abandoned"] or 0),
+        "seconds_since_heartbeat": None if since_beat is None else round(float(since_beat)),
+        "impact": None,
+    }
+
+    if due and waiting > STALLED_AFTER_SECONDS:
+        check["ok"] = False
+        check["impact"] = (
+            f"{due} job{'' if due == 1 else 's'} due and unclaimed for "
+            f"{round(waiting)}s. Nothing is draining the queue, so ingestion, "
+            "discovery and analysis will not finish. Start a worker: "
+            "`python -m throughline_workers`.")
+    elif not confirmed:
+        # Deliberately still `ok`. There is nothing to do, so there is nothing
+        # to be failing — but the payload does not pretend a worker was seen.
+        check["impact"] = (
+            "No worker has reported in recently. Nothing is waiting either, so "
+            "this is not evidence of a problem — and it is not evidence that a "
+            "worker is running.")
+
+    return check
+
+
 def health() -> dict[str, Any]:
     """
     What this installation can do right now, dependency by dependency.
@@ -107,6 +198,8 @@ def health() -> dict[str, Any]:
             "deterministic verdict, correction and export still works."}
     except Exception as exc:  # noqa: BLE001
         checks["model"] = {"ok": False, "critical": False, "error": str(exc)[:200]}
+
+    checks["workers"] = _worker_check()
 
     try:
         from . import graph_projection

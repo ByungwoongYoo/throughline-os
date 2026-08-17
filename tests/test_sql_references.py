@@ -45,12 +45,45 @@ BOOTSTRAP_TABLES = {"schema_migrations"}
 #: parse as a query. English imperatives and SQL verbs are the same words.
 SQL_START = re.compile(r"^\s*(SELECT|INSERT|UPDATE|DELETE|WITH)\b")
 
-#: Upper case for the same reason as above. Two exclusions, both real SQL this
+#: Upper case for the same reason as above. Three exclusions, all real SQL this
 #: codebase writes: `ON CONFLICT DO UPDATE SET col = ...` would otherwise name a
-#: table called "set", and `FOR UPDATE SKIP LOCKED` — the row lock the workflow
-#: queue takes — would name one called "skip".
-_TABLE_REF = re.compile(
-    r"(?<!FOR )\b(?:FROM|JOIN|INTO|UPDATE)\s+(?:ONLY\s+)?(?!SET\b)([a-z_][a-z0-9_]*)")
+#: table called "set"; `FOR UPDATE SKIP LOCKED` — the row lock the workflow
+#: queue takes — would name one called "skip"; and a name followed by `(` is a
+#: function call, not a table.
+#:
+#: That last one is `EXTRACT(EPOCH FROM now() - ...)`, where the `FROM` belongs
+#: to EXTRACT rather than to a query. This guard reported a missing table called
+#: `now` the first time anybody wrote one — a false positive in the direction
+#: that gets a guard suppressed rather than fixed, which is exactly what its own
+#: allowlist comment warns about. A table reference is never immediately
+#: followed by a parenthesis and a set-returning function always is, so the
+#: distinction is structural rather than a list of function names to maintain.
+#: `FROM`/`JOIN` may be followed by a set-returning function; `INTO`/`UPDATE`
+#: may not, and `INSERT INTO t(col, ...)` puts a *column list* right after the
+#: table — so the "followed by `(` means function" rule holds for the first pair
+#: and is wrong for the second. Applying it to both reported every INSERT in the
+#: codebase as missing, which is why they are separate patterns.
+_FROM_REF = re.compile(
+    r"(?<!FOR )\b(?:FROM|JOIN)\s+(?:ONLY\s+)?(?!SET\b)"
+    # `\b` before the lookahead is load-bearing: without it the engine
+    # backtracks to the shorter name `no` so that the next character is `w`
+    # rather than `(`, and `EXTRACT(EPOCH FROM now() ...)` reports a missing
+    # table called "no". A negative lookahead only excludes what the group was
+    # forced to consume.
+    r"([a-z_][a-z0-9_]*)\b(?!\s*\()")
+_WRITE_REF = re.compile(
+    r"(?<!FOR )\b(?:INTO|UPDATE)\s+(?:ONLY\s+)?(?!SET\b)([a-z_][a-z0-9_]*)")
+
+
+class _TableRef:
+    """Both patterns behind the `findall` the rest of this file already uses."""
+
+    @staticmethod
+    def findall(sql: str) -> list[str]:
+        return _FROM_REF.findall(sql) + _WRITE_REF.findall(sql)
+
+
+_TABLE_REF = _TableRef()
 
 #: The optional column list matters: `WITH RECURSIVE reachable(id, depth) AS (`
 #: is the shape every recursive walk in this codebase actually uses, and a
