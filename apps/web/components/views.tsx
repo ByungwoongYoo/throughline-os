@@ -16,9 +16,11 @@ import {
   ingestionStep, isIngesting,
 } from "@/lib/api";
 import { ApiState, useApi } from "@/lib/useApi";
+import { sessionId } from "@/lib/session";
 import { Section } from "./Shell";
 import { PlainSummary, ResultCard } from "./ResultCard";
 import { Empty, Failure, Loading, Meter, Num, Stat, Status } from "./primitives";
+import { RecordFinding } from "./recordfinding";
 
 // ---------------------------------------------------------------------------
 // Overview (§70)
@@ -503,7 +505,11 @@ export function Discover({ projectId, sources, onSelectConnection, startWith, on
     try {
       const started = await api.post<{ reused: boolean; note?: string }>(
         `/api/projects/${projectId}/discoveries`,
-        { dataset_version_id: versionId, force },
+        // The session travels with the request so the sweep joins the family
+        // of everything else looked at in this sitting. Null in a private
+        // window, where storage is refused — the run is then its own family,
+        // which is what happened before any of this existed.
+        { dataset_version_id: versionId, force, session_id: sessionId() },
       );
       // §123 — if the server declined to start a second run, say so. A button
       // that appears to work and quietly does nothing is worse than an error.
@@ -669,7 +675,21 @@ export function Findings({ projectId, onSelect }: {
   );
 }
 
-export function EvidenceGraphView({ findingId }: { findingId: string }) {
+export function EvidenceGraphView({ findingId, onOpenAnalysis }: {
+  findingId: string;
+  /**
+   * Open the analysis a finding rests on.
+   *
+   * Without this the finding was a dead end. Measuring the provenance depth
+   * found that its detail screen offered exactly one action — previewing a
+   * library note — and no route to the computation, the dataset or the paper.
+   * The chain was in the database; nothing on screen walked it.
+   *
+   * Optional so the panel still renders in contexts with nowhere to navigate
+   * to, where a button that did nothing would be worse than a plain row.
+   */
+  onOpenAnalysis?: (runId: string) => void;
+}) {
   const { data, error, loading, reload } = useApi<EvidenceGraph>(
     `/api/findings/${findingId}/evidence-graph`,
   );
@@ -715,7 +735,21 @@ export function EvidenceGraphView({ findingId }: { findingId: string }) {
           {data.analyses.map((a) => (
             <div className="card card-tight" key={a.id}>
               <div className="row">
-                <span className="mono">{a.method}</span>
+                {/*
+                  The step that makes the chain walkable. From here the analysis
+                  names its dataset, which names its source — so "why do we
+                  believe this?" is answerable by clicking rather than by
+                  knowing where to look.
+                */}
+                {onOpenAnalysis ? (
+                  <button type="button"
+                          onClick={() => onOpenAnalysis(a.id)}
+                          style={{ border: "none", background: "none", padding: 0,
+                                   font: "inherit", color: "var(--accent)",
+                                   cursor: "pointer", textAlign: "left" }}>
+                    <span className="mono">{a.method}</span>
+                  </button>
+                ) : <span className="mono">{a.method}</span>}
                 <span className="mono" style={{ color: "var(--ink-faint)" }}>{a.id}</span>
               </div>
               {a.result?.interpretation ? (
@@ -830,8 +864,11 @@ export function AnalysisDetail({ runId }: { runId: string }) {
 // Validation (§51)
 // ---------------------------------------------------------------------------
 
-export function ConnectionDetail({ connectionId, projectId }: {
-  connectionId: string; projectId: string;
+export function ConnectionDetail({ connectionId, projectId, onRecordFinding }: {
+  connectionId: string;
+  projectId: string;
+  /** Open the finding once it is recorded, so the researcher lands on it. */
+  onRecordFinding?: (findingId: string) => void;
 }) {
   const connections = useApi<Connection[]>(`/api/projects/${projectId}/connections?limit=200`);
   const connection = connections.data?.find((c) => c.id === connectionId);
@@ -980,6 +1017,23 @@ export function ConnectionDetail({ connectionId, projectId }: {
       </div>
 
       <ValidationReports reports={reports} />
+
+      {/*
+        The last step of the §137 workflow, and the one that was missing. After
+        validation the overview said "Record a finding — NEXT" while the
+        interface offered no way to record one: the capability existed in the
+        API and was exercised by the suite, and no `api.post` to `/findings`
+        existed anywhere in this app. It belongs here rather than on the
+        Findings list because a finding is recorded *from* a result, and the
+        connection travels with it — which is what makes it checkable later.
+      */}
+      <RecordFinding
+        projectId={projectId}
+        connectionId={connectionId}
+        defaultTitle={`${left} tracks ${right}`}
+        validated={(reports.data ?? []).some((r) => r.status === "complete")}
+        onRecorded={onRecordFinding}
+      />
     </>
   );
 }

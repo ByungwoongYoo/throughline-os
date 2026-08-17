@@ -167,3 +167,73 @@ def test_scripts_resolve_the_repository_without_a_subshell(script):
     assert cd_lines, f"{script} does not anchor itself to its own location"
     assert not any("$(" in l for l in cd_lines), (
         f"{script} uses a subshell to find the repository")
+
+
+def _pip_installed_paths() -> set[str]:
+    """
+    Workspace paths handed to `pip install`, and only those.
+
+    Scoped to the install command rather than the whole file. A scan of every
+    line also picks up `COPY ./apps/web`, which is the Next.js app — copied into
+    the image, never pip-installed, and correctly carrying no pyproject.toml. A
+    guard that failed on it would be reporting a defect that is not there, which
+    is the fastest way to get a guard deleted.
+
+    The command spans several lines with backslash continuations, so the text is
+    joined before matching.
+    """
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    joined = dockerfile.replace("\\\n", " ")
+    paths: set[str] = set()
+    for line in joined.splitlines():
+        if "pip install" not in line:
+            continue
+        paths |= set(re.findall(r"\./((?:packages|services|apps)/[\w-]+)", line))
+    return paths
+
+
+def test_the_image_installs_nothing_that_does_not_exist():
+    """
+    The reverse of `test_the_image_installs_every_package`, and the direction
+    that actually broke.
+
+    That test asks whether every workspace package appears in the Dockerfile.
+    It cannot see the failure that made `docker build` and `docker compose up`
+    fail for the entire life of the file: the install line named
+    `./packages/workflow-sdk`, a directory that has never existed in this
+    repository. The durable-workflow code lives in `research-domain` as
+    `workflow.py`; the package was folded in and the Dockerfile was not updated.
+    pip cannot install a path that is not there, so that layer failed and took
+    every image build with it.
+
+    Both directions are needed and they catch opposite mistakes. Forgetting to
+    add a package leaves the container importing something it never installed.
+    Forgetting to remove one fails the build outright — louder, but only once
+    somebody runs it, and CI's Docker job is the only place that happens.
+    """
+    installed = _pip_installed_paths()
+    assert installed, "no workspace paths found on a pip install line"
+
+    missing = sorted(path for path in installed if not (ROOT / path).is_dir())
+    assert not missing, (
+        f"The Dockerfile installs {missing}, which do not exist in this "
+        "repository. pip cannot install a path that is not there, so this "
+        "layer fails and every `docker build` and `docker compose up` fails "
+        "with it.")
+
+
+def test_every_installed_path_is_a_python_package():
+    """
+    A directory is not enough: pip needs something to build.
+
+    An empty `packages/workflow-sdk/` exists on at least one machine as
+    detritus from the original diagnosis. Git does not track empty directories,
+    so a check that only asked "is it a directory" would pass there and fail in
+    CI — the worst split, because it works for the person who made the change.
+    """
+    for path in sorted(_pip_installed_paths()):
+        directory = ROOT / path
+        if not directory.is_dir():
+            continue                      # reported by the test above
+        assert (directory / "pyproject.toml").is_file(), (
+            f"{path} has no pyproject.toml, so pip has nothing to build there.")

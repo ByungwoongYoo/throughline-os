@@ -120,6 +120,21 @@ export function Notebook({ projectId }: { projectId: string }) {
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  /*
+   * Naming a new note happens inline, not in `window.prompt`.
+   *
+   * The prompt was a runtime error, not a style problem: a sandboxed browser
+   * refuses it outright ("prompt() is not supported"), so the New note button
+   * threw and did nothing at all. Even where it works it blocks the event loop,
+   * cannot be styled, cannot be tested, and is the one dialog a user cannot
+   * paste into on some platforms.
+   *
+   * A field rather than a modal, because naming a note is not a decision that
+   * warrants taking the screen away — `ConfirmDialog` exists for the ones that
+   * do, and using it here would make creating a note feel like deleting one.
+   */
+  const [naming, setNaming] = useState(false);
+  const [title, setTitle] = useState("");
 
   const reload = useCallback(async () => {
     // Both, together. The index is derived from the same notes, so fetching it
@@ -155,11 +170,15 @@ export function Notebook({ projectId }: { projectId: string }) {
   }
 
   async function createNote() {
-    const title = window.prompt("What is this note about?");
-    if (!title?.trim()) return;
+    const named = title.trim();
+    // Guarded here as well as by the disabled button: Enter reaches this
+    // directly, and a note called "" is one nobody can find again.
+    if (!named) return;
     try {
       const created = await api.post<{ id: string }>(
-        `/api/projects/${projectId}/notebook`, { title, body: "" });
+        `/api/projects/${projectId}/notebook`, { title: named, body: "" });
+      setNaming(false);
+      setTitle("");
       await reload();
       await openNote(created.id);
     } catch (err) { setError(err); }
@@ -222,10 +241,42 @@ export function Notebook({ projectId }: { projectId: string }) {
             <button className="nj-primary" onClick={() => void openToday()}>
               Today
             </button>
-            <button className="ct-dataset" onClick={() => void createNote()}>
+            <button className="ct-dataset" onClick={() => setNaming(true)}>
               New note
             </button>
           </div>
+
+          {naming && (
+            <form
+              className="nb-naming"
+              onSubmit={(event) => { event.preventDefault(); void createNote(); }}
+            >
+              <label htmlFor="nb-new-title" className="eyebrow">
+                What is this note about?
+              </label>
+              <input
+                id="nb-new-title"
+                value={title}
+                autoFocus
+                onChange={(event) => setTitle(event.target.value)}
+                // Escape cancels, which the native prompt did for free and a
+                // hand-rolled field otherwise loses.
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") { setNaming(false); setTitle(""); }
+                }}
+              />
+              <div className="row">
+                <button type="submit" className="nj-primary"
+                        disabled={!title.trim()}>
+                  Create
+                </button>
+                <button type="button" className="ct-dataset"
+                        onClick={() => { setNaming(false); setTitle(""); }}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
 
           {listing?.notes.length === 0 && (
             <Empty

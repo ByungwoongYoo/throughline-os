@@ -200,9 +200,18 @@ def parse_pdf(path: Path) -> ParsedDocument:
                     chunks.append(table_text)
                     cursor = end + 2
                     ordinal += 1
-            except Exception:
-                # A table-detection failure must not lose the page's prose.
-                pass
+            except Exception as exc:  # noqa: BLE001 — prose must survive this
+                # A table-detection failure must not lose the page's prose, so
+                # it is caught. It was also silent, which is a different thing:
+                # an extractor broken on every page of every document looked
+                # exactly like a corpus that happens to contain no tables.
+                #
+                # That matters here more than it would elsewhere. This system
+                # tests claims against tables and quotes them verbatim, so a
+                # table that never arrives is not a cosmetic loss — it is
+                # evidence the researcher will never know was available.
+                _log.warning("table extraction failed on page %s of %s: %s: %s",
+                             page_index, path.name, type(exc).__name__, exc)
 
     text = "\n\n".join(chunks)
     if not doc_title and passages:

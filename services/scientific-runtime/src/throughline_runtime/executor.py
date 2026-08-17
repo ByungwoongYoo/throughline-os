@@ -274,7 +274,24 @@ def _limit_child(policy: SandboxPolicy) -> None:
         try:
             resource.setrlimit(resource.RLIMIT_DATA, (memory_bytes, memory_bytes))
         except (ValueError, OSError):
-            pass
+            # Both refused: this analysis runs with no memory ceiling at all.
+            #
+            # It used to pass silently, which made the sandbox claim a limit it
+            # was not applying — the worst shape a safety guarantee can take,
+            # because everything downstream keeps believing it. Running anyway
+            # is the right call (refusing would make the platform unusable
+            # wherever this happens), but it must be visible: the parent
+            # captures this stream into the recorded result, so the run itself
+            # carries the admission.
+            #
+            # Written with os.write rather than print: this is a forked child
+            # before exec, where the interpreter is in a state that makes
+            # buffered I/O unsafe.
+            os.write(2, (
+                f"[sandbox] WARNING: could not apply a {policy.memory_mb}MB "
+                "memory limit — neither RLIMIT_AS nor RLIMIT_DATA was accepted "
+                "on this platform. The analysis is running WITHOUT a memory "
+                "ceiling and could exhaust this machine.\n").encode())
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))  # no core dumps of research data
     resource.setrlimit(resource.RLIMIT_NPROC, (64, 64))
 

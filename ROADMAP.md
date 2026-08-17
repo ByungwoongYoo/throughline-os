@@ -148,6 +148,22 @@ saying the backend is ready and the surface is pending.
   nodes, marketing LCP, five-click provenance depth. A comment is not a
   measurement.
 
+  **All four are now measured, and one of them was not a performance claim at
+  all.** The 5,000-node claim was false in both halves (D005). LCP is fine:
+  1404ms over Slow 4G, well inside "good". Canvas rasterisation, the piece
+  D005's numbers explicitly excluded, costs 0.57ms at its worst against a
+  16.67ms frame budget (D006) — it was never the problem.
+
+  The five-click provenance depth is the one worth reading. It is not five
+  clicks and it is not six: **the path does not exist.** A finding's detail
+  screen offers exactly one action, "Preview this as a library note", and links
+  to nothing — not its connection, not the analysis run, not the dataset. Going
+  sideways through Connections reaches the result but stops there too; the
+  provenance line reads `0 sources · 1 dataset` as plain text. So the number
+  this roadmap asked for cannot be produced, because a researcher cannot walk
+  from a finding back to its evidence by clicking at all. Recorded as D018, and
+  worth more than the figure would have been.
+
 ---
 
 ## Wave 2 — the interpretation layer

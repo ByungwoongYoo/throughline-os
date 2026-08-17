@@ -33,8 +33,9 @@ import re
 from typing import Any
 
 from . import causal, harmonize, vocabulary
+from .db import jsonb
 from .ids import new_id
-from .verdicts import RunState, Verdict
+from .verdicts import Family, RunState, Verdict
 
 
 class ClaimTestError(RuntimeError):
@@ -266,36 +267,6 @@ _DESIGN_ALIASES = {
     "repeated_measures": "longitudinal",
     "time_series": "longitudinal",
 }
-
-
-def normalise_design(text: str | None) -> str:
-    """
-    Reduce a paper's own words to a design this system recognises.
-
-    Deterministic and lossy on purpose: it drops filler, never guesses. Anything
-    that does not reduce to a known design comes back unchanged so the caller
-    reports it as unrecognised rather than silently choosing a neighbour — a
-    wrong design here would license a causal reading the data cannot support.
-    """
-    if not text:
-        return "unknown"
-    cleaned = _DESIGN_NOISE.sub(" ", text.strip().lower())
-    cleaned = re.sub(r"[^a-z]+", "_", cleaned).strip("_")
-    if not cleaned:
-        return "unknown"
-    if cleaned in _DESIGN_SUPPORTS:
-        return cleaned
-    if cleaned in _DESIGN_ALIASES:
-        return _DESIGN_ALIASES[cleaned]
-    # "cohort_panel", "cross_sectional_ecological" — take the first recognised
-    # design named, since a paper listing two is describing the stronger claim
-    # under the weaker structure.
-    for known in ("randomised_controlled_trial", "randomized_controlled_trial",
-                  "case_control", "cross_sectional", "longitudinal", "cohort",
-                  "ecological", "experiment", "observational"):
-        if known in cleaned:
-            return known
-    return cleaned
 
 
 # ---------------------------------------------------------------------------
@@ -784,58 +755,118 @@ def _record_in_graph(cur, *, project_id: str, claim: dict[str, Any],
                   "statement": (claim.get("statement") or "")[:500]},
     )
 
+    _record_evidence(cur, project_id=project_id, claim=claim,
+                     paper_object_id=paper["id"],
+                     dataset_object_id=dataset["object_id"], verdict=verdict)
 
-def _record_in_graph(cur, *, project_id: str, claim: dict[str, Any],
-                     dataset_version_id: str, verdict: Verdict) -> None:
+
+#: What a verdict family says about the claim, in the vocabulary `evidence` and
+#: `finding_claims` already use. Taken from the taxonomy rather than invented,
+#: so a family added later fails loudly here instead of being silently scored.
+_DIRECTION = {
+    Family.SUPPORTED: "supports",
+    Family.CONTRADICTED: "contradicts",
+    # Ran, with named threats. Not clean support, and calling it support would
+    # let a qualified result be counted as a confirmation.
+    Family.QUALIFIED: "mixed",
+    # Ran, but the answer is unstable. Neutral is the honest score.
+    Family.UNDETERMINED: "neutral",
+}
+
+#: The relationship the outcome asserts between the dataset and the paper.
+_RELATIONSHIP = {
+    Family.SUPPORTED: "supports",
+    Family.CONTRADICTED: "contradicts",
+    Family.QUALIFIED: "qualifies",
+    Family.UNDETERMINED: "inconclusive",
+}
+
+
+def _record_evidence(cur, *, project_id: str, claim: dict[str, Any],
+                     paper_object_id: str, dataset_object_id: str,
+                     verdict: Verdict) -> None:
     """
-    Put the claim test into the research graph (LAW 5).
+    Record the outcome as evidence about the claim, and as an asserted edge.
 
-    Without this the graph has papers on one side and analyses on the other and
-    nothing between them — a path query from a paper to the finding that tested
-    its claim returns "no connection", which is true of the record and false of
-    the research. The whole point of the product is the throughline, and the
-    throughline has to be an edge.
+    Two tables, both of which the system read and never wrote.
 
-    Recorded for refusals too. "This paper's claim could not be tested on this
-    data, and here is why" is a result about both objects, and losing it would
-    mean the same dead end gets rediscovered every time someone tries.
+    `evidence` (D014) is what `findings.evidence_summary` counts by direction.
+    It returned zeros for every finding in every project, which reads as "no
+    evidence bears on this" — where the truth was that nothing was ever
+    recorded. `research_edges` (D013) is the asserted half of the knowledge
+    graph, the half `graphs.neighbourhood` documents as one of "two kinds of
+    edge, one graph"; nothing had ever written a row, so every graph ever drawn
+    showed derivation only.
+
+    **A refusal is not evidence.** A claim that could not be tested taught
+    nothing about whether it is true — no statistic was read. Scoring that as
+    neutral evidence would put a number in `evidence_summary` for a test that
+    never happened, which is the same defect as the Contradictions meter one
+    table over: a count that reads as knowledge and is not. The lineage edge
+    above *is* still written for those, deliberately — "this pairing was tried
+    and could not be tested" is worth keeping so the dead end is not
+    rediscovered — but it is a fact about the pairing, not about the claim.
+
+    **The family alone cannot decide that, and assuming it could was a bug
+    here.** `D14 not_yet_analysed` is `Family.UNDETERMINED`, the same family as
+    a genuinely unstable result, so scoring on family recorded neutral evidence
+    for a pair that had never been analysed at all. `RunState` is what separates
+    them, and the taxonomy says so in as many words: it is "deliberately *not* a
+    `Family`", because one describes whether the job ran and the other what the
+    science said. Both have to agree before anything is written.
     """
-    from throughline_schemas.enums import LineageType
-
-    from .lineage import add_edge
-
-    source_id = claim.get("source_id")
-    if not source_id:
+    direction = _DIRECTION.get(verdict.family)
+    if direction is None:
+        return
+    if verdict.state is not RunState.COMPLETE:
         return
 
-    cur.execute(
-        "SELECT o.id FROM research_objects o WHERE o.project_id = %s "
-        "  AND o.source_id = %s AND o.object_type = 'paper' LIMIT 1",
-        (project_id, source_id))
-    paper = cur.fetchone()
-
-    cur.execute(
-        "SELECT d.object_id FROM dataset_versions dv "
-        "JOIN datasets d ON d.id = dv.dataset_id WHERE dv.id = %s",
-        (dataset_version_id,))
-    dataset = cur.fetchone()
-
-    if not (paper and dataset and dataset["object_id"]):
+    claim_id = claim.get("claim_id")
+    if not claim_id:
+        # `evidence.claim_id` is NOT NULL and pointing it at a Claim that does
+        # not exist is not an option. Inventing one here would also mean a
+        # hand-typed claim silently created a permanent record the caller never
+        # asked for.
         return
 
-    add_edge(
-        cur, project_id=project_id,
-        source_artifact_id=dataset["object_id"],
-        target_artifact_id=paper["id"],
-        # `references` rather than `supports`: the edge records that the two
-        # were tested against each other, and a P9 refusal is as much a part of
-        # the record as a P1 agreement.
-        lineage_type=LineageType.REFERENCES,
-        metadata={"claim_test": verdict.outcome_code,
-                  "family": verdict.family.value,
-                  "reason": verdict.reason_code,
-                  "statement": (claim.get("statement") or "")[:500]},
-    )
+    cur.execute("SELECT id FROM claims WHERE id = %s AND project_id = %s",
+                (claim_id, project_id))
+    if not cur.fetchone():
+        return
+
+    evidence_id = new_id("evd")
+    cur.execute(
+        "INSERT INTO evidence(id, project_id, claim_id, source_object_id, "
+        "evidence_type, location, direction, strength, confidence, metadata) "
+        "VALUES (%s, %s, %s, %s, 'analysis_result', %s, %s, %s, %s, %s)",
+        (evidence_id, project_id, claim_id, dataset_object_id,
+         jsonb({"locator": claim.get("locator") or ""}),
+         direction, None, verdict.confidence,
+         jsonb({"outcome": verdict.outcome_code, "reason": verdict.reason_code,
+                "family": verdict.family.value})))
+
+    # `strength` is left null on purpose. The column means how strongly the
+    # evidence bears on the claim, and this system has no principled scale for
+    # that — `verdict.confidence` is confidence in the *adjudication*, which is
+    # a different quantity. Writing one in place of the other would put an
+    # invented number where a scientific one is expected.
+
+    cur.execute(
+        "INSERT INTO research_edges(id, project_id, source_object_id, "
+        "target_object_id, relationship_type, confidence, status, evidence_id, "
+        "metadata) VALUES (%s, %s, %s, %s, %s, %s, 'asserted', %s, %s) "
+        # The unique key is (source, target, type), so re-testing the same claim
+        # updates the edge rather than accumulating one per run. The evidence
+        # row is not deduplicated with it: each test is a separate observation,
+        # and the edge points at the most recent one.
+        "ON CONFLICT (source_object_id, target_object_id, relationship_type) "
+        "DO UPDATE SET confidence = EXCLUDED.confidence, "
+        "              evidence_id = EXCLUDED.evidence_id, "
+        "              metadata = EXCLUDED.metadata, status = 'asserted'",
+        (new_id("redg"), project_id, dataset_object_id, paper_object_id,
+         _RELATIONSHIP[verdict.family], verdict.confidence, evidence_id,
+         jsonb({"outcome": verdict.outcome_code,
+                "statement": (claim.get("statement") or "")[:500]})))
 
 
 def _result(cur, testability: dict[str, Any], claim: dict[str, Any],
@@ -914,8 +945,18 @@ def locate_claims(cur, *, project_id: str, source_id: str,
             "model; a claim already recorded can still be adjudicated without one."
         ) from exc
 
+    # A re-read replaces the previous reading rather than sitting beside it.
+    #
+    # Two extractions of one paper kept side by side would silently double every
+    # downstream comparison: each claim reconciled against the other paper
+    # twice, and a reviewer counting agreements counting each one two times.
+    # `test_a_re_read_replaces_the_previous_reading` has asserted this invariant
+    # since the table was added, and simulated the delete itself with the
+    # comment "the real function deletes first" — which it did not.
+    cur.execute("DELETE FROM located_claims WHERE source_id = %s", (source_id,))
+
     recorded: list[dict[str, Any]] = []
-    for found in located.claims:
+    for ordinal, found in enumerate(located.claims):
         # A Claim in the  sense — a literature interpretation, kept distinct
         # from a calculated result so the two can never be merged.
         claim_id = new_id("clm")
@@ -925,6 +966,32 @@ def locate_claims(cur, *, project_id: str, source_id: str,
             "VALUES (%s, %s, %s, 'literature_interpretation', 'proposed', %s, %s)",
             (claim_id, project_id, found.statement, found.choice_confidence,
              completion.model))
+
+        # The located claim itself, which is not the same record as the Claim.
+        #
+        # `claims` holds the statement; everything about *how it was read* —
+        # the constructs named, the design reported, the locator, and which
+        # model at which prompt version produced them — lives here. All of it
+        # was computed on every extraction and then dropped, so `stored_claims`
+        # returned an empty list for every paper ever read, and its docstring's
+        # promise that a disagreement between two extractions is attributable
+        # rather than arguable had nothing behind it (D015).
+        cur.execute(
+            "INSERT INTO located_claims(id, project_id, source_id, claim_id, "
+            "statement, exposure, outcome, direction, claimed_design, "
+            "claimed_effect, claimed_interval, estimand, outcome_definition, "
+            "population, period, locator, choice_confidence, model, "
+            "prompt_name, prompt_version, ordinal) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
+            "%s, %s, %s, %s, %s, %s, %s)",
+            (new_id("lclm"), project_id, source_id, claim_id,
+             found.statement, found.exposure, found.outcome, found.direction,
+             found.claimed_design, found.claimed_effect, found.claimed_interval,
+             found.estimand, found.outcome_definition, found.population,
+             found.period, found.locator, found.choice_confidence,
+             completion.model, completion.prompt_name,
+             completion.prompt_version, ordinal))
+
         recorded.append({
             "claim_id": claim_id, "statement": found.statement,
             "exposure": found.exposure, "outcome": found.outcome,

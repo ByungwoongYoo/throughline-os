@@ -106,3 +106,63 @@ def test_finish_requires_a_terminal_state(cur, project):
     run_id = workflow.enqueue(cur, workflow_name="ingest", project_id=project)
     with pytest.raises(workflow.WorkflowError):
         workflow.finish(cur, run_id=run_id, state=WorkflowState.RUNNING)
+
+
+# ---------------------------------------------------------------------------
+# Housekeeping
+# ---------------------------------------------------------------------------
+
+def test_expired_sessions_are_actually_removed(cur):
+    """
+    `purge_expired_sessions` existed and was called by nothing, so every sign-in
+    left a row that outlived its own expiry forever. Not a security hole —
+    `resolve_session` filters on expires_at — but on an installation meant to run
+    for years it is a table that only grows.
+    """
+    from throughline_domain import auth
+    from throughline_domain.ids import new_id
+
+    user_id = new_id("usr")
+    cur.execute(
+        "INSERT INTO users(id, email, display_name, password_hash, password_salt) "
+        "VALUES (%s, %s, 'Keeper', 'x', 'y')", (user_id, f"{user_id}@test.local"))
+    cur.execute(
+        "INSERT INTO sessions(id, user_id, token_hash, expires_at) "
+        "VALUES (%s, %s, 'stale', now() - interval '1 day')",
+        (new_id("ses"), user_id))
+    cur.execute(
+        "INSERT INTO sessions(id, user_id, token_hash, expires_at) "
+        "VALUES (%s, %s, 'live', now() + interval '1 day')",
+        (new_id("ses"), user_id))
+
+    assert auth.purge_expired_sessions(cur) == 1
+
+    cur.execute("SELECT token_hash FROM sessions WHERE user_id = %s", (user_id,))
+    assert [row["token_hash"] for row in cur.fetchall()] == ["live"]
+
+
+def test_the_worker_schedules_housekeeping_from_the_first_idle_tick():
+    """
+    The interval is measured with `time.monotonic()`, which counts from an
+    arbitrary point — often boot. Starting the clock at 0.0 would make the first
+    run happen at an unpredictable time; negative infinity makes it happen on
+    the first idle tick, when there is least to interrupt.
+    """
+    from throughline_workers.runner import Worker
+
+    worker = Worker(worker_id="test")
+    assert worker._last_housekeeping == float("-inf")
+
+
+def test_housekeeping_failure_does_not_stop_the_worker(monkeypatch):
+    """A worker that stops processing research because it could not delete an
+    old session row has its priorities backwards."""
+    from throughline_domain import auth
+    from throughline_workers.runner import Worker
+
+    def explode(_cur):
+        raise RuntimeError("database went away")
+
+    monkeypatch.setattr(auth, "purge_expired_sessions", explode)
+    worker = Worker(worker_id="test")
+    worker._housekeeping()  # must not raise

@@ -389,6 +389,11 @@ def discovery_run(run: dict[str, Any], cur: Any) -> dict[str, Any]:
             cur, project_id=project_id, discovery_run_id=discovery_run_id,
             candidate=item["candidate"], analysis_run_id=item["analysis_run_id"],
             result=item["run"]["result"] or {}, q_value=correction["q_value"],
+            # Carried from the run so the sweep joins the researcher's session
+            # rather than forming a family of its own. None when the run came
+            # from a script or an older client, and then it is its own family —
+            # which is the behaviour that already existed.
+            session_id=record.get("session_id"),
         )
         connection_ids.append(connection_id)
         # Step 10: only survivors of the correction become exploratory. The rest
@@ -509,6 +514,11 @@ def example_assemble(run: dict[str, Any], cur: Any) -> dict[str, Any]:
         # nothing was looked at would understate what the run did. This is also
         # what stops the visual critic passing a caption that claims cause.
         causal_status=CausalStatus.ASSOCIATION_ONLY,
+        # The connection this was promoted from, which is what joins the finding
+        # to the analysis that produced it and, through that, to the dataset.
+        # Without it the finding is an island: `evidence_graph` returns claims
+        # only, and a researcher opening it has no route back to the evidence.
+        from_connections=[best["id"]],
         actor="system:example",
     )
     return {"project_id": project_id, "discovery_run_id": discovery_run_id,

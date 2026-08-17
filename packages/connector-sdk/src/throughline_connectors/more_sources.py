@@ -409,6 +409,40 @@ class OpenAIRE(Connector):
         )
 
 
+def _zotero_succeeded(payload: Any) -> bool:
+    """
+    Did the write actually take.
+
+    Zotero's batch endpoint answers 200 and reports per-item outcomes inside the
+    body: `successful`, `unchanged`, `failed`. A caller that checks only the
+    status code reports a rejected note as written, which is the failure mode
+    worth guarding — the researcher believes their finding is in their library
+    and it is not.
+
+    `unchanged` counts as success: it means the server already holds exactly
+    this, which is the correct outcome of writing the same thing twice.
+    """
+    if not isinstance(payload, dict):
+        return False
+    if payload.get("failed"):
+        return False
+    return bool(payload.get("successful") or payload.get("unchanged"))
+
+
+def _zotero_failure(payload: Any) -> str:
+    """Zotero's own words for why, rather than a generic failure."""
+    if isinstance(payload, dict):
+        failed = payload.get("failed") or {}
+        if isinstance(failed, dict) and failed:
+            first = next(iter(failed.values()))
+            if isinstance(first, dict):
+                return str(first.get("message") or first)
+            return str(first)
+        if payload.get("message"):
+            return str(payload["message"])
+    return "no reason given"
+
+
 class Zotero(Connector):
     """
     The researcher's own library.
@@ -475,12 +509,115 @@ class Zotero(Connector):
             peer_reviewed=None,
         )
 
+    # -- writing back ------------------------------------------------------
+    #
+    # A researcher's library is years of accumulated work, and a tool that can
+    # only read forces them to keep a second one — which nobody does, so the
+    # findings never make it back. Writing into it needs care that reading did
+    # not, and three rules carry all of it.
+    #
+    # **Only notes this system wrote are ever modified.** Every note it creates
+    # carries a marker naming the finding it came from. A note without that
+    # marker is the researcher's own, and is never edited, replaced or deleted —
+    # not even when it looks like a stale copy of one of ours.
+    #
+    # **Writing the same finding twice updates, never duplicates.** The marker
+    # is how: the child notes are read first, and an existing one for that
+    # finding is updated in place. Otherwise every re-export would leave another
+    # copy behind, and a library full of near-identical notes is worse than no
+    # write-back at all.
+    #
+    # **A conflicting edit stops the write.** Zotero versions every item, and an
+    # update carrying the version we read is rejected with 412 if anything
+    # changed in between. That is reported as a refusal rather than retried:
+    # somebody edited that note, and overwriting them is the one outcome that
+    # cannot be undone from here.
+
+    #: Marks a note as ours, and which finding it states. An HTML comment
+    #: because Zotero notes are HTML and a comment is invisible in every Zotero
+    #: client — a marker the researcher has to look at is a marker they will
+    #: eventually delete.
+    MARKER = "<!-- throughline:finding:{finding_id} -->"
+
+    def _api(self, path: str) -> str:
+        return (f"https://api.zotero.org/{self.library_type}/"
+                f"{urllib.parse.quote(self.library)}/{path}")
+
+    def _write_headers(self, version: int | None = None) -> dict[str, str]:
+        headers = {"Zotero-API-Key": self.api_key or "",
+                   "Zotero-API-Version": "3"}
+        if version is not None:
+            headers["If-Unmodified-Since-Version"] = str(version)
+        return headers
+
+    def child_notes(self, item_key: str) -> list[dict[str, Any]]:
+        """Every note under an item, ours and theirs alike."""
+        return self._json(
+            self._api(f"items/{urllib.parse.quote(item_key)}/children"
+                      "?format=json&itemType=note"),
+            headers={"Zotero-API-Key": self.api_key or "",
+                     "Zotero-API-Version": "3"})
+
+    def push_note(self, *, item_key: str, finding_id: str, html: str
+                  ) -> dict[str, Any]:
+        """
+        Attach a finding to a library item, or update the one already there.
+
+        Idempotent on `finding_id`: exporting the same finding twice leaves one
+        note, revised. That property is the whole reason the marker exists.
+        """
+        if not (self.api_key and self.library):
+            raise ConnectorError(
+                "Writing to Zotero needs an API key with write access and a "
+                "library id. A read-only key will be refused by Zotero itself.")
+
+        marker = self.MARKER.format(finding_id=finding_id)
+        body = f"{marker}\n{html}"
+
+        existing = next((note for note in self.child_notes(item_key)
+                         if marker in ((note.get("data") or {}).get("note") or "")),
+                        None)
+
+        if existing is None:
+            status, payload = self._send(
+                self._api("items"), method="POST",
+                headers=self._write_headers(),
+                payload=[{"itemType": "note", "parentItem": item_key,
+                          "note": body}])
+            if status not in (200, 201) or not _zotero_succeeded(payload):
+                raise ConnectorError(
+                    f"Zotero refused the note ({status}): "
+                    f"{_zotero_failure(payload)}. Nothing was written.")
+            return {"action": "created", "finding_id": finding_id}
+
+        data = existing.get("data") or {}
+        version = existing.get("version") or data.get("version")
+        status, payload = self._send(
+            self._api(f"items/{urllib.parse.quote(data['key'])}"),
+            method="PATCH", headers=self._write_headers(version),
+            payload={"note": body})
+
+        if status == 412:
+            raise ConnectorError(
+                "That note changed in Zotero since this copy was read, so it "
+                "was left alone. Someone — possibly you, on another device — "
+                "edited it, and overwriting them is the one thing that cannot "
+                "be undone from here. Re-run to pick up their version.")
+        if status not in (200, 204):
+            raise ConnectorError(
+                f"Zotero refused the update ({status}): "
+                f"{_zotero_failure(payload)}. The existing note is unchanged.")
+        return {"action": "updated", "finding_id": finding_id}
+
     def capability(self) -> dict[str, Any]:
         base = super().capability()
         base["ready"] = bool(self.api_key and self.library)
+        base["writes"] = True
         base["note"] = (
-            "Your own library, read-only. Nothing is written back to Zotero "
-            "and the key is stored on this machine only. Records here are "
+            "Your own library. Reading needs a key; writing needs one with "
+            "write access, and the key is stored on this machine only. Notes "
+            "this system writes are marked and only those are ever updated — "
+            "your own notes are never touched. Records here are "
             "whatever you saved, so they are not treated as peer reviewed "
             "unless another source confirms it."
             if base["ready"] else

@@ -50,6 +50,30 @@ export type Place = {
 
 const M = { top: 4, right: 4, bottom: 4, left: 4 };
 
+/**
+ * Stable identity for a country, which is not always its id.
+ *
+ * `world-atlas` carries the ISO numeric code as `feature.id`, and **three of
+ * its 177 features have none**: N. Cyprus, Somaliland and Kosovo. That is not a
+ * defect in the data — Natural Earth assigns no ISO numeric code to a territory
+ * whose sovereignty is disputed, so the gap is the map telling the truth about
+ * the world.
+ *
+ * Keying on `String(feature.id)` turned all three into the literal string
+ * "undefined", so React saw three children sharing one key and warned that
+ * children may be "duplicated and/or omitted". On a map, an omitted child is a
+ * country silently missing from the picture.
+ *
+ * The name is prefixed rather than used bare, so a fallback can never collide
+ * with a real numeric id.
+ */
+function identity(feature: Feature<Geometry, { name?: string }>): string {
+  return feature.id !== undefined
+    ? String(feature.id)
+    : `name:${feature.properties?.name ?? "unnamed"}`;
+}
+
+
 export function Geographic({
   places, world, measure, valueLabel, perLabel = "100,000 people",
   title, caption, width = 820, height = 420,
@@ -106,10 +130,10 @@ export function Geographic({
     measure === "rate" ? rateOf(p) !== null : Number.isFinite(p.value));
   const drawn = new Set(withData.map((p) => String(p.id)));
   const undrawn = world.features.filter(
-    (f) => !drawn.has(String(f.id))).length;
+    (f) => !drawn.has(identity(f))).length;
 
   const label = (f: Feature<Geometry, { name?: string }>) =>
-    byId.get(String(f.id))?.label ?? f.properties?.name ?? String(f.id);
+    byId.get(identity(f))?.label ?? f.properties?.name ?? identity(f);
 
   const hasDenominator = places.some((p) => p.denominator !== undefined);
   const tableColumns = [
@@ -152,16 +176,16 @@ export function Geographic({
                 fill="none" />
 
           {world.features.map((feature) => {
-            const place = byId.get(String(feature.id));
+            const place = byId.get(identity(feature));
             const value = place
               ? (measure === "rate" ? rateOf(place) : place.value)
               : null;
             const has = value !== null && Number.isFinite(value);
             return (
-              // Keyed by country id, so a country is the same DOM node across
-              // a filter and its fill transitions rather than being redrawn.
+              // Keyed by identity, so a country is the same DOM node across a
+              // filter and its fill transitions rather than being redrawn.
               <path
-                key={String(feature.id)}
+                key={identity(feature)}
                 className="map-country"
                 d={path(feature) ?? undefined}
                 fill={
@@ -170,7 +194,7 @@ export function Geographic({
                     : interpolateYlGnBu(colour(value as number))
                 }
                 fillOpacity={has || measure === "count" ? 1 : 0.5}
-                onMouseEnter={() => setHover(String(feature.id))}
+                onMouseEnter={() => setHover(identity(feature))}
                 onMouseLeave={() => setHover(null)}
               >
                 <title>
