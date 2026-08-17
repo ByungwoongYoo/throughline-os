@@ -427,7 +427,8 @@ function Workspace({ user }: { user: SignedInUser }) {
         {section === "findings" && (
           selection?.kind === "finding"
             ? <>
-                <EvidenceGraphView findingId={selection.id} />
+                <EvidenceGraphView findingId={selection.id}
+                                   onOpenAnalysis={select("analysis")} />
                 {/*
                   Below the evidence, deliberately. The case for a finding is
                   what a researcher came to read; the case against it is what

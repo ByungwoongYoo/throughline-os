@@ -674,7 +674,21 @@ export function Findings({ projectId, onSelect }: {
   );
 }
 
-export function EvidenceGraphView({ findingId }: { findingId: string }) {
+export function EvidenceGraphView({ findingId, onOpenAnalysis }: {
+  findingId: string;
+  /**
+   * Open the analysis a finding rests on.
+   *
+   * Without this the finding was a dead end. Measuring the provenance depth
+   * found that its detail screen offered exactly one action — previewing a
+   * library note — and no route to the computation, the dataset or the paper.
+   * The chain was in the database; nothing on screen walked it.
+   *
+   * Optional so the panel still renders in contexts with nowhere to navigate
+   * to, where a button that did nothing would be worse than a plain row.
+   */
+  onOpenAnalysis?: (runId: string) => void;
+}) {
   const { data, error, loading, reload } = useApi<EvidenceGraph>(
     `/api/findings/${findingId}/evidence-graph`,
   );
@@ -720,7 +734,21 @@ export function EvidenceGraphView({ findingId }: { findingId: string }) {
           {data.analyses.map((a) => (
             <div className="card card-tight" key={a.id}>
               <div className="row">
-                <span className="mono">{a.method}</span>
+                {/*
+                  The step that makes the chain walkable. From here the analysis
+                  names its dataset, which names its source — so "why do we
+                  believe this?" is answerable by clicking rather than by
+                  knowing where to look.
+                */}
+                {onOpenAnalysis ? (
+                  <button type="button"
+                          onClick={() => onOpenAnalysis(a.id)}
+                          style={{ border: "none", background: "none", padding: 0,
+                                   font: "inherit", color: "var(--accent)",
+                                   cursor: "pointer", textAlign: "left" }}>
+                    <span className="mono">{a.method}</span>
+                  </button>
+                ) : <span className="mono">{a.method}</span>}
                 <span className="mono" style={{ color: "var(--ink-faint)" }}>{a.id}</span>
               </div>
               {a.result?.interpretation ? (

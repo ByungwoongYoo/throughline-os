@@ -116,6 +116,14 @@ class FindingCreate(BaseModel):
     finding_type: FindingType
     statement: str = Field(default="", max_length=100_000)
     summary: str = Field(default="", max_length=100_000)
+    #: The connections this finding was drawn from.
+    #:
+    #: Optional, because a researcher may record a finding before anything has
+    #: computed one. Supplying it is what lets "why do we believe this?" answer
+    #: with the analysis and the dataset rather than with the claims alone —
+    #: `findings.object_id` was never set by any caller, and the whole
+    #: evidence-graph branch that reads it therefore never ran.
+    from_connections: list[str] = Field(default_factory=list)
 
 
 class FindingTransition(BaseModel):
@@ -2733,7 +2741,8 @@ def create_finding(project_id: str, payload: FindingCreate,
         finding_id = findings.create_finding(
             cur, project_id=project_id, title=payload.title,
             finding_type=payload.finding_type, statement=payload.statement,
-            summary=payload.summary, actor=user["id"],
+            summary=payload.summary, from_connections=payload.from_connections,
+            actor=user["id"],
         )
     return {"finding_id": finding_id, "lifecycle_status": str(FindingLifecycle.CANDIDATE)}
 
