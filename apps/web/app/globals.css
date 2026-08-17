@@ -2295,6 +2295,18 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .nb-actions { display: flex; gap: 8px; margin-bottom: 16px; }
 .nb-actions button { flex: 1; }
 
+/* Naming a new note, in place of the blocking `window.prompt` that a sandboxed
+   browser refuses outright. Sits where the prompt would have appeared, above
+   the list it is about to add to. */
+.nb-naming { display: grid; gap: 6px; margin-bottom: 16px; }
+.nb-naming input {
+  width: 100%; padding: 7px 9px; border-radius: 7px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+}
+.nb-naming input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.nb-naming .row { display: flex; gap: 8px; }
+.nb-naming .row button { flex: 1; }
+
 .nb-index { list-style: none; margin: 0; padding: 0; }
 .nb-index button {
   width: 100%; display: flex; align-items: baseline; gap: 8px;
