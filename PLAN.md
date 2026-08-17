@@ -186,7 +186,7 @@ instead. And **no control is offered to call the result causal**: a dropdown
 offering "causal" beside a correlation, at the moment somebody is pleased their
 result survived, is the easiest place in the product to overclaim.
 
-### 6. Three tests are pinned to the author's laptop and silently skip
+### 6. Three tests are pinned to the author's laptop and silently skip — **fixed**
 
 `tests/test_mvp_end_to_end.py:21` and `tests/test_ingestion.py:19` both read:
 
@@ -195,16 +195,23 @@ Path("/Users/sarthakpattnaik/Downloads/throughline_v18_zero_motion_1_8_0/"
      "data/files/workspace_default").glob("*.pdf")
 ```
 
-Three tests are gated on that path existing and skip themselves everywhere else
-— including `test_paper_plus_dataset_to_validated_finding_with_full_provenance`,
+Three tests were gated on that path existing and skipped themselves everywhere
+else — including `test_paper_plus_dataset_to_validated_finding_with_full_provenance`,
 the single test that covers the whole product. This is why issue 5 went
 unnoticed.
 
-### 7. Two libraries are used but never declared
+**Verified fixed on 2026-08-17:** the absolute path appears nowhere in `tests/`,
+and `tests/test_mvp_end_to_end.py` runs 2 tests with no skips — the fixture
+paper is now generated rather than read from a laptop.
+
+### 7. Two libraries are used but never declared — **fixed**
 
 - `packages/research-domain/src/throughline_domain/render_artifact.py:322`
-  imports `pptx`. `python-pptx` appears in no `pyproject.toml`. **PPTX export
-  raises `ModuleNotFoundError` for every user.** Test failure:
+  imports `pptx`. `python-pptx` appeared in no `pyproject.toml`. **PPTX export
+  raised `ModuleNotFoundError` for every user.** Both `python-pptx>=0.6.23` and
+  `python-docx>=1.1` are now declared by `packages/research-domain`, the package
+  whose code imports them, with a comment recording that docx was previously
+  arriving by transitive accident from `packages/ingestion`. Test failure:
   `tests/test_communication.py::test_every_format_renders_from_one_resolved_artifact`
   — the test is correct; the declaration is missing.
 - The same file's line 255 imports `docx`. `python-docx` is declared in

@@ -575,7 +575,12 @@ function AnalysisList({ projectId, onSelect }: { projectId: string; onSelect: (i
  * researcher who reads them and then uses the product should find it did
  * exactly this.
  */
-function FirstProject({ onCreated, user }: {
+// Exported for the test suite. T003 shipped this button with the caveat that
+// nothing proved it reached the endpoint, and the reason was that it could not
+// be imported — the component was module-private, so the one control standing
+// between a new researcher and a working project was the one control no test
+// could touch.
+export function FirstProject({ onCreated, user }: {
   onCreated: () => void; user: SignedInUser;
 }) {
   const [started, setStarted] = useState(false);
