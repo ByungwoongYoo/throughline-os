@@ -65,13 +65,28 @@ def render(cur, *, artifact_id: str, fmt: str) -> dict[str, Any]:
 
     # Same layout as figure renders: content under the storage root, keyed by
     # artifact, so one backup covers every produced file.
+    #
+    # The filename carries the render id, not the artifact id. It used to be
+    # `{artifact_id}.{suffix}`, which meant every render of a format overwrote
+    # the last one while still inserting a new row — so each earlier row
+    # recorded a `byte_size` and `resolved_hash` for bytes that were no longer
+    # there, and its `storage_key` resolved to the newest file instead. Nothing
+    # served renders by id yet, so this had never produced a wrong download; the
+    # first route that did would have handed back a different document than the
+    # row described, and it would have looked like a database fault rather than
+    # a naming one.
+    #
+    # Keeping every render costs disk that the old scheme did not. That is the
+    # right trade here: `artifact_staleness` exists to answer what a given
+    # export said, and an export whose bytes were silently replaced cannot
+    # answer it.
+    render_id = new_id("ren")
     directory = storage_root() / "artifacts" / artifact_id
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{artifact_id}.{suffix}"
+    path = directory / f"{render_id}.{suffix}"
     path.write_bytes(payload)
     storage_key = str(path.relative_to(storage_root()))
 
-    render_id = new_id("ren")
     cur.execute(
         "INSERT INTO artifact_renders(id, artifact_id, fmt, storage_key, byte_size, "
         "resolved_hash, artifact_version) VALUES (%s, %s, %s, %s, %s, %s, %s)",

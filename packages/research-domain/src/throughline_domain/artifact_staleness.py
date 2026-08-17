@@ -147,9 +147,10 @@ def _judge(row: dict[str, Any], live_hash: str | None, live_problem: str | None,
            live_version: int, superseded: bool) -> dict[str, Any]:
     if superseded:
         return {"state": SUPERSEDED, "detail": (
-            "A later render of this format has replaced it. Note that renders of "
-            "one format share a filename, so the bytes this row describes are no "
-            "longer on disk — only the record that it was made.")}
+            "A later render of this format has replaced it. It is kept as a "
+            "record of what was exported at the time, and is not judged against "
+            "the analyses now — re-exporting is what makes the current copy "
+            "match, and this one is history.")}
 
     if live_problem is not None:
         return {"state": NOT_CHECKABLE, "detail": (

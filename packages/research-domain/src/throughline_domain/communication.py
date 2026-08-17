@@ -186,7 +186,19 @@ def add_block(
     form — every number on the page is either a resolved reference, or a
     quotation proven identical to what the computation recorded.
     """
-    stray = _LITERAL_STAT.search(REF.sub("", template))
+    # Refs are replaced with a word, not deleted.
+    #
+    # Deleting them closed the gap the ref occupied and let the surrounding
+    # punctuation slide into it: "q = {{ref:q}}." became "q = .", and the
+    # pattern's `[\d.]` accepts a bare period, so the check fired on its own
+    # substitution. That refused the single most natural way to write a
+    # corrected q-value into a report — the exact sentence §102 is about — and
+    # the error accused the author of stating a result they had not written.
+    #
+    # The placeholder has to be something that can never look like a statistic,
+    # so it is a word: substituting a digit would make "q = {{ref:q}}" read as
+    # "q = 0" and be refused for a second wrong reason.
+    stray = _LITERAL_STAT.search(REF.sub(" VALUE ", template))
     if stray and quoted_from:
         _verify_quotation(cur, template, quoted_from)
     elif stray:

@@ -22,9 +22,23 @@ invisible:
 4. **F4 different canonical mapping** — the same column harmonised two ways.
    This fully explains a divergence, and nothing outside this system can see it.
 
-Only after all four does direction get compared at all. And when two results
-genuinely contradict, the answer depends on a number the researcher does not
-have: how much looking produced them (F7).
+Two more run after those and before any contradiction is declared. They qualify
+a divergence rather than making it meaningless, which is why they are not in the
+list above — but they are checks, they fire, and a reader who treats the four as
+the whole order gets the ranking wrong:
+
+5. **F2 different data version** — the same dataset at two versions.
+6. **F3 different method** — different tests answer slightly different questions.
+
+Only after all six does a contradiction get declared at all. And when two
+results genuinely contradict, the answer depends on a number the researcher does
+not have: how much looking produced them (F7).
+
+`contradictions.CHECK_ORDER` mirrors this sequence, because the ranking a
+researcher reads has to be the order the adjudication actually used. It was
+written from the four-item list above and was wrong for exactly that reason, so
+`test_contradictions.py` now parses the codes out of this file rather than
+trusting either copy.
 """
 
 from __future__ import annotations

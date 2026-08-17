@@ -222,12 +222,17 @@ def test_each_format_is_judged_separately(cur, artifact, live):
                          "html": artifact_staleness.VALUES_CHANGED}
 
 
-def test_a_superseded_render_says_its_bytes_are_gone(cur, artifact, live):
+def test_a_superseded_render_is_reported_as_history_not_as_a_problem(
+        cur, artifact, live):
     """
-    `render_artifact` writes every render of a format to one filename, so an
-    older row's `storage_key` resolves to the newer file. The row is a record
-    that an export happened, not a retrievable copy, and saying so beats
-    offering a download that returns different content.
+    An older export is not wrong — it is what was sent at the time. Judging it
+    against today's analyses would mark every re-exported document permanently
+    stale, and a flag that is always on is one nobody reads.
+
+    This wording used to say the older render's bytes were gone, which was true
+    while every render of a format shared one filename (D010). The filename now
+    carries the render id, so each export is its own file and the row describes
+    bytes that are actually there.
     """
     render_row(cur, artifact, digest="old", version=1)
     cur.execute(
@@ -238,7 +243,9 @@ def test_a_superseded_render_says_its_bytes_are_gone(cur, artifact, live):
 
     superseded = [r for r in artifact_staleness.staleness(cur, artifact)["renders"]
                   if r["state"] == artifact_staleness.SUPERSEDED]
-    assert "no longer on disk" in superseded[0]["detail"]
+    assert "history" in superseded[0]["detail"]
+    # It is not counted against the document: an old export is not a defect.
+    assert artifact_staleness.staleness(cur, artifact)["drifted"] == []
 
 
 # ---------------------------------------------------------------------------
