@@ -31,6 +31,7 @@ import { ExportedDocuments } from "@/components/exports";
 import { Contradictions } from "@/components/contradictions";
 import { Challenges } from "@/components/challenges";
 import { ExplorationLedger } from "@/components/ledger";
+import { Deviations } from "@/components/deviations";
 import { Harvest } from "@/components/harvest";
 import { LibraryNote } from "@/components/librarynote";
 import { ForkLineage } from "@/components/forklineage";
@@ -424,6 +425,12 @@ function Workspace({ user }: { user: SignedInUser }) {
                   reader who should see how many were tested to produce it.
                 */}
                 <ExplorationLedger projectId={project.id} sessionId={sessionId()} />
+                {/*
+                  Beneath the ledger, because they answer two halves of one
+                  question. The ledger says how much looking was done; this says
+                  how much of it was the looking that was planned.
+                */}
+                <Deviations projectId={project.id} />
               </>
         )}
         {section === "findings" && (

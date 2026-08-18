@@ -32,6 +32,22 @@ system's own record legible to the person using it:
 - **Export staleness** compares the hash recorded when a document was exported
   against what the analyses say now, and keeps "you edited this" apart from "the
   numbers moved underneath it". Only the second is alarming.
+- **Pre-registration that is actually checked.** A registration can state the
+  analysis it intends — method, design, covariates, exclusions — and the system
+  compares that with what was really run. This closes a loophole in the ledger
+  above: the exemption from multiple-comparison correction used to ask only
+  whether a registration existed, was unedited and came first, all of which can
+  be true of an analysis with nothing to do with the plan. It is now earned by
+  matching, and a deviating test rejoins the family it belongs to.
+
+  Three rules keep it usable. A plan that says nothing about covariates cannot
+  be deviated from on covariates — unstated is reported as unregistered, not as
+  a violation. A harmonised rename is not a change. And nothing calls a
+  deviation misconduct: deviating is usually right, and the point is to state it
+  deliberately rather than have a reviewer find it. The *Deviations from the
+  registered plan* section is generated from the record with every reason left
+  blank, because the system knows what changed and only the researcher knows
+  why.
 
 What is missing is the spatial canvas, most of the integration surface, and the
 video engine. `ROADMAP.md` is the live document: it records what exists, what
