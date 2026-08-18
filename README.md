@@ -59,9 +59,14 @@ the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **848 backend tests and 161 web tests**, with 7 backend
+The current suite is **1022 backend tests and 218 web tests**, with 6 backend
 skips, each carrying a reason CI's allowlist recognises — a skip with an
 unrecognised reason fails the build, so the suite cannot quietly shrink.
+
+Those numbers are checked by `tests/test_readme_claims.py`, which collects the
+suite and compares. They were wrong before it existed — the file said 848 and
+161 long after both had moved — and a document that claims a number nothing
+verifies is the same defect this project spends its time hunting elsewhere.
 
 A recurring class of defect here is worth naming, because most of the last
 wave's work was it: **a column written by one part of the system and read by
