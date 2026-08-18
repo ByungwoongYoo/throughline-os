@@ -468,3 +468,53 @@ def test_closing_another_accounts_contradiction_is_not_found(client):
         assert cur.fetchone()["status"] == "open"
         cur.execute("DELETE FROM contradictions WHERE id = 'con_theirs'")
         conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Registered plan against executed analysis
+# ---------------------------------------------------------------------------
+
+def test_a_registered_plan_survives_the_http_boundary(client):
+    """
+    The fields existed on the payload before they were passed to the domain, so
+    a plan could be posted, accepted, and silently dropped — the response would
+    still say "Registered". `plan_recorded` is what makes that visible.
+    """
+    account(client)
+    project_id = project(client)
+
+    body = client.post(f"/api/projects/{project_id}/preregistrations", json={
+        "hypothesis": "Consumption raises resistance.",
+        "predicted_direction": "increase",
+        "method": "spearman", "covariates": ["gdp"],
+        "falsified_if": "no association at q < .05"}).json()
+
+    assert body["plan_recorded"] is True
+    assert "the analysis that runs is the one registered" in body["note"]
+
+
+def test_a_hypothesis_without_a_plan_says_so(client):
+    """
+    It still registers — every row written before plans existed works this way —
+    but the response does not imply the analysis can be checked.
+    """
+    account(client)
+    project_id = project(client)
+
+    body = client.post(f"/api/projects/{project_id}/preregistrations", json={
+        "hypothesis": "Something rises.", "predicted_direction": "increase"}).json()
+
+    assert body["plan_recorded"] is False
+    assert "No analysis plan was recorded" in body["note"]
+
+
+def test_the_project_deviation_report_is_reachable(client):
+    account(client)
+    project_id = project(client)
+
+    body = client.get(f"/api/projects/{project_id}/deviations").json()
+
+    assert body["registered"] == 0
+    # Not "you have no deviations" — nothing registered means everything is
+    # exploratory, which is a different statement.
+    assert "exploratory" in body["note"]

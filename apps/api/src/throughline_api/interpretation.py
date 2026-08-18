@@ -71,6 +71,19 @@ def _scoped(project_id: str, user: dict[str, Any]) -> str:
 
 class Preregistration(BaseModel):
     hypothesis: str = Field(min_length=1)
+    #: The analysis this hypothesis intends, in the vocabulary a spec uses.
+    #:
+    #: All optional, and their absence is recorded rather than assumed: a plan
+    #: that says nothing about adjustment cannot be deviated from on adjustment.
+    #: Stating them is what makes the confirmatory exemption checkable — without
+    #: them the exemption rests on the hypothesis text alone.
+    method: str | None = None
+    design: str | None = None
+    covariates: list[str] | None = None
+    filters: list[dict[str, Any]] | None = None
+    #: What result would count against the hypothesis, recorded before it is
+    #: known. Goalposts nobody wrote down cannot be seen to move.
+    falsified_if: str | None = None
     #: Required, and validated in the domain. A prediction with no direction
     #: cannot be wrong, and only a prediction that can be wrong earns the
     #: exemption from multiple-comparison correction.
@@ -81,6 +94,12 @@ class Preregistration(BaseModel):
 
 class RecordedTest(BaseModel):
     session_id: str = Field(min_length=1)
+    #: The analysis that produced this result, when there is one.
+    #:
+    #: Supplying it is what lets a claimed pre-registration be checked against
+    #: the analysis that actually ran, rather than only against its timestamp
+    #: and text. A test with no recorded spec keeps the behaviour it had.
+    spec_id: str | None = None
     verb: str
     description: str = Field(min_length=1)
     #: Nullable on purpose: a comparison the platform refused is still a look at
@@ -100,6 +119,9 @@ def preregister(project_id: str, body: Preregistration,
                 cur, project_id=project_id, hypothesis=body.hypothesis,
                 predicted_direction=body.predicted_direction,
                 outcome=body.outcome, exposure=body.exposure,
+                method=body.method, design=body.design,
+                covariates=body.covariates, filters=body.filters,
+                falsified_if=body.falsified_if,
                 author=user["id"])
         except ValueError as exc:
             # The domain refuses a directionless prediction. That is a 400 with
@@ -123,7 +145,8 @@ def record_test(project_id: str, body: RecordedTest,
                 cur, session_id=body.session_id, project_id=project_id,
                 verb=body.verb, description=body.description,
                 p_value=body.p_value,
-                preregistration_id=body.preregistration_id)
+                preregistration_id=body.preregistration_id,
+                spec_id=body.spec_id)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 
@@ -512,6 +535,57 @@ def close_contradiction(project_id: str, contradiction_id: str, body: Resolution
         try:
             return contradictions.resolve(cur, contradiction_id,
                                           status=body.status, note=body.note)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Registered plan against executed analysis
+# ---------------------------------------------------------------------------
+
+@router.get("/projects/{project_id}/deviations")
+def project_deviations(project_id: str,
+                       user: dict = Depends(signed_in)) -> dict[str, Any]:
+    """
+    What has been registered in this project, and how far the work has moved
+    from it.
+
+    Pre-registration is checked nowhere in science: the plan sits in a registry
+    as a document and the analysis happens in software that has never heard of
+    it. Both halves are here, so the comparison is computed rather than
+    remembered.
+    """
+    _scoped(project_id, user)
+
+    from throughline_domain import deviations
+
+    with transaction() as cur:
+        return deviations.for_project(cur, project_id)
+
+
+@router.get("/projects/{project_id}/deviations/{registration_id}")
+def registration_deviation(project_id: str, registration_id: str, spec_id: str,
+                           user: dict = Depends(signed_in)) -> dict[str, Any]:
+    """
+    One registration against one analysis, field by field.
+
+    Reports what matched and what was never registered as well as what
+    diverged — a list of only the problems cannot be read as a summary of what
+    was checked.
+    """
+    _scoped(project_id, user)
+
+    from throughline_domain import deviations
+
+    with transaction() as cur:
+        cur.execute(
+            "SELECT id FROM preregistrations WHERE id = %s AND project_id = %s",
+            (registration_id, project_id))
+        if not cur.fetchone():
+            raise HTTPException(404, "No such pre-registration in this project.")
+        try:
+            return deviations.compare(cur, registration_id=registration_id,
+                                      spec_id=spec_id)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 
