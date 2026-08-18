@@ -276,10 +276,16 @@ def for_project(cur, project_id: str) -> dict[str, Any]:
 
     The question a researcher has before writing up is not "does this one
     analysis match" but "what have I actually done relative to what I said I
-    would do" — and that is a list.
+    would do" — and that is a list, walked from each registration to every test
+    offered against it.
+
+    A test that claimed a registration and lost the exemption still appears
+    here. That is the point: the arithmetic moved it into the exploratory
+    family, and the record has to keep saying it was *offered* as a test of the
+    plan, or the deviation becomes invisible the moment it is counted.
     """
     cur.execute(
-        "SELECT id, hypothesis, predicted_direction, plan_hash "
+        "SELECT id, hypothesis, predicted_direction, plan_hash, falsified_if "
         "FROM preregistrations WHERE project_id = %s ORDER BY sequence",
         (project_id,))
     registrations = [dict(row) for row in cur.fetchall()]
@@ -289,18 +295,97 @@ def for_project(cur, project_id: str) -> dict[str, Any]:
         (project_id,))
     looks = int(cur.fetchone()["n"])
 
+    for registration in registrations:
+        cur.execute(
+            "SELECT id, description, p_value, spec_id, deviation_note, "
+            "preregistration_id IS NOT NULL AS confirmatory "
+            "FROM exploration_tests WHERE claimed_registration_id = %s "
+            "ORDER BY sequence", (registration["id"],))
+        tests = [dict(row) for row in cur.fetchall()]
+
+        for test in tests:
+            if test["spec_id"]:
+                try:
+                    comparison = compare(cur, registration_id=registration["id"],
+                                         spec_id=test["spec_id"])
+                except ValueError:
+                    # A spec deleted since, or one from another project. Neither
+                    # is a deviation, and neither should take the report down.
+                    test["deviations"] = None
+                    continue
+                test["deviations"] = comparison["deviations"]
+            else:
+                test["deviations"] = None
+
+        registration["tests"] = tests
+        registration["as_registered"] = sum(1 for t in tests if t["confirmatory"])
+        registration["deviated"] = sum(1 for t in tests if not t["confirmatory"])
+
     unplanned = [r for r in registrations if r["plan_hash"] is None]
+    deviated = sum(r["deviated"] for r in registrations)
     return {
         "registrations": registrations,
         "registered": len(registrations),
         "without_a_plan": len(unplanned),
+        "deviated": deviated,
         "looks": looks,
-        "note": _project_note(registrations, unplanned, looks),
+        "note": _project_note(registrations, unplanned, looks, deviated),
+    }
+
+
+def narrative(cur, project_id: str) -> dict[str, Any]:
+    """
+    The "Deviations from the registered plan" section, generated from record.
+
+    Journals increasingly ask for this and nobody can produce it honestly,
+    because it is written months later from memory by the person with the
+    strongest reason to under-report. Here it is assembled from what was
+    recorded at the time.
+
+    It is returned as text a researcher edits and signs, not as something to
+    paste unread. The facts are the system's; the explanation of *why* each
+    deviation was made is the researcher's, and this says so rather than
+    inventing one.
+    """
+    report = for_project(cur, project_id)
+    lines: list[str] = []
+
+    if not report["registrations"]:
+        return {"lines": [], "text": "",
+                "note": ("Nothing was registered in this project, so there is no "
+                         "plan to have deviated from. Every result here is "
+                         "exploratory, which is worth stating plainly rather "
+                         "than leaving a reader to assume otherwise.")}
+
+    for registration in report["registrations"]:
+        lines.append(f"Registered: {registration['hypothesis']}")
+        if registration["plan_hash"] is None:
+            lines.append(
+                "  No analysis plan was recorded, so the analyses below could "
+                "not be checked against one.")
+        for test in registration["tests"]:
+            if test["confirmatory"]:
+                lines.append(f"  As registered: {test['description']}")
+                continue
+            fields = ", ".join(sorted({d["field"] for d in (test["deviations"] or [])}))
+            detail = f" ({fields})" if fields else ""
+            lines.append(f"  Deviated{detail}: {test['description']}")
+            lines.append("    Reason: ___")
+        lines.append("")
+
+    return {
+        "lines": lines,
+        "text": "\n".join(lines).strip(),
+        "note": ("Every deviation is left with a blank reason. The record knows "
+                 "what changed; only you know why, and a generated explanation "
+                 "would be this system inventing the one part of a methods "
+                 "section that has to be true."),
     }
 
 
 def _project_note(registrations: list[dict[str, Any]],
-                  unplanned: list[dict[str, Any]], looks: int) -> str:
+                  unplanned: list[dict[str, Any]], looks: int,
+                  deviated: int = 0) -> str:
     if not registrations:
         return ("Nothing has been registered in this project, so every result "
                 "here is exploratory. That is a legitimate way to work — it is "
@@ -309,6 +394,13 @@ def _project_note(registrations: list[dict[str, Any]],
     parts = [f"{len(registrations)} registration"
              f"{'' if len(registrations) == 1 else 's'} against {looks} recorded "
              f"look{'' if looks == 1 else 's'} at the data."]
+    if deviated:
+        parts.append(
+            f"{deviated} analysis{'' if deviated == 1 else 'es'} offered against "
+            "a registration differed from the plan and was corrected with the "
+            "exploratory family instead. That is not a fault — it is what the "
+            "arithmetic requires, and it is worth saying in the write-up before "
+            "a reviewer says it for you.")
     if unplanned:
         parts.append(
             f"{len(unplanned)} of them recorded a hypothesis but no analysis "
@@ -317,5 +409,5 @@ def _project_note(registrations: list[dict[str, Any]],
     return " ".join(parts)
 
 
-__all__ = ["compare", "for_project", "plan_hash", "MATERIAL", "MINOR",
-           "UNREGISTERED"]
+__all__ = ["compare", "for_project", "narrative", "plan_hash", "MATERIAL",
+           "MINOR", "UNREGISTERED"]

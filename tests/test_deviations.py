@@ -310,3 +310,117 @@ def test_a_plan_free_registration_says_the_analysis_was_not_checked(cur, project
 
     assert result["recorded"]["confirmatory"] is True
     assert "records no analysis plan" in result["recorded"]["why"]
+
+
+# ---------------------------------------------------------------------------
+# The project-level reconciliation, and the section it writes
+# ---------------------------------------------------------------------------
+
+def test_a_deviating_test_stays_visible_against_its_registration(cur, project):
+    """
+    The evidence that was being destroyed. A deviating test has its
+    `preregistration_id` cleared so the ledger counts it in the exploratory
+    family — arithmetically right, and it used to erase the fact that the
+    analysis had been *offered* as a test of the plan. A deviation nobody can
+    see afterwards is one nobody can state deliberately.
+    """
+    registration = registered(cur, project, method="spearman", covariates=["gdp"])
+    drifted = spec(cur, project, method="pearson",
+                   variables={"covariates": ["gdp", "urbanisation"]})
+    exploration.record(
+        cur, session_id="ses_1", project_id=project, verb="claim_test",
+        description="with urbanisation added", p_value=0.04,
+        preregistration_id=registration, spec_id=drifted)
+
+    report = deviations.for_project(cur, project)
+    entry = report["registrations"][0]
+
+    assert entry["deviated"] == 1
+    assert entry["as_registered"] == 0
+    assert entry["tests"][0]["description"] == "with urbanisation added"
+    # And it can still say what differed, months later.
+    assert {d["field"] for d in entry["tests"][0]["deviations"]} == {"method", "covariates"}
+
+
+def test_the_project_report_counts_what_matched_and_what_did_not(cur, project):
+    registration = registered(cur, project, method="spearman", covariates=["gdp"])
+    as_planned = spec(cur, project, method="spearman",
+                      variables={"covariates": ["gdp"]})
+    drifted = spec(cur, project, method="pearson",
+                   variables={"covariates": ["gdp"]})
+
+    for description, analysis in (("as registered", as_planned),
+                                  ("with pearson", drifted)):
+        exploration.record(
+            cur, session_id="ses_2", project_id=project, verb="claim_test",
+            description=description, p_value=0.04,
+            preregistration_id=registration, spec_id=analysis)
+
+    entry = deviations.for_project(cur, project)["registrations"][0]
+    assert entry["as_registered"] == 1
+    assert entry["deviated"] == 1
+
+
+def test_a_deleted_spec_does_not_take_the_report_down(cur, project):
+    """
+    A spec removed since the test ran is not a deviation, and a report that
+    raised here would be unreadable exactly when somebody needs it.
+    """
+    registration = registered(cur, project, method="spearman")
+    analysis = spec(cur, project, method="spearman")
+    exploration.record(
+        cur, session_id="ses_3", project_id=project, verb="claim_test",
+        description="ran", p_value=0.04, preregistration_id=registration,
+        spec_id=analysis)
+    cur.execute("UPDATE exploration_tests SET spec_id = NULL WHERE project_id = %s",
+                (project,))
+
+    entry = deviations.for_project(cur, project)["registrations"][0]
+    assert entry["tests"][0]["deviations"] is None
+
+
+def test_the_narrative_writes_a_methods_section_from_the_record(cur, project):
+    """
+    What journals ask for and nobody can produce honestly, because it is written
+    months later from memory by the person with the most reason to under-report.
+    """
+    registration = registered(cur, project, method="spearman", covariates=["gdp"])
+    drifted = spec(cur, project, method="pearson",
+                   variables={"covariates": ["gdp", "urbanisation"]})
+    exploration.record(
+        cur, session_id="ses_4", project_id=project, verb="claim_test",
+        description="the reported result", p_value=0.04,
+        preregistration_id=registration, spec_id=drifted)
+
+    section = deviations.narrative(cur, project)
+
+    assert "Registered: Consumption raises resistance." in section["text"]
+    assert "Deviated" in section["text"]
+    assert "covariates" in section["text"]
+
+
+def test_the_narrative_refuses_to_invent_the_reason(cur, project):
+    """
+    The system knows what changed. Only the researcher knows why, and a
+    generated explanation would be this software writing the one part of a
+    methods section that has to be true.
+    """
+    registration = registered(cur, project, method="spearman")
+    drifted = spec(cur, project, method="pearson")
+    exploration.record(
+        cur, session_id="ses_5", project_id=project, verb="claim_test",
+        description="ran", p_value=0.04, preregistration_id=registration,
+        spec_id=drifted)
+
+    section = deviations.narrative(cur, project)
+
+    assert "Reason: ___" in section["text"]
+    assert "only you know why" in section["note"]
+
+
+def test_a_project_with_nothing_registered_says_so_rather_than_passing(cur, project):
+    section = deviations.narrative(cur, project)
+
+    assert section["text"] == ""
+    assert "no plan to have deviated from" in section["note"]
+    assert "exploratory" in section["note"]

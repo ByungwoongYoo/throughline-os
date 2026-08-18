@@ -172,15 +172,21 @@ def record(cur, *, session_id: str, project_id: str, verb: str,
         raise ValueError(f"verb must be one of {VERBS}; got {verb!r}")
 
     confirmatory, why = False, None
+    # The claim is only storable when the thing claimed exists — a foreign key
+    # cannot point at a registration nobody wrote, and a caller quoting an id
+    # that was never registered has already been told so in `why`.
+    claimed = None
     if preregistration_id:
         registration = _registration(cur, preregistration_id)
         if registration is None:
             why = "No such pre-registration; counted as exploratory."
         elif registration["locked_hash"] != _hash(registration["hypothesis"]):
+            claimed = preregistration_id
             why = ("The registered hypothesis has been edited since it was "
                    "registered, so it no longer predicts anything it did not "
                    "already know. Counted as exploratory.")
         else:
+            claimed = preregistration_id
             confirmatory, why = True, "Registered before this test."
             if spec_id:
                 from . import deviations
@@ -205,11 +211,17 @@ def record(cur, *, session_id: str, project_id: str, verb: str,
 
     test_id = new_id("xtest")
     cur.execute(
+        # `preregistration_id` is the exemption and is stored only when earned,
+        # because the ledger reads it to decide what joins the family.
+        # `claimed_registration_id` is the claim, kept either way — a deviation
+        # whose claim was discarded is one nobody can state deliberately later.
         "INSERT INTO exploration_tests(id, session_id, project_id, verb, "
-        "description, p_value, preregistration_id) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING sequence",
+        "description, p_value, preregistration_id, claimed_registration_id, "
+        "spec_id, deviation_note) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING sequence",
         (test_id, session_id, project_id, verb, description, p_value,
-         preregistration_id if confirmatory else None))
+         preregistration_id if confirmatory else None, claimed,
+         spec_id, None if confirmatory else why))
     sequence = cur.fetchone()["sequence"]
 
     # Ordering, not clocks. A registration written in the same transaction as the

@@ -563,6 +563,26 @@ def project_deviations(project_id: str,
         return deviations.for_project(cur, project_id)
 
 
+@router.get("/projects/{project_id}/deviations/narrative")
+def deviation_narrative(project_id: str,
+                        user: dict = Depends(signed_in)) -> dict[str, Any]:
+    """
+    The "Deviations from the registered plan" section, from the record.
+
+    Journals increasingly ask for this and it is normally written months later
+    from memory, by the person with the strongest reason to under-report. Here
+    it is assembled from what was recorded at the time — with every reason left
+    blank, because the system knows what changed and only the researcher knows
+    why.
+    """
+    _scoped(project_id, user)
+
+    from throughline_domain import deviations
+
+    with transaction() as cur:
+        return deviations.narrative(cur, project_id)
+
+
 @router.get("/projects/{project_id}/deviations/{registration_id}")
 def registration_deviation(project_id: str, registration_id: str, spec_id: str,
                            user: dict = Depends(signed_in)) -> dict[str, Any]:
