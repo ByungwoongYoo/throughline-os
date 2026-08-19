@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from throughline_domain import (
     analysis, auth, claim_test, compare, consistency, critic, discovery,
-    embeddings, example, extraction, findings, graph_projection, graphs,
+    embeddings, events, example, extraction, findings, graph_projection, graphs,
     harmonize, images, journal, lineage, notebook, objects, observability,
     patterns, reconcile, retrieval, specification, storage, synthesis,
     validation, visuals, vocabulary, workflow,
@@ -459,7 +459,31 @@ def delete_project(project_id: str,
         candidates = [(r["content_hash"], r["storage_key"])
                       for r in cur.fetchall()]
 
+        # Counted before the cascade, because afterwards there is nothing left
+        # to count. The audit log recorded creation and not destruction, which
+        # for a research record is the wrong way round: a corpus can be erased —
+        # sources, analyses, findings, figures, notes — and the log that exists
+        # to make the work legible said nothing at all. "Deleted a project" is
+        # not a record either; what was in it is.
+        destroyed: dict[str, int] = {}
+        for table in ("sources", "datasets", "analysis_runs", "connections",
+                      "findings", "visuals", "communication_artifacts",
+                      "notes", "preregistrations", "exploration_tests"):
+            cur.execute(f"SELECT count(*) AS n FROM {table} WHERE project_id = %s",
+                        (project_id,))
+            count = int(cur.fetchone()["n"])
+            if count:
+                destroyed[table] = count
+
         cur.execute("DELETE FROM projects WHERE id = %s", (project_id,))
+
+        events.audit(
+            cur, project_id=None, actor=user["id"], action="delete",
+            object_type="project", object_id=project_id,
+            # `project_id` is null on purpose: the row it would reference no
+            # longer exists, and an audit entry that cascades away with the
+            # thing it records is not an audit entry.
+            detail={"name": project["name"], "destroyed": destroyed})
 
         # Which of those blobs are now referenced by nothing at all.
         orphans: list[str] = []
