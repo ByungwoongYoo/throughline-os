@@ -17,6 +17,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Run the whole matrix on demand, against any branch:
+  #     gh workflow run ci.yml --ref <branch>
+  # or the "Run workflow" button on the Actions tab. This is how a branch gets
+  # macOS and Windows coverage *before* it is merged, now that they no longer
+  # run on every push to a pull request.
+  workflow_dispatch:
 
 concurrency:
   # A superseded run tells you about code nobody is looking at any more.
@@ -35,7 +41,23 @@ jobs:
         # 3.12 exactly, for the reason bootstrap.sh states — the packages need
         # >= 3.12 and pgserver publishes no wheel past cp312.
         python: ["3.12"]
-        os: [ubuntu-latest, macos-latest]
+        # macOS only where it earns its cost.
+        #
+        # This repository is private, so Actions minutes are metered, and the
+        # multipliers are not close: Linux bills 1x, Windows 2x, macOS **10x**.
+        # A full run was ~82 billed minutes and 66 of them were macOS — 80% of
+        # the spend for one of five jobs. Twenty-nine runs in a week exhausted
+        # the allowance and every job stopped, which is a bad way to find out.
+        #
+        # So a pull request gets Linux, the web build and the Docker build:
+        # around 9 billed minutes, and enough to catch nearly everything. macOS
+        # and Windows run when something is about to land on `main`, and on
+        # demand via workflow_dispatch before merging anything platform-shaped.
+        #
+        # This trades away instant cross-platform feedback on every push. That
+        # is the intended trade — but if a merge to `main` ever goes red on
+        # macOS alone, this is the line that let it through.
+        os: ${{ (github.event_name == 'pull_request') && fromJSON('["ubuntu-latest"]') || fromJSON('["ubuntu-latest", "macos-latest"]') }}
 
     steps:
       - uses: actions/checkout@v4
@@ -84,6 +106,9 @@ jobs:
 
   windows-sandbox:
     name: windows · sandbox
+    # Windows bills at 2x and the sandbox tests it covers change rarely.
+    # Skipped on pull requests; runs on merges to `main` and on demand.
+    if: github.event_name != 'pull_request'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
