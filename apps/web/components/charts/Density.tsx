@@ -140,7 +140,9 @@ export function Density({
               return (
                 // Keyed by curve id, so a bandwidth change morphs the path
                 // instead of destroying and recreating it.
-                <g key={curve.id}>
+                <g key={curve.id}
+                   style={{ opacity: hover.emphasis(curve.id) }}
+                   {...hover.markProps(curve.id)}>
                   <path className="chart-density" d={shape(points) ?? undefined}
                         style={{ fill: colour, stroke: colour }} />
                   {/* The median, so the eye has an anchor the smoother cannot move. */}

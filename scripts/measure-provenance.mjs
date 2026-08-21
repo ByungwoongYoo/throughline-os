@@ -70,4 +70,52 @@ await step(page.getByText(/×|tracks/).first(), "the connection");
 console.log("\n  the connection offers:", JSON.stringify(await affordances()));
 
 console.log("\nA route to the source exists only if one of those lists names it.\n");
+
+/*
+ * The same two clicks, without a mouse.
+ *
+ * `affordances()` above enumerates *interactive* elements, and that is exactly
+ * how the first version of this measurement walked past the real problem: the
+ * finding card was a bare `div` with `cursor: pointer` and an `onClick`, which
+ * is not an interactive element and has no tab stop. The click count was 2 for
+ * a mouse and infinity for a keyboard, and only one of those was being counted.
+ *
+ * So the depth is measured twice now. A path that exists only for a pointer is
+ * not a path.
+ */
+console.log("Now the same route, on Tab and Enter alone.\n");
+await page.goto(BASE + "/workspace", { waitUntil: "networkidle" });
+await page.waitForTimeout(1200);
+
+await page.locator("button.rail-item").filter({ hasText: /^Findings/ }).focus();
+await page.keyboard.press("Enter");
+await page.waitForTimeout(1000);
+
+let reached = null;
+for (let i = 1; i <= 40 && !reached; i++) {
+  await page.keyboard.press("Tab");
+  const focused = await page.evaluate(() => {
+    const el = document.activeElement;
+    if (!el || el === document.body) return null;
+    return {
+      tag: el.tagName.toLowerCase(),
+      role: el.getAttribute("role"),
+      text: (el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 40),
+    };
+  });
+  if (focused && /tracks/.test(focused.text)) reached = { ...focused, tab: i };
+}
+
+if (!reached) {
+  console.log("  ✗ the finding cannot be focused at all — no tab stop.");
+  console.log("    Depth with a mouse: 2. Depth with a keyboard: unreachable.");
+} else {
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(1000);
+  const opened = (await page.evaluate(() => document.body.innerText)).includes("supporting");
+  console.log(`  focus reached the finding on Tab ${reached.tab}`,
+              `(${reached.tag}, role=${reached.role})`);
+  console.log(`  Enter opened it: ${opened}`);
+}
+
 await browser.close();

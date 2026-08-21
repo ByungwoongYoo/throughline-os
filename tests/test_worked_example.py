@@ -109,6 +109,23 @@ def test_the_example_assembles_into_a_project_with_real_provenance(client):
 
     assert findings, "the example produced no finding to look at"
 
+    # The finding must be reachable *backwards*. A finding with no claim, no
+    # evidence and no object is a dead end on screen — which is exactly what
+    # measuring the click depth to the underlying rows turned up.
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT object_id FROM findings WHERE project_id = %s",
+                    (project_id,))
+        finding_object = cur.fetchone()["object_id"]
+        cur.execute("SELECT count(*) AS n FROM evidence WHERE project_id = %s",
+                    (project_id,))
+        evidence_count = cur.fetchone()["n"]
+
+    assert finding_object, "the finding has no object, so it has no lineage node"
+    assert evidence_count, "the finding has no evidence behind it"
+
+    chain = client.get(f"/api/objects/{finding_object}/provenance").json()
+    assert chain, "the finding's provenance chain is empty"
+
 
 def test_asking_twice_does_not_produce_two_examples(client):
     first = client.post("/api/projects/example").json()

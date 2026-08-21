@@ -172,7 +172,9 @@ export function Binned({
     { key: "y", header: yLabel, numeric: true },
     { key: "count", header: "Count", numeric: true },
   ];
-  const tableRows = cells.map((c) => ({ x: c.x, y: c.y, count: c.count }));
+  const tableRows = cells.map((c) => ({
+    // Same identity the polygon and the tooltip use.
+    id: `${c.x}:${c.y}`, x: c.x, y: c.y, count: c.count }));
 
   return (
     <figure className="chart chart-binned">
@@ -216,6 +218,8 @@ export function Binned({
                 fill={colour(cell.count)}
                 stroke="var(--n-0)"
                 strokeWidth={0.4}
+                style={{ opacity: hover.emphasis(`${cell.x}:${cell.y}`) }}
+                {...hover.markProps(`${cell.x}:${cell.y}`)}
               >
                 <title>
                   {`${cell.count.toLocaleString()} observations near `

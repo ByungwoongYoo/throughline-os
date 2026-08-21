@@ -16,6 +16,8 @@ import { describe, expect, it } from "vitest";
 import { Cartesian } from "@/components/charts/Cartesian";
 import { Interval } from "@/components/charts/Interval";
 import { Matrix } from "@/components/charts/Matrix";
+import { Binned } from "@/components/charts/Binned";
+import { Density } from "@/components/charts/Density";
 
 const POINTS = [
   { id: "a", x: 10, y: 1.5 },
@@ -217,5 +219,59 @@ describe("the correlation matrix", () => {
     const cells = container.querySelectorAll("rect.chart-cell");
     fireEvent.mouseEnter(cells[0], { clientX: 1, clientY: 1 });
     expect(container.querySelectorAll("tr.is-highlighted").length).toBe(1);
+  });
+});
+
+describe("every wired primitive actually responds", () => {
+  // The regression this catches, exactly: `Binned` and `Density` were shipped
+  // with the hook declared and a <ChartTooltip> rendered, and no `markProps`
+  // on any mark. Nothing could ever set `hovered`, so the tooltip was
+  // unreachable — a declared affordance with nothing behind it, which is the
+  // defect class this whole file exists to close.
+  it("attaches markProps wherever it declares the hook", async () => {
+    const { readFileSync, readdirSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const dir = join(__dirname, "..", "components", "charts");
+
+    const broken: string[] = [];
+    for (const file of readdirSync(dir).filter((f) => f.endsWith(".tsx"))) {
+      const src = readFileSync(join(dir, file), "utf8");
+      // interaction.tsx defines the hook rather than consuming it.
+      if (file === "interaction.tsx" || file === "ChartTable.tsx") continue;
+      if (!src.includes("useChartHover()")) continue;
+      if (!src.includes("markProps(")) broken.push(`${file}: hook but no markProps`);
+      if (!src.includes(".emphasis(")) broken.push(`${file}: hook but no emphasis`);
+    }
+    expect(broken, broken.join("; ")).toEqual([]);
+  });
+});
+
+describe("the binned figure", () => {
+  it("names the cell and its count on hover", () => {
+    const { container } = render(
+      <Binned xLabel="consumption" yLabel="resistance" binCount={4} sampleSize={5000}
+              cells={[{ x: 1, y: 2, count: 40 }, { x: 3, y: 4, count: 7 }]} />);
+    const marks = container.querySelectorAll("polygon");
+    expect(marks.length).toBeGreaterThan(0);
+    fireEvent.mouseEnter(marks[0], { clientX: 5, clientY: 5 });
+    const tip = document.querySelector(".chart-tip") as HTMLElement;
+    expect(tip, "the binned tooltip never fired").not.toBeNull();
+    expect(within(tip).getByText("observations")).toBeInTheDocument();
+  });
+});
+
+describe("the density plot", () => {
+  it("names the curve on hover", () => {
+    const { container } = render(
+      <Density xLabel="resistance" curves={[
+        { id: "a", label: "Treated", x: [1, 2, 3], density: [0.1, 0.4, 0.2], n: 60 },
+        { id: "b", label: "Control", x: [1, 2, 3], density: [0.2, 0.3, 0.1], n: 55 },
+      ]} />);
+    const groups = container.querySelectorAll("path.chart-density");
+    expect(groups.length).toBe(2);
+    fireEvent.mouseEnter(groups[0].parentElement!, { clientX: 5, clientY: 5 });
+    const tip = document.querySelector(".chart-tip") as HTMLElement;
+    expect(tip, "the density tooltip never fired").not.toBeNull();
+    expect(within(tip).getByText("Treated")).toBeInTheDocument();
   });
 });
