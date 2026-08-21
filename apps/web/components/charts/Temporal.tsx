@@ -33,6 +33,7 @@ import { useId, useMemo, useState } from "react";
 import { scaleLinear } from "d3-scale";
 import { categorical } from "@/lib/tokens";
 import { ChartTable } from "./ChartTable";
+import { ChartTooltip, readable, useChartHover } from "./interaction";
 
 export type TemporalEvent = {
   /** Stable identity. Object constancy depends on it. */
@@ -109,6 +110,8 @@ export function Temporal({
   width?: number;
   height?: number;
 }) {
+  const hoverUI = useChartHover();
+  const hit = events.find((e) => e.id === hoverUI.hovered) ?? null;
   const clipId = useId();
   const [hover, setHover] = useState<Step | null>(null);
 
@@ -195,6 +198,8 @@ export function Temporal({
                   return (
                     <line
                       key={event.id}
+                {...hoverUI.markProps(event.id)}
+                style={{ opacity: hoverUI.emphasis(event.id) }}
                       className="km-censor"
                       x1={x(event.time)} x2={x(event.time)}
                       y1={y(step.survival) - 5} y2={y(step.survival) + 5}
@@ -288,7 +293,11 @@ export function Temporal({
         )}
       </figcaption>
 
+      <ChartTooltip pointer={hoverUI.pointer} title={hit?.label} rows={hit ? [{ label: unitLabel, value: readable(hit.time) }, { label: "outcome", value: hit.observed ? outcomeLabel : "censored" }] : []} />
+
       <ChartTable
+        highlightId={hoverUI.hovered}
+        onHighlight={hoverUI.setHovered}
         columns={tableColumns}
         rows={tableRows}
         label={title ?? `Time to ${outcomeLabel} since ${originLabel}`}

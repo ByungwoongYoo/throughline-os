@@ -32,6 +32,7 @@ import { max } from "d3-array";
 import { scaleLinear } from "d3-scale";
 import { categorical } from "@/lib/tokens";
 import { ChartTable } from "./ChartTable";
+import { ChartTooltip, readable, useChartHover } from "./interaction";
 
 export type SetMember = {
   /** Stable identity. */
@@ -94,6 +95,8 @@ export function SetRegions({
   caption?: string;
   width?: number;
 }) {
+  const hoverUI = useChartHover();
+  const hit = null;
   const rows = useMemo(() => intersections(sets, members), [sets, members]);
   const peak = max(rows, (r) => r.count) ?? 0;
   const height = M.top + M.bottom + rows.length * ROW;
@@ -146,7 +149,8 @@ export function SetRegions({
           return (
             // Keyed by the combination itself, so a row survives re-sorting as
             // the same DOM node and slides rather than being redrawn.
-            <g key={row.key} className="upset-row">
+            <g key={row.key} className="upset-row"
+                {...hoverUI.markProps(row.key)} style={{ opacity: hoverUI.emphasis(row.key) }}>
               {/* The connector, so a combination reads as one thing. */}
               {last > first && (
                 <line x1={dotX(first)} x2={dotX(last)} y1={y} y2={y}
@@ -198,7 +202,11 @@ export function SetRegions({
         a truthful size.
       </figcaption>
 
+      <ChartTooltip pointer={hoverUI.pointer} rows={[]} />
+
       <ChartTable
+        highlightId={hoverUI.hovered}
+        onHighlight={hoverUI.setHovered}
         columns={tableColumns}
         rows={tableRows}
         label={title ?? `${itemLabel} by set combination`}

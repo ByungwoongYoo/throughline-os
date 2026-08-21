@@ -37,6 +37,7 @@ import { geoEqualEarth, geoPath, geoGraticule10 } from "d3-geo";
 import { interpolateYlGnBu } from "d3-scale-chromatic";
 import type { FeatureCollection, Feature, Geometry } from "geojson";
 import { ChartTable } from "./ChartTable";
+import { ChartTooltip, readable, useChartHover } from "./interaction";
 
 export type Place = {
   /** ISO 3166-1 numeric id, matching the bundled topology. */
@@ -94,6 +95,8 @@ export function Geographic({
   width?: number;
   height?: number;
 }) {
+  const hoverUI = useChartHover();
+  const hit = places.find((p) => p.id === hoverUI.hovered) ?? null;
   const clipId = useId();
   const [hover, setHover] = useState<string | null>(null);
   const inner = { w: width - M.left - M.right, h: height - M.top - M.bottom };
@@ -223,6 +226,8 @@ export function Geographic({
             return (
               <circle
                 key={place.id}
+                {...hoverUI.markProps(place.id)}
+                style={{ opacity: hoverUI.emphasis(place.id) }}
                 className="map-symbol"
                 cx={centre[0]} cy={centre[1]} r={radius(place.value)}
                 onMouseEnter={() => setHover(String(place.id))}
@@ -304,7 +309,11 @@ export function Geographic({
         )}
       </figcaption>
 
+      <ChartTooltip pointer={hoverUI.pointer} title={hit?.label} rows={hit ? [{ label: valueLabel, value: readable(hit.value) }] : []} />
+
       <ChartTable
+        highlightId={hoverUI.hovered}
+        onHighlight={hoverUI.setHovered}
         columns={tableColumns}
         rows={tableRows}
         label={title ?? `${valueLabel} by country`}
