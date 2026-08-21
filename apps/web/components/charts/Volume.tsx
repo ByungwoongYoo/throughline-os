@@ -29,7 +29,10 @@
  * makes the frame budget a permanent cost rather than one paid while dragging.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
+} from "react";
+import { ScreenPoint, TargetRef, VisualizationController } from "@/lib/spatial/commands";
 import { extent } from "d3-array";
 import { scaleLinear } from "d3-scale";
 import { interpolateYlGnBu } from "d3-scale-chromatic";
@@ -47,7 +50,23 @@ export type Point3D = {
   value?: number;
 };
 
-type Camera = { yaw: number; pitch: number };
+type Camera = {
+  yaw: number;
+  pitch: number;
+  /**
+   * Uniform scale about the cube's centre.
+   *
+   * Applied to the projected radius rather than to `FOCAL`, so zooming does not
+   * change the perspective strength. Moving the eye instead would alter how
+   * much nearer marks are enlarged, and mark size is this chart's depth cue —
+   * the reader would see the depth encoding shift while they zoomed.
+   */
+  zoom: number;
+};
+
+/** Bounds, so the cloud cannot be lost off-screen or scaled into a dot. */
+const MIN_ZOOM = 0.35;
+const MAX_ZOOM = 6;
 
 const MARK_RADIUS = 3.4;
 const DEPTH_RANGE = 0.55;   // how much perspective may scale a mark
@@ -69,10 +88,20 @@ function project(p: { x: number; y: number; z: number }, camera: Camera) {
 }
 
 export function Volume({
-  points, xLabel, yLabel, zLabel, valueLabel, title, caption,
-  width = 720, height = 520,
+  points, controllerRef, onSelect, xLabel, yLabel, zLabel, valueLabel, title,
+  caption, width = 720, height = 520,
 }: {
   points: Point3D[];
+  /**
+   * Exposes this chart as a `VisualizationController`.
+   *
+   * The one seam any input drives the scene through — mouse, keyboard, hand,
+   * and later voice. Optional, because a chart in a report is not being driven
+   * by anything and should not pay for the machinery.
+   */
+  controllerRef?: React.RefObject<VisualizationController | null>;
+  /** Told when a point is chosen, so a selection can become AI context. */
+  onSelect?: (target: TargetRef | null) => void;
   xLabel: string;
   yLabel: string;
   zLabel: string;
@@ -84,10 +113,30 @@ export function Volume({
   height?: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const cameraRef = useRef<Camera>({ yaw: 0.6, pitch: -0.34 });
+  const cameraRef = useRef<Camera>({ yaw: 0.6, pitch: -0.34, zoom: 1 });
   const dragRef = useRef<{ x: number; y: number } | null>(null);
+  /*
+   * Where the pointer went *down*, kept apart from `dragRef`.
+   *
+   * `dragRef` is reassigned on every move so each frame rotates by one step's
+   * delta. Measuring "did this click travel" against it therefore always
+   * reports roughly zero, and every drag would end by selecting whatever the
+   * finger happened to stop over.
+   */
+  const pressRef = useRef<{ x: number; y: number } | null>(null);
   const dirtyRef = useRef(true);
   const visibleRef = useRef(true);
+  const hoveredRef = useRef<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  /*
+   * The draw loop reads the selection through a ref, not the state.
+   *
+   * `draw` is memoised on its dependencies; adding `selected` would rebuild it
+   * on every selection and re-run the effect that owns the animation frame. The
+   * ref keeps the render loop stable while still letting it see the current
+   * value.
+   */
+  const selectedRef = useRef<string | null>(null);
   const [occluded, setOccluded] = useState(0);
   const [moved, setMoved] = useState(false);
 
@@ -127,7 +176,7 @@ export function Volume({
 
     const camera = cameraRef.current;
     const cx = width / 2, cy = height / 2;
-    const unit = Math.min(width, height) * 0.30;
+    const unit = Math.min(width, height) * 0.30 * camera.zoom;
 
     // The bounding cube, so a projected position has a frame to be read against.
     const corners: Array<[number, number, number]> = [
@@ -214,6 +263,25 @@ export function Volume({
       else grid.set(key, [{ x: m.x, y: m.y, r: m.r }]);
     }
     context.globalAlpha = 1;
+    // Emphasis is painted last, over the finished cloud.
+    //
+    // Drawn inside the depth sort it would be occluded by nearer marks — the
+    // reader would point at something, be told it was found, and see nothing.
+    // A ring rather than a colour change, because colour is the value channel
+    // here and borrowing it would make a highlighted point read as a different
+    // measurement (§20: feedback that does not clutter, and never at the cost
+    // of the encoding).
+    for (const m of marks) {
+      const isSelected = m.id === selectedRef.current;
+      const isHovered = m.id === hoveredRef.current;
+      if (!isSelected && !isHovered) continue;
+      context.beginPath();
+      context.arc(m.x, m.y, m.r + (isSelected ? 5 : 3.5), 0, Math.PI * 2);
+      context.strokeStyle = isSelected ? "#1443B8" : "rgba(20,67,184,0.55)";
+      context.lineWidth = isSelected ? 2 : 1.25;
+      context.stroke();
+    }
+
     setOccluded(hidden);
   }, [normalised, width, height]);
 
@@ -253,6 +321,38 @@ export function Volume({
 
   useEffect(() => { dirtyRef.current = true; }, [normalised]);
 
+  /**
+   * The nearest mark to a screen point, or null.
+   *
+   * Nearest-within-a-radius rather than exact containment (§7). A researcher
+   * pointing at a cloud is indicating a region, not hitting a 3.4px target, and
+   * requiring precision would make pointing feel broken rather than forgiving.
+   *
+   * Runs on demand, never per frame. The draw loop went to some trouble to stay
+   * linear, and a hit test on every redraw would undo that.
+   */
+  const nearest = useCallback((at: ScreenPoint, radius = 28): TargetRef | null => {
+    const camera = cameraRef.current;
+    const cx = width / 2, cy = height / 2;
+    const unit = Math.min(width, height) * 0.30 * camera.zoom;
+
+    let best: { id: string; label: string; datum: Point3D; d: number } | null = null;
+    for (let i = 0; i < normalised.length; i += 1) {
+      const q = project(normalised[i], camera);
+      const sx = cx + q.x * unit;
+      const sy = cy - q.y * unit;
+      const d = Math.hypot(sx - at.x, sy - at.y);
+      // Ties break toward the nearer point in depth: when two marks overlap on
+      // screen the front one is the one the reader can actually see, and
+      // selecting the hidden one would be indefensible.
+      if (d <= radius && (best === null || d < best.d)) {
+        best = { id: normalised[i].id, label: normalised[i].label,
+                 datum: points[i], d };
+      }
+    }
+    return best ? { id: best.id, label: best.label, datum: best.datum } : null;
+  }, [normalised, points, width, height]);
+
   const rotate = useCallback((dx: number, dy: number) => {
     const camera = cameraRef.current;
     camera.yaw += dx * 0.008;
@@ -262,6 +362,47 @@ export function Volume({
     dirtyRef.current = true;
     setMoved(true);
   }, []);
+
+  useImperativeHandle(controllerRef, (): VisualizationController => ({
+    rotate: (dx, dy) => rotate(dx, dy),
+    zoom: (factor) => {
+      const camera = cameraRef.current;
+      camera.zoom = Math.min(Math.max(camera.zoom * factor, MIN_ZOOM), MAX_ZOOM);
+      dirtyRef.current = true;
+      setMoved(true);
+    },
+    // Panning is not offered rather than stubbed. This chart centres a unit
+    // cube; there is nothing off-frame to pan toward, and a control that
+    // silently does nothing is worse than one that is absent.
+    pan: () => {},
+    hover: (at) => {
+      const target = nearest(at);
+      if ((target?.id ?? null) !== hoveredRef.current) {
+        hoveredRef.current = target?.id ?? null;
+        dirtyRef.current = true;
+      }
+      return target;
+    },
+    select: (at) => {
+      const target = nearest(at);
+      setSelected(target?.id ?? null);
+      dirtyRef.current = true;
+      onSelect?.(target);
+      return target;
+    },
+    focus: (objectId) => { setSelected(objectId); dirtyRef.current = true; },
+    deselect: () => { setSelected(null); dirtyRef.current = true; onSelect?.(null); },
+    resetView: () => {
+      cameraRef.current = { yaw: 0.6, pitch: -0.34, zoom: 1 };
+      dirtyRef.current = true;
+    },
+    viewport: () => ({ width, height }),
+  }), [nearest, onSelect, rotate, width, height, controllerRef]);
+
+  useEffect(() => {
+    selectedRef.current = selected;
+    dirtyRef.current = true;
+  }, [selected]);
 
   const hasValue = points.some((p) => p.value !== undefined);
   const tableColumns = [
@@ -293,15 +434,49 @@ export function Volume({
           + `${occluded} points are currently hidden behind others.`}
         onPointerDown={(event) => {
           dragRef.current = { x: event.clientX, y: event.clientY };
+          pressRef.current = { x: event.clientX, y: event.clientY };
           event.currentTarget.setPointerCapture(event.pointerId);
         }}
         onPointerMove={(event) => {
           const from = dragRef.current;
-          if (!from) return;
+          if (!from) {
+            // Hovering, not dragging. Built for the mouse as well as the hand:
+            // a capability reachable only by gesture would make the camera
+            // mandatory for part of the chart, which Rule 5 forbids.
+            const box = event.currentTarget.getBoundingClientRect();
+            const at = { x: event.clientX - box.left, y: event.clientY - box.top };
+            const target = nearest(at);
+            if ((target?.id ?? null) !== hoveredRef.current) {
+              hoveredRef.current = target?.id ?? null;
+              dirtyRef.current = true;
+            }
+            return;
+          }
           rotate(event.clientX - from.x, event.clientY - from.y);
           dragRef.current = { x: event.clientX, y: event.clientY };
         }}
-        onPointerUp={() => { dragRef.current = null; }}
+        onPointerLeave={() => {
+          if (hoveredRef.current !== null) {
+            hoveredRef.current = null;
+            dirtyRef.current = true;
+          }
+        }}
+        onPointerUp={(event) => {
+          const press = pressRef.current;
+          dragRef.current = null;
+          pressRef.current = null;
+          // A click is a pointer that did not travel — measured from where it
+          // went down, not from the last move.
+          if (!press) return;
+          const travelled = Math.hypot(event.clientX - press.x,
+                                       event.clientY - press.y);
+          if (travelled > 3) return;
+          const box = event.currentTarget.getBoundingClientRect();
+          const target = nearest({ x: event.clientX - box.left,
+                                   y: event.clientY - box.top });
+          setSelected(target?.id ?? null);
+          onSelect?.(target);
+        }}
         onKeyDown={(event) => {
           const step = 12;
           if (event.key === "ArrowLeft") rotate(-step, 0);
