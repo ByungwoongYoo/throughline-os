@@ -89,7 +89,35 @@ perfectly.
 The one that survived checked "a fresh clone installs all nine packages." The
 ones that broke checked "`bootstrap.sh` contains nine `-e` lines."
 
-## What CI actually runs
+## CI does not run by itself
+
+**Nothing triggers it.** No push trigger, no pull-request trigger, nothing on
+`main`. The suite runs on GitHub's machines only when somebody asks:
+
+```bash
+gh workflow run ci.yml --ref <branch>
+```
+
+or the **Run workflow** button on the Actions tab.
+
+This repository is private, so Actions minutes are metered, and the multipliers
+are steep — Linux 1x, Windows 2x, **macOS 10x**. A full run bills about 82
+minutes, 66 of them macOS. Twenty-nine automatic runs in one week exhausted the
+monthly allowance and every job stopped mid-work. With two people pushing often,
+the same commit was being verified five times on its way to being merged once.
+
+**What that costs us.** The section below explains why this file existed: a
+Dockerfile that is written but never built is not evidence. That is still true,
+and the protection is now a habit instead of a trigger — habits lapse in a way
+triggers do not. So:
+
+> **Dispatch a run before merging to `main`, and before publishing.** A branch
+> nobody has dispatched has been tested on exactly one machine, whatever its
+> local run says.
+
+The pull-request template carries this as a checkbox so it is harder to skip.
+
+## What a dispatched run covers
 
 The backend suite across Linux and macOS, a Windows job for the analysis
 sandbox, the web build, and a Docker job that builds the image and polls
