@@ -31,7 +31,13 @@ function hand(options: Partial<Hand> & { pinch?: number; at?: { x: number; y: nu
     middleTip: { x: at.x, y: at.y + 0.12 },
     ringTip: { x: at.x, y: at.y + 0.13 },
     pinkyTip: { x: at.x, y: at.y + 0.14 },
-    indexBase: { x: at.x, y: at.y + 0.08 },
+    // Wrist to index base is 0.10 — deliberately `REFERENCE_SPAN`, the hand size
+    // the absolute defaults were written against. Thresholds are now scaled to
+    // the hand in frame, so a fixture of any other size would make the numbers
+    // quoted throughout this file (`pinchOn (0.035)`) untrue of the hand being
+    // tested, and the hysteresis tests would be describing a band that is not
+    // where they say it is. The scaling itself is tested in `spatial-calibration`.
+    indexBase: { x: at.x, y: at.y + 0.05 },
     palmCenter: { x: at.x, y: at.y },
     ...options,
   };

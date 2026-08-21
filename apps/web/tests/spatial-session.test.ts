@@ -190,7 +190,10 @@ function hand(at: { x: number; y: number }, pinch: number): Hand {
     middleTip: { x: at.x, y: at.y + 0.12 },
     ringTip: { x: at.x, y: at.y + 0.13 },
     pinkyTip: { x: at.x, y: at.y + 0.14 },
-    indexBase: { x: at.x, y: at.y + 0.08 },
+    // 0.10 from the wrist: a reference-size hand, so the absolute defaults and
+    // the span-scaled thresholds agree and this test is about the session rather
+    // than about threshold scaling.
+    indexBase: { x: at.x, y: at.y + 0.05 },
     palmCenter: { x: at.x, y: at.y },
   };
 }

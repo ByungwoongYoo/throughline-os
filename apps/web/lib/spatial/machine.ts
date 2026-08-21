@@ -44,6 +44,7 @@
 import { IntentCommand, ScreenPoint } from "./commands";
 import { DEFAULT_ONE_EURO, OneEuroSettings, PointFilter } from "./filter";
 import { Hand, HandFrame, distance } from "./types";
+import { scaleThresholds } from "./calibration";
 
 export type SpatialState =
   | "IDLE"
@@ -56,10 +57,29 @@ export type SpatialState =
   | "PAUSED";
 
 export type SpatialSettings = {
-  /** Pinch closes below this normalised distance. */
+  /**
+   * Pinch closes below this normalised distance — used only when the hand's own
+   * span cannot be measured, or when adaptive thresholds are switched off.
+   */
   pinchOn: number;
   /** ...and only opens again above this one. The gap is the hysteresis. */
   pinchOff: number;
+  /**
+   * Scale the pinch thresholds to the hand actually in frame.
+   *
+   * On by default, because the absolute numbers above silently assume one hand
+   * at one distance from one camera. A smaller hand, or a researcher sitting
+   * back from a large display, spans less of the frame — far enough back and a
+   * merely *resting* hand is already inside the pinch threshold, so the machine
+   * reads a grab nobody made and the scene follows idle movement, which is
+   * exactly what Rule 2 forbids. Leaning close produces the mirror failure: a
+   * real pinch never registers and the feature just does not work. Both look
+   * like bad tracking, and neither is.
+   */
+  adaptiveThresholds: boolean;
+  /** Pinch thresholds as fractions of the hand's own span — see `calibration`. */
+  pinchRatioOn: number;
+  pinchRatioOff: number;
   /** Movement below this (normalised) is treated as hand tremor. */
   deadZone: number;
   /**
@@ -87,6 +107,12 @@ export type SpatialSettings = {
 export const DEFAULT_SETTINGS: SpatialSettings = {
   pinchOn: 0.035,
   pinchOff: 0.05,
+  adaptiveThresholds: true,
+  // The same two numbers over the 0.10 span they were written against, so the
+  // adaptive path agrees with the absolute one for a hand of reference size
+  // rather than quietly redefining what a pinch is.
+  pinchRatioOn: 0.35,
+  pinchRatioOff: 0.5,
   deadZone: 0.004,
   spikeThreshold: 0.2,
   minConfidence: 0.6,
@@ -252,7 +278,12 @@ export class SpatialInteractionMachine {
     // Both hands pinched is the engagement. Two visible hands are not: a
     // researcher gesturing while they talk has two hands in frame constantly,
     // and treating that as zoom is precisely the false action §17 forbids.
-    const engaged = hands.every((hand) => pinchDistance(hand) < this.settings.pinchOn);
+    // Each hand judged against its own span. Hands are rarely equidistant from
+    // the camera — one is usually further forward — and one shared threshold
+    // would make the nearer hand engage first, so the zoom would start from a
+    // baseline taken while only half the gesture existed.
+    const engaged = hands.every(
+      (hand) => pinchDistance(hand) < scaleThresholds(hand, this.settings).pinchOn);
     if (!engaged) {
       if (this.state === "ZOOMING") events.push("gesture_zoom_completed");
       this.lastSpan = null;
@@ -306,10 +337,11 @@ export class SpatialInteractionMachine {
   private oneHand(hand: Hand, timestamp: number,
                   commands: IntentCommand[], events: SpatialEvent[]): FrameResult {
     const pinch = pinchDistance(hand);
+    const { pinchOn, pinchOff } = scaleThresholds(hand, this.settings);
 
     // Hysteresis: different thresholds in and out, so a hand hovering near the
     // boundary cannot oscillate.
-    if (!this.pinching && pinch < this.settings.pinchOn) {
+    if (!this.pinching && pinch < pinchOn) {
       this.pinching = true;
       this.lastPoint = null;
       this.lastRawPoint = null;
@@ -330,7 +362,7 @@ export class SpatialInteractionMachine {
       return { state: this.state, commands, events };
     }
 
-    if (this.pinching && pinch > this.settings.pinchOff) {
+    if (this.pinching && pinch > pinchOff) {
       this.pinching = false;
       this.lastPoint = null;
       this.lastRawPoint = null;
