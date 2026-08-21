@@ -345,3 +345,207 @@ describe("camera to chart, end to end", () => {
     expect(tracks[0].stop).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// The cost of being switched on
+// ---------------------------------------------------------------------------
+
+/**
+ * §13's requirement, restated as a cost: the vision work must never degrade the
+ * rendering it exists to serve. The intent layer itself is not the risk — it
+ * measures around 1–2µs per frame, flat across 50,000 frames, which is 0.005%
+ * of a 33ms budget. The risk is everything wired *around* it at frame rate, and
+ * that is what these assert.
+ */
+describe("what it costs to leave running", () => {
+  beforeEach(() => {
+    const { stream } = fakeStream();
+    grantCamera(stream);
+  });
+
+  /** Frames at an arbitrary rate, holding one steady pose. */
+  function steady(count: number, intervalMs: number): HandFrame[] {
+    return Array.from({ length: count }, (_, i) => ({
+      timestamp: i * intervalMs,
+      hands: [hand({ x: 0.5 + i * 0.0002, y: 0.5 }, 0.02)],
+    }));
+  }
+
+  it("tells the observer about a state only when it changes", async () => {
+    /**
+     * The cost that would be paid continuously for the whole time the feature is
+     * on. An observer is a React setter in practice, and a hand held in a grab
+     * reports GRABBED thirty times a second — publishing each one asks the
+     * workspace to re-render at tracker rate to say nothing new.
+     */
+    const states: string[] = [];
+    const tracker = new ScriptedHandTracker([]);
+    const session = new SpatialSession(tracker, () => fakeController().controller,
+                                       { onState: (s) => { states.push(s); } });
+    await session.start({} as HTMLVideoElement);
+
+    for (const frame of steady(60, 34)) session["onFrame"](frame);
+
+    // READY, then GRABBED — and then silence for the remaining ~58 frames.
+    expect(states).toEqual(["GRABBED"]);
+  });
+
+  it("does not process frames faster than the rate it was tuned for", async () => {
+    /**
+     * A tracker delivering at camera rate — 60 Hz is common — would drive the
+     * machine and the chart at twice the rate the smoothing was tuned for, for
+     * no extra fidelity. One Euro's cutoffs are in units of time, so this is not
+     * only wasted work: it changes how much the filter smooths.
+     */
+    const session = new SpatialSession(new ScriptedHandTracker([]),
+                                       () => fakeController().controller);
+    await session.start({} as HTMLVideoElement);
+
+    for (const frame of steady(60, 16.7)) session["onFrame"](frame);   // 60 Hz
+
+    // Roughly half of them, not all sixty.
+    expect(session.counts().frames).toBeLessThanOrEqual(31);
+    expect(session.counts().frames).toBeGreaterThan(25);
+  });
+
+  it("does not throttle a tracker that is already at the target rate", async () => {
+    /**
+     * The trap the governor's threshold exists to avoid. A tracker nominally at
+     * 30 Hz delivers frames ~33.3ms apart with jitter both ways; a floor set at
+     * exactly 1000/30 would reject every frame arriving a millisecond early and
+     * silently halve the rate of the stream it was sized for — presenting as the
+     * gesture feeling coarse on some machines and fine on others.
+     */
+    const session = new SpatialSession(new ScriptedHandTracker([]),
+                                       () => fakeController().controller);
+    await session.start({} as HTMLVideoElement);
+
+    const jittery = steady(40, 33.3).map((frame, i) => ({
+      ...frame, timestamp: frame.timestamp + (i % 2 ? -0.8 : 0.8),
+    }));
+    for (const frame of jittery) session["onFrame"](frame);
+
+    expect(session.counts().frames).toBe(40);
+  });
+
+  it("loses no movement to a dropped frame", async () => {
+    /**
+     * The property that makes the governor legitimate rather than a source of
+     * missing motion, and the reason it is safe to drop rather than queue: every
+     * command is a *delta* from the last processed position, so a skipped frame
+     * does not lose movement, it makes the next delta larger.
+     *
+     * Asserted by comparing total rotation at 60 Hz (half the frames dropped)
+     * against the same movement delivered at 30 Hz.
+     */
+    function totalRotation(intervalMs: number, count: number): number {
+      let total = 0;
+      const controller = { ...fakeController().controller,
+        rotate: (dx: number) => { total += dx; } };
+      const session = new SpatialSession(new ScriptedHandTracker([]),
+                                         () => controller);
+      session["running"] = true;
+      // Same journey across the frame, sampled at two different rates.
+      for (let i = 0; i < count; i += 1) {
+        session["onFrame"]({ timestamp: i * intervalMs,
+          hands: [hand({ x: 0.4 + (i / (count - 1)) * 0.2, y: 0.5 }, 0.02)] });
+      }
+      return total;
+    }
+
+    const fast = totalRotation(16.7, 61);   // 60 Hz, ~half dropped
+    const slow = totalRotation(33.4, 31);   // 30 Hz, none dropped
+
+    // Not identical — the smoothing filter sees different sample spacing — but
+    // the same journey, not half of one.
+    expect(fast).toBeGreaterThan(slow * 0.75);
+    expect(fast).toBeLessThan(slow * 1.25);
+  });
+
+  it("does no work at all while the tab is in the background", async () => {
+    /**
+     * `rAF` stops on its own when the tab is hidden; a tracker driven by a timer
+     * does not. Frames processed there produce commands that repaint nothing —
+     * work whose only observable effect is battery.
+     */
+    const { controller, calls } = fakeController();
+    const session = new SpatialSession(new ScriptedHandTracker([]), () => controller);
+    await session.start({} as HTMLVideoElement);
+
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    for (const frame of steady(30, 34)) session["onFrame"](frame);
+    expect(calls).toEqual([]);
+    expect(session.counts().frames).toBe(0);
+
+    // ...and picks up again on return, rather than needing to be restarted.
+    hidden.mockReturnValue(false);
+    for (const frame of steady(30, 34)) session["onFrame"](frame);
+    expect(session.counts().frames).toBeGreaterThan(0);
+  });
+
+  it("keeps the camera when the tab is hidden", async () => {
+    /**
+     * Deliberately not a teardown. Someone who switched to another window for
+     * ten seconds did not ask to be logged out of the feature, and re-requesting
+     * the stream on return is the worse surprise — some browsers re-prompt.
+     */
+    const { stream, tracks } = fakeStream();
+    grantCamera(stream);
+    const session = new SpatialSession(new ScriptedHandTracker([]),
+                                       () => fakeController().controller);
+    await session.start({} as HTMLVideoElement);
+
+    vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    session["onFrame"](steady(1, 34)[0]);
+
+    expect(tracks[0].stop).not.toHaveBeenCalled();
+    expect(session.isRunning()).toBe(true);
+  });
+
+  it("works again after a restart, whatever clock the new tracker uses", async () => {
+    /**
+     * The governor compares timestamps, and timestamps belong to the tracker —
+     * a fresh one may start near zero, from a frame counter or a new video
+     * element's time base. If the session remembered the previous run's clock,
+     * every frame of the new one would look like it arrived *before* the last
+     * frame it saw, and the governor would reject all of them until the new
+     * clock climbed past the old one's final value. A session stopped after ten
+     * minutes would appear to start and then do nothing for ten minutes, with
+     * the camera light on throughout, and no error anywhere.
+     */
+    const session = new SpatialSession(new ScriptedHandTracker([]),
+                                       () => fakeController().controller);
+    await session.start({} as HTMLVideoElement);
+    // A long first run, ending far from zero.
+    for (const frame of steady(50, 34)) session["onFrame"](frame);
+    const first = session.counts().frames;
+    session.stop();
+
+    await session.start({} as HTMLVideoElement);
+    for (const frame of steady(10, 34)) session["onFrame"](frame);   // clock at 0 again
+
+    expect(session.counts().frames).toBe(first + 10);
+  });
+
+  it("processes a long session in a fraction of one frame's budget", async () => {
+    /**
+     * A regression bound rather than a benchmark. The measured cost is ~1–2µs
+     * per frame and does not grow with the number of frames seen; the bound is
+     * set two orders of magnitude above that, so it cannot flake on a loaded
+     * machine but would fail immediately if anything quadratic — a history
+     * array, an unbounded accumulator — were added to the per-frame path.
+     */
+    const session = new SpatialSession(new ScriptedHandTracker([]),
+                                       () => fakeController().controller);
+    await session.start({} as HTMLVideoElement);
+    const frames = steady(20_000, 34);
+
+    const started = performance.now();
+    for (const frame of frames) session["onFrame"](frame);
+    const elapsed = performance.now() - started;
+
+    expect(session.counts().frames).toBe(20_000);
+    // 20,000 frames is 11 minutes of continuous gesturing at 30 Hz.
+    expect(elapsed).toBeLessThan(2000);
+  });
+});

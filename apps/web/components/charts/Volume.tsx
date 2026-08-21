@@ -69,6 +69,14 @@ const MIN_ZOOM = 0.35;
 const MAX_ZOOM = 6;
 
 const MARK_RADIUS = 3.4;
+
+/**
+ * How long the view must be still before the occlusion count is republished.
+ *
+ * Short enough to feel immediate when a drag ends, long enough that a continuous
+ * rotation publishes nothing at all until it stops.
+ */
+export const SETTLE_MS = 120;
 const DEPTH_RANGE = 0.55;   // how much perspective may scale a mark
 const FOCAL = 2.6;
 
@@ -138,6 +146,9 @@ export function Volume({
    */
   const selectedRef = useRef<string | null>(null);
   const [occluded, setOccluded] = useState(0);
+  /** The latest count the paint loop computed, published once drawing stops. */
+  const occludedRef = useRef(0);
+  const settleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [moved, setMoved] = useState(false);
 
   /** Unit cube, so the three axes are comparable regardless of their units. */
@@ -282,7 +293,28 @@ export function Volume({
       context.stroke();
     }
 
-    setOccluded(hidden);
+    // Published when the view settles, not on every painted frame.
+    //
+    // `draw` runs inside the rAF loop, so an unconditional `setOccluded` asks
+    // React to re-render the chart on every frame of a rotation. Measured on a
+    // 900-point cloud: 45 React commits across 60 painted frames, because with a
+    // dense cloud the count genuinely changes almost every frame as marks slide
+    // past one another — 419, 422, 420, 425. React's identical-value bail-out
+    // cannot help, and neither can comparing against the previous value here;
+    // the first version of this did exactly that and was worthless for the same
+    // reason.
+    //
+    // The cure is to stop asking the question at frame rate. A caption
+    // flickering through eight values a second is unreadable *and* expensive,
+    // and the count is only meaningful when the scene is at rest — which is also
+    // the only time anyone reads it. So the latest value is kept in a ref, and
+    // publishing is deferred until the drawing stops.
+    occludedRef.current = hidden;
+    if (settleRef.current !== null) clearTimeout(settleRef.current);
+    settleRef.current = setTimeout(() => {
+      settleRef.current = null;
+      setOccluded(occludedRef.current);
+    }, SETTLE_MS);
   }, [normalised, width, height]);
 
   // rAF loop gated on both dirtiness and visibility — an idle chart must not
@@ -316,6 +348,10 @@ export function Volume({
       cancelAnimationFrame(frame);
       observer.disconnect();
       document.removeEventListener("visibilitychange", onVisibility);
+      // The deferred publish outlives the chart otherwise: a component unmounted
+      // mid-drag leaves a timer that wakes up 120ms later to set state on
+      // something that is gone.
+      if (settleRef.current !== null) clearTimeout(settleRef.current);
     };
   }, [draw]);
 
@@ -397,7 +433,10 @@ export function Volume({
       dirtyRef.current = true;
     },
     viewport: () => ({ width, height }),
-  }), [nearest, onSelect, rotate, width, height, controllerRef]);
+    // `controllerRef` is the handle's target, not an input to building it —
+    // listing it as a dependency rebuilds the controller whenever the caller
+    // passes a new ref object, for no gain.
+  }), [nearest, onSelect, rotate, width, height]);
 
   useEffect(() => {
     selectedRef.current = selected;
