@@ -65,6 +65,31 @@ Bad: `done, tested`
 
 Leave the row in **Active**. Only a verifier moves it.
 
+### Say where the evidence came from
+
+CI does not run on push or on a pull request here — the only trigger is
+`workflow_dispatch`. So a green tick is never simply waiting, and **no failing
+check does not mean it passed**: it almost always means nothing ran.
+
+Write which machine produced the result, because the two are not the same claim:
+
+- `898 Python, 223 web pass locally — not dispatched` — honest and useful
+- `tests pass` — hides that macOS, Windows and the Docker build never saw it
+
+**Dispatch before writing `done` on anything platform-shaped** — a new
+dependency, a `Dockerfile` change, a renamed path, sandbox code, a committed
+binary fixture — and before anything merges to `main`:
+
+```bash
+gh workflow run ci.yml --ref <branch>
+```
+
+A run bills ~82 minutes against a metered private-repo allowance, of which 66
+are macOS at its 10x multiplier. Firing one per push is what exhausted the
+allowance and stopped every job mid-week, so dispatch deliberately: local tests
+are the fast loop, a dispatch is the cross-platform check before something
+lands.
+
 ## Verifying somebody else's task
 
 This is a real task, not a formality, and it is the one that makes the ledger
