@@ -3312,3 +3312,42 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   color: var(--danger, #B42318);
   max-width: 60ch;
 }
+
+
+/* --- spatial interaction (experimental) ------------------------------------ */
+/* The camera is an offer, not a feature the figure depends on. Everything here
+   is styled to read as secondary to the chart above it: a researcher who never
+   looks at this panel loses nothing, which is the point of Rule 5. */
+.spatial-offer { margin-top: 10px; }
+.spatial-note {
+  font-size: 12px; color: var(--ink-faint); margin-top: 4px;
+}
+.spatial-panel {
+  margin-top: 12px; padding: 12px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+}
+.spatial-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+/* A text button, for the choices that should not compete with the primary one. */
+.spatial-quiet {
+  background: none; border: none; padding: 0;
+  font: inherit; font-size: 13px; color: var(--accent);
+  text-decoration: underline; cursor: pointer;
+}
+.spatial-quiet:hover { color: var(--ink-strong); }
+.spatial-explain { font-size: 13px; color: var(--ink); }
+.spatial-explain ul { margin: 8px 0 12px; padding-left: 18px; }
+.spatial-explain li { margin-bottom: 4px; color: var(--ink-soft); }
+.spatial-live { display: block; }
+.spatial-state {
+  font-size: 13px; color: var(--ink); margin-bottom: 8px;
+}
+.spatial-device {
+  display: flex; gap: 8px; align-items: center;
+  font-size: 12px; color: var(--ink-soft); margin-top: 10px;
+}
+/* A refusal is a decision, not an error: it is legible, not alarming. */
+.spatial-failure {
+  font-size: 13px; color: var(--ink);
+  border-left: 2px solid var(--caution); padding-left: 10px; margin-top: 10px;
+}

@@ -143,7 +143,24 @@ export class SpatialSession {
       return failure;
     }
 
-    video.srcObject = result.stream;
+    try {
+      video.srcObject = result.stream;
+    } catch {
+      // Attaching the stream can fail — a detached element, an engine that
+      // refuses the assignment. Left unguarded this throws out of `start()`
+      // with the camera already open and no session to switch it off with,
+      // which is the camera-left-on failure arriving by the one route that has
+      // no control on screen afterwards.
+      this.camera.stop();
+      const failure: CameraFailure = {
+        reason: "unknown",
+        message: "The camera could not be attached to this page. Spatial "
+               + "interaction is unavailable; nothing else is affected.",
+      };
+      this.observer.onFailure?.(failure);
+      return failure;
+    }
+
     this.running = true;
     this.tracker.start(video, (frame) => this.onFrame(frame));
     return null;

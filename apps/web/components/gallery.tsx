@@ -15,7 +15,7 @@
  * rest of the product exists to prevent.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FeatureCollection, Geometry } from "geojson";
 import { PRIMITIVES } from "@/lib/primitives";
 import { Binned, Cell } from "./charts/Binned";
@@ -31,6 +31,8 @@ import { SetRegions, NamedSet, SetMember } from "./charts/SetRegions";
 import { Projection, Projected } from "./charts/Projection";
 import { Geographic, Place } from "./charts/Geographic";
 import { Volume, Point3D } from "./charts/Volume";
+import { SpatialControl } from "./spatial/SpatialControl";
+import { VisualizationController } from "@/lib/spatial/commands";
 import { Temporal, TemporalEvent } from "./charts/Temporal";
 
 const CORPUS: TreeNode = {
@@ -286,6 +288,8 @@ export function Gallery() {
   const [world, setWorld] = useState<
     FeatureCollection<Geometry, { name?: string }> | null>(null);
   const [worldFailed, setWorldFailed] = useState(false);
+  /** The 3D scatter's controller, so an input other than the mouse can drive it. */
+  const volumeRef = useRef<VisualizationController | null>(null);
 
   // The topology is bundled, not fetched — but it is 105KB, so it is loaded
   // when the gallery opens rather than in the workspace's main bundle.
@@ -410,9 +414,18 @@ export function Gallery() {
       </Section>
 
       <Section code="P13">
-        <Volume points={CLOUD} xLabel="component 1" yLabel="component 2"
+        <Volume points={CLOUD} controllerRef={volumeRef}
+                xLabel="component 1" yLabel="component 2"
                 zLabel="component 3" valueLabel="recency"
                 title="Embedding space in three components" />
+        {/*
+          * The one chart where gesture control is defensible: §3 excludes
+          * enabling it for ordinary 2D charts, and this is the only genuinely
+          * three-dimensional primitive. Rendered *after* the chart so the chart
+          * is what the reader meets first — the camera is an offer, not a
+          * precondition for reading the figure.
+          */}
+        <SpatialControl controllerRef={volumeRef} label="this 3D scatter" />
       </Section>
 
       <Section code="P14">
