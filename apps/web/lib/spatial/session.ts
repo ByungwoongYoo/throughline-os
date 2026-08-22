@@ -46,6 +46,23 @@ export type SessionObserver = {
   onState?: (state: SpatialState) => void;
   onTelemetry?: (telemetry: SpatialTelemetry) => void;
   onFailure?: (failure: CameraFailure) => void;
+  /**
+   * Every processed frame, for drawing an overlay and for calibration.
+   *
+   * **This fires at tracker rate — about thirty times a second — so it must not
+   * put a frame into React state.** That is not a style preference: publishing
+   * state per frame is the cost this session went to some trouble to remove,
+   * and routing landmarks through `useState` would reinstate it in a more
+   * expensive form, since a frame is an object of 21 points rather than a
+   * string. The intended shape is a ref written here and read by a canvas on
+   * its own animation frame, which is how `HandPreview` consumes it.
+   *
+   * Delivered whether or not a controller is attached. The overlay and the
+   * calibration screen are about what the camera saw, not about the scene —
+   * gating them on a mounted chart would leave a researcher holding a pose in
+   * front of a progress bar that never moves.
+   */
+  onFrame?: (frame: HandFrame) => void;
 };
 
 export class SpatialSession {
@@ -194,13 +211,26 @@ export class SpatialSession {
     if (frame.timestamp - this.lastProcessed < this.minFrameInterval) return;
     this.lastProcessed = frame.timestamp;
 
+    this.telemetry.frames += 1;
+
+    // The observer sees the frame whether or not there is a chart to drive.
+    //
+    // This ordering is deliberate and was wrong the first time. The overlay and
+    // the calibration screen are about *what the camera saw*, not about the
+    // scene: gating them on a mounted controller meant a researcher could open
+    // calibration, hold a pose perfectly, and watch the progress bar sit at zero
+    // — with the camera light on and nothing to explain it — for the entirely
+    // unrelated reason that a chart ref had not attached yet.
+    this.observer.onFrame?.(frame);
+
+    // Gestures, on the other hand, need something to act on. The machine also
+    // needs a viewport to map into, which only a controller can supply.
     const target = this.controller();
     if (!target) return;
 
     this.machine.viewport = target.viewport();
     const result = this.machine.step(frame);
 
-    this.telemetry.frames += 1;
     for (const event of result.events) this.telemetry[event] += 1;
 
     for (const command of result.commands) apply(target, command);

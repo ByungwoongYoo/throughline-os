@@ -3351,3 +3351,25 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   font-size: 13px; color: var(--ink);
   border-left: 2px solid var(--caution); padding-left: 10px; margin-top: 10px;
 }
+
+/* --- spatial: calibration and camera preview ------------------------------- */
+.spatial-preview {
+  display: block; border-radius: var(--r-card);
+  border: 1px solid var(--line); background: var(--gate-page);
+  margin-bottom: 10px;
+}
+.spatial-calibrate { margin-top: 10px; }
+/* A bar rather than a number: the researcher is holding a pose, and reading a
+   percentage while doing that is work they should not have to do. */
+.spatial-progress {
+  height: 4px; background: var(--line); border-radius: 2px;
+  overflow: hidden; margin-bottom: 10px;
+}
+.spatial-progress span {
+  display: block; height: 100%; background: var(--accent);
+  transition: width var(--quick) var(--ease-out-quad);
+}
+.spatial-toggles { margin-top: 10px; font-size: 12px; color: var(--ink-soft); }
+.spatial-toggles label {
+  display: flex; gap: 6px; align-items: center; cursor: pointer;
+}

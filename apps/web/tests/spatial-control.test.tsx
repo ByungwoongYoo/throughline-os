@@ -10,10 +10,11 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRef } from "react";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SpatialControl } from "@/components/spatial/SpatialControl";
 import { VisualizationController } from "@/lib/spatial/commands";
+import { DEFAULT_PREFERENCES } from "@/lib/spatial/preferences";
 
 /**
  * The tracker is stubbed, deliberately and completely.
@@ -25,11 +26,18 @@ import { VisualizationController } from "@/lib/spatial/commands";
  * `spatial-mediapipe.test.ts` covers the part of the tracker that can be
  * checked without a camera, which is the landmark mapping.
  */
+let deliverFrame: ((frame: unknown) => void) | null = null;
+
 vi.mock("@/lib/spatial/mediapipe", () => ({
   MediaPipeHandTracker: class {
     async load() {}
-    start() {}
-    stop() {}
+    start(_source: unknown, onFrame: (frame: unknown) => void) {
+      // Captured rather than ignored: this is the callback the session hands a
+      // real tracker, so a test that calls it drives the whole chain — session,
+      // machine, calibration — exactly as landmarks from a camera would.
+      deliverFrame = onFrame;
+    }
+    stop() { deliverFrame = null; }
     close() {}
     status() { return "running" as const; }
   },
@@ -39,6 +47,7 @@ let getUserMedia: ReturnType<typeof vi.fn>;
 let tracks: Array<{ stop: ReturnType<typeof vi.fn>; kind: string }>;
 
 beforeEach(() => {
+  clock = 0;
   window.localStorage.clear();
   tracks = [{ stop: vi.fn(), kind: "video" }];
   // A real `MediaStream`, not a shaped object: happy-dom type-checks the
@@ -274,5 +283,193 @@ describe("the choice is remembered, the camera is not", () => {
     await user.click(screen.getByRole("button", { name: /turn this off/i }));
 
     expect(screen.getByRole("button", { name: /try hand gestures/i })).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Calibration (§18) and the camera preview (§19)
+// ---------------------------------------------------------------------------
+
+/**
+ * Deliver frames of a held pose, as the tracker would.
+ *
+ * `pinchRatio` is the thumb-to-index distance as a fraction of the hand's own
+ * span, which is the unit calibration measures in — so "open" and "pinched" are
+ * one parameter apart rather than a rewritten fixture.
+ */
+let clock = 0;
+
+function feed(pinchRatio: number, count: number, span = 0.12) {
+  const pinch = span * pinchRatio;
+  for (let i = 0; i < count; i += 1) {
+    // The clock only ever goes forward, across calls as well as within them.
+    // The session's rate governor compares each frame against the last one it
+    // processed, so a helper that restarted at zero for the second pose had
+    // every one of its frames rejected as arriving too soon — the progress bar
+    // sat at zero and the pose looked unmeasurable. The same mistake the
+    // session itself guards against on restart.
+    clock += 40;
+    act(() => {
+      deliverFrame?.({
+        timestamp: clock,
+        hands: [{
+          handedness: "right", confidence: 0.95,
+          wrist: { x: 0.5, y: 0.5 + span * 2 },
+          indexBase: { x: 0.5, y: 0.5 + span },
+          thumbTip: { x: 0.5 - pinch / 2, y: 0.5 },
+          indexTip: { x: 0.5 + pinch / 2, y: 0.5 },
+          middleTip: { x: 0.5, y: 0.5 + span * 1.7 },
+          ringTip: { x: 0.5, y: 0.5 + span * 1.8 },
+          pinkyTip: { x: 0.5, y: 0.5 + span * 1.9 },
+          palmCenter: { x: 0.5, y: 0.5 },
+        }],
+      });
+    });
+  }
+}
+
+describe("calibration", () => {
+  async function turnOn(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole("button", { name: /try hand gestures/i }));
+    await user.click(screen.getByRole("button", { name: /set up hand gestures/i }));
+    await user.click(screen.getByRole("button", { name: /turn on the camera/i }));
+    await waitFor(() => screen.getByRole("button", { name: /turn off the camera/i }));
+  }
+
+  it("is offered but never required", async () => {
+    /**
+     * §18, and the reason the span-relative thresholds came first: the defaults
+     * already work for most hands at most distances, so calibration is for the
+     * people they do not work for — not a gate everybody walks through before
+     * using the feature once.
+     */
+    const user = userEvent.setup();
+    mount();
+    await turnOn(user);
+
+    // Running, tracking, and no calibration in sight.
+    expect(screen.getByRole("button", { name: /calibrate/i })).toBeTruthy();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+
+  it("asks for one pose at a time, in words that say what to do", async () => {
+    const user = userEvent.setup();
+    mount();
+    await turnOn(user);
+
+    await user.click(screen.getByRole("button", { name: /calibrate/i }));
+
+    expect(screen.getByRole("status").textContent).toMatch(/hold your hand open/i);
+    // Cannot advance before the pose has actually been measured.
+    expect(screen.getByRole("button", { name: /^next$/i }).hasAttribute("disabled"))
+      .toBe(true);
+  });
+
+  it("can be abandoned without disturbing anything", async () => {
+    /** A researcher who opened it by accident must be able to leave. */
+    const user = userEvent.setup();
+    mount();
+    await turnOn(user);
+    await user.click(screen.getByRole("button", { name: /calibrate/i }));
+
+    await user.click(screen.getByRole("button", { name: /cancel/i }));
+
+    expect(screen.queryByRole("progressbar")).toBeNull();
+    expect(screen.getByRole("button", { name: /turn off the camera/i })).toBeTruthy();
+  });
+});
+
+describe("calibration, driven to a conclusion", () => {
+  async function turnOn(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole("button", { name: /try hand gestures/i }));
+    await user.click(screen.getByRole("button", { name: /set up hand gestures/i }));
+    await user.click(screen.getByRole("button", { name: /turn on the camera/i }));
+    await waitFor(() => screen.getByRole("button", { name: /turn off the camera/i }));
+    await user.click(screen.getByRole("button", { name: /calibrate/i }));
+  }
+
+  it("measures a pose and then lets the researcher move on", async () => {
+    const user = userEvent.setup();
+    mount();
+    await turnOn(user);
+
+    feed(2.0, 14);   // open hand, held
+
+    const next = screen.getByRole("button", { name: /^next$/i });
+    await waitFor(() => expect(next.hasAttribute("disabled")).toBe(false));
+    expect(Number(screen.getByRole("progressbar").getAttribute("aria-valuenow")))
+      .toBe(100);
+  });
+
+  it("finishes, and the thresholds it derived are the ones that persist", async () => {
+    /**
+     * The whole point of a calibration screen: something has to change because
+     * of it. `CalibrationManager` existed for two commits computing thresholds
+     * that nothing consumed, which is the failure this test exists to prevent
+     * from recurring quietly.
+     */
+    const user = userEvent.setup();
+    mount();
+    await turnOn(user);
+
+    feed(2.0, 14);                                           // open
+    await user.click(screen.getByRole("button", { name: /^next$/i }));
+    feed(0.2, 14);                                           // pinched
+    await user.click(screen.getByRole("button", { name: /finish/i }));
+
+    await waitFor(() => expect(screen.queryByRole("progressbar")).toBeNull());
+
+    const stored = JSON.parse(
+      window.localStorage.getItem("throughline-spatial") ?? "{}");
+    // Between the two measured poses, and hysteresis preserved.
+    expect(stored.settings.pinchRatioOn).toBeGreaterThan(0.2);
+    expect(stored.settings.pinchRatioOn).toBeLessThan(2.0);
+    expect(stored.settings.pinchRatioOff)
+      .toBeGreaterThan(stored.settings.pinchRatioOn);
+  });
+
+  it("refuses two poses that did not separate, and says what to do", async () => {
+    /**
+     * The refusal is the useful outcome, not an error path to smooth over.
+     * Thresholds derived from two attempts at the same pose would sit inside
+     * the noise, and the researcher would leave the screen believing they were
+     * set up — then blame the tracking for the rest of the session.
+     */
+    const user = userEvent.setup();
+    mount();
+    await turnOn(user);
+
+    feed(0.30, 14);
+    await user.click(screen.getByRole("button", { name: /^next$/i }));
+    feed(0.29, 14);
+    await user.click(screen.getByRole("button", { name: /finish/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/open your hand wide/i);
+    // Nothing was persisted from a calibration that was refused.
+    const stored = JSON.parse(
+      window.localStorage.getItem("throughline-spatial") ?? "{}");
+    expect(stored.settings?.pinchRatioOn)
+      .toBe(DEFAULT_PREFERENCES.settings.pinchRatioOn);
+  });
+
+  it("starts over rather than stranding the researcher after a refusal", async () => {
+    const user = userEvent.setup();
+    mount();
+    await turnOn(user);
+    feed(0.30, 14);
+    await user.click(screen.getByRole("button", { name: /^next$/i }));
+    feed(0.29, 14);
+    await user.click(screen.getByRole("button", { name: /finish/i }));
+    await screen.findByRole("alert");
+
+    // Back at the first pose, with a fresh measurement, and it works.
+    expect(screen.getByRole("status").textContent).toMatch(/hold your hand open/i);
+    feed(2.0, 14);
+    await user.click(screen.getByRole("button", { name: /^next$/i }));
+    feed(0.2, 14);
+    await user.click(screen.getByRole("button", { name: /finish/i }));
+
+    await waitFor(() => expect(screen.queryByRole("progressbar")).toBeNull());
   });
 });

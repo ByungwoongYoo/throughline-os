@@ -24,9 +24,24 @@ import { CameraDevice, CameraFailure, CameraManager } from "@/lib/spatial/camera
 import { SpatialState } from "@/lib/spatial/machine";
 import { SpatialSession } from "@/lib/spatial/session";
 import { MediaPipeHandTracker } from "@/lib/spatial/mediapipe";
+import { CalibrationManager, CalibrationStep } from "@/lib/spatial/calibration";
+import { HandFrame } from "@/lib/spatial/types";
+import { HandPreview } from "./HandPreview";
 import {
   DEFAULT_PREFERENCES, SpatialPreferences, readPreferences, writePreferences,
 } from "@/lib/spatial/preferences";
+
+/**
+ * What each calibration step asks for.
+ *
+ * Phrased as an instruction rather than a status, because the researcher is
+ * being asked to do something and "Step 1 of 2" tells them nothing about what.
+ */
+const CALIBRATION_PROMPT: Record<CalibrationStep, string> = {
+  open: "Hold your hand open, fingers spread, and keep it still.",
+  pinch: "Now touch your thumb and index finger together, and hold.",
+  done: "Calibrated.",
+};
 
 /** What each state means, in the researcher's terms rather than the machine's. */
 const EXPLAIN: Record<SpatialState, string> = {
@@ -52,10 +67,28 @@ export function SpatialControl({ controllerRef, label }: {
   const [failure, setFailure] = useState<CameraFailure | null>(null);
   const [devices, setDevices] = useState<CameraDevice[]>([]);
   const [running, setRunning] = useState(false);
+  const [calibrating, setCalibrating] = useState(false);
+  const [step, setStep] = useState<CalibrationStep>("open");
+  const [progress, setProgress] = useState(0);
+  const [calibrationProblem, setCalibrationProblem] = useState<string | null>(null);
+  const [showPreview, setShowPreview] = useState(true);
+  const [showSkeleton, setShowSkeleton] = useState(true);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const sessionRef = useRef<SpatialSession | null>(null);
   const trackerRef = useRef<MediaPipeHandTracker | null>(null);
+  /**
+   * The latest processed frame, as a ref rather than state.
+   *
+   * Frames arrive ~30 times a second. Putting one in `useState` would re-render
+   * the workspace at tracker rate — the exact cost the session was rewritten to
+   * remove — so the preview canvas reads this on its own animation frame and
+   * React never hears about an individual frame at all.
+   */
+  const frameRef = useRef<HandFrame | null>(null);
+  const calibrationRef = useRef<CalibrationManager | null>(null);
+  /** What the bar was last told, so the throttle can tell when it has news. */
+  const publishedProgressRef = useRef(0);
 
   // Read on mount rather than during render: `localStorage` is not available on
   // the server, and reading it in the component body would make the first client
@@ -95,6 +128,32 @@ export function SpatialControl({ controllerRef, label }: {
       {
         onState: setState,
         onFailure: (reported) => { setFailure(reported); stop(); },
+        onFrame: (frame) => {
+          frameRef.current = frame;
+
+          // Calibration samples the same frames the gestures do, rather than
+          // opening a second path to the tracker. Progress is published coarsely
+          // — a percentage per frame would re-render at tracker rate to move a
+          // bar by three pixels.
+          const calibration = calibrationRef.current;
+          if (!calibration || frame.hands.length === 0) return;
+          calibration.sample(frame.hands[0]);
+
+          const next = calibration.progress();
+          const published = publishedProgressRef.current;
+          // Completion is always published, whatever bucket it falls in. The
+          // first version rounded to quarters and nothing else, so 11 of 12
+          // samples and 12 of 12 landed in the same bucket — the bar stopped at
+          // 92%, the button stayed disabled, and the researcher was left holding
+          // a pose that had in fact already been measured. Throttling that drops
+          // the final update drops the only one that unblocks anything.
+          const crossedBucket =
+            Math.round(next * 4) !== Math.round(published * 4);
+          if (next !== published && (crossedBucket || next >= 1)) {
+            publishedProgressRef.current = next;
+            setProgress(next);
+          }
+        },
       },
       preferences.settings,
     );
@@ -119,6 +178,62 @@ export function SpatialControl({ controllerRef, label }: {
     // appear after the camera is already running.
     setDevices(await session.devices());
   }, [controllerRef, preferences.deviceId, preferences.settings, stop]);
+
+  /**
+   * Begin the two-pose calibration described in §18.
+   *
+   * Optional, always. The span-relative thresholds mean the defaults already
+   * work for most hands at most distances, so this exists for the people they
+   * do not work for — not as a gate everybody walks through before using the
+   * feature for the first time.
+   */
+  function startCalibration() {
+    calibrationRef.current = new CalibrationManager();
+    setCalibrationProblem(null);
+    setStep("open");
+    setProgress(0);
+    publishedProgressRef.current = 0;
+    setCalibrating(true);
+  }
+
+  /**
+   * Advance, or finish and apply.
+   *
+   * The result is applied to the live session as well as persisted, so the
+   * researcher can feel the difference immediately rather than being told to
+   * turn the feature off and on again.
+   */
+  function advanceCalibration() {
+    const calibration = calibrationRef.current;
+    if (!calibration) return;
+
+    if (calibration.current() === "open") {
+      calibration.advance();
+      setStep("pinch");
+      setProgress(0);
+      publishedProgressRef.current = 0;
+      return;
+    }
+
+    const result = calibration.finish();
+    if (!result.ok) {
+      // A refusal is the useful outcome here, not an error to be smoothed over:
+      // thresholds derived from two poses that did not separate would misread
+      // the researcher for the rest of the session, and they would blame the
+      // tracking rather than the setup screen that told them they were done.
+      setCalibrationProblem(result.message);
+      calibrationRef.current = new CalibrationManager();
+      setStep("open");
+      setProgress(0);
+      publishedProgressRef.current = 0;
+      return;
+    }
+
+    update({ settings: { ...preferences.settings, ...result.settings } });
+    sessionRef.current?.configure(result.settings);
+    calibrationRef.current = null;
+    setCalibrating(false);
+  }
 
   function update(next: Partial<SpatialPreferences>) {
     const merged = { ...preferences, ...next };
@@ -198,9 +313,48 @@ export function SpatialControl({ controllerRef, label }: {
 
       {running && (
         <div className="spatial-live">
+          {/*
+            * §19 — shown while it is useful, hidden when it is not. During
+            * setup the only question is "is my hand in frame and does the
+            * tracker agree"; afterwards the research visualization is the thing
+            * being looked at, and a webcam feed of your own face is a
+            * distraction. Kept mounted rather than unmounted when hidden, so
+            * toggling it back does not restart the preview's animation frame.
+            */}
+          {showPreview && (
+            <HandPreview videoRef={videoRef} frameRef={frameRef}
+                         showSkeleton={showSkeleton} />
+          )}
+
           <p className="spatial-state" role="status" aria-live="polite">
-            {EXPLAIN[state]}
+            {calibrating ? CALIBRATION_PROMPT[step] : EXPLAIN[state]}
           </p>
+
+          {calibrating && (
+            <div className="spatial-calibrate">
+              <div className="spatial-progress"
+                   role="progressbar" aria-valuenow={Math.round(progress * 100)}
+                   aria-valuemin={0} aria-valuemax={100}
+                   aria-label="Calibration progress">
+                <span style={{ width: `${Math.round(progress * 100)}%` }} />
+              </div>
+              <div className="spatial-row">
+                <button type="button" disabled={progress < 1}
+                        onClick={advanceCalibration}>
+                  {step === "open" ? "Next" : "Finish"}
+                </button>
+                <button type="button" className="spatial-quiet"
+                        onClick={() => { calibrationRef.current = null;
+                                         setCalibrating(false); }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {calibrationProblem && (
+            <p className="spatial-failure" role="alert">{calibrationProblem}</p>
+          )}
           <div className="spatial-row">
             <button type="button"
                     onClick={() => {
@@ -216,6 +370,26 @@ export function SpatialControl({ controllerRef, label }: {
             <button type="button" onClick={stop}>
               Turn off the camera
             </button>
+            {!calibrating && (
+              <button type="button" className="spatial-quiet"
+                      onClick={startCalibration}>
+                Calibrate
+              </button>
+            )}
+          </div>
+
+          {/* §19 — the researcher decides how much of the camera they see. */}
+          <div className="spatial-row spatial-toggles">
+            <label>
+              <input type="checkbox" checked={showPreview}
+                     onChange={(event) => setShowPreview(event.target.checked)} />
+              Camera preview
+            </label>
+            <label>
+              <input type="checkbox" checked={showSkeleton}
+                     onChange={(event) => setShowSkeleton(event.target.checked)} />
+              Hand outline
+            </label>
           </div>
 
           {devices.length > 1 && (

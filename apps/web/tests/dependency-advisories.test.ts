@@ -27,6 +27,7 @@
 
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+import { execSync } from "node:child_process";
 
 const pkg = JSON.parse(readFileSync("package.json", "utf8"));
 
@@ -62,11 +63,11 @@ describe("advisories that arrived through a dependency", () => {
      * down rather than discovering the reasoning is stale.
      */
     const usesImage = ["app", "components"].some((directory) => {
-      const { execSync } = require("node:child_process");
       try {
         execSync(`grep -rl "next/image" ${directory}`, { stdio: "pipe" });
         return true;
       } catch {
+        // grep exits non-zero when it finds nothing, which is the answer here.
         return false;
       }
     });
