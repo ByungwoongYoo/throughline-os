@@ -29,6 +29,21 @@ all of them when you press Ctrl-C. It prints:
 will load the interface and then refuse camera access, because browsers only
 allow cameras on secure origins and `localhost` is the one exception.
 
+### If anything looks wrong, ask first
+
+```bash
+python scripts/manage.py doctor
+```
+
+It checks the Python version, the virtualenv, Node, the hand-tracking model
+(including that the file is the one it should be, not a truncated download), both
+ports, the database and migrations, and whether this machine has haptic hardware.
+Every failing check names the command that fixes it.
+
+A port held by an already-running Throughline is reported as *already serving*
+rather than as a failure, because that is the normal state and a tool that calls
+the working case a failure is one you learn to ignore.
+
 ### If it will not start
 
 | What it says | What it means |

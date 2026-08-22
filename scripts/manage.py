@@ -618,6 +618,204 @@ def node_exe(node_binary: str, name: str) -> str:
     return str(beside) if beside.exists() else name
 
 
+
+# ---------------------------------------------------------------------------
+# Checking the installation
+# ---------------------------------------------------------------------------
+
+#: The model the interface fetches, and the hash it was built against. Kept here
+#: as well as in the vendoring script because this check has to be able to say
+#: "present but not the file we expect", which a bare existence test cannot.
+MODEL_SHA256 = "fbc2a30080c3c557093b5ddfc334698132eb341044ccee322ccf8bcf3607cde1"
+
+
+def _check(name: str, ok: bool, detail: str, fix: str = "") -> dict[str, Any]:
+    return {"name": name, "ok": ok, "detail": detail, "fix": fix}
+
+
+def _check_python() -> dict[str, Any]:
+    """3.12 exactly, and this is not fussiness.
+
+    `pgserver` — the embedded PostgreSQL the whole product is built on —
+    publishes no wheel past cp312. On 3.13 the install fails with a message about
+    a package nobody has heard of, at the end of a long download.
+    """
+    version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    return _check(
+        "Python", version == "3.12", f"{version} ({sys.executable})",
+        "" if version == "3.12"
+        else "The embedded PostgreSQL publishes no wheel past 3.12. Create the "
+             "virtualenv with python3.12.")
+
+
+def _check_venv() -> dict[str, Any]:
+    python = venv_python()
+    return _check("Virtualenv", python.exists(), str(python),
+                  "" if python.exists() else "python scripts/manage.py bootstrap")
+
+
+def _check_node() -> dict[str, Any]:
+    node = _node_on_path()
+    if not node:
+        return _check("Node", False, "not found",
+                      "Install Node 20 or newer. The API works without it; the "
+                      "interface does not.")
+    try:
+        version = subprocess.run([node, "--version"], capture_output=True,
+                                 text=True).stdout.strip()
+    except OSError:
+        version = "unknown"
+    return _check("Node", True, f"{version} ({node})")
+
+
+def _check_model() -> dict[str, Any]:
+    """Present, and the file we expect.
+
+    A truncated or half-downloaded model exists on disk and fails in the browser
+    with a message about WASM, which points nowhere near the cause.
+    """
+    path = ROOT / "apps" / "web" / "public" / "mediapipe" / "hand_landmarker.task"
+    if not path.exists():
+        return _check("Hand-tracking model", False, "not installed",
+                      "npm --prefix apps/web run vendor:hand-model")
+
+    import hashlib
+
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    if digest != MODEL_SHA256:
+        return _check(
+            "Hand-tracking model", False,
+            f"present but the contents do not match ({digest[:12]}…)",
+            "npm --prefix apps/web run vendor:hand-model")
+    return _check("Hand-tracking model", True,
+                  f"{path.stat().st_size // (1024 * 1024)}MB, hash matches")
+
+
+def _answers(url: str) -> bool:
+    """Whether something at this address is already serving Throughline."""
+    import urllib.error
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(url, timeout=2) as response:
+            return 200 <= response.status < 400
+    except (urllib.error.URLError, OSError, ValueError):
+        return False
+
+
+def _check_ports(api_port: int, web_port: int) -> list[dict[str, Any]]:
+    """A held port is only a problem if it is somebody else holding it.
+
+    The first version reported two failures whenever the stack was running,
+    which is the normal state and the one somebody is most likely to be in when
+    they run this. A check that calls the working case a failure teaches people
+    to ignore it, and then it is worth nothing on the day it matters.
+
+    So each port is asked whether *this* product is answering there. If it is,
+    that is not a fault to fix, it is the thing already working.
+    """
+    results = []
+    for label, port, probe in (
+            ("API", api_port, f"http://127.0.0.1:{api_port}/api/health"),
+            ("Web interface", web_port, f"http://127.0.0.1:{web_port}/")):
+        owner = port_owner(port)
+        if owner is None:
+            results.append(_check(f"Port {port} ({label})", True, "free"))
+            continue
+        if _answers(probe):
+            results.append(_check(
+                f"Port {port} ({label})", True,
+                f"already serving ({owner}) — nothing to do"))
+            continue
+        results.append(_check(
+            f"Port {port} ({label})", False, f"in use by {owner}, and not "
+            f"answering as Throughline",
+            "Stop that process, or run with PORT= and WEB_PORT= set to other "
+            "ports."))
+    return results
+
+
+def _check_database() -> dict[str, Any]:
+    """Reachable, and migrated. Two different failures with two different fixes."""
+    python = venv_python()
+    if not python.exists():
+        return _check("Database", False, "no virtualenv yet",
+                      "python scripts/manage.py bootstrap")
+    probe = subprocess.run(
+        [str(python), "-c",
+         "from throughline_domain.migrate import migrate;"
+         " a = migrate();"
+         " print('applied' if a else 'up to date')"],
+        capture_output=True, text=True)
+    if probe.returncode != 0:
+        last = (probe.stderr.strip().splitlines() or ["failed"])[-1]
+        return _check("Database", False, last[:160],
+                      "If this mentions a vector extension, see the note in "
+                      "throughline_domain/preflight.py — the container is "
+                      "x86-64 only.")
+    return _check("Database", True, f"migrations {probe.stdout.strip()}")
+
+
+def _check_haptics() -> dict[str, Any]:
+    """Reported rather than required. Most machines have nothing, and that is
+    a fine answer — the interface falls back to visual confirmation."""
+    python = venv_python()
+    if not python.exists():
+        return _check("Haptics", True, "unknown until the virtualenv exists")
+    probe = subprocess.run(
+        [str(python), "-c",
+         "from throughline_domain import haptics;"
+         " c = haptics.capability();"
+         " print('available' if c['available'] else 'none on this machine')"],
+        capture_output=True, text=True)
+    detail = probe.stdout.strip() or "none on this machine"
+    # Never a failure: no actuator is the common case, not a broken install.
+    return _check("Haptics", True, detail)
+
+
+def doctor(api_port: int, web_port: int) -> int:
+    """Say what is wrong with this installation, in one pass.
+
+    Written for the person testing this alone. The alternative — and what
+    happened before it existed — is discovering each problem one at a time, in
+    the middle of doing something else, from an error that names a symptom
+    several layers away from its cause.
+
+    Every check that fails carries the command that fixes it. A diagnosis
+    without a next step is only a better-worded complaint.
+    """
+    checks: list[dict[str, Any]] = [
+        _check_python(), _check_venv(), _check_node(), _check_model(),
+        *_check_ports(api_port, web_port), _check_database(), _check_haptics(),
+    ]
+
+    print()
+    for check in checks:
+        mark = "ok  " if check["ok"] else "FAIL"
+        print(f"  [{mark}] {check['name']:<24} {check['detail']}", flush=True)
+        if check["fix"]:
+            print(f"         {check['fix']}", flush=True)
+
+    failed = [c for c in checks if not c["ok"]]
+    print()
+    if failed:
+        print(f"  {len(failed)} of {len(checks)} checks failed.", flush=True)
+        return 1
+
+    # Say the next step, and make it the *right* next step. Telling somebody to
+    # start something that is plainly already running is the kind of small
+    # wrongness that makes a tool feel like it is not paying attention.
+    running = any("already serving" in c["detail"] for c in checks)
+    if running:
+        print(f"  Everything checks out, and it is already running:", flush=True)
+        print(f"    Throughline    http://localhost:{web_port}", flush=True)
+        print(f"    Gesture check  http://localhost:{web_port}/gesture-check",
+              flush=True)
+    else:
+        print("  Everything checks out. Start it with ./scripts/dev.sh", flush=True)
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -626,6 +824,10 @@ def main() -> int:
     run.add_argument("--api-port", type=int, default=int(os.environ.get("PORT", 8080)))
     run.add_argument("--web-port", type=int, default=int(os.environ.get("WEB_PORT", 3000)))
     sub.add_parser("sync", help="fetch, and show what everyone else is working on")
+    doc = sub.add_parser("doctor", help="check this installation and say what is wrong")
+    doc.add_argument("--api-port", type=int, default=int(os.environ.get("PORT", 8080)))
+    doc.add_argument("--web-port", type=int,
+                     default=int(os.environ.get("WEB_PORT", 3000)))
     check = sub.add_parser("preflight", help="run CI's checks before pushing")
     check.add_argument("--full", action="store_true",
                        help="include the whole backend suite (about three minutes)")
@@ -635,6 +837,8 @@ def main() -> int:
         return bootstrap()
     if args.command == "sync":
         return sync()
+    if args.command == "doctor":
+        return doctor(args.api_port, args.web_port)
     if args.command == "preflight":
         return preflight(args.full)
     return dev(args.api_port, args.web_port)

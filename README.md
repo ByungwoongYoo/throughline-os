@@ -59,7 +59,7 @@ the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **1099 backend tests and 432 web tests**, with 6 backend
+The current suite is **1106 backend tests and 432 web tests**, with 6 backend
 skips, each carrying a reason CI's allowlist recognises — a skip with an
 unrecognised reason fails the build, so the suite cannot quietly shrink.
 
@@ -223,6 +223,18 @@ New API surface goes in its **own router module** mounted with one line in
 `app.py`, rather than as more routes inside it. This is a merge decision, not an
 architectural one: `app.py` is the file two branches always both touch, and the
 last wave merged with zero conflicts because nothing new was added to it.
+
+## Is this installation healthy?
+
+```bash
+python scripts/manage.py doctor
+```
+
+One pass over the Python version, the virtualenv, Node, the hand-tracking model
+and its hash, both ports, the database and its migrations, and whether this
+machine has haptic hardware. Every failing check names the command that fixes
+it, and a port held by an already-running Throughline is reported as *already
+serving* rather than as a failure.
 
 ## Trying it by hand
 

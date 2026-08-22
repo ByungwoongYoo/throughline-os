@@ -91,3 +91,74 @@ def test_hand_tracking_readiness_is_reported_from_the_file_that_matters():
                 / "hand_landmarker.task")
 
     assert manage._hand_tracking_ready() == expected.exists()
+
+
+# ---------------------------------------------------------------------------
+# `doctor`, which exists to be run by somebody with nobody to ask
+# ---------------------------------------------------------------------------
+
+def test_a_running_stack_is_not_reported_as_a_failure(monkeypatch, capsys):
+    """The check that was wrong on its first run.
+
+    Ports are held whenever the product is running, which is the normal state
+    and the one somebody is most likely to be in when they run this. Reporting
+    that as two failures teaches people to ignore the tool, and then it is worth
+    nothing on the day it matters.
+    """
+    monkeypatch.setattr(manage, "port_owner", lambda port: "node (pid 1)")
+    monkeypatch.setattr(manage, "_answers", lambda url: True)
+
+    results = manage._check_ports(8080, 3000)
+
+    assert all(check["ok"] for check in results)
+    assert all("already serving" in check["detail"] for check in results)
+
+
+def test_a_port_held_by_something_else_is_a_failure_with_a_way_out(monkeypatch):
+    """Held and *not* answering as Throughline is the case worth flagging."""
+    monkeypatch.setattr(manage, "port_owner", lambda port: "node (pid 1)")
+    monkeypatch.setattr(manage, "_answers", lambda url: False)
+
+    results = manage._check_ports(8080, 3000)
+
+    assert not any(check["ok"] for check in results)
+    for check in results:
+        assert "PORT=" in check["fix"], "a diagnosis with no next step"
+
+
+def test_a_model_that_is_present_but_wrong_is_caught(monkeypatch, tmp_path):
+    """A truncated download exists on disk and fails in the browser with a
+    message about WASM, which points nowhere near the cause."""
+    target = tmp_path / "apps" / "web" / "public" / "mediapipe"
+    target.mkdir(parents=True)
+    (target / "hand_landmarker.task").write_bytes(b"not the model")
+    monkeypatch.setattr(manage, "ROOT", tmp_path)
+
+    result = manage._check_model()
+
+    assert result["ok"] is False
+    assert "do not match" in result["detail"]
+    assert "vendor:hand-model" in result["fix"]
+
+
+def test_a_missing_model_names_the_command_that_installs_it(monkeypatch, tmp_path):
+    monkeypatch.setattr(manage, "ROOT", tmp_path)
+
+    result = manage._check_model()
+
+    assert result["ok"] is False
+    assert "vendor:hand-model" in result["fix"]
+
+
+def test_no_haptic_hardware_is_never_a_failure(monkeypatch):
+    """Most machines have none. That is a fine answer, and the interface falls
+    back to visual confirmation — calling it a broken install would be wrong."""
+    assert manage._check_haptics()["ok"] is True
+
+
+def test_every_failing_check_carries_a_fix():
+    """A diagnosis without a next step is only a better-worded complaint."""
+    for check in (manage._check_python(), manage._check_venv(),
+                  manage._check_node(), manage._check_model()):
+        if not check["ok"]:
+            assert check["fix"], check["name"]
