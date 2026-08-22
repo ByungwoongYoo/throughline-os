@@ -811,6 +811,8 @@ def doctor(api_port: int, web_port: int) -> int:
         print(f"    Throughline    http://localhost:{web_port}", flush=True)
         print(f"    Gesture check  http://localhost:{web_port}/gesture-check",
               flush=True)
+        print(f"    Air Ink        http://localhost:{web_port}/air-ink",
+              flush=True)
     else:
         print("  Everything checks out. Start it with ./scripts/dev.sh", flush=True)
     return 0

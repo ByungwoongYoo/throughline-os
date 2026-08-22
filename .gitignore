@@ -13,6 +13,9 @@ __pycache__/
 
 # Next.js / JavaScript builds
 .next/
+# Isolated build output, for verifying a build without disturbing a running
+# dev server. See the note on `distDir` in apps/web/next.config.ts.
+.next-*/
 out/
 dist/
 build/

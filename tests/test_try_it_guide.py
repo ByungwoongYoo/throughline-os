@@ -85,3 +85,64 @@ def test_it_tells_the_reader_to_avoid_a_LAN_address():
     browsers only allow cameras on secure origins."""
     assert "LAN address" in GUIDE
     assert "localhost" in GUIDE
+
+
+# ---------------------------------------------------------------------------
+# The pages these documents send people to
+# ---------------------------------------------------------------------------
+#
+# Every localhost URL in the guide, and every one `doctor` prints, is an
+# instruction to somebody testing alone. A path that does not exist sends them
+# to a 404 and leaves them unable to tell a missing page from a broken install —
+# the precise situation both documents exist to prevent.
+
+
+def _routes() -> set[str]:
+    """Every page the Next app actually serves, as a URL path."""
+    app = ROOT / "apps" / "web" / "app"
+    found = set()
+    for page in app.rglob("page.tsx"):
+        rel = page.relative_to(app).parent.as_posix()
+        # `as_posix()` renders the app root as "." rather than "", and a route
+        # group — (marketing) and the like — is a directory that is not part of
+        # the URL. Both drop out here, so the root page is "/" and not "/.".
+        parts = [p for p in rel.split("/")
+                 if p and p != "." and not p.startswith("(")]
+        found.add("/" + "/".join(parts) if parts else "/")
+    return found
+
+
+def _localhost_paths(text: str) -> set[str]:
+    paths = set()
+    for match in re.findall(r"localhost:\{?\w*\}?(?:3000)?(/[a-z0-9\-/]*)", text):
+        # Trailing punctuation from prose, and the bare root.
+        cleaned = match.rstrip("/.,)>") or "/"
+        paths.add(cleaned)
+    return paths
+
+
+def test_every_page_the_guide_links_to_exists():
+    routes = _routes()
+    for path in _localhost_paths(GUIDE):
+        assert path in routes, f"TRY_IT.md links to {path}, which is not a page"
+
+
+def test_every_page_doctor_prints_exists():
+    doctor = (ROOT / "scripts" / "manage.py").read_text(encoding="utf-8")
+    routes = _routes()
+    for path in _localhost_paths(doctor):
+        assert path in routes, f"manage.py prints {path}, which is not a page"
+
+
+def test_the_pages_worth_testing_by_hand_are_both_advertised():
+    """The two pages that need a person, named where a person will look.
+
+    Neither can be verified by this suite — one asks whether the tracking sees
+    your hand, the other whether a line you draw lands where you meant it to —
+    so the only thing that can be checked here is that somebody testing alone is
+    actually told they exist.
+    """
+    doctor = (ROOT / "scripts" / "manage.py").read_text(encoding="utf-8")
+    for path in ("/gesture-check", "/air-ink"):
+        assert path in doctor, f"doctor does not mention {path}"
+        assert path in GUIDE, f"TRY_IT.md does not mention {path}"

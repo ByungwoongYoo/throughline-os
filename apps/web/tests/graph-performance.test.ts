@@ -123,7 +123,7 @@ describe(`the graph at ${NODES.toLocaleString()} nodes`, () => {
     const ticksToSettle = Math.ceil(
       Math.log(0.001) / Math.log(1 - 0.0228));
 
-    // eslint-disable-next-line no-console
+     
     console.log(
       `\n  force tick @ ${NODES} nodes / ${LINKS} links:`
       + `\n    median ${middle.toFixed(1)}ms · worst ${worst.toFixed(1)}ms`
@@ -175,7 +175,7 @@ describe(`the graph at ${NODES.toLocaleString()} nodes`, () => {
     }
 
     const middle = median(samples);
-    // eslint-disable-next-line no-console
+     
     console.log(`position packing @ ${NODES} nodes: median ${middle.toFixed(3)}ms`);
     expect(middle).toBeLessThan(FRAME_BUDGET_MS / 2);
   });
@@ -202,7 +202,7 @@ describe(`the graph at ${NODES.toLocaleString()} nodes`, () => {
     }
 
     const middle = median(samples);
-    // eslint-disable-next-line no-console
+     
     console.log(`linear hit-test @ ${NODES} nodes: median ${middle.toFixed(4)}ms`);
     // A linear scan of 5,000 nodes is roughly 5,000 hypot calls. That is far
     // inside a frame, which is why the absent quadtree costs nothing — the

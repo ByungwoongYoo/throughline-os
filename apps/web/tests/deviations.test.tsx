@@ -13,7 +13,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Deviations } from "@/components/deviations";
 import * as useApiModule from "@/lib/useApi";
 import * as apiModule from "@/lib/api";

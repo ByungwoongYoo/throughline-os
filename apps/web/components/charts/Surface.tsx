@@ -37,7 +37,7 @@ import {
   useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 } from "react";
 import {
-  Camera, DEFAULT_CAMERA, DEPTH_RANGE, project, resetCamera, rotateCamera,
+  Camera, DEFAULT_CAMERA, DEPTH_RANGE, resetCamera, rotateCamera,
   toCanvas, unitScale, zoomCamera,
 } from "@/lib/charts/scene3d";
 import { ScreenPoint, TargetRef, VisualizationController } from "@/lib/spatial/commands";
