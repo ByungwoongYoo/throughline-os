@@ -33,6 +33,7 @@ import { SpatialStroke, isClosed, observedPoints, strokeLength } from "@/lib/ink
 import { describeSelection, selectWithinStroke } from "@/lib/ink/select";
 import { describeContext, selectionContext } from "@/lib/ink/context";
 import { ReferenceTimeline } from "@/lib/voice/timeline";
+import { now } from "@/lib/spatial/clock";
 import { resolveUtterance } from "@/lib/voice/deixis";
 import { describeIntent, readIntent } from "@/lib/voice/intent";
 import { ScriptedSpeechSource } from "@/lib/voice/source";
@@ -149,7 +150,7 @@ export default function AirInkPage() {
     if (referenceId !== null) {
       const last = observed[observed.length - 1];
       if (selection?.ok) {
-        timelineRef.current.complete(referenceId, last?.timestamp ?? Date.now(),
+        timelineRef.current.complete(referenceId, last?.timestamp ?? now(),
           { targets: selection.targets.map((t) => t.id) });
       } else {
         // A loop that caught nothing is not a referent. Leaving it open would
@@ -333,9 +334,11 @@ export default function AirInkPage() {
               const source = new ScriptedSpeechSource();
               const words: Array<{ text: string; at: number }> = [];
               source.start((e) => words.push({ text: e.text, at: e.at }));
-              // Spread over the last second, as speech would have arrived.
-              const now = Date.now();
-              source.utter(said, now - 1000, 1000);
+              // Spread over the last second, as speech would have arrived —
+              // on the *same clock the hand frames use*. `Date.now()` here put
+              // every word 55 years after every gesture, so nothing could ever
+              // bind and nothing looked wrong.
+              source.utter(said, now() - 1000, 1000);
               const resolved = resolveUtterance({ words, final: true },
                                                 timelineRef.current);
               setProposal(describeIntent(readIntent(resolved)));

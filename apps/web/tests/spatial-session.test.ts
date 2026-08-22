@@ -633,3 +633,37 @@ describe("reporting how fast it is actually running", () => {
     for (const rate of rates) expect(rate).toBeLessThan(60);
   });
 });
+
+describe("the session measures its own lag", () => {
+  /**
+   * §149 asks for camera-to-visible-response as a distribution rather than an
+   * assurance. This is the part a page can actually see — from the timestamp on
+   * a frame to finishing everything done with it — and measuring it is what
+   * turns "it feels laggy" from an opinion into a report.
+   */
+  it("reports nothing before a frame has been processed", () => {
+    const tracker = new ScriptedHandTracker(SCRIPT);
+    const { controller } = fakeController();
+    expect(new SpatialSession(tracker, () => controller).latencySummary())
+      .toBeNull();
+  });
+
+  it("measures every frame it acts on", async () => {
+    grantCamera(fakeStream().stream);
+    const tracker = new ScriptedHandTracker(SCRIPT);
+    const { controller } = fakeController();
+    const session = new SpatialSession(tracker, () => controller);
+
+    // Asserted rather than assumed: the first version of this test skipped it,
+    // `start` returned "unsupported" because no camera was stubbed, `running`
+    // stayed false, and every frame was dropped at the first guard — so the
+    // test measured nothing and blamed the recorder.
+    expect(await session.start({} as HTMLVideoElement)).toBeNull();
+    while (tracker.step((frame) => session["onFrame"](frame))) { /* replay */ }
+
+    const summary = session.latencySummary();
+    expect(summary).not.toBeNull();
+    expect(summary!.samples).toBeGreaterThan(0);
+    expect(summary!.p50).toBeGreaterThanOrEqual(0);
+  });
+});

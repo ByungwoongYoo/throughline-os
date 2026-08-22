@@ -35,6 +35,7 @@ import { HandMeasurement, SpatialControl }
 import { VisualizationController } from "@/lib/spatial/commands";
 import { SpatialTelemetry, emptyTelemetry } from "@/lib/spatial/session";
 import { TrackerDiagnostics } from "@/lib/spatial/mediapipe";
+import { LatencySummary } from "@/lib/spatial/latency";
 import { askNativeCapability, deviceFeedback } from "@/lib/spatial/feedback";
 import { useEffect } from "react";
 
@@ -172,6 +173,14 @@ export default function GestureCheck() {
   const surfaceRef = useRef<VisualizationController | null>(null);
   const [counts, setCounts] = useState<SpatialTelemetry>(emptyTelemetry());
   const [fps, setFps] = useState<number | null>(null);
+  /**
+   * How long a frame waits before the scene answers (§149).
+   *
+   * Polled rather than pushed, and only while somebody is looking: computing
+   * percentiles per frame would cost more than the delay being measured.
+   */
+  const readLatency = useRef<(() => LatencySummary | null) | null>(null);
+  const [latency, setLatency] = useState<LatencySummary | null>(null);
 
   const onTelemetry = useCallback((telemetry: SpatialTelemetry) => {
     setCounts(telemetry);
@@ -204,8 +213,10 @@ export default function GestureCheck() {
   const onMeasurement = useCallback((m: HandMeasurement) => setHand(m), []);
 
   useEffect(() => {
-    const timer = setInterval(
-      () => setTracker(readTracker.current?.() ?? null), 500);
+    const timer = setInterval(() => {
+      setTracker(readTracker.current?.() ?? null);
+      setLatency(readLatency.current?.() ?? null);
+    }, 500);
     return () => clearInterval(timer);
   }, []);
 
@@ -247,7 +258,8 @@ export default function GestureCheck() {
 
       <SpatialControl controllerRef={controllerRef} label="this test cloud"
                       onTelemetry={onTelemetry} onFrameRate={onFrameRate}
-                      onTracker={onTracker} onMeasurement={onMeasurement} />
+                      onTracker={onTracker} onMeasurement={onMeasurement}
+                      onLatency={(read) => { readLatency.current = read; }} />
 
       <section className="gc-numbers">
         <h2>What the tracker is doing</h2>
@@ -255,6 +267,13 @@ export default function GestureCheck() {
           <div>
             <dt>Frames processed each second</dt>
             <dd>{fps === null ? "—" : fps}</dd>
+          </div>
+          <div>
+            <dt>Delay from frame to response</dt>
+            <dd>{latency === null
+              ? "—"
+              : `${Math.round(latency.p50)} / ${Math.round(latency.p95)} / `
+                + `${Math.round(latency.p99)} ms`}</dd>
           </div>
           <div>
             <dt>Frames seen in total</dt>

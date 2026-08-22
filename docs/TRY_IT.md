@@ -111,6 +111,15 @@ embedded.
 
 ### Reading the numbers
 
+**Delay from frame to response** is three numbers — typical, 95th percentile,
+99th. Three rather than one on purpose: lag is not felt as an average, it is felt
+as the moments the scene stops keeping up, and a tracker that answers in 20ms
+forty-nine times and 400ms once averages to 27ms and feels broken. The 99th is
+the number that corresponds to "it stutters".
+
+The target is under 60ms. This counts inference and interpretation, not camera
+exposure or the display, so the true delay is a little longer than what is shown.
+
 The check page reports frames processed per second, and counts of gestures
 started against completed.
 

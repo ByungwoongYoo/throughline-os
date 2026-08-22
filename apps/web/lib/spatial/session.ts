@@ -16,6 +16,7 @@
  */
 
 import { VisualizationController, apply } from "./commands";
+import { LatencyRecorder, LatencySummary } from "./latency";
 import { CameraFailure, CameraManager } from "./camera";
 import { SpatialEvent, SpatialInteractionMachine, SpatialSettings, SpatialState } from "./machine";
 import { HandTracker } from "./tracker";
@@ -92,6 +93,7 @@ export class SpatialSession {
   private readonly camera = new CameraManager();
   private readonly machine: SpatialInteractionMachine;
   private telemetry = emptyTelemetry();
+  private readonly latency = new LatencyRecorder();
   private running = false;
   /**
    * The last state handed to the observer.
@@ -276,6 +278,18 @@ export class SpatialSession {
       this.observer.onEvents?.(result.events);
       this.observer.onTelemetry?.(this.counts());
     }
+
+    // Measured last, so it covers everything done with this frame: inference,
+    // the gesture machine, and applying the commands to the chart. §149 asks for
+    // camera-to-visible-response and this is a floor on it — camera exposure and
+    // the compositor are outside anything a page can see — but it is the part
+    // this codebase can actually change, and it is measured rather than assumed.
+    this.latency.record(frame.timestamp);
+  }
+
+  /** The recent latency distribution, or null before anything was measured. */
+  latencySummary(): LatencySummary | null {
+    return this.latency.summary();
   }
 
   /**

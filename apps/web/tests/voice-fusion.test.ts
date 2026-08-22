@@ -14,6 +14,7 @@ import { describeIntent, readIntent } from "@/lib/voice/intent";
 import {
   NoSpeechSource, ScriptedSpeechSource, describeSource,
 } from "@/lib/voice/source";
+import { now } from "@/lib/spatial/clock";
 
 /** An utterance whose words are spread over a duration, as speech is. */
 function spoken(sentence: string, startAt: number, durationMs: number) {
@@ -386,5 +387,55 @@ describe("what is listening, and where the audio goes", () => {
     expect(at[0]).toBe(2_000);
     expect(at[at.length - 1]).toBe(2_900);
     expect([...at]).toEqual([...at].sort((a, b) => a - b));
+  });
+});
+
+describe("one clock, because two is silent", () => {
+  /**
+   * The bug these exist for shipped, and nothing anywhere reported it.
+   *
+   * Hand frames were stamped with `performance.now()` — about 10,000,
+   * milliseconds since the page loaded — and a typed utterance with
+   * `Date.now()`, about 1.76e12, milliseconds since 1970. Every word was
+   * therefore 55 years after every gesture, no reference could ever bind, and
+   * there was no error, no log and nothing on screen that looked wrong. The
+   * end-to-end test passed throughout because synthetic timestamps are
+   * consistent with themselves.
+   */
+  it("refuses a timestamp from a different clock rather than resolving nothing", () => {
+    const timeline = new ReferenceTimeline();
+    timeline.record(12_000, "region", { targets: ["a"] });
+
+    expect(() => timeline.resolve(Date.now())).toThrow(/same clock/);
+  });
+
+  it("names the fix in the message, because the symptom names nothing", () => {
+    const timeline = new ReferenceTimeline();
+    timeline.record(12_000, "region", { targets: ["a"] });
+
+    expect(() => timeline.resolve(Date.now()))
+      .toThrow(/lib\/spatial\/clock/);
+  });
+
+  it("accepts a whole session on one clock", () => {
+    // Hours apart is fine; decades apart is not. The check has to be blunt
+    // enough that a long session never trips it.
+    const timeline = new ReferenceTimeline({ backwardMs: 10 ** 9 });
+    timeline.record(1_000, "region", { targets: ["a"] });
+    expect(() => timeline.resolve(1_000 + 6 * 60 * 60 * 1000)).not.toThrow();
+  });
+
+  it("uses a monotonic clock, which the wall clock is not", () => {
+    /**
+     * `Date.now()` can move backwards — an NTP correction, a daylight-saving
+     * change, a laptop waking with a stale clock. A timeline built on it would
+     * bind a word to a gesture that had not happened yet, roughly once a
+     * fortnight, in a way nobody could reproduce.
+     */
+    const first = now();
+    const second = now();
+    expect(second).toBeGreaterThanOrEqual(first);
+    // Milliseconds since page load, not since 1970.
+    expect(first).toBeLessThan(Date.now() / 1000);
   });
 });

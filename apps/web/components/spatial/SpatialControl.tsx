@@ -23,6 +23,7 @@ import { VisualizationController } from "@/lib/spatial/commands";
 import { CameraDevice, CameraFailure, CameraManager } from "@/lib/spatial/camera";
 import { SpatialState } from "@/lib/spatial/machine";
 import { SpatialSession, SpatialTelemetry } from "@/lib/spatial/session";
+import { LatencySummary } from "@/lib/spatial/latency";
 import { MediaPipeHandTracker, TrackerDiagnostics } from "@/lib/spatial/mediapipe";
 import {
   CalibrationManager, CalibrationStep, handScale, scaleThresholds,
@@ -83,7 +84,7 @@ const EXPLAIN: Record<SpatialState, string> = {
 };
 
 export function SpatialControl({ controllerRef, label, onTelemetry,
-                                 onFrameRate, onTracker, onMeasurement,
+                                 onFrameRate, onTracker, onMeasurement, onLatency,
                                  onFrame }: {
   controllerRef: React.RefObject<VisualizationController | null>;
   /** What this controls, so the button is not an unlabelled camera request. */
@@ -103,6 +104,14 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
    * on screen.
    */
   onTracker?: (read: () => TrackerDiagnostics | null) => void;
+  /**
+   * How long a frame waits, as a distribution (§149).
+   *
+   * A reader rather than a stream, for the same reason as `onTracker`: this is
+   * read when somebody is looking at it, and pushing a percentile calculation
+   * per frame would cost more than the thing it measures.
+   */
+  onLatency?: (read: () => LatencySummary | null) => void;
   /**
    * What the pinch actually measures, against what it has to beat.
    *
@@ -236,6 +245,7 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
     const tracker = new MediaPipeHandTracker();
     trackerRef.current = tracker;
     onTracker?.(() => trackerRef.current?.diagnostics() ?? null);
+    onLatency?.(() => sessionRef.current?.latencySummary() ?? null);
 
     const session = new SpatialSession(
       tracker,
@@ -343,7 +353,7 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
     // appear after the camera is already running.
     setDevices(await session.devices());
   }, [controllerRef, preferences.deviceId, preferences.settings, stop,
-      onTelemetry, onFrameRate, onTracker, onMeasurement]);
+      onTelemetry, onFrameRate, onTracker, onMeasurement, onLatency]);
 
   /**
    * Begin the two-pose calibration described in §18.

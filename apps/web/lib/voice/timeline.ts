@@ -44,6 +44,8 @@
  * exactly the same reason, and says so.
  */
 
+import { sameClock } from "@/lib/spatial/clock";
+
 export type Referent = {
   /** What the gesture resolved to. Opaque here; the caller knows what it means. */
   targets: readonly string[];
@@ -109,6 +111,25 @@ export class ReferenceTimeline {
   }
 
   /**
+   * The most recent timestamp seen, for catching a stray clock.
+   *
+   * Cheap insurance against the failure this subsystem is most exposed to: two
+   * callers on two different clocks produce a timeline that resolves nothing,
+   * for ever, without an error anywhere. See `clock.ts`.
+   */
+  private lastSeen: number | null = null;
+
+  private check(at: number): void {
+    if (this.lastSeen !== null && !sameClock(this.lastSeen, at)) {
+      throw new Error(
+        `timestamp ${at} is not on the same clock as ${this.lastSeen}. `
+        + "Everything compared against a hand frame must use `now()` from "
+        + "lib/spatial/clock, not Date.now().");
+    }
+    this.lastSeen = at;
+  }
+
+  /**
    * A gesture has started. Returns a handle to close it with.
    *
    * Opened and closed rather than recorded on completion, because the whole
@@ -116,6 +137,7 @@ export class ReferenceTimeline {
    * impossible if the timeline only hears about gestures once they finish.
    */
   begin(at: number, kind: Referent["kind"]): number {
+    this.check(at);
     const id = this.nextId;
     this.nextId += 1;
     this.entries.push({ id, startedAt: at, endedAt: null, kind, targets: [] });
@@ -159,6 +181,7 @@ export class ReferenceTimeline {
    * decides whether to wait for it — `pending` says which case this is.
    */
   resolve(spokenAt: number): (Binding & { pending: boolean }) | null {
+    this.check(spokenAt);
     this.forget(spokenAt);
 
     // 1. A gesture the word was spoken inside. The specification's own case.
