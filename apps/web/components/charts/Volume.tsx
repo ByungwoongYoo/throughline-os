@@ -33,6 +33,10 @@ import {
   useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 } from "react";
 import { ScreenPoint, TargetRef, VisualizationController } from "@/lib/spatial/commands";
+import {
+  Camera, DEFAULT_CAMERA, DEPTH_RANGE, project, resetCamera, rotateCamera,
+  zoomCamera,
+} from "@/lib/charts/scene3d";
 import { extent } from "d3-array";
 import { scaleLinear } from "d3-scale";
 import { interpolateYlGnBu } from "d3-scale-chromatic";
@@ -50,23 +54,14 @@ export type Point3D = {
   value?: number;
 };
 
-type Camera = {
-  yaw: number;
-  pitch: number;
-  /**
-   * Uniform scale about the cube's centre.
-   *
-   * Applied to the projected radius rather than to `FOCAL`, so zooming does not
-   * change the perspective strength. Moving the eye instead would alter how
-   * much nearer marks are enlarged, and mark size is this chart's depth cue —
-   * the reader would see the depth encoding shift while they zoomed.
-   */
-  zoom: number;
-};
-
-/** Bounds, so the cloud cannot be lost off-screen or scaled into a dot. */
-const MIN_ZOOM = 0.35;
-const MAX_ZOOM = 6;
+/**
+ * The projection, the camera and the bounds now live in `lib/charts/scene3d`.
+ *
+ * Moved out when a second 3D chart arrived. Two copies of the same arithmetic is
+ * how the rotation units diverged in the first place — both sides stayed
+ * self-consistent and disagreed with each other — and two charts drifting apart
+ * under the same gesture would be that bug again with more surface.
+ */
 
 const MARK_RADIUS = 3.4;
 
@@ -77,23 +72,6 @@ const MARK_RADIUS = 3.4;
  * rotation publishes nothing at all until it stops.
  */
 export const SETTLE_MS = 120;
-const DEPTH_RANGE = 0.55;   // how much perspective may scale a mark
-const FOCAL = 2.6;
-
-/** Rotate then project. Returns screen position plus normalised depth. */
-function project(p: { x: number; y: number; z: number }, camera: Camera) {
-  const cy = Math.cos(camera.yaw), sy = Math.sin(camera.yaw);
-  const cp = Math.cos(camera.pitch), sp = Math.sin(camera.pitch);
-
-  const x1 = p.x * cy - p.z * sy;
-  const z1 = p.x * sy + p.z * cy;
-  const y2 = p.y * cp - z1 * sp;
-  const z2 = p.y * sp + z1 * cp;
-
-  // Perspective divide. `z2` is toward the viewer, so a larger `z2` is nearer.
-  const w = FOCAL / (FOCAL - z2);
-  return { x: x1 * w, y: y2 * w, depth: z2, scale: w };
-}
 
 export function Volume({
   points, controllerRef, onSelect, onSelectRegion, onDetent, xLabel, yLabel,
@@ -141,7 +119,7 @@ export function Volume({
   height?: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const cameraRef = useRef<Camera>({ yaw: 0.6, pitch: -0.34, zoom: 1 });
+  const cameraRef = useRef<Camera>({ ...DEFAULT_CAMERA });
   const dragRef = useRef<{ x: number; y: number } | null>(null);
   /*
    * Where the pointer went *down*, kept apart from `dragRef`.
@@ -494,17 +472,12 @@ export function Volume({
    * lost (§32).
    */
   const zoomBy = useCallback((factor: number) => {
-    const camera = cameraRef.current;
-    camera.zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, camera.zoom * factor));
+    zoomCamera(cameraRef.current, factor);
     dirtyRef.current = true;
   }, []);
 
   const rotate = useCallback((dx: number, dy: number) => {
-    const camera = cameraRef.current;
-    camera.yaw += dx * 0.008;
-    // Clamped short of the poles: past vertical the cube flips and the reader
-    // loses which way is up.
-    camera.pitch = Math.max(-1.35, Math.min(1.35, camera.pitch + dy * 0.008));
+    rotateCamera(cameraRef.current, dx, dy);
     dirtyRef.current = true;
     setMoved(true);
   }, []);
@@ -512,8 +485,10 @@ export function Volume({
   useImperativeHandle(controllerRef, (): VisualizationController => ({
     rotate: (dx, dy) => rotate(dx, dy),
     zoom: (factor) => {
-      const camera = cameraRef.current;
-      camera.zoom = Math.min(Math.max(camera.zoom * factor, MIN_ZOOM), MAX_ZOOM);
+      // Through the shared clamp, like every other caller. This was the fourth
+      // place applying the bounds by hand, and a bound applied in four places is
+      // a bound that will eventually be four different bounds.
+      zoomCamera(cameraRef.current, factor);
       dirtyRef.current = true;
       setMoved(true);
     },
@@ -555,7 +530,7 @@ export function Volume({
       onSelectRegion?.([]);
     },
     resetView: () => {
-      cameraRef.current = { yaw: 0.6, pitch: -0.34, zoom: 1 };
+      resetCamera(cameraRef.current);
       dirtyRef.current = true;
     },
     viewport: () => ({ width, height }),
@@ -714,7 +689,7 @@ export function Volume({
           else if (event.key === "+" || event.key === "=") zoomBy(1.15);
           else if (event.key === "-" || event.key === "_") zoomBy(1 / 1.15);
           else if (event.key === "Home") {
-            cameraRef.current = { yaw: 0.6, pitch: -0.34, zoom: 1 };
+            resetCamera(cameraRef.current);
             dirtyRef.current = true;
           } else if (event.key === "Enter" || event.key === " ") {
             if (selectionRadius > 0) {

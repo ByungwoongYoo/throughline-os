@@ -29,6 +29,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { Volume } from "@/components/charts/Volume";
+import { Surface } from "@/components/charts/Surface";
 import { HandMeasurement, SpatialControl }
   from "@/components/spatial/SpatialControl";
 import { VisualizationController } from "@/lib/spatial/commands";
@@ -55,6 +56,35 @@ const CLOUD = Array.from({ length: 180 }, (_, i) => {
     y: Math.sin(t) * (2 + lobe) + jitter(i + 99) * 0.8,
     z: (lobe - 1) * 2.2 + jitter(i + 7) * 0.8,
     value: lobe,
+  };
+});
+
+/**
+ * A saddle: a ridge one way, a valley the other.
+ *
+ * Chosen because it is the shape a flat contour plot most completely destroys,
+ * and the one that makes rotation obviously worth doing rather than a flourish.
+ * A single peak reads fine from above; a saddle does not.
+ */
+const SURFACE = (() => {
+  const axis = Array.from({ length: 17 }, (_, i) => i / 2);
+  return {
+    x: axis,
+    y: axis,
+    z: axis.map((y) => axis.map((x) =>
+      Math.pow(x - 4, 2) / 3 - Math.pow(y - 4, 2) / 3 + Math.sin(x) * 0.8)),
+  };
+})();
+
+const SURFACE_OBSERVATIONS = Array.from({ length: 14 }, (_, i) => {
+  const x = 1 + (i % 7) * 1.1;
+  const y = 1.5 + Math.floor(i / 7) * 3.2;
+  return {
+    id: `obs${i}`,
+    label: `Run ${i + 1}`,
+    x, y,
+    z: Math.pow(x - 4, 2) / 3 - Math.pow(y - 4, 2) / 3 + Math.sin(x) * 0.8
+       + (Math.sin(i * 3.7) * 0.4),
   };
 });
 
@@ -139,6 +169,7 @@ function verdictFor(tracker: TrackerDiagnostics | null,
 
 export default function GestureCheck() {
   const controllerRef = useRef<VisualizationController | null>(null);
+  const surfaceRef = useRef<VisualizationController | null>(null);
   const [counts, setCounts] = useState<SpatialTelemetry>(emptyTelemetry());
   const [fps, setFps] = useState<number | null>(null);
 
@@ -200,6 +231,19 @@ export default function GestureCheck() {
               onDetent={(moment) => deviceFeedback.emit(moment)}
               xLabel="x" yLabel="y" zLabel="z" valueLabel="group"
               title="A synthetic cloud, for testing the controls" />
+
+      <h2>A fitted surface</h2>
+      <p className="gc-note">
+        The other shape where three dimensions are the honest choice: a response
+        over two predictors is a surface in the data, not a flat chart with depth
+        added. Drag it, or use the same gestures — every 3D chart here is driven
+        through one seam, so a gesture that works on one works on all of them.
+      </p>
+      <Surface grid={SURFACE} observations={SURFACE_OBSERVATIONS}
+               controllerRef={surfaceRef}
+               onDetent={(moment) => deviceFeedback.emit(moment)}
+               xLabel="dose" yLabel="duration" zLabel="response"
+               title="A saddle, fitted over two predictors" />
 
       <SpatialControl controllerRef={controllerRef} label="this test cloud"
                       onTelemetry={onTelemetry} onFrameRate={onFrameRate}

@@ -31,6 +31,7 @@ import { SetRegions, NamedSet, SetMember } from "./charts/SetRegions";
 import { Projection, Projected } from "./charts/Projection";
 import { Geographic, Place } from "./charts/Geographic";
 import { Volume, Point3D } from "./charts/Volume";
+import { Surface } from "./charts/Surface";
 import { SpatialControl } from "./spatial/SpatialControl";
 import { VisualizationController } from "@/lib/spatial/commands";
 import { deviceFeedback } from "@/lib/spatial/feedback";
@@ -285,12 +286,44 @@ function Section({ code, children }: { code: string; children: React.ReactNode }
   );
 }
 
+/**
+ * A dose-by-duration response with a ridge, and the runs it was fitted to.
+ *
+ * Deliberately not a single smooth dome: a dome reads perfectly well from
+ * directly above, so it would demonstrate a 3D chart while proving nothing about
+ * why the third dimension was needed.
+ */
+const SURFACE_GRID = (() => {
+  const dose = Array.from({ length: 15 }, (_, i) => 10 + i * 5);
+  const days = Array.from({ length: 13 }, (_, i) => 1 + i);
+  return {
+    x: dose,
+    y: days,
+    z: days.map((d) => dose.map((mg) =>
+      40 + 18 * Math.sin(mg / 26) - Math.pow(d - 7, 2) * 0.45)),
+  };
+})();
+
+const SURFACE_RUNS = Array.from({ length: 18 }, (_, i) => {
+  const mg = 20 + (i % 6) * 12;
+  const d = 3 + Math.floor(i / 6) * 3;
+  return {
+    id: `run${i}`,
+    label: `Cohort ${i + 1}`,
+    x: mg,
+    y: d,
+    z: 40 + 18 * Math.sin(mg / 26) - Math.pow(d - 7, 2) * 0.45
+       + Math.sin(i * 2.3) * 3,
+  };
+});
+
 export function Gallery() {
   const [world, setWorld] = useState<
     FeatureCollection<Geometry, { name?: string }> | null>(null);
   const [worldFailed, setWorldFailed] = useState(false);
   /** The 3D scatter's controller, so an input other than the mouse can drive it. */
   const volumeRef = useRef<VisualizationController | null>(null);
+  const surfaceRef = useRef<VisualizationController | null>(null);
 
   // The topology is bundled, not fetched — but it is 105KB, so it is loaded
   // when the gallery opens rather than in the workspace's main bundle.
@@ -428,6 +461,22 @@ export function Gallery() {
           * precondition for reading the figure.
           */}
         <SpatialControl controllerRef={volumeRef} label="this 3D scatter" />
+      </Section>
+
+      <Section code="P15">
+        {/*
+          * The other place three dimensions are honest. A response over two
+          * predictors is a surface *in the data*; the third axis is not decoration
+          * added to a flat chart, which is why §3 lists fitted responses and
+          * mathematical surfaces and does not list bar charts.
+          */}
+        <Surface grid={SURFACE_GRID} observations={SURFACE_RUNS}
+                 controllerRef={surfaceRef}
+                 onDetent={(moment) => deviceFeedback.emit(moment)}
+                 xLabel="dose (mg)" yLabel="duration (days)"
+                 zLabel="predicted response"
+                 title="Fitted response over two predictors" />
+        <SpatialControl controllerRef={surfaceRef} label="this surface" />
       </Section>
 
       <Section code="P14">
