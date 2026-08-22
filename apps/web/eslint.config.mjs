@@ -18,6 +18,11 @@ const eslintConfig = [
       "out/**",
       "build/**",
       "next-env.d.ts",
+      // Vendored at install time by scripts/vendor-hand-model.mjs — MediaPipe's
+      // own WASM glue, minified and generated. Linting somebody else's build
+      // output produces noise that buries this project's own findings, which is
+      // how a lint step stops being read.
+      "public/mediapipe/**",
     ],
   },
 ];
