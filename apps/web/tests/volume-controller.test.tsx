@@ -494,3 +494,123 @@ describe("everything the pointer can do, the keyboard can do", () => {
     expect(label).toMatch(/escape/i);
   });
 });
+
+describe("the contract between the machine and the chart", () => {
+  /**
+   * The test that was missing, and the reason a whole feature never worked.
+   *
+   * Both sides had tests and both passed. The machine's tests asserted that a
+   * rotate command was *emitted*; the chart's asserted that `rotate()` did not
+   * throw. Neither looked at the number crossing between them — and the machine
+   * was producing normalised image units (about 0.01 for a deliberate hand
+   * movement) while the chart multiplied as though it had been handed a pointer
+   * drag in pixels. The scene turned by five thousandths of a degree.
+   *
+   * So this drives the real machine with a plausible hand and applies its real
+   * commands to a real chart, then looks at whether anything moved.
+   */
+  function screenPositionOf(controller: VisualizationController, id: string) {
+    // Scanned well beyond the canvas, for the same reason `findWithin` above
+    // does: hit-testing accepts any coordinate, and a point at the corner of the
+    // cube projects outside the visible area at the default camera. This
+    // measures where the scene *is*, not what happens to be on screen.
+    for (let x = -600; x <= 1000; x += 6) {
+      for (let y = -600; y <= 1000; y += 6) {
+        if (controller.hover({ x, y })?.id === id) return { x, y };
+      }
+    }
+    return null;
+  }
+
+  function pinchedHand(x: number) {
+    const span = 0.1;
+    return {
+      handedness: "right" as const, confidence: 0.95,
+      wrist: { x, y: 0.5 + span * 2 },
+      indexBase: { x, y: 0.5 + span },
+      thumbTip: { x: x - 0.01, y: 0.5 },
+      indexTip: { x: x + 0.01, y: 0.5 },
+      middleTip: { x, y: 0.5 + span * 1.7 },
+      ringTip: { x, y: 0.5 + span * 1.8 },
+      pinkyTip: { x, y: 0.5 + span * 1.9 },
+      palmCenter: { x, y: 0.5 },
+    };
+  }
+
+  it("turns the scene by an amount a person can see", async () => {
+    const { SpatialInteractionMachine } = await import("@/lib/spatial/machine");
+    const ref = mount();
+    const before = screenPositionOf(ref.current!, "b");
+    expect(before).not.toBeNull();
+
+    const machine = new SpatialInteractionMachine();
+    machine.viewport = ref.current!.viewport();
+
+    // A hand crossing about a fifth of the frame while pinched — an ordinary,
+    // deliberate movement, not a swipe.
+    let clock = 0;
+    for (const x of [0.40, 0.40, 0.43, 0.46, 0.49, 0.52, 0.55, 0.58, 0.60]) {
+      clock += 33;
+      const result = machine.step({ timestamp: clock, hands: [pinchedHand(x)] });
+      for (const command of result.commands) apply(ref.current!, command);
+    }
+
+    const after = screenPositionOf(ref.current!, "b");
+    expect(after).not.toBeNull();
+
+    const moved = Math.hypot(after!.x - before!.x, after!.y - before!.y);
+    // Twenty pixels is a low bar deliberately: the point is that the scene
+    // moved *at all*, and before this fix it moved by a fraction of a pixel.
+    expect(moved).toBeGreaterThan(20);
+  });
+
+  it("emits a rotation measured in the viewport it was given", async () => {
+    /**
+     * The unit, asserted directly. A command in normalised units would be a
+     * number below one; the chart needs tens of pixels to turn visibly.
+     */
+    const { SpatialInteractionMachine } = await import("@/lib/spatial/machine");
+    const machine = new SpatialInteractionMachine();
+    machine.viewport = { width: 720, height: 520 };
+
+    let clock = 0;
+    const deltas: number[] = [];
+    for (const x of [0.45, 0.45, 0.48, 0.51]) {
+      clock += 33;
+      for (const command of machine.step(
+             { timestamp: clock, hands: [pinchedHand(x)] }).commands) {
+        if (command.kind === "rotate") deltas.push(Math.abs(command.deltaX));
+      }
+    }
+
+    expect(deltas.length).toBeGreaterThan(0);
+    expect(Math.max(...deltas)).toBeGreaterThan(1);
+  });
+
+  it("scales with the chart, so a small chart does not spin", async () => {
+    /**
+     * The conversion uses the viewport that arrives with each frame rather than
+     * a constant, so the same hand movement turns a small chart and a large one
+     * by a comparable *angle* rather than a comparable number of pixels.
+     */
+    const { SpatialInteractionMachine } = await import("@/lib/spatial/machine");
+
+    const measure = (viewport: { width: number; height: number }) => {
+      const machine = new SpatialInteractionMachine();
+      machine.viewport = viewport;
+      let clock = 0;
+      let total = 0;
+      for (const x of [0.45, 0.45, 0.48, 0.51]) {
+        clock += 33;
+        for (const command of machine.step(
+               { timestamp: clock, hands: [pinchedHand(x)] }).commands) {
+          if (command.kind === "rotate") total += Math.abs(command.deltaX);
+        }
+      }
+      return total;
+    };
+
+    expect(measure({ width: 1440, height: 900 }))
+      .toBeGreaterThan(measure({ width: 360, height: 300 }) * 2);
+  });
+});

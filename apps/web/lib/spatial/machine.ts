@@ -117,7 +117,11 @@ export const DEFAULT_SETTINGS: SpatialSettings = {
   spikeThreshold: 0.2,
   minConfidence: 0.6,
   lossGraceFrames: 3,
-  rotationSensitivity: 2.2,
+  // 1.0 in the units the command now carries. The old 2.2 was tuned against a
+  // quantity that never reached the chart, so it was never a measurement of
+  // anything — carrying it forward would have made the first working version
+  // twice as fast as intended.
+  rotationSensitivity: 1.0,
   zoomSensitivity: 1.0,
   minScale: 0.2,
   maxScale: 8,
@@ -452,10 +456,27 @@ export class SpatialInteractionMachine {
     // little coarser, so a researcher can both nudge and swing without changing
     // a sensitivity setting.
     const curve = (value: number) => Math.sign(value) * Math.pow(Math.abs(value), 1.15);
+
+    /*
+     * Converted into the viewport's pixels, which is what the command carries.
+     *
+     * This was the bug that made rotation never work at all. `dx` here is a
+     * fraction of the camera frame — a deliberate hand movement between two
+     * 30 Hz samples is around 0.01 — and it was being emitted raw. The chart
+     * multiplies an incoming delta by 0.008 because it is written for a pointer
+     * drag measured in pixels, so 0.01 became 0.00008 radians: five thousandths
+     * of a degree, for a movement the researcher could plainly see themselves
+     * make.
+     *
+     * The viewport arrives with every frame, so the conversion costs nothing and
+     * keeps this correct on any size of chart. The curve stays in normalised
+     * space, where it is a property of how a hand moves rather than of how large
+     * the canvas happens to be.
+     */
     commands.push({
       kind: "rotate",
-      deltaX: curve(dx) * this.settings.rotationSensitivity,
-      deltaY: curve(dy) * this.settings.rotationSensitivity,
+      deltaX: curve(dx) * this.viewport.width * this.settings.rotationSensitivity,
+      deltaY: curve(dy) * this.viewport.height * this.settings.rotationSensitivity,
     });
     return { state: this.state, commands, events };
   }

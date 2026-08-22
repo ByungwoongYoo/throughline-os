@@ -32,7 +32,23 @@ export type ScreenPoint = { x: number; y: number };
  * adapters unimplementable.
  */
 export type IntentCommand =
-  /** Turn the scene. Radians-equivalent deltas; the adapter decides the mapping. */
+  /**
+   * Turn the scene, by a distance in **screen pixels of the target's viewport**.
+   *
+   * The units are stated because leaving them to "the adapter decides" is what
+   * broke this. The producer worked in normalised image coordinates (0–1 across
+   * the camera frame) and the consumer multiplied as though it had been handed a
+   * pointer drag in pixels — so a brisk hand movement arrived as 0.026, became
+   * 0.0002 radians, and the scene never moved by an amount anybody could see.
+   * Both sides were tested and both were self-consistent; the *contract between
+   * them* was the thing nobody checked.
+   *
+   * Pixels, specifically, because that is what every other positional quantity
+   * here already is — `hover` and `select` carry `ScreenPoint`s in viewport
+   * pixels — and because it is what a mouse drag natively produces. An input
+   * that has to invent its own scale is an input that will invent a different
+   * one from the next.
+   */
   | { kind: "rotate"; deltaX: number; deltaY: number }
   /** Multiplicative scale delta. 1 is no change; the adapter clamps. */
   | { kind: "zoom"; factor: number }

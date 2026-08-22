@@ -126,22 +126,31 @@ export class SpatialSession {
     /**
      * Shortest gap between two processed frames, in milliseconds.
      *
-     * A ceiling of ~33 Hz, deliberately *not* 1000/30.
+     * A ceiling of ~45 Hz, which is deliberately *above* the rate anything here
+     * targets.
      *
-     * The rate being targeted is 30 Hz, but a tracker nominally at 30 Hz
-     * delivers frames about 33.3ms apart with jitter in both directions, and a
-     * floor set at exactly 33.3 would reject every frame that arrived a
-     * millisecond early — halving the rate of the very stream it was sized for,
-     * intermittently, in a way that would present as the gesture feeling coarse
-     * on some machines and fine on others. The slack costs nothing: a 60 Hz
-     * tracker still has every other frame dropped, which is the case this
-     * exists for.
+     * The tracker owns its own rate and limits itself to about 30 Hz. This is a
+     * backstop for a tracker that does not, so it has to sit clear of the rate a
+     * well-behaved one produces. Set anywhere near 30 Hz it rejects frames the
+     * tracker deliberately made — a nominal 30 Hz stream arrives ~33ms apart
+     * with jitter both ways, so a gate at 33ms drops every frame that comes a
+     * millisecond early. The effective rate then falls below what the smoothing
+     * was tuned for, and the interaction feels coarse on some machines and fine
+     * on others.
      *
      * The rate matters beyond the cost: One Euro's cutoffs are expressed in
      * units of time, so feeding it at double the expected rate changes how much
      * it smooths, and the reliability work in T014 was measured at 30 Hz.
+     *
+     * Loosened from 1000/33 to 1000/45, because two layers were limiting to the
+     * same rate and the tracker already owns it. Set equal, this gate rejected
+     * frames the tracker had deliberately produced whenever one arrived a
+     * millisecond early — so the effective rate fell below the one everything
+     * was tuned for, and the interaction felt coarse. This is a backstop against
+     * a tracker that ignores its own limit, not a second opinion about the
+     * right rate.
      */
-    private readonly minFrameInterval = 1000 / 33,
+    private readonly minFrameInterval = 1000 / 45,
   ) {
     this.machine = new SpatialInteractionMachine(settings);
   }

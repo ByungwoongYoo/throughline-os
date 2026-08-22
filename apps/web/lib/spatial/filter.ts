@@ -74,7 +74,23 @@ export type OneEuroSettings = {
  */
 export const DEFAULT_ONE_EURO: OneEuroSettings = {
   minCutoff: 1.2,
-  beta: 0.03,
+  /**
+   * Raised from 0.03, and this is the setting that decides whether the
+   * interaction feels laggy.
+   *
+   * The two constants divide the work: `minCutoff` governs how still the scene
+   * is when the hand is still, and `beta` governs how much the filter gets out
+   * of the way once the hand is moving. At 0.03 the cutoff barely rose with
+   * speed, so a deliberate movement was smoothed as heavily as a tremor and the
+   * scene visibly trailed the hand — which is the complaint, and it is a tuning
+   * fault rather than a performance one. Adding frames per second would not
+   * have helped: the delay was being introduced deliberately, by this number.
+   *
+   * 0.4 is within the range the One Euro authors suggest for tracking a limb
+   * rather than a mouse. Stillness is unaffected, because when the hand is not
+   * moving the speed term is near zero and `minCutoff` alone is in charge.
+   */
+  beta: 0.4,
   derivativeCutoff: 1.0,
 };
 
