@@ -31,7 +31,7 @@ import { DEFAULT_SETTINGS } from "@/lib/spatial/machine";
 import { distance } from "@/lib/spatial/types";
 import { HandFrame } from "@/lib/spatial/types";
 import {
-  Feedback, availableChannels, askNativeCapability, momentFor,
+  availableChannels, askNativeCapability, deviceFeedback, momentFor,
 } from "@/lib/spatial/feedback";
 import { HandPreview } from "./HandPreview";
 import {
@@ -158,8 +158,7 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
   /** What the bar was last told, so the throttle can tell when it has news. */
   const publishedProgressRef = useRef(0);
   const lastMeasuredRef = useRef(0);
-  /** One feedback layer for the component's life; settings are pushed in. */
-  const feedbackRef = useRef<Feedback | null>(null);
+
   const [channels, setChannels] = useState(() => availableChannels());
   /** Set briefly on a gesture moment, so the panel can show it landed. */
   const [pulse, setPulse] = useState(false);
@@ -171,7 +170,7 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
     setMounted(true);
     const stored = readPreferences();
     setPreferences(stored);
-    feedbackRef.current = new Feedback(stored.feedback);
+    deviceFeedback.configure(stored.feedback);
 
     // Ask the machine what it can actually do. Until it answers, the native
     // channel is off — nothing is promised before it is known.
@@ -179,12 +178,12 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
     void askNativeCapability().then((native) => {
       if (!live) return;
       setChannels((current) => ({ ...current, native }));
-      feedbackRef.current?.useNative(native.available);
+      deviceFeedback.useNative(native.available);
     });
-    return () => {
-      live = false;
-      feedbackRef.current?.close();
-    };
+    // The shared feedback is deliberately *not* closed here. It belongs to the
+    // machine rather than to this component, and other things on the page — a
+    // chart's detents — go on using it after this panel unmounts.
+    return () => { live = false; };
   }, []);
 
   const stop = useCallback(() => {
@@ -227,7 +226,7 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
           for (const event of events) {
             const moment = momentFor(event);
             if (!moment) continue;
-            feedbackRef.current?.emit(moment);
+            deviceFeedback.emit(moment);
             setPulse(true);
             window.setTimeout(() => setPulse(false), 140);
           }
@@ -388,7 +387,7 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
     // A settings panel whose effect is deferred teaches people that it does not
     // work, and they stop touching it.
     if (next.settings) sessionRef.current?.configure(next.settings);
-    if (next.feedback) feedbackRef.current?.configure(next.feedback);
+    if (next.feedback) deviceFeedback.configure(next.feedback);
   }
 
   function setSensitivity(key: "rotationSensitivity" | "zoomSensitivity",

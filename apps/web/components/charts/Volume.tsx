@@ -96,8 +96,8 @@ function project(p: { x: number; y: number; z: number }, camera: Camera) {
 }
 
 export function Volume({
-  points, controllerRef, onSelect, onSelectRegion, xLabel, yLabel, zLabel,
-  valueLabel, title,
+  points, controllerRef, onSelect, onSelectRegion, onDetent, xLabel, yLabel,
+  zLabel, valueLabel, title,
   caption, width = 720, height = 520, selectionRadius = 0,
 }: {
   points: Point3D[];
@@ -113,6 +113,15 @@ export function Volume({
   onSelect?: (target: TargetRef | null) => void;
   /** Told about a whole region, when one is selected rather than a single mark. */
   onSelectRegion?: (targets: TargetRef[]) => void;
+  /**
+   * Told when the pointer lands on a point, or lands a selection.
+   *
+   * A callback rather than this chart emitting feedback itself. A primitive
+   * drawn into a report has no business making a machine tap, and a chart that
+   * decided its own feedback policy would be one every host had to remember to
+   * silence. The interactive screens pass this; a figure does not.
+   */
+  onDetent?: (moment: "hover" | "select") => void;
   /**
    * How far a selection reaches, in screen pixels. Zero selects one mark.
    *
@@ -585,6 +594,10 @@ export function Volume({
             const at = { x: event.clientX - box.left, y: event.clientY - box.top };
             const target = nearest(at);
             if ((target?.id ?? null) !== hoveredRef.current) {
+              // Landing on a point, not merely moving while one is hovered.
+              // The detent marks the transition — firing while the pointer sits
+              // still on the same mark would be a buzz rather than a boundary.
+              if (target && target.id !== hoveredRef.current) onDetent?.("hover");
               hoveredRef.current = target?.id ?? null;
               dirtyRef.current = true;
             }
@@ -621,6 +634,7 @@ export function Volume({
             const targets = within(at, selectionRadius);
             regionRef.current = new Set(targets.map((t) => t.id));
             setSelected(targets[0]?.id ?? null);
+            if (targets.length) onDetent?.("select");
             onSelectRegion?.(targets);
             return;
           }
@@ -628,6 +642,9 @@ export function Volume({
           const target = nearest(at);
           regionRef.current = null;
           setSelected(target?.id ?? null);
+          // Only when something was actually chosen. A tap for clicking empty
+          // space would confirm a selection that did not happen.
+          if (target) onDetent?.("select");
           onSelect?.(target);
         }}
         onKeyDown={(event) => {

@@ -310,3 +310,66 @@ describe("selecting a region rather than a point", () => {
     expect(Array.isArray(result)).toBe(true);
   });
 });
+
+describe("the detent on the pointer path", () => {
+  /**
+   * The feedback a laptop can genuinely deliver: a hand dragging a trackpad is a
+   * hand on the actuator. This is what makes a scatter feel like it has objects
+   * in it rather than pixels.
+   */
+  it("marks landing on a point, not merely moving while one is hovered", () => {
+    /** Firing while the pointer sits still on the same mark is a buzz, not a
+     * boundary. The detent belongs to the transition. */
+    const onDetent = vi.fn();
+    render(<Volume points={CLOUD} onDetent={onDetent} xLabel="x" yLabel="y"
+                   zLabel="z" width={400} height={400} />);
+    const canvas = document.querySelector("canvas")!;
+
+    fireEvent.pointerMove(canvas, { clientX: 200, clientY: 200 });
+    const afterLanding = onDetent.mock.calls.length;
+    fireEvent.pointerMove(canvas, { clientX: 201, clientY: 200 });
+
+    expect(afterLanding).toBe(1);
+    expect(onDetent).toHaveBeenCalledTimes(1);
+    expect(onDetent).toHaveBeenCalledWith("hover");
+  });
+
+  it("marks a selection that actually chose something", () => {
+    const onDetent = vi.fn();
+    render(<Volume points={CLOUD} onDetent={onDetent} xLabel="x" yLabel="y"
+                   zLabel="z" width={400} height={400} />);
+    const canvas = document.querySelector("canvas")!;
+
+    fireEvent.pointerDown(canvas, { clientX: 200, clientY: 200 });
+    fireEvent.pointerUp(canvas, { clientX: 200, clientY: 200 });
+
+    expect(onDetent).toHaveBeenCalledWith("select");
+  });
+
+  it("says nothing when a click chose nothing", () => {
+    /** A tap would confirm a selection that did not happen. */
+    const onDetent = vi.fn();
+    render(<Volume points={CLOUD} onDetent={onDetent} xLabel="x" yLabel="y"
+                   zLabel="z" width={400} height={400} />);
+    const canvas = document.querySelector("canvas")!;
+
+    fireEvent.pointerDown(canvas, { clientX: 5, clientY: 395 });
+    fireEvent.pointerUp(canvas, { clientX: 5, clientY: 395 });
+
+    expect(onDetent).not.toHaveBeenCalledWith("select");
+  });
+
+  it("stays silent in a chart that did not ask for it", () => {
+    /**
+     * A primitive drawn into a report has no business making a machine tap. The
+     * callback is opt-in precisely so a figure is silent by construction rather
+     * than by every host remembering to switch it off.
+     */
+    expect(() => {
+      render(<Volume points={CLOUD} xLabel="x" yLabel="y" zLabel="z"
+                     width={400} height={400} />);
+      const canvas = document.querySelectorAll("canvas")[0];
+      fireEvent.pointerMove(canvas, { clientX: 200, clientY: 200 });
+    }).not.toThrow();
+  });
+});

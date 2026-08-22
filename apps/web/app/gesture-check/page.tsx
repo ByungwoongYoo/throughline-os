@@ -34,7 +34,7 @@ import { HandMeasurement, SpatialControl }
 import { VisualizationController } from "@/lib/spatial/commands";
 import { SpatialTelemetry, emptyTelemetry } from "@/lib/spatial/session";
 import { TrackerDiagnostics } from "@/lib/spatial/mediapipe";
-import { askNativeCapability } from "@/lib/spatial/feedback";
+import { askNativeCapability, deviceFeedback } from "@/lib/spatial/feedback";
 import { useEffect } from "react";
 
 /**
@@ -127,6 +127,7 @@ export default function GestureCheck() {
       </p>
 
       <Volume points={CLOUD} controllerRef={controllerRef}
+              onDetent={(moment) => deviceFeedback.emit(moment)}
               xLabel="x" yLabel="y" zLabel="z" valueLabel="group"
               title="A synthetic cloud, for testing the controls" />
 

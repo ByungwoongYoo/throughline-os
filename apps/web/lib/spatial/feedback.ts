@@ -36,7 +36,17 @@ export type FeedbackMoment =
   | "grabEnd"
   | "select"
   | "zoomStart"
-  | "trackingLost";
+  | "trackingLost"
+  /**
+   * Landing on a data point — the detent.
+   *
+   * The one moment on the *pointer* path, and the one a laptop can actually
+   * deliver: a hand dragging a trackpad is a hand on the actuator. It is what
+   * makes a scatter feel like it has objects in it rather than pixels, and it
+   * is also the moment most likely to fire constantly, which is why the rate
+   * limit below exists.
+   */
+  | "hover";
 
 export type FeedbackChannels = {
   vibration: boolean;
@@ -62,6 +72,9 @@ export type FeedbackChannels = {
  * because it is the moment that has to feel like a click.
  */
 const PATTERN: Record<FeedbackMoment, number[]> = {
+  // The lightest of them. A detent is meant to be noticed and not announced,
+  // and this one can fire several times a second while somebody sweeps a cloud.
+  hover: [6],
   grabStart: [12],
   grabEnd: [8],
   select: [10, 30, 10],
@@ -73,6 +86,21 @@ const PATTERN: Record<FeedbackMoment, number[]> = {
 
 /** Where the click sits. Low and brief reads as a mechanism rather than a beep. */
 const CLICK = { frequency: 180, seconds: 0.02, gain: 0.06 };
+
+/**
+ * The shortest gap between two taps of the same moment, in milliseconds.
+ *
+ * Sweeping a pointer across a dense scatter crosses dozens of points a second.
+ * Unlimited, that is not a detent, it is a rattle — and on the native channel it
+ * is also dozens of requests a second. A limit belongs here rather than in every
+ * caller: it is a property of what a person can distinguish, not of any one
+ * chart.
+ *
+ * 70ms is a little over the interval at which separate taps stop being felt as
+ * separate. Below it they merge into a buzz, which is the sensation this is
+ * meant to avoid.
+ */
+const MIN_GAP: Partial<Record<FeedbackMoment, number>> = { hover: 70 };
 
 export type FeedbackSettings = {
   vibrate: boolean;
@@ -87,6 +115,10 @@ export type FeedbackSettings = {
  * softer and marks a boundary being crossed.
  */
 const NATIVE_PATTERN: Record<FeedbackMoment, string> = {
+  // `generic` rather than `alignment`: the soft one. Apple's alignment pattern
+  // is the snap, and using it for merely passing over a point would make every
+  // point feel like a commitment.
+  hover: "generic",
   grabStart: "alignment",
   grabEnd: "generic",
   select: "alignment",
@@ -155,6 +187,7 @@ export class Feedback {
   private context: AudioContext | null = null;
   private settings: FeedbackSettings;
   private native = false;
+  private readonly lastAt: Partial<Record<FeedbackMoment, number>> = {};
 
   constructor(settings: Partial<FeedbackSettings> = {}) {
     this.settings = { ...DEFAULT_FEEDBACK, ...settings };
@@ -173,6 +206,13 @@ export class Feedback {
    * the interaction it is confirming is worse than no feedback.
    */
   emit(moment: FeedbackMoment): void {
+    const gap = MIN_GAP[moment];
+    if (gap !== undefined) {
+      const now = Date.now();
+      if (now - (this.lastAt[moment] ?? 0) < gap) return;
+      this.lastAt[moment] = now;
+    }
+
     if (this.settings.vibrate) {
       this.vibrate(moment);
       this.nativeTap(moment);
@@ -304,3 +344,18 @@ export function momentFor(event: string): FeedbackMoment | null {
       return null;
   }
 }
+
+
+/**
+ * The machine's feedback, shared.
+ *
+ * A singleton because the thing it drives is a singleton: one trackpad, one
+ * audio graph, one person. Per-component instances would each open an
+ * AudioContext — browsers cap those, and they are not free — and two of them
+ * would rate-limit independently, so a detent suppressed in one place would fire
+ * in another and the limit would stop meaning anything.
+ *
+ * Configured by whichever component owns the researcher's preferences, and read
+ * by anything that needs to mark a moment.
+ */
+export const deviceFeedback = new Feedback();

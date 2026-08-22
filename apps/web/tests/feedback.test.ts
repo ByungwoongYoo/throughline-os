@@ -183,3 +183,66 @@ describe("defaults", () => {
     expect(DEFAULT_FEEDBACK.vibrate).toBe(true);
   });
 });
+
+describe("the detent, which is the one a laptop can actually deliver", () => {
+  it("does not rattle when a pointer sweeps a dense cloud", () => {
+    /**
+     * Sweeping across a scatter crosses dozens of points a second. Unlimited,
+     * that is not a detent — it is a buzz, which is the exact sensation this is
+     * meant to avoid, and on the native channel it is also dozens of requests a
+     * second.
+     */
+    const taps: unknown[] = [];
+    vi.stubGlobal("navigator", { vibrate: (p: number[]) => taps.push(p) });
+
+    const feedback = new Feedback();
+    for (let i = 0; i < 50; i += 1) feedback.emit("hover");
+
+    expect(taps.length).toBe(1);
+  });
+
+  it("still marks a deliberate selection every time", () => {
+    /**
+     * The limit applies to the detent, not to the moments a researcher caused
+     * on purpose. Swallowing a selection confirmation would be worse than
+     * swallowing a hover.
+     */
+    const taps: unknown[] = [];
+    vi.stubGlobal("navigator", { vibrate: (p: number[]) => taps.push(p) });
+
+    const feedback = new Feedback();
+    for (let i = 0; i < 5; i += 1) feedback.emit("select");
+
+    expect(taps.length).toBe(5);
+  });
+
+  it("is the lightest pattern there is", () => {
+    /** It fires most often, and is meant to be noticed rather than announced. */
+    const durations: number[][] = [];
+    vi.stubGlobal("navigator", { vibrate: (p: number[]) => durations.push(p) });
+
+    const feedback = new Feedback();
+    feedback.emit("hover");
+    feedback.emit("select");
+
+    expect(Math.max(...durations[0])).toBeLessThan(Math.max(...durations[1]));
+  });
+
+  it("uses the soft native pattern, not the snap", () => {
+    /**
+     * Apple's `alignment` is the snap — it exists for a dragged object landing
+     * on a guide. Using it for merely passing over a point would make every
+     * point feel like a commitment.
+     */
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({}) }));
+    vi.stubGlobal("navigator", {});
+    vi.stubGlobal("fetch", fetchMock);
+
+    const feedback = new Feedback();
+    feedback.useNative(true);
+    feedback.emit("hover");
+
+    const [, request] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(request.body)).pattern).toBe("generic");
+  });
+});
