@@ -71,16 +71,37 @@ export const DEFAULT_INK_SETTINGS: InkSettings = {
 };
 
 /**
- * The fingertip, not the palm.
+ * Where the pen actually is: the point the two fingers close on.
  *
- * Rotation is measured from the knuckle centroid because that behaves like a
- * rigid body — but a pen is held at its tip, and a researcher aiming at a data
- * point is aiming with the end of their finger. Using the palm would put the ink
- * a couple of centimetres from where they are looking, which reads as the system
- * being inaccurate rather than as a different anchor.
+ * Not the index fingertip, and that correction is the largest single
+ * stabilisation in this subsystem — larger than every filter constant combined.
+ *
+ * Pinching *is a movement of the fingertip*. Closing thumb and index from an
+ * open hand travels the index tip roughly half the pinch distance, which is on
+ * the order of **65 pixels** on a 720-wide canvas. So a pen tracking the
+ * fingertip is displaced by that much at pen-down, displaced back at pen-up, and
+ * pulled around throughout by every unconscious variation in how hard the pinch
+ * is held. No amount of smoothing helps, because none of it is noise: it is the
+ * hand faithfully reporting a movement the researcher made and did not mean as
+ * drawing. Tuning a filter against it was treating a systematic error as a
+ * random one.
+ *
+ * The midpoint of the two tips is very nearly invariant under pinching — the
+ * fingers converge *on it* — while still tracking every movement of the hand as
+ * a whole. It is also what a pen would physically be held at, so it is where a
+ * researcher expects the mark to appear rather than a place that merely
+ * measures well.
+ *
+ * The palm remains wrong for a different reason: rotation is measured from the
+ * knuckle centroid because that behaves like a rigid body, but a pen is held at
+ * its tip, and a hand aiming at a data point aims with the end of the finger.
  */
 function penPoint(hand: Hand): InkPoint {
-  return { x: hand.indexTip.x, y: hand.indexTip.y, confidence: hand.confidence };
+  return {
+    x: (hand.thumbTip.x + hand.indexTip.x) / 2,
+    y: (hand.thumbTip.y + hand.indexTip.y) / 2,
+    confidence: hand.confidence,
+  };
 }
 
 export class InkStateMachine {

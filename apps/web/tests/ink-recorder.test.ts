@@ -34,9 +34,16 @@ function hand(at: { x: number; y: number }, pinch: number): Hand {
   };
 }
 
-/** Where `hand()` actually puts the pen: the index tip, not the centre. */
-function penOf(at: { x: number; y: number }, pinch = PINCHED) {
-  return { x: at.x + pinch / 2, y: at.y };
+/**
+ * Where `hand()` puts the pen: the midpoint of thumb and index.
+ *
+ * Which, in this fixture, is exactly `at` — the two tips are placed
+ * symmetrically about it. That is the point of tracking the midpoint rather than
+ * the fingertip: it does not move when the pinch opens or closes, so the same
+ * hand position means the same pen position at any pinch depth.
+ */
+function penOf(at: { x: number; y: number }) {
+  return { x: at.x, y: at.y };
 }
 
 type Step = { at: { x: number; y: number }; pinch?: number };
@@ -87,6 +94,8 @@ describe("strokes are recorded in the coordinates the chart paints in", () => {
     // it is the first mark. That is the rule that stops a hand closing on its
     // way somewhere else from leaving a dot.
     const pen = penOf({ x: 0.34, y: 0.5 });
+    // Stabilisation has not moved it: this is the stroke's first point, which is
+    // the gain anchor, so it lands exactly under the hand.
 
     expect(first.x).toBeCloseTo((1 - pen.x) * 1000, 6);
     expect(first.y).toBeCloseTo(pen.y * 800, 6);

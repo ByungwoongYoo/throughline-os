@@ -299,3 +299,77 @@ describe("what the recorder does with it", () => {
     expect(spread).toBeLessThan(100);
   });
 });
+
+
+describe("the pinch itself must not move the pen", () => {
+  /**
+   * The largest stabilisation in this subsystem, and it is not a filter.
+   *
+   * Pinching *is* a movement of the fingertip: closing thumb and index from an
+   * open hand travels the index tip about half the pinch distance, which is on
+   * the order of 65 pixels on a 720-wide canvas. A pen tracking the fingertip is
+   * therefore displaced at pen-down, displaced back at pen-up, and pulled around
+   * by every unconscious variation in how hard the pinch is held.
+   *
+   * None of that is noise, which is why no amount of smoothing touched it —
+   * tuning a filter against a systematic error treats it as a random one.
+   *
+   * Every test here drives the real recorder. The first version computed the
+   * midpoint itself and compared it with the midpoint, which is a test that
+   * cannot fail: reverting the pen to the fingertip left all of them passing.
+   */
+  function drawHoldingStill(pinches: number[]) {
+    const recorder = new InkRecorder({
+      stabilisation: "steady",
+      // Gain and the dead zone would mask the very displacement under test, and
+      // this is a question about where the pen *is*, not how it is filtered.
+      stabiliser: { gain: 1, deadZone: 0 },
+    });
+    recorder.setViewport({ width: 720, height: 520 });
+    recorder.arm();
+    pinches.forEach((pinch, i) => recorder.step({
+      timestamp: 1000 + i * 33,
+      hands: [hand({ x: 0.5, y: 0.5 }, pinch)],
+    } as HandFrame));
+    const stroke = recorder.openStroke() ?? recorder.strokes()[0];
+    return stroke ? stroke.originalPoints.map((p) => p.x) : [];
+  }
+
+  /** A hand that keeps squeezing after the stroke has started, as hands do. */
+  const SQUEEZING = [0.20, 0.05, 0.04, 0.03, 0.025, 0.02, 0.015, 0.01, 0.02,
+                     0.03, 0.04, 0.03, 0.02];
+
+  it("does not move while the pinch tightens and loosens mid-stroke", () => {
+    const xs = drawHoldingStill(SQUEEZING);
+
+    expect(xs.length).toBeGreaterThan(6);
+    // The hand never moved, so the mark should be a dot rather than a dash.
+    // Tracking the fingertip drew about 25px of travel here from squeezing
+    // alone; the midpoint draws none.
+    expect(Math.max(...xs) - Math.min(...xs)).toBeLessThan(2);
+  });
+
+  it("still follows the hand, so it is a pen and not an anchor", () => {
+    // The trap in the other direction: a point that ignored the pinch by
+    // ignoring the hand would be perfectly stable and completely useless.
+    const recorder = new InkRecorder({
+      stabilisation: "steady", stabiliser: { gain: 1, deadZone: 0 },
+    });
+    recorder.setViewport({ width: 720, height: 520 });
+    recorder.arm();
+    // 0.03 of the frame per step: a brisk stroke. The first version moved 0.10
+    // per frame, which is the spike threshold — every frame was correctly
+    // rejected as a tracker glitch, and the test failed for the right reason.
+    [{ x: 0.30, p: 0.2 }, { x: 0.30, p: 0.02 }, { x: 0.33, p: 0.02 },
+     { x: 0.36, p: 0.02 }, { x: 0.39, p: 0.02 }, { x: 0.42, p: 0.02 },
+     { x: 0.45, p: 0.02 }, { x: 0.48, p: 0.02 }].forEach((step, i) =>
+      recorder.step({ timestamp: 1000 + i * 33,
+                      hands: [hand({ x: step.x, y: 0.5 }, step.p)] } as HandFrame));
+
+    const xs = recorder.openStroke()!.originalPoints.map((p) => p.x);
+    // The hand travelled 130px; the ink covers about 77 of it, the remainder
+    // being the filter's lag over a short stroke. The claim being tested is that
+    // the pen tracks the hand at all, not that it tracks it without delay.
+    expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(60);
+  });
+});
