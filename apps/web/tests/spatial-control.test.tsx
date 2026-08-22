@@ -10,7 +10,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRef } from "react";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SpatialControl } from "@/components/spatial/SpatialControl";
 import { VisualizationController } from "@/lib/spatial/commands";
@@ -471,5 +471,175 @@ describe("calibration, driven to a conclusion", () => {
     await user.click(screen.getByRole("button", { name: /finish/i }));
 
     await waitFor(() => expect(screen.queryByRole("progressbar")).toBeNull());
+  });
+});
+
+describe("settings that take effect", () => {
+  async function turnOn(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole("button", { name: /try hand gestures/i }));
+    await user.click(screen.getByRole("button", { name: /set up hand gestures/i }));
+    await user.click(screen.getByRole("button", { name: /turn on the camera/i }));
+    await waitFor(() => screen.getByRole("button", { name: /turn off the camera/i }));
+  }
+
+  it("remembers a sensitivity the researcher chose", async () => {
+    const user = userEvent.setup();
+    mount();
+    await turnOn(user);
+    await user.click(screen.getByText(/sensitivity/i));
+
+    const rotation = screen.getByLabelText(/rotation/i);
+    fireEvent.change(rotation, { target: { value: "1.2" } });
+
+    const stored = JSON.parse(
+      window.localStorage.getItem("throughline-spatial") ?? "{}");
+    expect(stored.settings.rotationSensitivity).toBeCloseTo(1.2, 6);
+  });
+
+  it("offers a range whose useful part is not a sliver", async () => {
+    /**
+     * The slider range is deliberately narrower than the range storage accepts.
+     * `LIMITS` answers "what is not insane" and is wide so a hand-edited or
+     * future value survives; a slider spanning all of it would put every usable
+     * setting in the first fifth of the track, and the control would feel broken
+     * while working perfectly.
+     */
+    const user = userEvent.setup();
+    mount();
+    await turnOn(user);
+    await user.click(screen.getByText(/sensitivity/i));
+
+    const rotation = screen.getByLabelText(/rotation/i) as HTMLInputElement;
+    const min = Number(rotation.min);
+    const max = Number(rotation.max);
+    const chosen = DEFAULT_PREFERENCES.settings.rotationSensitivity;
+
+    // The default sits inside the offered band rather than at an edge.
+    expect(chosen).toBeGreaterThan(min);
+    expect(chosen).toBeLessThan(max);
+  });
+
+  it("puts the view back without needing a hand", async () => {
+    /**
+     * §31's recovery. A researcher whose tracking has gone wrong is exactly the
+     * one who cannot gesture their way home, so the way home cannot be a
+     * gesture.
+     */
+    const user = userEvent.setup();
+    const controllerRef = mount();
+    const resetView = vi.fn();
+    controllerRef.current = {
+      rotate: vi.fn(), zoom: vi.fn(), pan: vi.fn(),
+      hover: vi.fn(), select: vi.fn(), focus: vi.fn(), deselect: vi.fn(),
+      resetView,
+      viewport: () => ({ width: 400, height: 400 }),
+    };
+    await turnOn(user);
+
+    await user.click(screen.getByRole("button", { name: /reset the view/i }));
+
+    expect(resetView).toHaveBeenCalled();
+  });
+
+  it("gets the camera out of the way once calibration has answered its question",
+     async () => {
+    /**
+     * §19. The preview existed to answer "does the tracker see my hand". That
+     * question has just been answered, and the research visualization is what
+     * the researcher came for — so it stands down on its own rather than
+     * waiting to be dismissed.
+     */
+    const user = userEvent.setup();
+    mount();
+    await turnOn(user);
+
+    const preview = screen.getByLabelText(/camera preview with detected hand/i);
+    expect(preview).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: /calibrate/i }));
+    feed(2.0, 14);
+    await user.click(screen.getByRole("button", { name: /^next$/i }));
+    feed(0.2, 14);
+    await user.click(screen.getByRole("button", { name: /finish/i }));
+
+    await waitFor(() => expect(
+      screen.queryByLabelText(/camera preview with detected hand/i)).toBeNull());
+    // ...and the researcher can bring it back.
+    expect(screen.getByLabelText(/camera preview$/i)).toBeTruthy();
+  });
+});
+
+describe("sensitivity, measured at the chart", () => {
+  /**
+   * The assertion that makes the slider more than a stored number.
+   *
+   * Persistence is easy to test and proves nothing a researcher cares about:
+   * what matters is that moving the control changes how far the scene turns for
+   * the same hand movement. So this drives an identical pinch-and-drag through
+   * the whole chain at two settings and compares what the chart was actually
+   * told.
+   */
+  function rotationFor(sensitivity: number) {
+    return async () => {
+      const user = userEvent.setup();
+      const controllerRef = mount();
+      let turned = 0;
+      controllerRef.current = {
+        rotate: (dx: number) => { turned += Math.abs(dx); },
+        zoom: vi.fn(), pan: vi.fn(), hover: vi.fn(), select: vi.fn(),
+        focus: vi.fn(), deselect: vi.fn(), resetView: vi.fn(),
+        viewport: () => ({ width: 400, height: 400 }),
+      };
+
+      await user.click(screen.getByRole("button", { name: /try hand gestures/i }));
+      await user.click(screen.getByRole("button", { name: /set up hand gestures/i }));
+      await user.click(screen.getByRole("button", { name: /turn on the camera/i }));
+      await waitFor(() =>
+        screen.getByRole("button", { name: /turn off the camera/i }));
+
+      await user.click(screen.getByText(/sensitivity/i));
+      fireEvent.change(screen.getByLabelText(/rotation/i),
+                       { target: { value: String(sensitivity) } });
+
+      // Pinch, then travel the same distance across the frame.
+      feed(0.2, 1);      // open
+      feed(0.15, 2);     // closed — the clutch engages
+      for (let i = 0; i < 8; i += 1) drift(0.15, 0.01 * (i + 1));
+
+      return turned;
+    };
+  }
+
+  /** One frame of a held pinch, displaced horizontally. */
+  function drift(pinchRatio: number, dx: number, span = 0.12) {
+    const pinch = span * pinchRatio;
+    clock += 40;
+    act(() => {
+      deliverFrame?.({
+        timestamp: clock,
+        hands: [{
+          handedness: "right", confidence: 0.95,
+          wrist: { x: 0.5 + dx, y: 0.5 + span * 2 },
+          indexBase: { x: 0.5 + dx, y: 0.5 + span },
+          thumbTip: { x: 0.5 + dx - pinch / 2, y: 0.5 },
+          indexTip: { x: 0.5 + dx + pinch / 2, y: 0.5 },
+          middleTip: { x: 0.5 + dx, y: 0.5 + span * 1.7 },
+          ringTip: { x: 0.5 + dx, y: 0.5 + span * 1.8 },
+          pinkyTip: { x: 0.5 + dx, y: 0.5 + span * 1.9 },
+          palmCenter: { x: 0.5 + dx, y: 0.5 },
+        }],
+      });
+    });
+  }
+
+  it("turns the scene further at a higher setting, for the same hand movement",
+     async () => {
+    const gentle = await rotationFor(0.8)();
+    cleanup();
+    window.localStorage.clear();
+    const brisk = await rotationFor(3.5)();
+
+    expect(gentle).toBeGreaterThan(0);
+    expect(brisk).toBeGreaterThan(gentle * 2);
   });
 });

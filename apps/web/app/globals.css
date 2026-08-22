@@ -3373,3 +3373,14 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .spatial-toggles label {
   display: flex; gap: 6px; align-items: center; cursor: pointer;
 }
+
+/* --- spatial: sensitivity --------------------------------------------------- */
+/* Behind a disclosure, per §29: two numbers most researchers never touch should
+   not compete with the controls they use every session. */
+.spatial-advanced { margin-top: 10px; font-size: 12px; color: var(--ink-soft); }
+.spatial-advanced summary { cursor: pointer; color: var(--accent); }
+.spatial-slider {
+  display: grid; grid-template-columns: 60px 1fr 32px;
+  gap: 8px; align-items: center; margin-top: 8px;
+}
+.spatial-slider span { text-align: right; font-variant-numeric: tabular-nums; }

@@ -79,6 +79,21 @@ const LIMITS = {
   zoomSensitivity: { min: 0.1, max: 5 },
 } as const;
 
+/**
+ * What a slider offers, which is narrower than what storage accepts.
+ *
+ * Two different questions, deliberately answered separately. `LIMITS` is "what
+ * is not insane" — wide, because a stored value from a future version or a
+ * deliberate hand-edit should survive rather than be silently rewritten. This is
+ * "what is worth offering", and it is tight around the defaults: a slider
+ * spanning 0.2 to 8 would put every usable setting in the first fifth of the
+ * track, so the control would feel broken while working perfectly.
+ */
+export const SLIDER_RANGE = {
+  rotationSensitivity: { min: 0.6, max: 4, step: 0.1 },
+  zoomSensitivity: { min: 0.3, max: 2.5, step: 0.1 },
+} as const;
+
 function clamp(value: unknown, limits: { min: number; max: number },
                fallback: number): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return fallback;

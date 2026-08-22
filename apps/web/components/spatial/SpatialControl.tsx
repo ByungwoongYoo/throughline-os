@@ -28,7 +28,8 @@ import { CalibrationManager, CalibrationStep } from "@/lib/spatial/calibration";
 import { HandFrame } from "@/lib/spatial/types";
 import { HandPreview } from "./HandPreview";
 import {
-  DEFAULT_PREFERENCES, SpatialPreferences, readPreferences, writePreferences,
+  DEFAULT_PREFERENCES, SLIDER_RANGE, SpatialPreferences, readPreferences,
+  writePreferences,
 } from "@/lib/spatial/preferences";
 
 /**
@@ -230,15 +231,29 @@ export function SpatialControl({ controllerRef, label }: {
     }
 
     update({ settings: { ...preferences.settings, ...result.settings } });
-    sessionRef.current?.configure(result.settings);
     calibrationRef.current = null;
     setCalibrating(false);
+    // §19 — the video was there to answer "does the tracker see my hand", and
+    // that question has just been answered. The research visualization is what
+    // the researcher came for, so the preview gets out of the way on its own
+    // rather than waiting to be dismissed. The toggle below brings it back.
+    setShowPreview(false);
   }
 
   function update(next: Partial<SpatialPreferences>) {
     const merged = { ...preferences, ...next };
     setPreferences(merged);
     writePreferences(merged);
+    // Applied to the running session too, so a sensitivity change is felt on
+    // the next movement rather than after switching the feature off and on.
+    // A settings panel whose effect is deferred teaches people that it does not
+    // work, and they stop touching it.
+    if (next.settings) sessionRef.current?.configure(next.settings);
+  }
+
+  function setSensitivity(key: "rotationSensitivity" | "zoomSensitivity",
+                          value: number) {
+    update({ settings: { ...preferences.settings, [key]: value } });
   }
 
   // A browser that cannot provide a camera is told so once, here, rather than
@@ -377,6 +392,45 @@ export function SpatialControl({ controllerRef, label }: {
               </button>
             )}
           </div>
+
+          {/*
+            * §29's Interaction group, and §31's recovery: one action that
+            * returns a view from anywhere, reachable without a hand — a
+            * researcher whose tracking has gone wrong is precisely the one who
+            * cannot gesture their way home.
+            */}
+          <div className="spatial-row">
+            <button type="button" className="spatial-quiet"
+                    onClick={() => controllerRef.current?.resetView()}>
+              Reset the view
+            </button>
+          </div>
+
+          <details className="spatial-advanced">
+            <summary>Sensitivity</summary>
+            <label className="spatial-slider">
+              Rotation
+              <input type="range"
+                     min={SLIDER_RANGE.rotationSensitivity.min}
+                     max={SLIDER_RANGE.rotationSensitivity.max}
+                     step={SLIDER_RANGE.rotationSensitivity.step}
+                     value={preferences.settings.rotationSensitivity}
+                     onChange={(event) => setSensitivity(
+                       "rotationSensitivity", Number(event.target.value))} />
+              <span>{preferences.settings.rotationSensitivity.toFixed(1)}</span>
+            </label>
+            <label className="spatial-slider">
+              Zoom
+              <input type="range"
+                     min={SLIDER_RANGE.zoomSensitivity.min}
+                     max={SLIDER_RANGE.zoomSensitivity.max}
+                     step={SLIDER_RANGE.zoomSensitivity.step}
+                     value={preferences.settings.zoomSensitivity}
+                     onChange={(event) => setSensitivity(
+                       "zoomSensitivity", Number(event.target.value))} />
+              <span>{preferences.settings.zoomSensitivity.toFixed(1)}</span>
+            </label>
+          </details>
 
           {/* §19 — the researcher decides how much of the camera they see. */}
           <div className="spatial-row spatial-toggles">
