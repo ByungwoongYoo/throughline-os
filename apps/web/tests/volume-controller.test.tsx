@@ -238,3 +238,75 @@ describe("the mouse keeps every capability", () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 });
+
+describe("selecting a region rather than a point", () => {
+  /**
+   * §25 describes pointing at a cluster. This product will not call it one —
+   * nothing was fitted and no test was run — but the need underneath is real: a
+   * researcher looking at a region wants to ask about the region, not about
+   * whichever single mark happened to be nearest their finger.
+   */
+  it("returns everything within the radius, nearest first", () => {
+    const ref = mount();
+
+    const region = ref.current!.selectRegion({ x: 200, y: 200 }, 400);
+
+    expect(region.length).toBeGreaterThan(1);
+    // Nearest first, so a caller that truncates keeps what was most clearly
+    // indicated rather than an arbitrary subset.
+    expect(region[0].id).toBe("a");
+  });
+
+  it("returns nothing in empty space rather than the whole cloud", () => {
+    /** An unbounded region would mean pointing anywhere selects everything,
+     * and a selection that is always everything says nothing. */
+    const ref = mount();
+
+    expect(ref.current!.selectRegion({ x: 5, y: 395 }, 4)).toEqual([]);
+  });
+
+  it("carries each point's datum, so a region can become AI context", () => {
+    const ref = mount();
+
+    const region = ref.current!.selectRegion({ x: 200, y: 200 }, 400);
+
+    expect(region.every((t) => t.datum !== undefined)).toBe(true);
+  });
+
+  it("tells the host about the region, not only the nearest point", () => {
+    const onSelectRegion = vi.fn();
+    const ref = createRef<VisualizationController | null>();
+    render(
+      <Volume points={CLOUD} controllerRef={ref} onSelectRegion={onSelectRegion}
+              xLabel="x" yLabel="y" zLabel="z" width={400} height={400} />);
+
+    ref.current!.selectRegion({ x: 200, y: 200 }, 400);
+
+    expect(onSelectRegion).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ id: "a" })]));
+  });
+
+  it("clears the region when the selection is cleared", () => {
+    /** Otherwise the emphasis outlives what it referred to, and the chart shows
+     * a region the researcher has already dismissed. */
+    const onSelectRegion = vi.fn();
+    const ref = createRef<VisualizationController | null>();
+    render(
+      <Volume points={CLOUD} controllerRef={ref} onSelectRegion={onSelectRegion}
+              xLabel="x" yLabel="y" zLabel="z" width={400} height={400} />);
+
+    ref.current!.selectRegion({ x: 200, y: 200 }, 400);
+    ref.current!.deselect();
+
+    expect(onSelectRegion).toHaveBeenLastCalledWith([]);
+  });
+
+  it("is reachable through `apply`, exactly as a gesture would reach it", () => {
+    const ref = mount();
+
+    const result = apply(ref.current!,
+                         { kind: "selectRegion", at: { x: 200, y: 200 }, radius: 400 });
+
+    expect(Array.isArray(result)).toBe(true);
+  });
+});

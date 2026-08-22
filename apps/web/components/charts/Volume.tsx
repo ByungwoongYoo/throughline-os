@@ -96,8 +96,9 @@ function project(p: { x: number; y: number; z: number }, camera: Camera) {
 }
 
 export function Volume({
-  points, controllerRef, onSelect, xLabel, yLabel, zLabel, valueLabel, title,
-  caption, width = 720, height = 520,
+  points, controllerRef, onSelect, onSelectRegion, xLabel, yLabel, zLabel,
+  valueLabel, title,
+  caption, width = 720, height = 520, selectionRadius = 0,
 }: {
   points: Point3D[];
   /**
@@ -110,6 +111,16 @@ export function Volume({
   controllerRef?: React.RefObject<VisualizationController | null>;
   /** Told when a point is chosen, so a selection can become AI context. */
   onSelect?: (target: TargetRef | null) => void;
+  /** Told about a whole region, when one is selected rather than a single mark. */
+  onSelectRegion?: (targets: TargetRef[]) => void;
+  /**
+   * How far a selection reaches, in screen pixels. Zero selects one mark.
+   *
+   * A setting rather than a second gesture: §9 and Rule 6 both say a gesture
+   * must earn its place, and one that only changed how many points the same act
+   * gathers would not.
+   */
+  selectionRadius?: number;
   xLabel: string;
   yLabel: string;
   zLabel: string;
@@ -145,6 +156,8 @@ export function Volume({
    * value.
    */
   const selectedRef = useRef<string | null>(null);
+  /** Ids in the current region, drawn with a lighter emphasis than the selection. */
+  const regionRef = useRef<Set<string> | null>(null);
   const [occluded, setOccluded] = useState(0);
   /** The latest count the paint loop computed, published once drawing stops. */
   const occludedRef = useRef(0);
@@ -285,6 +298,18 @@ export function Volume({
     for (const m of marks) {
       const isSelected = m.id === selectedRef.current;
       const isHovered = m.id === hoveredRef.current;
+      const inRegion = regionRef.current?.has(m.id) ?? false;
+      // A region is drawn more faintly than the point at its centre: the
+      // researcher indicated one place, and everything else is context around
+      // it. Equal emphasis would make it unclear what was actually pointed at.
+      if (inRegion && !isSelected && !isHovered) {
+        context.beginPath();
+        context.arc(m.x, m.y, m.r + 2.5, 0, Math.PI * 2);
+        context.strokeStyle = "rgba(20,67,184,0.30)";
+        context.lineWidth = 1;
+        context.stroke();
+        continue;
+      }
       if (!isSelected && !isHovered) continue;
       context.beginPath();
       context.arc(m.x, m.y, m.r + (isSelected ? 5 : 3.5), 0, Math.PI * 2);
@@ -389,6 +414,48 @@ export function Volume({
     return best ? { id: best.id, label: best.label, datum: best.datum } : null;
   }, [normalised, points, width, height]);
 
+  /**
+   * Every mark within `radius` of a screen point.
+   *
+   * Shares `nearest`'s forgiveness about precision but answers a different
+   * question: not "which one did they mean" but "what is around here". §25
+   * calls this pointing at a cluster; this product does not, because nothing
+   * was fitted — it is the points near where somebody pointed, and both the
+   * caption and the prompt sent to a model say exactly that.
+   *
+   * Bounded by the same projection as the draw loop, so what is selected is
+   * what is visible: selecting a mark hidden behind another would be selecting
+   * something the researcher cannot see.
+   */
+  const within = useCallback((at: ScreenPoint, radius: number): TargetRef[] => {
+    const camera = cameraRef.current;
+    const cx = width / 2, cy = height / 2;
+    const unit = Math.min(width, height) * 0.30 * camera.zoom;
+
+    const found: Array<{ target: TargetRef; d: number }> = [];
+    for (let i = 0; i < normalised.length; i += 1) {
+      const q = project(normalised[i], camera);
+      const sx = cx + q.x * unit;
+      const sy = cy - q.y * unit;
+      const d = Math.hypot(sx - at.x, sy - at.y);
+      if (d <= radius) {
+        // `points[i]`, not `normalised[i]` — exactly as `nearest` does, and for
+        // the same reason. The normalised copy exists to be drawn: its
+        // coordinates are rescaled to a unit cube and it carries none of the
+        // caller's own fields. Handing that out as the datum would send a model
+        // numbers in the wrong space and drop the identifiers a selection needs
+        // to be recorded against anything.
+        found.push({
+          target: { id: points[i].id, label: points[i].label, datum: points[i] },
+          d,
+        });
+      }
+    }
+    // Nearest first, so a caller that truncates keeps what was most clearly
+    // indicated rather than an arbitrary subset.
+    return found.sort((a, b) => a.d - b.d).map((f) => f.target);
+  }, [normalised, points, width, height]);
+
   const rotate = useCallback((dx: number, dy: number) => {
     const camera = cameraRef.current;
     camera.yaw += dx * 0.008;
@@ -427,7 +494,23 @@ export function Volume({
       return target;
     },
     focus: (objectId) => { setSelected(objectId); dirtyRef.current = true; },
-    deselect: () => { setSelected(null); dirtyRef.current = true; onSelect?.(null); },
+    selectRegion: (at, radius) => {
+      const targets = within(at, radius);
+      regionRef.current = new Set(targets.map((t) => t.id));
+      // The nearest is still *the* selection, so the existing single-point
+      // affordances keep working; the region is emphasis around it.
+      setSelected(targets[0]?.id ?? null);
+      dirtyRef.current = true;
+      onSelectRegion?.(targets);
+      return targets;
+    },
+    deselect: () => {
+      setSelected(null);
+      regionRef.current = null;
+      dirtyRef.current = true;
+      onSelect?.(null);
+      onSelectRegion?.([]);
+    },
     resetView: () => {
       cameraRef.current = { yaw: 0.6, pitch: -0.34, zoom: 1 };
       dirtyRef.current = true;
@@ -436,7 +519,7 @@ export function Volume({
     // `controllerRef` is the handle's target, not an input to building it —
     // listing it as a dependency rebuilds the controller whenever the caller
     // passes a new ref object, for no gain.
-  }), [nearest, onSelect, rotate, width, height]);
+  }), [nearest, within, onSelect, onSelectRegion, rotate, width, height]);
 
   useEffect(() => {
     selectedRef.current = selected;
@@ -511,8 +594,23 @@ export function Volume({
                                        event.clientY - press.y);
           if (travelled > 3) return;
           const box = event.currentTarget.getBoundingClientRect();
-          const target = nearest({ x: event.clientX - box.left,
-                                   y: event.clientY - box.top });
+          const at = { x: event.clientX - box.left, y: event.clientY - box.top };
+
+          // The mouse honours the selection reach exactly as a gesture does.
+          // Rule 5 is not only about the mouse remaining *available* — a
+          // capability reachable by one input and not the other makes the
+          // camera mandatory for part of the chart, which is the same failure
+          // wearing different clothes.
+          if (selectionRadius > 0) {
+            const targets = within(at, selectionRadius);
+            regionRef.current = new Set(targets.map((t) => t.id));
+            setSelected(targets[0]?.id ?? null);
+            onSelectRegion?.(targets);
+            return;
+          }
+
+          const target = nearest(at);
+          regionRef.current = null;
           setSelected(target?.id ?? null);
           onSelect?.(target);
         }}

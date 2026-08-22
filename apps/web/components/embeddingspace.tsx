@@ -64,6 +64,16 @@ export function EmbeddingSpace({ projectId }: { projectId: string }) {
   const [space, setSpace] = useState<Space | null>(null);
   const [unavailable, setUnavailable] = useState<string | null>(null);
   const [selected, setSelected] = useState<SpacePoint | null>(null);
+  /**
+   * Everything near what was pointed at, when a region was chosen.
+   *
+   * Never called a cluster, here or in the request sent to the model. Nothing
+   * was fitted and no test was run, so it is the passages near a place somebody
+   * pointed — and `throughline_domain.selection` refuses the other word for
+   * exactly this reason.
+   */
+  const [region, setRegion] = useState<SpacePoint[]>([]);
+  const [radius, setRadius] = useState(0);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
@@ -97,6 +107,20 @@ export function EmbeddingSpace({ projectId }: { projectId: string }) {
     setAnswer(null);
     setAskFailed(null);
     setSelected((target?.datum as SpacePoint | undefined) ?? null);
+    setRegion([]);
+  }, []);
+
+  const onSelectRegion = useCallback((targets: TargetRef[]) => {
+    setAnswer(null);
+    setAskFailed(null);
+    const points = targets.map((t) => t.datum as SpacePoint);
+    setRegion(points);
+    // The nearest point is also the anchor. Without this the region appeared on
+    // screen with no way to ask about it — the question box is gated on there
+    // being a selection, and a region that offers nothing to do with it is
+    // worse than not offering regions at all. It is also where the answer gets
+    // recorded, since the journal anchors on that passage's research object.
+    setSelected(points[0] ?? null);
   }, []);
 
   async function ask() {
@@ -121,10 +145,9 @@ export function EmbeddingSpace({ projectId }: { projectId: string }) {
               visualization: `embedding space (${space.dimension} dimensions, `
                            + `projected to 3)`,
               axes: { x: "component 1", y: "component 2", z: "component 3" },
-              points: [{
-                id: selected.id, label: selected.label,
-                x: selected.x, y: selected.y, z: selected.z,
-              }],
+              points: (region.length ? region : [selected]).map((p) => ({
+                id: p.id, label: p.label, x: p.x, y: p.y, z: p.z,
+              })),
             },
           }),
         });
@@ -189,12 +212,36 @@ export function EmbeddingSpace({ projectId }: { projectId: string }) {
       )}
 
       <Volume points={space.points} controllerRef={controllerRef}
-              onSelect={onSelect}
+              onSelect={onSelect} onSelectRegion={onSelectRegion}
+              selectionRadius={radius}
               xLabel="component 1" yLabel="component 2" zLabel="component 3"
               title="Passages projected from the embedding model"
               caption={`Embedded with ${space.model}.`} />
 
       <SpatialControl controllerRef={controllerRef} label="this embedding space" />
+
+      {/*
+        * How much a selection gathers is a setting, not a second gesture. §9
+        * and Rule 6 are explicit that a gesture must earn its place, and one
+        * that only changed how many points the same act selects would not.
+        */}
+      <label className="es-radius">
+        Selection reach
+        <input type="range" min={0} max={220} step={10} value={radius}
+               onChange={(event) => {
+                 const next = Number(event.target.value);
+                 setRadius(next);
+                 if (next === 0) { controllerRef.current?.deselect(); }
+               }} />
+        <span>{radius === 0 ? "one passage" : `${radius}px`}</span>
+      </label>
+
+      {region.length > 1 && (
+        <p className="es-selected-label">
+          {region.length} passages near where you pointed. This is a region of
+          the picture, not a group the data defines — nothing was fitted.
+        </p>
+      )}
 
       {selected && (
         <div className="es-selected">

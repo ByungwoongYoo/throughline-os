@@ -41,6 +41,21 @@ export type IntentCommand =
   | { kind: "hover"; at: ScreenPoint }
   /** Commit to whatever is currently under the pointer. */
   | { kind: "select"; at: ScreenPoint }
+  /**
+   * Everything within `radius` of a point, rather than the nearest one.
+   *
+   * §25 describes pointing at a cluster. This product will not call it that —
+   * `throughline_domain.selection` refuses the word, because nothing was fitted
+   * and no test was run — but the underlying need is real: a researcher looking
+   * at a region wants to ask about the region, not about whichever single point
+   * happened to be closest to their finger.
+   *
+   * Deliberately **not** a new gesture. §9 and Rule 6 are explicit that a
+   * gesture must earn its place, and this one would not: the same point-and-
+   * pinch selects, and how much it gathers is a setting rather than a second
+   * thing to learn.
+   */
+  | { kind: "selectRegion"; at: ScreenPoint; radius: number }
   | { kind: "focus"; objectId: string }
   | { kind: "deselect" }
   | { kind: "resetView" };
@@ -61,6 +76,7 @@ export interface VisualizationController {
   /** Nearest target within the adapter's tolerance, or null. */
   hover(at: ScreenPoint): TargetRef | null;
   select(at: ScreenPoint): TargetRef | null;
+  selectRegion(at: ScreenPoint, radius: number): TargetRef[];
   focus(objectId: string): void;
   deselect(): void;
   resetView(): void;
@@ -91,7 +107,7 @@ export type TargetRef = {
  * defect this codebase keeps finding in other forms.
  */
 export function apply(controller: VisualizationController,
-                      command: IntentCommand): TargetRef | null {
+                      command: IntentCommand): TargetRef | TargetRef[] | null {
   switch (command.kind) {
     case "rotate":
       controller.rotate(command.deltaX, command.deltaY);
@@ -106,6 +122,8 @@ export function apply(controller: VisualizationController,
       return controller.hover(command.at);
     case "select":
       return controller.select(command.at);
+    case "selectRegion":
+      return controller.selectRegion(command.at, command.radius);
     case "focus":
       controller.focus(command.objectId);
       return null;

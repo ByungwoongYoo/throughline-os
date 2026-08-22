@@ -259,3 +259,77 @@ describe("asking about what was selected", () => {
     expect(alert.textContent).toMatch(/no model is configured/i);
   });
 });
+
+describe("asking about a region rather than one passage", () => {
+  async function open() {
+    render(<EmbeddingSpace projectId="prj_1" />);
+    await screen.findByText(/carry/i);
+  }
+
+  it("selects one passage by default", async () => {
+    /** The reach starts at zero: a researcher who never touches the control
+     * gets the precise behaviour, which is the one that needs no explaining. */
+    await open();
+    expect(screen.getByText(/one passage/i)).toBeTruthy();
+  });
+
+  it("gathers the passages near where you pointed once the reach is widened",
+     async () => {
+    const { fireEvent } = await import("@testing-library/react");
+    await open();
+
+    fireEvent.change(screen.getByLabelText(/selection reach/i),
+                     { target: { value: "200" } });
+    const canvas = document.querySelector("canvas")!;
+    fireEvent.pointerDown(canvas, { clientX: 360, clientY: 260 });
+    fireEvent.pointerUp(canvas, { clientX: 360, clientY: 260 });
+
+    expect(await screen.findByText(/passages near where you pointed/i))
+      .toBeTruthy();
+  });
+
+  it("refuses to call the region a cluster, on screen as well as in the prompt",
+     async () => {
+    /**
+     * §25 asks for cluster selection; this product will not say the word,
+     * because nothing was fitted and no test was run. The backend enforces it
+     * in the text sent to the model — this holds the same line in the interface,
+     * where a researcher would read it and reasonably believe a grouping had
+     * been computed.
+     */
+    const { fireEvent } = await import("@testing-library/react");
+    await open();
+    fireEvent.change(screen.getByLabelText(/selection reach/i),
+                     { target: { value: "200" } });
+    const canvas = document.querySelector("canvas")!;
+    fireEvent.pointerDown(canvas, { clientX: 360, clientY: 260 });
+    fireEvent.pointerUp(canvas, { clientX: 360, clientY: 260 });
+
+    const note = await screen.findByText(/passages near where you pointed/i);
+    expect(note.textContent).toMatch(/not a group the data defines/i);
+    expect(note.textContent).toMatch(/nothing was fitted/i);
+    expect(document.body.textContent?.toLowerCase()).not.toContain("cluster");
+  });
+
+  it("sends every point in the region, not only the nearest", async () => {
+    const { fireEvent } = await import("@testing-library/react");
+    const user = userEvent.setup();
+    await open();
+    fireEvent.change(screen.getByLabelText(/selection reach/i),
+                     { target: { value: "200" } });
+    const canvas = document.querySelector("canvas")!;
+    fireEvent.pointerDown(canvas, { clientX: 360, clientY: 260 });
+    fireEvent.pointerUp(canvas, { clientX: 360, clientY: 260 });
+    await screen.findByText(/passages near where you pointed/i);
+
+    await user.type(screen.getByRole("textbox"), "What is here?");
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ body: "…" }) });
+    await user.click(screen.getByRole("button", { name: /^ask$/i }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const body = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(body.selection.points.length).toBeGreaterThan(1);
+    // Still coordinates only — a region is more points, not a summary.
+    expect(JSON.stringify(body.selection)).not.toMatch(/mean|count|stddev/i);
+  });
+});

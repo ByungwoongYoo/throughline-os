@@ -3416,3 +3416,10 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   border-left: 2px solid var(--accent); background: var(--panel);
 }
 .es-attribution { font-size: 12px; color: var(--ink-faint); margin-bottom: 6px; }
+/* How far a selection reaches. A setting rather than a second gesture — §9. */
+.es-radius {
+  display: grid; grid-template-columns: 100px 1fr 90px;
+  gap: 8px; align-items: center;
+  font-size: 12px; color: var(--ink-soft); margin-top: 12px;
+}
+.es-radius span { text-align: right; font-variant-numeric: tabular-nums; }
