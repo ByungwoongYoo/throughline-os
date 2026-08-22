@@ -11,9 +11,11 @@ cd -P -- "${BASH_SOURCE[0]%/*}/.."
 PORT="${PORT:-8080}"
 WEB_PORT="${WEB_PORT:-3000}"
 
-python -c "from throughline_domain.migrate import migrate; \
-applied = migrate(); \
-print('migrations:', ', '.join(applied) if applied else 'up to date')"
+# Checks then migrations, in one process — see throughline_domain/preflight.py.
+# The check runs first because migration 0001 is where an ARM host fails, and
+# its traceback names nothing that would lead anyone to the cause. One process
+# because each one starts and stops its own embedded PostgreSQL.
+python -m throughline_domain.preflight
 
 python -m throughline_workers &
 WORKER=$!

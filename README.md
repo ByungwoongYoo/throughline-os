@@ -59,7 +59,7 @@ the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **1027 backend tests and 336 web tests**, with 6 backend
+The current suite is **1030 backend tests and 336 web tests**, with 6 backend
 skips, each carrying a reason CI's allowlist recognises — a skip with an
 unrecognised reason fails the build, so the suite cannot quietly shrink.
 
@@ -229,6 +229,22 @@ last wave merged with zero conflicts because nothing new was added to it.
 The image ships the embedded PostgreSQL rather than expecting an external one,
 because that is what the product is: a workspace someone installs, not a service
 someone operates.
+
+**The container is x86-64 only, and that is a hard limit rather than a default.**
+The embedded PostgreSQL (`pgserver`) publishes no Linux ARM build — no aarch64
+wheel in any release, and no source distribution to fall back on — so the image
+is pinned to `linux/amd64`. On an ARM host it therefore runs under emulation,
+and `pgvector`, which is compiled C using SIMD instructions, crashes the server
+as it loads. PostgreSQL itself is fine under emulation; the extension is not.
+
+So **on an Apple Silicon Mac, use `scripts/bootstrap.sh` rather than the
+container.** It is the supported route there and considerably faster besides.
+Running the image anyway is not dangerous — it refuses at startup with an
+explanation instead of failing halfway through a migration — but it will not
+run.
+
+This is invisible to CI, which is why it is written down here: the docker job
+runs on `ubuntu-latest`, which is amd64, so it passes and would keep passing.
 
 There is no published image; build it first.
 
