@@ -214,3 +214,36 @@ def test_axes_fall_back_rather_than_failing():
 
     assert "x = x" in described
     assert "a visualization" in described
+
+
+# ---------------------------------------------------------------------------
+# The limit exists twice, in two languages
+# ---------------------------------------------------------------------------
+
+
+def test_the_interface_and_the_validator_agree_on_the_point_limit():
+    """`MAX_POINTS` here and `MAX_SELECTION_POINTS` in the web app.
+
+    Two copies of a constant is the drift this codebase has paid for more than
+    once — most expensively when the gesture machine and the chart each held
+    their own idea of what a rotation delta meant, stayed self-consistent, and
+    disagreed with each other by a factor of the viewport width.
+
+    The duplication is deliberate here and worth keeping: checking in the
+    browser lets a researcher who circles half the chart be told immediately, by
+    the interface that watched them draw it, instead of by a failed request with
+    no circle attached. What is not acceptable is the two numbers drifting, so
+    they are pinned to each other rather than each to a literal.
+    """
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "apps" / "web" / "lib" / "ink" / "context.ts").read_text(
+        encoding="utf-8")
+    found = re.search(r"MAX_SELECTION_POINTS\s*=\s*(\d+)", source)
+
+    assert found, "the web app no longer declares MAX_SELECTION_POINTS"
+    assert int(found.group(1)) == selection.MAX_POINTS, (
+        f"the interface refuses above {found.group(1)} points and this module "
+        f"refuses above {selection.MAX_POINTS}")

@@ -30,10 +30,10 @@ and looked at the code. The test requires the count never to grow.
 
 | Status | Sections |
 |---|---|
-| built | 37 |
-| partial | 3 |
-| not-built | 22 |
-| unreviewed | 174 |
+| built | 42 |
+| partial | 10 |
+| not-built | 23 |
+| unreviewed | 161 |
 | **total** | **236** |
 
 Nothing here has been verified by anybody other than its author. `TASKS.md`
@@ -82,18 +82,18 @@ revisited — an edited specification is exactly when requirements go missing.
 | §33 | CALIBRATION | built | apps/web/lib/spatial/calibration.ts | apps/web/tests/spatial-calibration.test.ts | Two-pose, offered and never required. |
 | §34 | CAMERA UX | built | apps/web/lib/spatial/camera.ts | apps/web/tests/spatial-control.test.tsx | Device picker, preview, explicit off. |
 | §35 | PRIVACY | built | apps/web/components/spatial/SpatialControl.tsx | apps/web/tests/spatial-control.test.tsx | All inference local; no frame leaves the machine; counts only in telemetry. |
-| §36 | AI RESEARCH ASSISTANT | unreviewed |  |  |  |
-| §37 | DEICTIC REFERENCES | unreviewed |  |  |  |
-| §38 | GESTURE | unreviewed |  |  |  |
-| §39 | AI SHOULD OPERATE THROUGH COMMANDS | unreviewed |  |  |  |
-| §40 | AI ANALYTICAL GUARDRAILS | unreviewed |  |  |  |
-| §41 | RESEARCH PROVENANCE | unreviewed |  |  |  |
-| §42 | UNDO / REDO | unreviewed |  |  |  |
-| §43 | HISTORY | unreviewed |  |  |  |
-| §44 | BRANCHING | unreviewed |  |  |  |
-| §45 | DATA INGESTION | unreviewed |  |  |  |
-| §46 | DATA PROFILING | unreviewed |  |  |  |
-| §47 | LARGE DATASETS | unreviewed |  |  |  |
+| §36 | AI RESEARCH ASSISTANT | partial | packages/research-domain/src/throughline_domain/selection.py | tests/test_selection.py | A selection becomes AI context, computed rather than asserted. There is no ResearchContextEngine: filters, chart configuration, spatial focus and recent actions are not part of what the assistant is told. |
+| §37 | DEICTIC REFERENCES | partial | packages/research-domain/src/throughline_domain/selection.py | tests/test_selection.py | The substrate exists — a gesture produces prose naming what was indicated — but no language resolution of "this"/"these" against it. |
+| §38 | GESTURE | not-built |  |  | No voice channel at all, so no gesture-plus-speech fusion. |
+| §39 | AI SHOULD OPERATE THROUGH COMMANDS | partial | packages/model/src/throughline_model/provider.py | tests/test_anthropic_provider.py | Honoured in the weak form: the model returns text for specific tasks and never mutates state. There is no declared action schema or validating tool boundary, so the safety is structural rather than enforced. |
+| §40 | AI ANALYTICAL GUARDRAILS | built | packages/research-domain/src/throughline_domain/critic.py | tests/test_claim_test.py | Observation, calculation, inference and interpretation are kept apart throughout; a fitted surface says it is a fit, and a hand-drawn selection says it is not a sample. |
+| §41 | RESEARCH PROVENANCE | built | packages/research-domain/src/throughline_domain/lineage.py | tests/test_lineage.py | Every consequential transformation is recorded and inspectable. |
+| §42 | UNDO / REDO | not-built |  |  | No application-level undo or redo. Only Air Ink can undo, which is §179 and a different thing. Named by the specification as mandatory. |
+| §43 | HISTORY | partial | packages/research-domain/src/throughline_domain/events.py | tests/test_objects.py | The timeline exists as data — domain events and an audit log — with no history view and no restore to a previous state. |
+| §44 | BRANCHING | built | packages/research-domain/src/throughline_domain/lineage_forks.py | tests/test_lineage_forks.py | Forks are first-class and read back as branches; nothing counts a fork against the researcher. |
+| §45 | DATA INGESTION | partial | packages/ingestion/src/throughline_ingestion/datasets.py | tests/test_dataset_formats.py | CSV, TSV, XLSX, JSON, Parquet and Arrow. No SQL, no APIs, no scientific or geographic formats. |
+| §46 | DATA PROFILING | partial | packages/ingestion/src/throughline_ingestion/datasets.py | tests/test_ingestion.py | Row count, column types, missing fractions and numeric ranges. No duplicates, categories, candidate identifiers, unit detection or anomalies. Uploaded data is never altered. |
+| §47 | LARGE DATASETS | partial | packages/ingestion/src/throughline_ingestion/datasets.py | tests/test_ingestion.py | Sampling above a row limit, and the sample is declared rather than hidden. No aggregation, level of detail, tiling, streaming or GPU path. |
 | §48 | VISUALIZATION CONTROLLER | built | apps/web/lib/spatial/commands.ts | apps/web/tests/chart-conformance.test.tsx | One seam, exhaustively typed, and now one conformance suite for every chart behind it. |
 | §49 | THREE-DIMENSIONAL RENDERING | built | apps/web/lib/charts/scene3d.ts | apps/web/tests/scene3d.test.ts | One shared projection. T043 fixed it never fitting its own canvas. |
 | §50 | GPU STRATEGY | unreviewed |  |  |  |
@@ -131,7 +131,7 @@ revisited — an edited specification is exactly when requirements go missing.
 | §82 | COLOR | unreviewed |  |  |  |
 | §83 | SECURITY | unreviewed |  |  |  |
 | §84 | AI DATA BOUNDARIES | unreviewed |  |  |  |
-| §85 | AUDITABILITY | unreviewed |  |  |  |
+| §85 | AUDITABILITY | built | packages/research-domain/src/throughline_domain/events.py | tests/test_deletion_is_recorded.py | An append-only audit log; deletions are recorded rather than vanishing. |
 | §86 | TELEMETRY | unreviewed |  |  |  |
 | §87 | FALSE ACTION METRIC | unreviewed |  |  |  |
 | §88 | SUCCESS CRITERIA | unreviewed |  |  |  |
@@ -244,7 +244,7 @@ revisited — an edited specification is exactly when requirements go missing.
 | §195 | PSEUDO-HAPTIC DRAWING | unreviewed |  |  |  |
 | §196 | AI UNDERSTANDING OF DRAWING | unreviewed |  |  |  |
 | §197 | NEVER LET AI INTERPRET SILENTLY | partial | apps/web/app/air-ink/page.tsx | apps/web/tests/ink.test.ts | A region is reported and not applied. No confirmation UI for anything beyond selection. |
-| §198 | DRAWING AS AI CONTEXT | not-built |  |  | Ink is not yet handed to the assistant as context. |
+| §198 | DRAWING AS AI CONTEXT | built | apps/web/lib/ink/context.ts | apps/web/tests/ink-context.test.ts | A drawn region becomes the ask endpoint's selection payload. Nothing is summarised on the way — the count, mean and range are computed by the backend so they are calculated rather than asserted by the interface. |
 | §199 | TEMPORAL SPEECH-GESTURE FUSION | unreviewed |  |  |  |
 | §200 | LIVE PRESENTATION DRAWING | unreviewed |  |  |  |
 | §201 | INK LAYERS | not-built |  |  |  |

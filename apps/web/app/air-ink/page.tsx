@@ -31,6 +31,7 @@ import { HandFrame } from "@/lib/spatial/types";
 import { InkState } from "@/lib/ink/machine";
 import { SpatialStroke, isClosed, observedPoints, strokeLength } from "@/lib/ink/stroke";
 import { describeSelection, selectWithinStroke } from "@/lib/ink/select";
+import { describeContext, selectionContext } from "@/lib/ink/context";
 import {
   DEFAULT_STABILISATION_LEVEL, StabilisationLevel,
 } from "@/lib/ink/stabilise";
@@ -104,6 +105,8 @@ type Reading = {
   /** Path length in pixels, which is the honest unit for a screen-space stroke. */
   length: number;
   verdict: string;
+  /** What could be asked about it, or why it could not be. */
+  context: string | null;
 };
 
 export default function AirInkPage() {
@@ -132,6 +135,13 @@ export default function AirInkPage() {
       length: Math.round(strokeLength(observed)),
       verdict: selection ? describeSelection(selection)
                          : "No chart was mounted to resolve that against.",
+      // §198: what the region would hand the assistant, shown rather than sent.
+      // §197 is the reason it is only shown — an interpretation that changes
+      // what a researcher is analysing gets confirmed, not applied.
+      context: selection ? describeContext(selectionContext(selection, {
+        visualization: "a synthetic cloud in three lobes",
+        xLabel: "x", yLabel: "y", zLabel: "z",
+      })) : null,
       // Newest first, and only the last few: this is a live reading, not a log.
     }, ...previous].slice(0, 6));
   }, []);
@@ -254,6 +264,7 @@ export default function AirInkPage() {
                 <th style={{ padding: "6px 8px" }}>Length</th>
                 <th style={{ padding: "6px 8px" }}>Closed?</th>
                 <th style={{ padding: "6px 8px" }}>Reading</th>
+                <th style={{ padding: "6px 8px" }}>As a question</th>
               </tr>
             </thead>
             <tbody>
@@ -265,6 +276,9 @@ export default function AirInkPage() {
                     {reading.closed ? "yes" : "no"}
                   </td>
                   <td style={{ padding: "6px 8px" }}>{reading.verdict}</td>
+                  <td style={{ padding: "6px 8px", color: "#555" }}>
+                    {reading.context ?? "—"}
+                  </td>
                 </tr>
               ))}
             </tbody>
