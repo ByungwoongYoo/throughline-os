@@ -30,7 +30,7 @@ VALID = {"built", "partial", "not-built", "unreviewed"}
 #: The count on the day the ledger was written. It may fall and never rise.
 #: A ceiling rather than an exact figure, so reviewing a section is a one-line
 #: change here rather than a negotiation with the test.
-MAX_UNREVIEWED = 154
+MAX_UNREVIEWED = 153
 
 #: Sections in the specification. Fixed, because the specification is fixed.
 TOTAL_SECTIONS = 236

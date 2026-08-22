@@ -43,6 +43,7 @@ import {
 } from "./stroke";
 import { DEFAULT_INK_SETTINGS, InkEvent, InkSettings, InkStateMachine } from "./machine";
 import { DEFAULT_PREDICT, PredictSettings, predictAhead } from "./predict";
+import { InkHistory, applyOperation } from "./history";
 
 export type Viewport = { width: number; height: number };
 
@@ -83,6 +84,15 @@ export class InkRecorder {
   private machine: InkStateMachine;
   private open: SpatialStroke | null = null;
   private finished: SpatialStroke[] = [];
+  /**
+   * Everything that can be taken back (§42).
+   *
+   * Held by the recorder rather than by the page, because the recorder is what
+   * knows when a stroke actually became a mark — a pinch that never met the
+   * contact rule must not appear in a researcher's undo history as something
+   * they did.
+   */
+  private readonly past = new InkHistory();
   /**
    * Stabilisation for the pen, which is emphatically not the gesture layer's.
    *
@@ -183,9 +193,32 @@ export class InkRecorder {
     this.finished.push(stroke);
   }
 
-  /** Remove the most recent finished stroke. Returns it, or null. */
-  undo(): SpatialStroke | null {
-    return this.finished.pop() ?? null;
+  canUndo(): boolean { return this.past.canUndo(); }
+  canRedo(): boolean { return this.past.canRedo(); }
+
+  /** What undo would do, for a control that says so before it is pressed. */
+  describeUndo(): string | null { return this.past.describeUndo(); }
+  describeRedo(): string | null { return this.past.describeRedo(); }
+
+  /**
+   * Take back the last thing that happened.
+   *
+   * Covers clearing as well as drawing, which is the whole reason this exists:
+   * *Clear* is the one action here that destroys work, and it destroyed it
+   * permanently until now.
+   */
+  undo(): boolean {
+    const operation = this.past.undo();
+    if (!operation) return false;
+    this.finished = applyOperation(this.finished, operation, "undo");
+    return true;
+  }
+
+  redo(): boolean {
+    const operation = this.past.redo();
+    if (!operation) return false;
+    this.finished = applyOperation(this.finished, operation, "do");
+    return true;
   }
 
   /**
@@ -197,6 +230,12 @@ export class InkRecorder {
    * released the pinch — a failure with no error and no visible cause.
    */
   clear(): void {
+    // Recorded before it happens, holding the strokes themselves. An undone
+    // clear hands back the same objects rather than rebuilding them from a
+    // description — a history that re-derives what it discarded will eventually
+    // re-derive it differently, and a researcher gets back something that
+    // resembles their annotation, which is worse than losing it.
+    if (this.finished.length) this.past.did({ kind: "clear", strokes: this.finished });
     this.finished = [];
     this.open = null;
     this.machine.cancelStroke();
@@ -351,6 +390,7 @@ export class InkRecorder {
     // from a line is a decision about pixels.
     stroke.points = resample(stroke.points);
     this.finished.push(stroke);
+    this.past.did({ kind: "draw", stroke });
     return true;
   }
 }

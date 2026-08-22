@@ -353,11 +353,13 @@ describe("what counts as a mark", () => {
     run(recorder, [{ at: { x: 0.40, y: 0.6 }, pinch: OPEN }]);
 
     expect(recorder.strokes()).toHaveLength(2);
-    const removed = recorder.undo();
-    expect(removed).not.toBeNull();
+    // `undo` reports whether anything was taken back, rather than handing over
+    // the stroke. Since §42 it also covers clearing, and "the stroke that was
+    // removed" is not a meaningful answer to undoing a clear of twelve.
+    expect(recorder.undo()).toBe(true);
     expect(recorder.strokes()).toHaveLength(1);
-    expect(recorder.undo()).not.toBeNull();
-    expect(recorder.undo()).toBeNull();
+    expect(recorder.undo()).toBe(true);
+    expect(recorder.undo()).toBe(false);
   });
 });
 

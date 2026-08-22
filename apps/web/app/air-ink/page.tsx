@@ -123,6 +123,12 @@ export default function AirInkPage() {
   const [level, setLevel] = useState<StabilisationLevel>(DEFAULT_STABILISATION_LEVEL);
   const [said, setSaid] = useState("");
   const [proposal, setProposal] = useState<string | null>(null);
+  /** What undo and redo would do right now, read after anything changes. */
+  const [pending, setPendingState] =
+    useState<{ undo: string | null; redo: string | null }>({ undo: null, redo: null });
+  const setPending = useCallback(() => {
+    setPendingState(inkRef.current?.pending() ?? { undo: null, redo: null });
+  }, []);
   /**
    * What the hand has indicated, on the same clock the words arrive on.
    *
@@ -173,7 +179,8 @@ export default function AirInkPage() {
       })) : null,
       // Newest first, and only the last few: this is a live reading, not a log.
     }, ...previous].slice(0, 6));
-  }, []);
+    setPending();
+  }, [setPending]);
 
   return (
     <main style={{ maxWidth: 1080, margin: "0 auto", padding: "32px 24px 64px" }}>
@@ -196,13 +203,30 @@ export default function AirInkPage() {
                          color: armed ? "white" : "#1443B8", cursor: "pointer" }}>
           {armed ? "Put the pen away" : "Take out the pen"}
         </button>
-        <button onClick={() => inkRef.current?.undo()}
+        {/*
+          * Undo says what it would undo (§42, §96).
+          *
+          * "Undo" on its own is not a decision anybody can make after a few
+          * minutes of drawing; "Undo clearing 12 strokes" is. That matters most
+          * for the one action here that destroys work.
+          */}
+        <button onClick={() => { inkRef.current?.undo(); setPending(); }}
+                disabled={!pending.undo}
                 style={{ padding: "8px 14px", borderRadius: 6,
                          border: "1px solid #999", background: "transparent",
-                         cursor: "pointer" }}>
-          Undo last stroke
+                         cursor: pending.undo ? "pointer" : "default",
+                         opacity: pending.undo ? 1 : 0.45 }}>
+          {pending.undo ?? "Undo"}
         </button>
-        <button onClick={() => { inkRef.current?.clear(); setReadings([]); }}
+        <button onClick={() => { inkRef.current?.redo(); setPending(); }}
+                disabled={!pending.redo}
+                style={{ padding: "8px 14px", borderRadius: 6,
+                         border: "1px solid #999", background: "transparent",
+                         cursor: pending.redo ? "pointer" : "default",
+                         opacity: pending.redo ? 1 : 0.45 }}>
+          {pending.redo ?? "Redo"}
+        </button>
+        <button onClick={() => { inkRef.current?.clear(); setReadings([]); setPending(); }}
                 style={{ padding: "8px 14px", borderRadius: 6,
                          border: "1px solid #999", background: "transparent",
                          cursor: "pointer" }}>

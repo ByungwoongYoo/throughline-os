@@ -152,6 +152,18 @@ permission prompt before an explanation.
 An open hand does nothing at all. That is the single most important behaviour in
 the feature: the pinch is a clutch, exactly like holding a mouse button.
 
+### Undo covers clearing now
+
+*Clear* used to throw away every mark on the canvas permanently. It no longer
+does: **Undo** takes it back and hands you the same strokes, not redrawn copies.
+
+The buttons say what they would do — *Undo clearing 12 strokes* rather than
+*Undo* — because after a few minutes of drawing, "Undo" on its own is not a
+decision anybody can make.
+
+Worth trying: draw several marks, press *Clear*, then *Undo*. Everything should
+come back in the order you drew it. *Redo* puts it away again.
+
 ### If the line is too fast to write with
 
 Use the **Stabilisation** buttons under the pen controls. This was the first

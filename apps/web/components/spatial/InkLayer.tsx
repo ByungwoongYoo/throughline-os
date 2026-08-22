@@ -43,6 +43,9 @@ export type InkSurface = {
   disarm: () => void;
   clear: () => void;
   undo: () => void;
+  redo: () => void;
+  /** What undo and redo would do, so a control can say so before it is pressed. */
+  pending: () => { undo: string | null; redo: string | null };
   strokes: () => SpatialStroke[];
   state: () => InkState;
 };
@@ -221,6 +224,15 @@ export const InkLayer = forwardRef<InkSurface, {
     undo() {
       recorderRef.current?.undo();
       committedDirty.current = true;
+    },
+    redo() {
+      recorderRef.current?.redo();
+      committedDirty.current = true;
+    },
+    pending() {
+      const recorder = recorderRef.current;
+      return { undo: recorder?.describeUndo() ?? null,
+               redo: recorder?.describeRedo() ?? null };
     },
     strokes() { return recorderRef.current?.strokes() ?? []; },
     state() { return recorderRef.current?.state() ?? "DISABLED"; },

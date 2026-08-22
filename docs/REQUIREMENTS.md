@@ -31,9 +31,9 @@ and looked at the code. The test requires the count never to grow.
 | Status | Sections |
 |---|---|
 | built | 45 |
-| partial | 13 |
-| not-built | 24 |
-| unreviewed | 154 |
+| partial | 15 |
+| not-built | 23 |
+| unreviewed | 153 |
 | **total** | **236** |
 
 Nothing here has been verified by anybody other than its author. `TASKS.md`
@@ -88,7 +88,7 @@ revisited — an edited specification is exactly when requirements go missing.
 | §39 | AI SHOULD OPERATE THROUGH COMMANDS | built | apps/web/lib/voice/intent.ts | apps/web/tests/voice-fusion.test.ts | Speech produces a validated structured intent and never an action. A closed verb set, refused clearly rather than misinterpreted confidently, and confirmed before anything happens. |
 | §40 | AI ANALYTICAL GUARDRAILS | built | packages/research-domain/src/throughline_domain/critic.py | tests/test_claim_test.py | Observation, calculation, inference and interpretation are kept apart throughout; a fitted surface says it is a fit, and a hand-drawn selection says it is not a sample. |
 | §41 | RESEARCH PROVENANCE | built | packages/research-domain/src/throughline_domain/lineage.py | tests/test_lineage.py | Every consequential transformation is recorded and inspectable. |
-| §42 | UNDO / REDO | not-built |  |  | No application-level undo or redo. Only Air Ink can undo, which is §179 and a different thing. Named by the specification as mandatory. |
+| §42 | UNDO / REDO | partial | apps/web/lib/ink/history.ts | apps/web/tests/ink-history.test.ts | Undo and redo for the destructive action that exists: clearing the canvas, which discarded every annotation permanently, plus per-stroke undo. Both name what they would do. Movement, filters, transformations and model changes are not covered because those actions do not exist in the gesture layer yet. |
 | §43 | HISTORY | partial | packages/research-domain/src/throughline_domain/events.py | tests/test_objects.py | The timeline exists as data — domain events and an audit log — with no history view and no restore to a previous state. |
 | §44 | BRANCHING | built | packages/research-domain/src/throughline_domain/lineage_forks.py | tests/test_lineage_forks.py | Forks are first-class and read back as branches; nothing counts a fork against the researcher. |
 | §45 | DATA INGESTION | partial | packages/ingestion/src/throughline_ingestion/datasets.py | tests/test_dataset_formats.py | CSV, TSV, XLSX, JSON, Parquet and Arrow. No SQL, no APIs, no scientific or geographic formats. |
@@ -142,7 +142,7 @@ revisited — an edited specification is exactly when requirements go missing.
 | §93 | SAFETY LIMITS | unreviewed |  |  |  |
 | §94 | FEEDBACK SYSTEM | unreviewed |  |  |  |
 | §95 | INTENT PREVIEW | unreviewed |  |  |  |
-| §96 | DESTRUCTIVE ACTIONS | unreviewed |  |  |  |
+| §96 | DESTRUCTIVE ACTIONS | partial | apps/web/lib/ink/history.ts | apps/web/tests/ink-history.test.ts | The one destructive action here is now recoverable and its control says what it would take back — "Undo clearing 12 strokes" rather than "Undo". No confirmation step before destructive actions. |
 | §97 | ONBOARDING | unreviewed |  |  |  |
 | §98 | DISCOVERABILITY | unreviewed |  |  |  |
 | §99 | SETTINGS | unreviewed |  |  |  |
@@ -225,7 +225,7 @@ revisited — an edited specification is exactly when requirements go missing.
 | §176 | DO NOT USE RANDOM PALM MOVEMENT AS DELETE | not-built |  |  | No erasing. |
 | §177 | PHYSICAL ERASER FEEDBACK | not-built |  |  | No erasing. |
 | §178 | PARTIAL STROKE ERASING | not-built |  |  | No erasing. |
-| §179 | UNDO MUST BE INSTANT | built | apps/web/lib/ink/recorder.ts | apps/web/tests/ink-recorder.test.ts | Undo is immediate and local. |
+| §179 | UNDO MUST BE INSTANT | built | apps/web/lib/ink/history.ts | apps/web/tests/ink-history.test.ts | Synchronous and local: no network, no await, nothing that can fail. An undo that might not work is not an undo. |
 | §180 | LASSO TOOL | unreviewed |  |  |  |
 | §181 | SHAPE TOOL | not-built |  |  |  |
 | §182 | STRAIGHTEDGE MODE | not-built |  |  |  |
