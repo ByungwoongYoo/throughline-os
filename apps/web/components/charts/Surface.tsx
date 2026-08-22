@@ -424,6 +424,25 @@ export function Surface({
         }}
       />
 
+      {/*
+        * A visible way back.
+        *
+        * `Home` already reset the view and nothing on screen said so, which is
+        * half of what "I can't do anything with this graph" meant: once a reader
+        * has rotated or zoomed into something unreadable, an undiscoverable
+        * keyboard binding is the same as no recovery at all. A button is also
+        * the only route for somebody using a pointer and never a keyboard.
+        */}
+      <div className="chart-controls">
+        <button type="button" className="chart-control"
+                onClick={() => {
+                  resetCamera(cameraRef.current);
+                  dirtyRef.current = true;
+                }}>
+          Reset the view
+        </button>
+      </div>
+
       <figcaption className="chart-caption">
         {caption}{" "}
         <strong>This surface is a fit, not data.</strong> It shows what the model

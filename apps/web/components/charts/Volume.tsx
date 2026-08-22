@@ -737,6 +737,25 @@ export function Volume({
         }}
       />
 
+      {/*
+        * The same visible recovery as the surface chart.
+        *
+        * This chart has always had the same trap — rotate or zoom into
+        * something unreadable and the only way back was a keyboard binding
+        * nothing announced. It surfaced on the surface chart first because a
+        * mesh degrades more visibly than a cloud, but the missing affordance
+        * was never specific to it.
+        */}
+      <div className="chart-controls">
+        <button type="button" className="chart-control"
+                onClick={() => {
+                  resetCamera(cameraRef.current);
+                  dirtyRef.current = true;
+                }}>
+          Reset the view
+        </button>
+      </div>
+
       <figcaption className="chart-caption">
         {caption ? `${caption} ` : ""}
         {points.length.toLocaleString()} points positioned by {xLabel},{" "}

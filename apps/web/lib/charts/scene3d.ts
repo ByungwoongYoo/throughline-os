@@ -78,9 +78,48 @@ export function resetCamera(camera: Camera): void {
   camera.zoom = DEFAULT_CAMERA.zoom;
 }
 
-/** How much perspective may enlarge a nearer object. */
+/** How much perspective may enlarge a nearer *mark*. */
 export const DEPTH_RANGE = 0.55;
-const FOCAL = 2.6;
+
+/**
+ * Eye distance, in scene units, and the number that decides how violent
+ * perspective is.
+ *
+ * Raised from 2.6, which was wrong in a way that only showed on a mesh. The unit
+ * cube's corner sits 1.73 units from the centre, so at 2.6 the divisor
+ * `FOCAL - z` fell to 0.87 and a near corner was enlarged 2.98x while a far one
+ * shrank to 0.60x — a **4.96x swing across a single scene**. A point cloud
+ * survives that, because a mark is a dot and the reader reads the change as
+ * depth, which is why the 3D scatter looked fine for months. A surface does not:
+ * its near cells balloon past the frame while its far cells collapse, and the
+ * mesh tears into the fan of slivers that was reported.
+ *
+ * `DEPTH_RANGE` did not protect against this. It damps perspective when *sizing
+ * a mark* and nothing damps the projected positions, which is exactly why the
+ * observations in that figure looked reasonable while the surface under them
+ * came apart.
+ *
+ * At 6 the swing is 1.81x, which is still plainly a depth cue and no longer a
+ * distortion.
+ */
+const FOCAL = 6;
+
+/**
+ * Scene units per half-canvas, before zoom.
+ *
+ * Lowered from 0.30, which never framed the thing it was framing. A unit cube
+ * rotated to an arbitrary angle has a projected radius of at least √3 ≈ 1.73 —
+ * that is just its diagonal, before perspective — and 0.30 only accommodates
+ * 1.67 (half of one, over the factor). So the corners of every 3D scene here
+ * were outside the canvas at the default camera with no zoom applied at all.
+ *
+ * 0.26 is derived rather than chosen: sampling the cube over the full range of
+ * yaw and the clamped range of pitch, the largest projected radius at
+ * `FOCAL = 6` is 1.81, and 0.47 / 1.81 = 0.26 keeps it inside the frame with a
+ * little margin. `tests/scene3d.test.ts` recomputes that sweep, so changing
+ * either constant without the other fails.
+ */
+const FIT = 0.26;
 
 export type Projected = {
   x: number;
@@ -117,7 +156,7 @@ export function project(p: { x: number; y: number; z: number },
 export function toCanvas(p: { x: number; y: number; z: number }, camera: Camera,
                          width: number, height: number) {
   const q = project(p, camera);
-  const unit = Math.min(width, height) * 0.30 * camera.zoom;
+  const unit = Math.min(width, height) * FIT * camera.zoom;
   return {
     x: width / 2 + q.x * unit,
     y: height / 2 - q.y * unit,

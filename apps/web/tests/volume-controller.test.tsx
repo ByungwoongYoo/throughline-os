@@ -695,3 +695,29 @@ describe("region queries are exact, because a count gets quoted", () => {
     expect(ref.current!.withinPolygon(region).map((t) => t.id)).toContain("b");
   });
 });
+
+describe("there is a visible way back", () => {
+  /**
+   * A reader who has rotated into something unreadable needs a recovery path
+   * they can see. `Home` reset the view and nothing on screen said so, which for
+   * anybody using a pointer is the same as no recovery at all — and it is how a
+   * figure ends up reported as "I can't do anything with this graph".
+   */
+  it("offers a reset control, not only a keyboard binding", () => {
+    mount();
+    expect(screen.getByRole("button", { name: /reset the view/i })).toBeTruthy();
+  });
+
+  it("returns the scene to where it started when pressed", () => {
+    const ref = mount();
+    const before = ref.current!.hover({ x: 200, y: 200 })?.id ?? null;
+
+    ref.current!.rotate(400, 160);
+    ref.current!.zoom(2.5);
+    fireEvent.click(screen.getByRole("button", { name: /reset the view/i }));
+
+    // The same pixel resolves to the same mark again, which is the property a
+    // reader actually cares about: the view they were given is recoverable.
+    expect(ref.current!.hover({ x: 200, y: 200 })?.id ?? null).toBe(before);
+  });
+});
