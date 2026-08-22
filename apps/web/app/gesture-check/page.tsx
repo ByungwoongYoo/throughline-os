@@ -76,6 +76,67 @@ const CHECKS = [
    + "restart."],
 ];
 
+
+/**
+ * One sentence saying what is wrong, from the counters.
+ *
+ * The counters were already on screen and the researcher still had to work out
+ * what they meant — which is a diagnostic that has offloaded the diagnosis. The
+ * order matters: each check rules out a layer, so the first one that fires is
+ * the innermost thing broken, and fixing anything further out would be wasted.
+ */
+function verdictFor(tracker: TrackerDiagnostics | null,
+                    hand: HandMeasurement | null,
+                    counts: SpatialTelemetry): { state: string; text: string } {
+  if (!tracker) {
+    return { state: "waiting",
+             text: "The camera is not on yet. Press “Try hand gestures”, then "
+                 + "“Turn on the camera”." };
+  }
+  if (tracker.status === "failed") {
+    return { state: "bad",
+             text: "Hand tracking failed to start on this machine. The error is "
+                 + "below." };
+  }
+  if (tracker.inferences === 0) {
+    return { state: "bad",
+             text: tracker.skippedNoVideo > 0
+               ? "The camera is on but producing no picture yet. If this does "
+                 + "not change within a few seconds, another program may be "
+                 + "holding the camera."
+               : "No camera frames have been read yet. Give it a moment." };
+  }
+  if (tracker.inferenceErrors > 0 && tracker.handsSeen === 0) {
+    return { state: "bad",
+             text: `Hand tracking is failing on every frame (${tracker.inferenceErrors} `
+                 + `errors). It has switched to ${tracker.delegate}. The last `
+                 + "error is below." };
+  }
+  if (tracker.handsSeen === 0) {
+    return { state: "bad",
+             text: "Frames are being read, but no hand is being recognised. Try "
+                 + "more light, a plainer background, and your whole hand in "
+                 + "frame about an arm's length away." };
+  }
+  if (!hand) {
+    return { state: "warn",
+             text: "A hand was seen but is not in frame right now." };
+  }
+  if (counts.gesture_grab_started === 0) {
+    return { state: "warn",
+             text: hand.pinch < hand.pinchOn
+               ? "Your pinch is closing. If the scene still does not move, that "
+                 + "is a bug rather than a threshold — please report it."
+               : `Your hand is tracked, but your pinch is not closing: fingers `
+                 + `${hand.pinch.toFixed(3)} apart, and it has to be under `
+                 + `${hand.pinchOn.toFixed(3)}. Press Calibrate — it measures `
+                 + "your hand instead of assuming." };
+  }
+  return { state: "good",
+           text: `Working. ${counts.gesture_grab_started} grab(s) started, `
+               + `${counts.gesture_grab_completed} completed.` };
+}
+
 export default function GestureCheck() {
   const controllerRef = useRef<VisualizationController | null>(null);
   const [counts, setCounts] = useState<SpatialTelemetry>(emptyTelemetry());
@@ -125,6 +186,15 @@ export default function GestureCheck() {
         uses no project data and needs no account. Camera frames are read in
         this tab and never leave it.
       </p>
+
+      {(() => {
+        const verdict = verdictFor(tracker, hand, counts);
+        return (
+          <p className={`gc-verdict gc-${verdict.state}`} role="status">
+            {verdict.text}
+          </p>
+        );
+      })()}
 
       <Volume points={CLOUD} controllerRef={controllerRef}
               onDetent={(moment) => deviceFeedback.emit(moment)}

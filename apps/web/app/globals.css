@@ -3485,3 +3485,14 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   transition: color var(--standard) var(--ease-out-quad),
               transform var(--standard) var(--ease-out-quad);
 }
+/* One sentence saying what is wrong. Placed above the chart because somebody
+   whose gestures are not working is not reading past it. */
+.gc-verdict {
+  font-size: 14px; padding: 10px 12px; margin-bottom: 16px;
+  border-left: 3px solid var(--line-strong); border-radius: var(--r-control);
+  background: var(--panel); color: var(--ink);
+}
+.gc-good { border-left-color: var(--positive, var(--accent)); }
+.gc-warn { border-left-color: var(--caution); }
+.gc-bad { border-left-color: var(--danger, #b3261e); }
+.gc-waiting { border-left-color: var(--line-strong); color: var(--ink-soft); }

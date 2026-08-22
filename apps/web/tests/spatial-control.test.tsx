@@ -645,3 +645,62 @@ describe("sensitivity, measured at the chart", () => {
     expect(brisk).toBeGreaterThan(gentle * 2);
   });
 });
+
+describe("the video the tracker reads", () => {
+  /**
+   * This has been wrong twice, in two different ways, with identical symptoms:
+   * camera light on, no hand ever detected, and no error anywhere. First as
+   * `display: none`, which a browser need not decode. Then at `left: -9999`,
+   * which is laid out but entirely off-screen — and a browser may stop
+   * compositing a video nobody can see, leaving MediaPipe to sample a stale
+   * texture every frame.
+   *
+   * happy-dom lays nothing out, so it cannot catch either by rendering. What it
+   * can do is hold the element to the rules that keep it a live texture source.
+   */
+  async function turnOn(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole("button", { name: /try hand gestures/i }));
+    await user.click(screen.getByRole("button", { name: /set up hand gestures/i }));
+    await user.click(screen.getByRole("button", { name: /turn on the camera/i }));
+    await waitFor(() => screen.getByRole("button", { name: /turn off the camera/i }));
+  }
+
+  it("is never display:none, and never parked off-screen", async () => {
+    const user = userEvent.setup();
+    mount();
+    await turnOn(user);
+
+    const video = document.querySelector("video") as HTMLVideoElement;
+    expect(video).toBeTruthy();
+    expect(video.style.display).not.toBe("none");
+
+    for (const edge of [video.style.left, video.style.top]) {
+      // A negative offset is how an element is hidden by being moved away, and
+      // it is the thing that broke this.
+      expect(edge.startsWith("-")).toBe(false);
+    }
+  });
+
+  it("stays out of the researcher's way without being removed from the page",
+     async () => {
+    const user = userEvent.setup();
+    mount();
+    await turnOn(user);
+
+    const video = document.querySelector("video") as HTMLVideoElement;
+
+    expect(video.style.pointerEvents).toBe("none");
+    expect(Number(video.style.opacity)).toBeLessThan(0.1);
+    expect(video.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("is muted and inline, because a camera stream has no audio to play", async () => {
+    const user = userEvent.setup();
+    mount();
+    await turnOn(user);
+
+    const video = document.querySelector("video") as HTMLVideoElement;
+    expect(video.hasAttribute("muted") || video.muted).toBe(true);
+    expect(video.hasAttribute("playsinline")).toBe(true);
+  });
+});

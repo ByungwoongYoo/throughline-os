@@ -434,8 +434,25 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
         * stream carries no audio and must not go fullscreen on iOS.
         */}
       <video ref={videoRef} autoPlay muted playsInline aria-hidden
-             style={{ position: "absolute", width: 1, height: 1,
-                      opacity: 0, pointerEvents: "none", left: -9999, top: 0 }} />
+             /*
+              * Inside the viewport, and that is the whole point.
+              *
+              * This has now been wrong twice in two different ways, both with
+              * the same symptom: camera light on, no hand ever detected, no
+              * error anywhere. First as `display: none`, which browsers may not
+              * decode at all. Then at `left: -9999`, which is laid out but
+              * entirely off-screen — and a browser is entitled to stop
+              * compositing a video nobody can see, which leaves MediaPipe
+              * sampling a stale or blank texture every frame.
+              *
+              * The tracker reads this element as a texture source, so it has to
+              * be a thing the compositor is actually keeping current. One pixel
+              * at the origin, transparent and not clickable: on screen by every
+              * definition the browser uses, invisible by every definition the
+              * researcher does.
+              */
+             style={{ position: "fixed", top: 0, left: 0, width: 2, height: 2,
+                      opacity: 0.01, pointerEvents: "none", zIndex: -1 }} />
 
       {!running && !explaining && (
         <div className="spatial-row">

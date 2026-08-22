@@ -165,3 +165,63 @@ describe("explaining a non-response", () => {
     expect(page).toMatch(/press <em>Calibrate<\/em>|Calibrate/);
   });
 });
+
+describe("saying what is wrong, rather than showing numbers that imply it", () => {
+  /**
+   * The counters were already on screen and a researcher still had to work out
+   * what they meant, which is a diagnostic that has offloaded the diagnosis.
+   * These check the sentence, because the sentence is the feature.
+   */
+  it("says what to press before the camera is on", async () => {
+    render(<GestureCheck />);
+
+    expect(await screen.findByText(/camera is not on yet/i)).toBeTruthy();
+  });
+
+  it("orders its checks so the innermost failure is the one reported", async () => {
+    /**
+     * Each check rules out a layer. Reported out of order, somebody would be
+     * told to improve their lighting while the real problem was that no camera
+     * frame had ever been read — and they would go and change the lighting.
+     */
+    const page = (await import("node:fs")).readFileSync(
+      "app/gesture-check/page.tsx", "utf8");
+    const body = page.slice(page.indexOf("function verdictFor"));
+
+    const order = ["inferences === 0", "inferenceErrors", "handsSeen === 0",
+                   "gesture_grab_started === 0"];
+    let last = -1;
+    for (const marker of order) {
+      const at = body.indexOf(marker);
+      expect(at, marker).toBeGreaterThan(last);
+      last = at;
+    }
+  });
+
+  it("names the threshold and the fix when a pinch is not closing", async () => {
+    /**
+     * The most likely real outcome, and the one where a number alone is
+     * useless: "0.041" means nothing without "and it has to be under 0.035".
+     */
+    const page = (await import("node:fs")).readFileSync(
+      "app/gesture-check/page.tsx", "utf8");
+
+    expect(page).toMatch(/has to be under/);
+    expect(page).toMatch(/Press Calibrate/);
+  });
+
+  it("says a closing pinch that does nothing is a bug, not a setting", async () => {
+    /**
+     * The one case the researcher must not be sent to Calibrate for — if the
+     * pinch is closing and the scene is still, the threshold is right and
+     * something downstream is broken.
+     */
+    const page = (await import("node:fs")).readFileSync(
+      "app/gesture-check/page.tsx", "utf8");
+
+    // Matched without the leading word: the sentence is split across source
+    // lines by the formatter, and a regex spanning that break asserts the
+    // layout of the file rather than the wording of the message.
+    expect(page).toMatch(/is a bug rather than a threshold/);
+  });
+});
