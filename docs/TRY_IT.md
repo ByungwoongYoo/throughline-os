@@ -41,6 +41,23 @@ allow cameras on secure origins and `localhost` is the one exception.
 The startup checks ports *before* starting anything, so a failure here means
 nothing was left running behind it.
 
+### If pages return 500 after it has been working
+
+Look in the terminal for `ENOENT … .next/static/development/_buildManifest.js`.
+That means the interface's build directory has been corrupted, and the usual
+cause is `npm run build` having been run in `apps/web` **while the dev server was
+running** — both write to `.next`, and they overwrite each other. The server
+keeps running and every page starts returning 500.
+
+Stop the server, delete the directory, and start again:
+
+```bash
+rm -rf apps/web/.next
+./scripts/dev.sh
+```
+
+Nothing of yours is in there; it is entirely regenerated.
+
 ---
 
 ## 2. What to look at first
