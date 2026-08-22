@@ -22,6 +22,7 @@ to `validation.py`.
 
 from __future__ import annotations
 
+import math
 from typing import Any, Iterable, Sequence
 
 from .ids import new_id
@@ -208,28 +209,61 @@ def benjamini_hochberg(p_values: Sequence[float], fdr: float = 0.05) -> list[dic
     controlling the false *discovery* rate keeps power for the real signals while
     still bounding the proportion of spurious ones. Returns q-values in the input
     order, each with whether it survives at the given FDR.
+
+    **The family is the tests that produced a p-value, not the candidates that
+    were attempted.** An earlier version took `m` from the length of the input,
+    and the worker feeds it one entry per *completed* run — including runs that
+    complete without a p-value at all, because the method was descriptive or the
+    result simply lacks the key. Each of those inflated every q-value in the
+    sweep by `(m + k) / m`: a screen of forty tests carrying five such entries
+    reported q-values 12.5% too large across the board. That error is
+    *conservative*, which is why it would never have announced itself — it does
+    not produce a spurious finding, it silently withholds a real one, and the
+    researcher sees a shorter list with no indication that anything was lost.
+    A q-value is a number people quote; it has one definition, and being wrong in
+    the safe direction is still being wrong.
+
+    Non-finite p-values are treated as missing for the same reason. A NaN sorts
+    unpredictably, poisons the monotonicity walk for everything after it, and
+    then fails `q <= fdr` quietly — so it would remove findings without ever
+    looking like a failure.
     """
-    total = len(p_values)
-    if total == 0:
+    if not p_values:
         return []
 
-    order = sorted(range(total), key=lambda i: (p_values[i] is None, p_values[i]))
-    q_values: list[float | None] = [None] * total
-    running_min = 1.0
-    # Walk from the largest p-value down, enforcing monotonicity of q.
-    for rank_from_end, index in enumerate(reversed(order), start=1):
-        rank = total - rank_from_end + 1
-        p = p_values[index]
-        if p is None:
-            continue
-        q = min(running_min, float(p) * total / rank)
-        running_min = q
-        q_values[index] = q
+    def usable(value: Any) -> float | None:
+        if value is None:
+            return None
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(number):
+            return None
+        return number
+
+    cleaned = [usable(value) for value in p_values]
+    tested = [i for i, value in enumerate(cleaned) if value is not None]
+    family = len(tested)
+
+    q_values: list[float | None] = [None] * len(p_values)
+    if family:
+        order = sorted(tested, key=lambda i: cleaned[i])
+        running_min = 1.0
+        # Walk from the largest p-value down, enforcing monotonicity of q. Ties
+        # therefore share a q-value: the first of a tied group reached is the one
+        # at the highest rank, which gives the smallest p*m/rank, and the rest of
+        # the group takes it from `running_min`.
+        for rank_from_end, index in enumerate(reversed(order), start=1):
+            rank = family - rank_from_end + 1
+            q = min(running_min, cleaned[index] * family / rank)
+            running_min = q
+            q_values[index] = q
 
     return [
         {"p_value": p_values[i], "q_value": q_values[i],
          "survives": q_values[i] is not None and q_values[i] <= fdr}
-        for i in range(total)
+        for i in range(len(p_values))
     ]
 
 
