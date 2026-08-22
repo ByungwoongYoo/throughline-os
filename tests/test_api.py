@@ -508,3 +508,30 @@ def test_asking_about_a_missing_object_is_not_reported_as_a_model_outage(client)
         json={"question": "What is this?"})
 
     assert response.status_code == 404, response.text
+
+
+def test_the_embedding_space_says_why_it_cannot_be_drawn(client):
+    """A project with nothing embedded gets a reason, not an empty chart.
+
+    An empty list rendered as a scatter is indistinguishable from a corpus with
+    no structure, and the researcher would read the second when the truth is the
+    first — that the embedding step has not run.
+    """
+    _account(client)
+    project = client.post("/api/projects", json={"name": "Space"}).json()
+
+    response = client.get(f"/api/projects/{project['id']}/embedding-space")
+
+    assert response.status_code == 503, response.text
+    assert "embedded passage" in response.json()["detail"]
+
+
+def test_the_embedding_space_is_scoped_to_its_project(client):
+    """Another project's corpus is not visible through this route."""
+    _account(client)
+    project = client.post("/api/projects", json={"name": "Space"}).json()
+
+    response = client.get("/api/projects/prj_not_mine/embedding-space")
+
+    assert response.status_code in (403, 404), response.text
+    assert project["id"] not in response.text

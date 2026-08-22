@@ -21,8 +21,8 @@ from throughline_domain import (
     analysis, auth, claim_test, compare, consistency, critic, discovery,
     embeddings, events, example, extraction, findings, graph_projection, graphs,
     harmonize, images, journal, lineage, notebook, objects, observability,
-    patterns, reconcile, retrieval, selection, specification, storage,
-    synthesis, validation, visuals, vocabulary, workflow,
+    embedding_space, patterns, reconcile, retrieval, selection, specification,
+    storage, synthesis, validation, visuals, vocabulary, workflow,
 )
 from throughline_visual.prepare import prepare as visual_prepare
 from throughline_visual.renderers import publication as publication_render
@@ -855,6 +855,26 @@ def ask_about_object(project_id: str, object_id: str, payload: Question,
             # the researcher looking in entirely the wrong place.
             raise HTTPException(400, str(exc)) from exc
         except journal.JournalError as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+
+@app.get("/api/projects/{project_id}/embedding-space")
+def embedding_space_view(project_id: str, limit: int = Query(
+                             embedding_space.MAX_POINTS, ge=4, le=5000),
+                         user: dict = Depends(current_user)) -> dict[str, Any]:
+    """This project's passages projected into three dimensions.
+
+    503 rather than 200-with-an-empty-list when it cannot be done. A chart drawn
+    from nothing is indistinguishable from a chart of a corpus with no
+    structure, and the researcher would read the second when the truth is the
+    first. The reason travels with the status so the interface can say which of
+    the several quite different causes it was.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        try:
+            return embedding_space.project(cur, project_id, limit=limit)
+        except embedding_space.EmbeddingSpaceUnavailable as exc:
             raise HTTPException(503, str(exc)) from exc
 
 
