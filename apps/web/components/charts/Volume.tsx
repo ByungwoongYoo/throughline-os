@@ -512,6 +512,22 @@ export function Volume({
       return target;
     },
     focus: (objectId) => { setSelected(objectId); dirtyRef.current = true; },
+    withinPolygon: (polygon) => {
+      // Every mark tested once, against the same projection the draw loop uses.
+      // Exact by construction: no sampling step to fall between.
+      const camera = cameraRef.current;
+      const cx = width / 2, cy = height / 2;
+      const unit = Math.min(width, height) * 0.30 * camera.zoom;
+      const found: TargetRef[] = [];
+      for (let i = 0; i < normalised.length; i += 1) {
+        const q = project(normalised[i], camera);
+        const at = { x: cx + q.x * unit, y: cy - q.y * unit };
+        if (!insidePolygon(polygon, at)) continue;
+        found.push({ id: points[i].id, label: points[i].label,
+                     datum: points[i] });
+      }
+      return found;
+    },
     selectRegion: (at, radius) => {
       const targets = within(at, radius);
       regionRef.current = new Set(targets.map((t) => t.id));
@@ -537,7 +553,8 @@ export function Volume({
     // `controllerRef` is the handle's target, not an input to building it —
     // listing it as a dependency rebuilds the controller whenever the caller
     // passes a new ref object, for no gain.
-  }), [nearest, within, onSelect, onSelectRegion, rotate, width, height]);
+  }), [nearest, within, normalised, points, onSelect, onSelectRegion, rotate,
+      width, height]);
 
   useEffect(() => {
     selectedRef.current = selected;
@@ -747,4 +764,28 @@ export function Volume({
       />
     </figure>
   );
+}
+
+
+/**
+ * Ray casting, with the polygon implicitly closed.
+ *
+ * Lives beside the chart that uses it rather than in a shared utility, because
+ * the *other* implementation — in `lib/ink/stroke` — works on stroke points in
+ * whatever space the stroke was drawn in. Two callers, two coordinate systems,
+ * one algorithm: sharing it would mean a signature that hides which space it is
+ * operating in, and that ambiguity is precisely what the rotation-units bug was.
+ */
+function insidePolygon(polygon: Array<{ x: number; y: number }>,
+                       point: { x: number; y: number }): boolean {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
+    const a = polygon[i];
+    const b = polygon[j];
+    if ((a.y > point.y) !== (b.y > point.y)
+        && point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x) {
+      inside = !inside;
+    }
+  }
+  return inside;
 }

@@ -306,6 +306,16 @@ export function Surface({
       onSelect?.(target);
       return target;
     },
+    withinPolygon: (polygon) => {
+      // Exact, like the scatter's: every observation tested against the region
+      // rather than the region sampled for observations.
+      const camera = cameraRef.current;
+      return scene.points
+        .map((point) => ({ point, at: toCanvas(point, camera, width, height) }))
+        .filter(({ at }) => insideQuad(at, polygon))
+        .map(({ point }) =>
+          ({ id: point.id, label: point.label, datum: point.datum }));
+    },
     selectRegion: (at, radius) => {
       const camera = cameraRef.current;
       const found = scene.points

@@ -268,32 +268,65 @@ function loop(cx: number, cy: number, r: number, n = 28): Array<{ x: number; y: 
   });
 }
 
+/**
+ * A chart that answers the region query exactly, as the real ones do.
+ *
+ * `marks` are at fixed pixel positions; the fake tests each against the polygon
+ * with the same ray casting the charts use.
+ */
+function chartWith(marks: Array<{ id: string; at: { x: number; y: number } }>) {
+  return {
+    withinPolygon: (polygon: Array<{ x: number; y: number }>) =>
+      marks.filter((mark) => containsPoint(polygon, mark.at))
+           .map((mark) => ({ id: mark.id, label: mark.id })),
+  };
+}
+
 describe("a circle becomes a set of observations", () => {
   it("selects what is inside it", () => {
     const stroke = makeStroke(loop(100, 100, 40));
-    const marks = [
+    const chart = chartWith([
       { id: "a", at: { x: 100, y: 100 } },
       { id: "b", at: { x: 110, y: 95 } },
-      { id: "c", at: { x: 300, y: 300 } },   // well outside
-    ];
-    const probe = (at: { x: number; y: number }) => {
-      const hit = marks.find((m) => Math.hypot(m.at.x - at.x, m.at.y - at.y) < 8);
-      return hit ? { id: hit.id, label: hit.id } : null;
-    };
+      { id: "c", at: { x: 300, y: 300 } },
+    ]);
 
-    const result = selectWithinStroke(stroke, probe);
+    const result = selectWithinStroke(stroke, chart);
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.targets.map((t) => t.id).sort()).toEqual(["a", "b"]);
   });
 
-  it("counts each observation once, however many samples hit it", () => {
-    /** The count is the number a researcher reads and quotes. */
+  it("finds a mark that sampling the region would have missed", () => {
+    /**
+     * The accuracy bug this replaced, made concrete.
+     *
+     * The first implementation walked a six-pixel grid inside the loop and asked
+     * what was at each step. A single mark sitting between the samples was
+     * missed, and the count came back short with nothing to indicate it — and
+     * that count is the number a researcher reads, quotes, and hands to the
+     * assistant as "these observations". Approximation here is not a smaller
+     * feature; it is a confident wrong answer.
+     *
+     * This mark sits at an offset chosen to fall between grid steps.
+     */
     const stroke = makeStroke(loop(100, 100, 40));
-    const probe = () => ({ id: "same", label: "one mark" });
+    const chart = chartWith([{ id: "between", at: { x: 103, y: 103 } }]);
 
-    const result = selectWithinStroke(stroke, probe);
+    const result = selectWithinStroke(stroke, chart);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.targets.map((t) => t.id)).toEqual(["between"]);
+  });
+
+  it("counts each observation once", () => {
+    /** The count is the number a researcher quotes. */
+    const stroke = makeStroke(loop(100, 100, 40));
+    const chart = chartWith([{ id: "same", at: { x: 100, y: 100 } }]);
+
+    const result = selectWithinStroke(stroke, chart);
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -306,7 +339,7 @@ describe("a circle becomes a set of observations", () => {
     const line = makeStroke(Array.from({ length: 20 },
                                        (_, i) => ({ x: i * 10, y: 50 })));
 
-    const result = selectWithinStroke(line, () => ({ id: "x", label: "x" }));
+    const result = selectWithinStroke(line, chartWith([]));
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -322,7 +355,7 @@ describe("a circle becomes a set of observations", () => {
      */
     const stroke = makeStroke(loop(100, 100, 20));
 
-    const result = selectWithinStroke(stroke, () => null);
+    const result = selectWithinStroke(stroke, chartWith([]));
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -333,13 +366,11 @@ describe("a circle becomes a set of observations", () => {
   it("bounds the region with observed points only", () => {
     /** A predicted overshoot must not enlarge what was selected. */
     const points = loop(100, 100, 30).map((p) => ({ ...p, predicted: false }));
-    points.push({ x: 400, y: 400, predicted: true });   // a wild prediction
+    points.push({ x: 400, y: 400, predicted: true });
     const stroke = makeStroke(points);
+    const chart = chartWith([{ id: "far", at: { x: 380, y: 380 } }]);
 
-    const probe = (at: { x: number; y: number }) =>
-      Math.hypot(at.x - 380, at.y - 380) < 10 ? { id: "far", label: "far" } : null;
-
-    const result = selectWithinStroke(stroke, probe);
+    const result = selectWithinStroke(stroke, chart);
 
     // The far mark sits inside the predicted overshoot and outside the circle.
     expect(result.ok).toBe(false);

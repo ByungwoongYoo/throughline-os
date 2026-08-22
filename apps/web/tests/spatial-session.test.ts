@@ -215,6 +215,7 @@ function fakeController() {
     hover: () => { calls.push("hover"); return null; },
     select: () => { calls.push("select"); return null; },
     selectRegion: () => { calls.push("selectRegion"); return []; },
+    withinPolygon: () => { calls.push("withinPolygon"); return []; },
     focus: () => { calls.push("focus"); },
     deselect: () => { calls.push("deselect"); },
     resetView: () => { calls.push("resetView"); },

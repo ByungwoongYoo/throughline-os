@@ -531,6 +531,7 @@ describe("settings that take effect", () => {
     controllerRef.current = {
       rotate: vi.fn(), zoom: vi.fn(), pan: vi.fn(),
       hover: vi.fn(), select: vi.fn(), selectRegion: vi.fn(() => []),
+      withinPolygon: vi.fn(() => []),
       focus: vi.fn(), deselect: vi.fn(),
       resetView,
       viewport: () => ({ width: 400, height: 400 }),
@@ -588,7 +589,7 @@ describe("sensitivity, measured at the chart", () => {
       controllerRef.current = {
         rotate: (dx: number) => { turned += Math.abs(dx); },
         zoom: vi.fn(), pan: vi.fn(), hover: vi.fn(), select: vi.fn(),
-        selectRegion: vi.fn(() => []),
+        selectRegion: vi.fn(() => []), withinPolygon: vi.fn(() => []),
         focus: vi.fn(), deselect: vi.fn(), resetView: vi.fn(),
         viewport: () => ({ width: 400, height: 400 }),
       };

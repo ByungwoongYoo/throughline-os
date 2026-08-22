@@ -93,6 +93,20 @@ export interface VisualizationController {
   hover(at: ScreenPoint): TargetRef | null;
   select(at: ScreenPoint): TargetRef | null;
   selectRegion(at: ScreenPoint, radius: number): TargetRef[];
+  /**
+   * Every mark whose projected position falls inside a polygon.
+   *
+   * The chart answers this rather than a caller sampling the plane, and the
+   * difference is accuracy rather than tidiness. Sampling walks a grid inside
+   * the region and asks what is at each step, so a mark between two samples is
+   * missed and the count is silently short — and that count is the number a
+   * researcher reads, quotes, and hands to the assistant. The chart already
+   * knows where each mark is; testing those positions against the polygon is
+   * exact, and costs one test per observation rather than one per pixel.
+   *
+   * The polygon is in viewport pixels, like every other position in this seam.
+   */
+  withinPolygon(polygon: ScreenPoint[]): TargetRef[];
   focus(objectId: string): void;
   deselect(): void;
   resetView(): void;

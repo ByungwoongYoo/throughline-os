@@ -24,7 +24,7 @@
  * difference matters — one is a missed circle, the other is a finding.
  */
 
-import { SpatialStroke, containsPoint, isClosed, observedPoints } from "./stroke";
+import { SpatialStroke, isClosed, observedPoints } from "./stroke";
 import { TargetRef, VisualizationController } from "@/lib/spatial/commands";
 
 export type RegionSelection =
@@ -34,15 +34,13 @@ export type RegionSelection =
 /**
  * Everything inside a drawn region.
  *
- * `probe` is how the caller asks the chart what sits at a pixel — normally the
- * controller's own `hover`, so drawing and picking cannot drift apart. The
- * sampling step is in pixels: fine enough to catch a single mark, coarse enough
- * that a large lasso does not run a hit test per pixel.
+ * Takes the chart rather than a probe function: the chart is what knows where
+ * its marks are, and asking it is both exact and cheaper than sampling the area
+ * they sit in.
  */
 export function selectWithinStroke(
   stroke: SpatialStroke,
-  probe: (at: { x: number; y: number }) => TargetRef | null,
-  options: { step?: number } = {},
+  chart: Pick<VisualizationController, "withinPolygon">,
 ): RegionSelection {
   const points = observedPoints(stroke);
 
@@ -56,27 +54,23 @@ export function selectWithinStroke(
     };
   }
 
-  const step = options.step ?? 6;
-  const xs = points.map((p) => p.x);
-  const ys = points.map((p) => p.y);
-  const left = Math.min(...xs);
-  const right = Math.max(...xs);
-  const top = Math.min(...ys);
-  const bottom = Math.max(...ys);
+  // The chart tests each of its marks against the region.
+  //
+  // The first version of this sampled: it walked a six-pixel grid inside the
+  // loop asking what was at each step. That is an approximation, and it fails in
+  // the direction that matters — a mark between two samples is simply missed, so
+  // the count comes back short with nothing to indicate it. That count is the
+  // number a researcher reads, quotes in a paper, and hands to the assistant as
+  // "these observations". An approximate selection is not a smaller feature than
+  // an exact one; it is a wrong answer delivered confidently.
+  //
+  // Asking the chart is exact and cheaper: one test per observation rather than
+  // one per pixel of area, and it uses the same projection the marks were drawn
+  // with, so picking cannot disagree with painting.
+  const targets = chart.withinPolygon(
+    points.map((point) => ({ x: point.x, y: point.y })));
 
-  const found = new Map<string, TargetRef>();
-  for (let x = left; x <= right; x += step) {
-    for (let y = top; y <= bottom; y += step) {
-      if (!containsPoint(points, { x, y })) continue;
-      const target = probe({ x, y });
-      // Keyed by id, because one mark is hit from several sample positions and a
-      // selection reporting the same observation twice would misstate its own
-      // size — which is the number the researcher reads.
-      if (target && !found.has(target.id)) found.set(target.id, target);
-    }
-  }
-
-  if (found.size === 0) {
+  if (targets.length === 0) {
     return {
       ok: false,
       reason: "nothing-inside",
@@ -86,7 +80,7 @@ export function selectWithinStroke(
     };
   }
 
-  return { ok: true, targets: [...found.values()], closed: true };
+  return { ok: true, targets, closed: true };
 }
 
 /**

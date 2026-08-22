@@ -614,3 +614,84 @@ describe("the contract between the machine and the chart", () => {
       .toBeGreaterThan(measure({ width: 360, height: 300 }) * 2);
   });
 });
+
+describe("region queries are exact, because a count gets quoted", () => {
+  /**
+   * The number a hand-drawn circle produces is read out loud, written into a
+   * paper, and handed to the assistant as "these observations". An approximate
+   * answer here is not a smaller feature than an exact one — it is a confident
+   * wrong number, and nothing downstream can tell.
+   */
+  function polygonAround(controller: VisualizationController, id: string,
+                         radius: number) {
+    // The *centroid* of every position that resolves to this mark, not the
+    // first one found. `hover` reports the nearest mark within a radius, so the
+    // first hit is an edge of that catchment rather than the mark itself — and a
+    // loop drawn tightly round an edge misses the point it was aimed at.
+    let sumX = 0, sumY = 0, hits = 0;
+    for (let x = -600; x <= 1000; x += 3) {
+      for (let y = -600; y <= 1000; y += 3) {
+        if (controller.hover({ x, y })?.id !== id) continue;
+        sumX += x; sumY += y; hits += 1;
+      }
+    }
+    if (hits === 0) throw new Error(`could not locate ${id}`);
+    const cx = sumX / hits, cy = sumY / hits;
+    return Array.from({ length: 24 }, (_, i) => {
+      const t = (i / 24) * Math.PI * 2;
+      return { x: cx + Math.cos(t) * radius, y: cy + Math.sin(t) * radius };
+    });
+  }
+
+  it("finds a mark inside the region", () => {
+    const ref = mount();
+    const region = polygonAround(ref.current!, "a", 30);
+
+    const found = ref.current!.withinPolygon(region);
+
+    expect(found.map((t) => t.id)).toContain("a");
+  });
+
+  it("excludes marks outside it", () => {
+    const ref = mount();
+    // A tight loop around one point should not catch the others.
+    const region = polygonAround(ref.current!, "a", 12);
+
+    const found = ref.current!.withinPolygon(region);
+
+    expect(found).toHaveLength(1);
+    expect(found[0].id).toBe("a");
+  });
+
+  it("carries the datum, so a region can become AI context", () => {
+    const ref = mount();
+    const region = polygonAround(ref.current!, "a", 30);
+
+    expect(ref.current!.withinPolygon(region)[0].datum)
+      .toMatchObject({ id: "a" });
+  });
+
+  it("returns nothing for a region containing nothing", () => {
+    const ref = mount();
+    const empty = Array.from({ length: 12 }, (_, i) => {
+      const t = (i / 12) * Math.PI * 2;
+      return { x: -400 + Math.cos(t) * 5, y: -400 + Math.sin(t) * 5 };
+    });
+
+    expect(ref.current!.withinPolygon(empty)).toEqual([]);
+  });
+
+  it("uses the same projection the marks were drawn with", () => {
+    /**
+     * Picking and painting must not disagree. A second copy of the projection
+     * would put the region a few pixels from the marks, and the researcher would
+     * see a point plainly inside their circle reported as outside it — the same
+     * class of bug as the rotation units.
+     */
+    const ref = mount();
+    ref.current!.rotate(60, 25);           // move the scene
+    const region = polygonAround(ref.current!, "b", 25);
+
+    expect(ref.current!.withinPolygon(region).map((t) => t.id)).toContain("b");
+  });
+});
