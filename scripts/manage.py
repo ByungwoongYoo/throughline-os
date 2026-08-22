@@ -201,12 +201,91 @@ def _stop_on_termination() -> None:
         signal.signal(signal.SIGBREAK, handler)
 
 
+def port_owner(port: int) -> str | None:
+    """Who is holding this port, or None if it is free.
+
+    Checked *before* anything starts, because the alternative is what actually
+    happens today: uvicorn or Next fails several seconds in with an address-in-use
+    traceback, the other two children are already running, and the person reading
+    it has to work out which of three processes died and what is holding the
+    port. Naming the process up front turns that into one line.
+
+    Returns a description rather than a PID alone — "node (pid 35651)" is
+    something you can act on; a number is something you have to look up.
+    """
+    import socket
+
+    # Asked by *connecting*, not by binding, and that distinction is the whole
+    # check working.
+    #
+    # The first version bound 127.0.0.1 with SO_REUSEADDR and reported a free
+    # port while a server was plainly running on it — servers commonly listen on
+    # `*` (the IPv6 wildcard), and a bind to the IPv4 loopback with address reuse
+    # is allowed alongside it. So the guard passed in exactly the case it exists
+    # for: a previous session still holding the port. Found by running `dev`
+    # against a port I knew was busy and watching it start anyway.
+    #
+    # A successful connection means something is accepting there, whichever
+    # family and interface it bound.
+    for family, address in ((socket.AF_INET, ("127.0.0.1", port)),
+                            (socket.AF_INET6, ("::1", port))):
+        try:
+            with socket.socket(family, socket.SOCK_STREAM) as probe:
+                probe.settimeout(0.4)
+                if probe.connect_ex(address) == 0:
+                    break
+        except OSError:
+            # No IPv6 on this machine, or the address is unreachable. Not an
+            # answer about the port, so try the next one.
+            continue
+    else:
+        return None
+
+    # Free ports are the common case, so identifying the holder is only done on
+    # the branch where somebody is waiting to be told something useful.
+    if not WINDOWS and shutil.which("lsof"):
+        found = subprocess.run(["lsof", "-nP", f"-i:{port}", "-sTCP:LISTEN"],
+                               capture_output=True, text=True)
+        for line in found.stdout.splitlines()[1:]:
+            parts = line.split()
+            if len(parts) >= 2:
+                return f"{parts[0]} (pid {parts[1]})"
+    return "another process"
+
+
+def _hand_tracking_ready() -> bool:
+    """Whether the gesture model has been vendored.
+
+    Reported at startup rather than discovered in the browser. The failure
+    otherwise arrives as a 404 on a `.task` file at the moment somebody enables
+    a camera feature, which reads as the feature being broken rather than
+    un-installed.
+    """
+    return (ROOT / "apps" / "web" / "public" / "mediapipe"
+            / "hand_landmarker.task").exists()
+
+
 def dev(api_port: int, web_port: int) -> int:
     _stop_on_termination()
     python = venv_python()
     if not python.exists():
         print(f"No virtualenv at {ROOT / '.venv'}. Run:"
               f"\n  python scripts/manage.py bootstrap", file=sys.stderr)
+        return 1
+
+    # Ports first, before a database is touched or a child is spawned. A stack
+    # that half-starts and then fails on an address already in use leaves two
+    # processes running and one confusing traceback.
+    blocked = False
+    for label, port in (("API", api_port), ("web interface", web_port)):
+        owner = port_owner(port)
+        if owner:
+            print(f"Port {port} ({label}) is already in use by {owner}.",
+                  file=sys.stderr)
+            blocked = True
+    if blocked:
+        print("\nEither stop that process, or choose other ports:"
+              "\n  PORT=8081 WEB_PORT=3001 ./scripts/dev.sh", file=sys.stderr)
         return 1
 
     # Before anything starts. Both processes would otherwise race a fresh
@@ -232,8 +311,17 @@ def dev(api_port: int, web_port: int) -> int:
 
         node = _node_on_path()
         if node:
-            print(f"\n  Throughline      http://localhost:{web_port}")
-            print(f"  API docs         http://127.0.0.1:{api_port}/docs\n")
+            print(f"\n  Throughline      http://localhost:{web_port}", flush=True)
+            print(f"  API docs         http://127.0.0.1:{api_port}/docs", flush=True)
+            # Said here because the alternative is finding out in the browser,
+            # with a camera already switched on.
+            if _hand_tracking_ready():
+                print("  Hand tracking    ready (model served from this machine)", flush=True)
+            else:
+                print("  Hand tracking    model not installed — run:", flush=True)
+                print("                     npm --prefix apps/web run vendor:hand-model", flush=True)
+            print("\n  Open the address above in a browser. Use localhost, not", flush=True)
+            print("  a LAN address: cameras are blocked on insecure origins.\n", flush=True)
             environment = dict(os.environ,
                                THROUGHLINE_API=f"http://127.0.0.1:{api_port}",
                                PATH=os.pathsep.join(
@@ -245,8 +333,8 @@ def dev(api_port: int, web_port: int) -> int:
         else:
             # §123 — say plainly that the interface is unavailable rather than
             # pretending.
-            print(f"\n  API              http://127.0.0.1:{api_port}")
-            print("  Web interface    unavailable — Node 20+ is not installed.\n")
+            print(f"\n  API              http://127.0.0.1:{api_port}", flush=True)
+            print("  Web interface    unavailable — Node 20+ is not installed.\n", flush=True)
 
         # Exit as soon as any child does: a dead worker with a live API looks like
         # a working stack that silently never finishes anything.

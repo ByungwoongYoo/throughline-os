@@ -164,6 +164,22 @@ export function SpatialControl({ controllerRef, label }: {
       setFailure(problem);
       return;
     }
+
+    // Play explicitly rather than relying on the `autoPlay` attribute.
+    //
+    // The attribute fires when the element gets a source during parsing; this
+    // element gets its stream later, from JavaScript, and whether that
+    // autoplays has varied by browser. A video that never starts produces a
+    // `videoWidth` of 0 for ever, and the panel would report no hand in the
+    // picture while the camera light was on — indistinguishable from tracking
+    // that cannot see you.
+    try {
+      await video.play();
+    } catch {
+      // Muted playback is allowed without a gesture, and this is inside a click
+      // anyway, so a rejection here is unexpected rather than routine — but it
+      // must not take down a session that is otherwise working.
+    }
     sessionRef.current = session;
     setRunning(true);
     // Say something true immediately. No state is published until a frame is
@@ -278,14 +294,22 @@ export function SpatialControl({ controllerRef, label }: {
   return (
     <div className="spatial-panel">
       {/*
-        * Hidden, but present and playing: the tracker needs a video element to
-        * read frames from. Deliberately not shown by default — a self-view is a
-        * picture of the researcher on their own screen, which several people
-        * would rather not have while presenting. `muted` and `playsInline`
-        * because a camera stream carries no audio and must not go fullscreen.
+        * Off-screen rather than `display: none`, and the difference is the whole
+        * feature working.
+        *
+        * A display:none video is not rendered, and browsers are entitled to
+        * stop decoding frames for one — `videoWidth` stays 0, so the tracker's
+        * guard skips every frame and hand tracking silently never starts, with
+        * the camera light on and the panel reporting that no hand is in the
+        * picture. It would look exactly like bad tracking.
+        *
+        * One pixel, clipped, off the edge of the viewport: laid out and decoded,
+        * invisible to the reader. `muted` and `playsInline` because a camera
+        * stream carries no audio and must not go fullscreen on iOS.
         */}
-      <video ref={videoRef} autoPlay muted playsInline
-             style={{ display: "none" }} aria-hidden />
+      <video ref={videoRef} autoPlay muted playsInline aria-hidden
+             style={{ position: "absolute", width: 1, height: 1,
+                      opacity: 0, pointerEvents: "none", left: -9999, top: 0 }} />
 
       {!running && !explaining && (
         <div className="spatial-row">

@@ -59,7 +59,7 @@ the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **1074 backend tests and 387 web tests**, with 6 backend
+The current suite is **1092 backend tests and 387 web tests**, with 6 backend
 skips, each carrying a reason CI's allowlist recognises — a skip with an
 unrecognised reason fails the build, so the suite cannot quietly shrink.
 
@@ -223,6 +223,14 @@ New API surface goes in its **own router module** mounted with one line in
 `app.py`, rather than as more routes inside it. This is a merge decision, not an
 architectural one: `app.py` is the file two branches always both touch, and the
 last wave merged with zero conflicts because nothing new was added to it.
+
+## Trying it by hand
+
+`docs/TRY_IT.md` is a walkthrough for testing the product yourself — starting
+the stack, what to look at, how to exercise the gesture controls, and what each
+startup failure means. It is written to be followed with nobody to ask, and
+`tests/test_try_it_guide.py` checks its claims against the code so it cannot
+quietly go stale.
 
 ## Container
 
