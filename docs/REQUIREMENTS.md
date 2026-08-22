@@ -30,10 +30,10 @@ and looked at the code. The test requires the count never to grow.
 
 | Status | Sections |
 |---|---|
-| built | 44 |
-| partial | 10 |
-| not-built | 22 |
-| unreviewed | 160 |
+| built | 45 |
+| partial | 13 |
+| not-built | 24 |
+| unreviewed | 154 |
 | **total** | **236** |
 
 Nothing here has been verified by anybody other than its author. `TASKS.md`
@@ -96,10 +96,10 @@ revisited — an edited specification is exactly when requirements go missing.
 | §47 | LARGE DATASETS | partial | packages/ingestion/src/throughline_ingestion/datasets.py | tests/test_ingestion.py | Sampling above a row limit, and the sample is declared rather than hidden. No aggregation, level of detail, tiling, streaming or GPU path. |
 | §48 | VISUALIZATION CONTROLLER | built | apps/web/lib/spatial/commands.ts | apps/web/tests/chart-conformance.test.tsx | One seam, exhaustively typed, and now one conformance suite for every chart behind it. |
 | §49 | THREE-DIMENSIONAL RENDERING | built | apps/web/lib/charts/scene3d.ts | apps/web/tests/scene3d.test.ts | One shared projection. T043 fixed it never fitting its own canvas. |
-| §50 | GPU STRATEGY | unreviewed |  |  |  |
-| §51 | RENDER LOOP | unreviewed |  |  |  |
-| §52 | PERFORMANCE BUDGETS | unreviewed |  |  |  |
-| §53 | MAIN THREAD PROTECTION | unreviewed |  |  |  |
+| §50 | GPU STRATEGY | not-built |  |  | No WebGL, WebGPU, instancing or GPU compute. Deliberate and recorded in scene3d.ts: a scene graph is ~600KB for what is, at this scale, a 4x4 matrix and a sort, and the premise is a laptop install. Revisited when a chart genuinely cannot be drawn on canvas. |
+| §51 | RENDER LOOP | partial | apps/web/lib/charts/scene3d.ts | apps/web/tests/volume-paint.test.tsx | Rendering is rAF-driven behind a dirty flag, independent of the tracker's 30Hz. Interpolation between gesture states is *declined*: it smooths by rendering a lagged position, which trades away the latency this subsystem is tuned for, and the One Euro filter already smooths the input. |
+| §52 | PERFORMANCE BUDGETS | partial | apps/web/lib/spatial/latency.ts | apps/web/tests/latency.test.ts | End-to-end frame-to-response and hand-detection latency are measured as p50/p95/p99 with a budget, and shown on /gesture-check. Render latency, dropped frames, memory, GPU usage, startup and import time are not. |
+| §53 | MAIN THREAD PROTECTION | not-built |  |  | Nothing is off the UI thread: inference, the gesture machine and painting all run on it. Now measured rather than assumed — /gesture-check reports what inference alone costs against an 8ms budget, half a 60Hz frame — so a worker migration can be justified by a number instead of by the specification listing workers. |
 | §54 | WORKSPACE LAYOUT | unreviewed |  |  |  |
 | §55 | FOCUS MODE | unreviewed |  |  |  |
 | §56 | COMMAND PALETTE | unreviewed |  |  |  |
@@ -195,7 +195,7 @@ revisited — an edited specification is exactly when requirements go missing.
 | §146 | DUAL-PATH DRAWING ARCHITECTURE | built | apps/web/components/spatial/InkLayer.tsx | apps/web/tests/ink-layer.test.tsx | Two canvases: cost per frame does not grow with the session. |
 | §147 | PROVISIONAL INK | built | apps/web/components/spatial/InkLayer.tsx | apps/web/tests/ink-layer.test.tsx | The live layer is the provisional ink. |
 | §148 | SHORT-HORIZON MOTION PREDICTION | built | apps/web/lib/ink/predict.ts | apps/web/tests/ink-recorder.test.ts | Never enters the record; at most one predicted point. |
-| §149 | TARGET PERFORMANCE | unreviewed |  |  |  |
+| §149 | TARGET PERFORMANCE | partial | apps/web/lib/spatial/latency.ts | apps/web/tests/latency.test.ts | The budget is stated and measured at p50/p95/p99 with the fraction over it. Honest about being a floor: camera exposure and the compositor are outside what a page can see, and it says so rather than being quoted as camera-to-photons. |
 | §150 | NO NETWORK IN THE DRAW LOOP | built | apps/web/lib/ink/recorder.ts | apps/web/tests/ink-recorder.test.ts | No network anywhere in the draw loop. |
 | §151 | THREAD SEPARATION | unreviewed |  |  |  |
 | §152 | GPU DRAWING | unreviewed |  |  |  |
@@ -264,8 +264,8 @@ revisited — an edited specification is exactly when requirements go missing.
 | §215 | FRAME PRIORITY | unreviewed |  |  |  |
 | §216 | ADAPTIVE QUALITY | unreviewed |  |  |  |
 | §217 | HARD PERFORMANCE GUARDRAIL | unreviewed |  |  |  |
-| §218 | NEVER QUEUE OLD CAMERA FRAMES | unreviewed |  |  |  |
-| §219 | TIMESTAMP EVERYTHING | built | apps/web/lib/ink/stroke.ts | apps/web/tests/ink.test.ts | Every point carries a monotonic timestamp on a shared clock. |
+| §218 | NEVER QUEUE OLD CAMERA FRAMES | built | apps/web/lib/spatial/mediapipe.ts | apps/web/tests/spatial-session.test.ts | Inference runs inside the rAF tick on the freshest frame, and the session's rate governor drops rather than queues. No backlog can form, because nothing is enqueued. |
+| §219 | TIMESTAMP EVERYTHING | built | apps/web/lib/spatial/clock.ts | apps/web/tests/clock-discipline.test.ts | Every landmark sample and stroke point carries a timestamp, and — after a shipped bug where speech and gesture ran on clocks 55 years apart — they are all on one monotonic clock, enforced structurally. |
 | §220 | DISPLAY-REFRESH-AWARE RENDERING | unreviewed |  |  |  |
 | §221 | REFERENCE HARDWARE PROFILES | unreviewed |  |  |  |
 | §222 | DRAWING TEST HARNESS | unreviewed |  |  |  |

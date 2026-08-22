@@ -54,6 +54,19 @@ const LANDMARK = {
   pinkyTip: 20,
 } as const;
 
+import { LatencyRecorder, LatencySummary } from "./latency";
+import { now as clockNow } from "./clock";
+
+/**
+ * How long one inference may block the main thread before it costs a frame.
+ *
+ * Half a 60Hz frame. Above this, the renderer and React are sharing what is
+ * left of 16.7ms with everything else the page does, and the result is dropped
+ * frames rather than a slower tracker — which is why this is budgeted apart
+ * from end-to-end latency rather than folded into it.
+ */
+const MAIN_THREAD_BUDGET_MS = 8;
+
 export type TrackerDiagnostics = {
   ticks: number;
   skippedNoVideo: number;
@@ -144,6 +157,13 @@ export class MediaPipeHandTracker implements HandTracker {
   private frame = 0;
   private lastInference = 0;
   private delegate: "GPU" | "CPU" = "GPU";
+  /** How long inference blocks the main thread, as a distribution (§52). */
+  private readonly inference = new LatencyRecorder(240, MAIN_THREAD_BUDGET_MS);
+
+  /** The recent inference-duration distribution, or null before any ran. */
+  inferenceLatency(): LatencySummary | null {
+    return this.inference.summary();
+  }
   private reloading = false;
   /**
    * Why nothing is happening, when nothing is happening.
@@ -274,8 +294,22 @@ export class MediaPipeHandTracker implements HandTracker {
       // next to a feature that silently does nothing.
 
       let result: HandLandmarkerResult;
+      /*
+       * Timed around the call itself, because this is the one piece of work in
+       * the loop that runs on the main thread and cannot be interrupted.
+       *
+       * §52 asks for hand-detection latency as its own budget, separately from
+       * end-to-end, and the reason that separation matters here is §53: nothing
+       * has been moved off the UI thread. Whatever this costs is time React and
+       * the canvas painter do not have, thirty times a second. Migrating
+       * inference to a worker is a real change with real risk, so it should be
+       * justified by a measurement rather than by the fact that the
+       * specification lists workers — which is what this number is for.
+       */
+      const startedAt = clockNow();
       try {
         result = landmarker.detectForVideo(source, now);
+        this.inference.record(startedAt, clockNow());
         this.counters.inferences += 1;
       } catch (error) {
         // One bad inference must not end the session — the camera is still on

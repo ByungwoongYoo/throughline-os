@@ -293,6 +293,20 @@ export class SpatialSession {
   }
 
   /**
+   * How long inference alone blocks the main thread (§52, §53).
+   *
+   * Reported beside the end-to-end figure rather than instead of it, because
+   * the two answer different questions. End-to-end says whether the scene keeps
+   * up with the hand; this says how much of the thread React and the canvas are
+   * not getting — and that shows up as dropped frames elsewhere on the page
+   * rather than as a slower tracker.
+   */
+  inferenceSummary(): LatencySummary | null {
+    const tracker = this.tracker as { inferenceLatency?: () => LatencySummary | null };
+    return tracker.inferenceLatency?.() ?? null;
+  }
+
+  /**
    * Publish the processed frame rate, at most once a second.
    *
    * Measured on the tracker's own timestamps rather than on wall-clock, so it

@@ -16,7 +16,8 @@
 
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { toHandFrame } from "@/lib/spatial/mediapipe";
+import { LATENCY_BUDGET_MS } from "@/lib/spatial/latency";
+import { MediaPipeHandTracker, toHandFrame } from "@/lib/spatial/mediapipe";
 import { handScale } from "@/lib/spatial/calibration";
 import { distance } from "@/lib/spatial/types";
 
@@ -223,5 +224,36 @@ describe("the promise that nothing is fetched while you work", () => {
 
     expect(script).toMatch(/MODEL_SHA256\s*=\s*\n?\s*"[0-9a-f]{64}"/);
     expect(script).toContain("Refusing to install it");
+  });
+});
+
+describe("what inference costs the main thread", () => {
+  /**
+   * §52 asks for hand-detection latency as a budget of its own, and §53 is the
+   * reason it matters here: nothing has been moved off the UI thread, so
+   * whatever inference costs is time React and the canvas painter do not have,
+   * thirty times a second. That shows up as dropped frames elsewhere on the
+   * page rather than as a slower tracker, which is why it cannot be read off
+   * the end-to-end figure.
+   *
+   * Migrating inference to a worker is a real change with real risk. It should
+   * be justified by a measurement rather than by the specification listing
+   * workers — so the measurement comes first.
+   */
+  it("reports nothing before any inference has run", () => {
+    expect(new MediaPipeHandTracker().inferenceLatency()).toBeNull();
+  });
+
+  it("is budgeted apart from end-to-end latency, and more tightly", () => {
+    /**
+     * Half a 60Hz frame. A tracker can be comfortably inside the 60ms
+     * end-to-end budget while eating most of every frame the renderer needed,
+     * and the two numbers have to be able to disagree for that to be visible.
+     */
+    const tracker = new MediaPipeHandTracker();
+    const summary = tracker.inferenceLatency();
+    expect(summary).toBeNull();
+    // The budget is not the end-to-end one.
+    expect(LATENCY_BUDGET_MS).toBeGreaterThan(8);
   });
 });

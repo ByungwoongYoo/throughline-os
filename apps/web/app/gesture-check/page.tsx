@@ -181,6 +181,8 @@ export default function GestureCheck() {
    */
   const readLatency = useRef<(() => LatencySummary | null) | null>(null);
   const [latency, setLatency] = useState<LatencySummary | null>(null);
+  const readInference = useRef<(() => LatencySummary | null) | null>(null);
+  const [inference, setInference] = useState<LatencySummary | null>(null);
 
   const onTelemetry = useCallback((telemetry: SpatialTelemetry) => {
     setCounts(telemetry);
@@ -216,6 +218,7 @@ export default function GestureCheck() {
     const timer = setInterval(() => {
       setTracker(readTracker.current?.() ?? null);
       setLatency(readLatency.current?.() ?? null);
+      setInference(readInference.current?.() ?? null);
     }, 500);
     return () => clearInterval(timer);
   }, []);
@@ -259,7 +262,8 @@ export default function GestureCheck() {
       <SpatialControl controllerRef={controllerRef} label="this test cloud"
                       onTelemetry={onTelemetry} onFrameRate={onFrameRate}
                       onTracker={onTracker} onMeasurement={onMeasurement}
-                      onLatency={(read) => { readLatency.current = read; }} />
+                      onLatency={(read) => { readLatency.current = read; }}
+                      onInferenceLatency={(read) => { readInference.current = read; }} />
 
       <section className="gc-numbers">
         <h2>What the tracker is doing</h2>
@@ -274,6 +278,12 @@ export default function GestureCheck() {
               ? "—"
               : `${Math.round(latency.p50)} / ${Math.round(latency.p95)} / `
                 + `${Math.round(latency.p99)} ms`}</dd>
+          </div>
+          <div>
+            <dt>Of that, hand detection</dt>
+            <dd>{inference === null
+              ? "—"
+              : `${Math.round(inference.p50)} / ${Math.round(inference.p95)} ms`}</dd>
           </div>
           <div>
             <dt>Frames seen in total</dt>

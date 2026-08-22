@@ -85,6 +85,7 @@ const EXPLAIN: Record<SpatialState, string> = {
 
 export function SpatialControl({ controllerRef, label, onTelemetry,
                                  onFrameRate, onTracker, onMeasurement, onLatency,
+                                 onInferenceLatency,
                                  onFrame }: {
   controllerRef: React.RefObject<VisualizationController | null>;
   /** What this controls, so the button is not an unlabelled camera request. */
@@ -112,6 +113,8 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
    * per frame would cost more than the thing it measures.
    */
   onLatency?: (read: () => LatencySummary | null) => void;
+  /** How long inference alone blocks the main thread. Read, not streamed. */
+  onInferenceLatency?: (read: () => LatencySummary | null) => void;
   /**
    * What the pinch actually measures, against what it has to beat.
    *
@@ -246,6 +249,7 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
     trackerRef.current = tracker;
     onTracker?.(() => trackerRef.current?.diagnostics() ?? null);
     onLatency?.(() => sessionRef.current?.latencySummary() ?? null);
+    onInferenceLatency?.(() => sessionRef.current?.inferenceSummary() ?? null);
 
     const session = new SpatialSession(
       tracker,
@@ -353,7 +357,8 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
     // appear after the camera is already running.
     setDevices(await session.devices());
   }, [controllerRef, preferences.deviceId, preferences.settings, stop,
-      onTelemetry, onFrameRate, onTracker, onMeasurement, onLatency]);
+      onTelemetry, onFrameRate, onTracker, onMeasurement, onLatency,
+      onInferenceLatency]);
 
   /**
    * Begin the two-pose calibration described in §18.
