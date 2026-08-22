@@ -705,3 +705,91 @@ describe("the video the tracker reads", () => {
     expect(video.hasAttribute("playsinline")).toBe(true);
   });
 });
+
+describe("frames reach a subsystem that asks for them", () => {
+  /**
+   * Air Ink needs the hand, not the gestures, and it needs it at tracker rate.
+   *
+   * The alternative — a second tracker on the same camera — would mean two
+   * inferences per frame and, worse, two slightly different readings of one
+   * hand: the pen would land a few pixels from where the pointer said it was, on
+   * the same screen, with nothing to explain the gap.
+   */
+  async function turnOn(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole("button", { name: /try hand gestures/i }));
+    await user.click(screen.getByRole("button", { name: /set up hand gestures/i }));
+    await user.click(screen.getByRole("button", { name: /turn on the camera/i }));
+    await waitFor(() => screen.getByRole("button", { name: /turn off the camera/i }));
+  }
+
+  it("hands every processed frame to onFrame", async () => {
+    const user = userEvent.setup();
+    const seen: Array<{ timestamp: number }> = [];
+    const controllerRef = createRef<VisualizationController | null>();
+    render(<SpatialControl controllerRef={controllerRef} label="this scatter"
+                           onFrame={(frame) => seen.push(frame)} />);
+
+    await turnOn(user);
+    feed(0.2, 5);
+
+    expect(seen.length).toBe(5);
+    expect(seen[0].timestamp).toBeLessThan(seen[4].timestamp);
+  });
+
+  it("delivers frames at the tracker's rate, not a throttled one", async () => {
+    /**
+     * The measurement readout is deliberately throttled to a few times a second
+     * because it is read by eye. Ink is not read by eye — it is drawn — and
+     * feeding it at that rate would produce a line made of six points a second,
+     * which no amount of smoothing recovers.
+     */
+    const user = userEvent.setup();
+    let frames = 0;
+    let measurements = 0;
+    const controllerRef = createRef<VisualizationController | null>();
+    render(<SpatialControl controllerRef={controllerRef} label="this scatter"
+                           onFrame={() => { frames += 1; }}
+                           onMeasurement={() => { measurements += 1; }} />);
+
+    await turnOn(user);
+    feed(0.2, 12);
+
+    expect(frames).toBe(12);
+    expect(measurements).toBeLessThan(frames);
+  });
+
+  it("calls the latest onFrame, not the one the camera started with", async () => {
+    /**
+     * The session captures its observer once, when the camera starts. Reading
+     * the prop directly there would freeze whichever closure existed at that
+     * moment — so a host that re-rendered would keep feeding frames into a stale
+     * one, and the ink would go on recording into a recorder nothing was
+     * reading. Silent, and permanent until the camera is restarted.
+     */
+    const user = userEvent.setup();
+    const first: number[] = [];
+    const second: number[] = [];
+    const controllerRef = createRef<VisualizationController | null>();
+    const { rerender } = render(
+      <SpatialControl controllerRef={controllerRef} label="this scatter"
+                      onFrame={() => first.push(1)} />);
+
+    await turnOn(user);
+    feed(0.2, 2);
+
+    rerender(<SpatialControl controllerRef={controllerRef} label="this scatter"
+                             onFrame={() => second.push(1)} />);
+    feed(0.2, 3);
+
+    expect(first).toHaveLength(2);
+    expect(second).toHaveLength(3);
+  });
+
+  it("asks for no camera when nothing wants frames", () => {
+    // Passing the callback must not itself turn anything on.
+    const controllerRef = createRef<VisualizationController | null>();
+    render(<SpatialControl controllerRef={controllerRef} label="this scatter"
+                           onFrame={() => {}} />);
+    expect(getUserMedia).not.toHaveBeenCalled();
+  });
+});

@@ -1,0 +1,260 @@
+"use client";
+
+/**
+ * A page for finding out whether drawing in the air is usable by a person.
+ *
+ * Separate from `/gesture-check` on purpose. That page asks whether the tracking
+ * sees your hand; this one assumes it does and asks the next question, which is
+ * whether a line drawn in mid-air lands where you meant it to and encloses what
+ * you think it encloses. Those fail differently and are fixed differently, and a
+ * page that mixed them would produce "the spatial stuff doesn't work" — a report
+ * nobody can act on.
+ *
+ * Everything the suite cannot reach is on screen here as a number, because the
+ * things left unverified in Air Ink are all *physical*: whether two frames of
+ * contact is the right threshold for a real pinch, whether a predicted line
+ * feels attached to a fingertip or ahead of it, and whether a hand-drawn loop
+ * closes reliably enough to be read as a region. None of those can be settled by
+ * a test. They can only be settled by somebody drawing.
+ *
+ * No account, no project, no data leaving the machine — the cloud is synthetic
+ * and fixed, exactly as on `/gesture-check`, so this can be opened on any laptop
+ * without arranging anything first.
+ */
+
+import { useCallback, useRef, useState } from "react";
+import { Volume } from "@/components/charts/Volume";
+import { InkLayer, InkSurface } from "@/components/spatial/InkLayer";
+import { SpatialControl } from "@/components/spatial/SpatialControl";
+import { VisualizationController } from "@/lib/spatial/commands";
+import { HandFrame } from "@/lib/spatial/types";
+import { InkState } from "@/lib/ink/machine";
+import { SpatialStroke, isClosed, observedPoints, strokeLength } from "@/lib/ink/stroke";
+import { describeSelection, selectWithinStroke } from "@/lib/ink/select";
+
+/** The same synthetic cloud shape as the gesture page, so nothing is loaded. */
+const CLOUD = Array.from({ length: 180 }, (_, i) => {
+  const lobe = i % 3;
+  const t = (i / 180) * Math.PI * 2;
+  const jitter = (n: number) => (Math.sin(n * 12.9898) * 43758.5453 % 1) - 0.5;
+  return {
+    id: `p${i}`,
+    label: `Point ${i + 1}`,
+    x: Math.cos(t) * (2 + lobe) + jitter(i) * 0.8,
+    y: Math.sin(t) * (2 + lobe) + jitter(i + 99) * 0.8,
+    z: (lobe - 1) * 2 + jitter(i + 7) * 0.9,
+    value: lobe,
+  };
+});
+
+/**
+ * The chart's size, and therefore the ink's.
+ *
+ * One constant because the two must not be allowed to drift apart: see the note
+ * on the container below.
+ */
+const CHART = { width: 720, height: 520 };
+
+/** What each pen state means, in the researcher's terms. */
+const EXPLAIN: Record<InkState, string> = {
+  DISABLED: "The pen is away. Nothing you do will draw.",
+  ARMED: "Pen ready. Pinch to start a line.",
+  HOVER: "Pen ready, hand seen. Pinch to start a line.",
+  PEN_DOWN: "Contact — hold the pinch a moment longer to begin.",
+  DRAWING: "Drawing.",
+  TRACKING_LOST: "Your hand is not in the picture.",
+};
+
+/**
+ * What a finished stroke turned out to be.
+ *
+ * Reported rather than acted on. §197: an interpretation that changes what a
+ * researcher is analysing is a question, not a side effect — so the page says
+ * what the loop caught and leaves selecting it to them.
+ */
+type Reading = {
+  points: number;
+  closed: boolean;
+  /** Path length in pixels, which is the honest unit for a screen-space stroke. */
+  length: number;
+  verdict: string;
+};
+
+export default function AirInkPage() {
+  const chartRef = useRef<VisualizationController | null>(null);
+  const inkRef = useRef<InkSurface>(null);
+  const [armed, setArmed] = useState(false);
+  const [state, setState] = useState<InkState>("DISABLED");
+  const [readings, setReadings] = useState<Reading[]>([]);
+
+  // Frames go straight through. Anything stateful here would run thirty times a
+  // second; the recorder is the thing that holds state, and it is not React.
+  const handleFrame = useCallback((frame: HandFrame) => {
+    inkRef.current?.step(frame);
+  }, []);
+
+  const handleStroke = useCallback((stroke: SpatialStroke) => {
+    const observed = observedPoints(stroke);
+    const chart = chartRef.current;
+    const selection = chart
+      ? selectWithinStroke(stroke, chart)
+      : null;
+    setReadings((previous) => [{
+      points: observed.length,
+      closed: isClosed(observed),
+      length: Math.round(strokeLength(observed)),
+      verdict: selection ? describeSelection(selection)
+                         : "No chart was mounted to resolve that against.",
+      // Newest first, and only the last few: this is a live reading, not a log.
+    }, ...previous].slice(0, 6));
+  }, []);
+
+  return (
+    <main style={{ maxWidth: 1080, margin: "0 auto", padding: "32px 24px 64px" }}>
+      <h1 style={{ fontSize: 26, marginBottom: 4 }}>Air Ink</h1>
+      <p style={{ color: "#555", marginTop: 0, maxWidth: 640 }}>
+        Drawing in mid-air, over a chart. Nothing here leaves your machine: the
+        cloud is synthetic, no project is loaded, and the camera feed is
+        processed in the browser and never uploaded.
+      </p>
+
+      <SpatialControl controllerRef={chartRef} label="the point cloud"
+                      onFrame={handleFrame} />
+
+      <div style={{ display: "flex", gap: 8, alignItems: "center",
+                    margin: "16px 0" }}>
+        <button onClick={() => setArmed((on) => !on)}
+                style={{ padding: "8px 14px", borderRadius: 6,
+                         border: "1px solid #1443B8",
+                         background: armed ? "#1443B8" : "transparent",
+                         color: armed ? "white" : "#1443B8", cursor: "pointer" }}>
+          {armed ? "Put the pen away" : "Take out the pen"}
+        </button>
+        <button onClick={() => inkRef.current?.undo()}
+                style={{ padding: "8px 14px", borderRadius: 6,
+                         border: "1px solid #999", background: "transparent",
+                         cursor: "pointer" }}>
+          Undo last stroke
+        </button>
+        <button onClick={() => { inkRef.current?.clear(); setReadings([]); }}
+                style={{ padding: "8px 14px", borderRadius: 6,
+                         border: "1px solid #999", background: "transparent",
+                         cursor: "pointer" }}>
+          Clear
+        </button>
+        <span style={{ color: "#555", fontSize: 14 }}>{EXPLAIN[state]}</span>
+      </div>
+
+      <p style={{ color: "#555", fontSize: 14, maxWidth: 640, marginTop: 0 }}>
+        Two locks, deliberately. The pen has to be out <em>and</em> you have to
+        pinch — pointing draws nothing at any time, because pointing is what
+        people do while they talk.
+      </p>
+
+      {/*
+        * The ink host is sized to the chart, exactly, and that is load-bearing.
+        *
+        * `withinPolygon` resolves a region in the chart's own logical pixels —
+        * CHART.width by CHART.height — while `InkLayer` records strokes in the
+        * pixels of the element it measures. A host stretched to the page width
+        * would record a loop in one coordinate system and hand it to a chart
+        * reading another: the ink would draw perfectly, the selection would come
+        * back wrong, and nothing on screen would say so. That is the rotation
+        * units failure exactly, and the only defence is to make the two boxes
+        * the same box rather than to hope they match.
+        */}
+      {/*
+        * The border lives on the outer element, and that is not cosmetic.
+        *
+        * With `box-sizing: border-box` — which this app sets globally — a 1px
+        * border on the positioned box makes its content area 718x518 while the
+        * chart still reasons in 720x520. Measured in a browser: the ink host came
+        * back two pixels short in each direction. It is a 0.3% error, which is
+        * both too small to see and exactly the kind that grows the moment
+        * somebody adds padding. Keeping the measured box free of any box-model
+        * decoration removes the class of mistake rather than the instance.
+        */}
+      <div style={{ width: "fit-content", margin: "0 auto",
+                    border: "1px solid #ddd", borderRadius: 8, overflow: "hidden" }}>
+      <div style={{ position: "relative", width: CHART.width, height: CHART.height }}>
+        <Volume controllerRef={chartRef} points={CLOUD}
+                width={CHART.width} height={CHART.height}
+                caption="A synthetic cloud in three lobes."
+                xLabel="x" yLabel="y" zLabel="z" />
+        <InkLayer ref={inkRef} armed={armed}
+                  onState={setState} onStroke={handleStroke} />
+      </div>
+      </div>
+
+      <h2 style={{ fontSize: 18, marginTop: 32 }}>What each stroke turned out to be</h2>
+      <p style={{ color: "#555", fontSize: 14, maxWidth: 640 }}>
+        Reported, not applied. A loop that selects 43 observations is a question
+        worth answering before anything acts on it — a selection that silently
+        happened is one you have to notice.
+      </p>
+      {readings.length === 0
+        ? <p style={{ color: "#888" }}>Nothing drawn yet.</p>
+        : (
+          <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 14 }}>
+            <thead>
+              <tr style={{ textAlign: "left", borderBottom: "1px solid #ddd" }}>
+                <th style={{ padding: "6px 8px" }}>Points</th>
+                <th style={{ padding: "6px 8px" }}>Length</th>
+                <th style={{ padding: "6px 8px" }}>Closed?</th>
+                <th style={{ padding: "6px 8px" }}>Reading</th>
+              </tr>
+            </thead>
+            <tbody>
+              {readings.map((reading, i) => (
+                <tr key={i} style={{ borderBottom: "1px solid #f0f0f0" }}>
+                  <td style={{ padding: "6px 8px" }}>{reading.points}</td>
+                  <td style={{ padding: "6px 8px" }}>{reading.length}px</td>
+                  <td style={{ padding: "6px 8px" }}>
+                    {reading.closed ? "yes" : "no"}
+                  </td>
+                  <td style={{ padding: "6px 8px" }}>{reading.verdict}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+      <h2 style={{ fontSize: 18, marginTop: 32 }}>What is actually unknown</h2>
+      <p style={{ color: "#555", fontSize: 14, maxWidth: 640 }}>
+        Every number in this subsystem came from reasoning rather than from a
+        hand. These are the specific things a test cannot settle, phrased so that
+        an answer is useful.
+      </p>
+      <ol style={{ color: "#333", fontSize: 14, maxWidth: 640, lineHeight: 1.7 }}>
+        <li>
+          <strong>Does the line feel attached to your fingertip?</strong> It is
+          drawn about one frame ahead of where the camera last saw you, to cover
+          latency that cannot be removed. Ahead is wrong too — if it overshoots
+          when you stop or corners, the prediction horizon is too long.
+        </li>
+        <li>
+          <strong>Do you get dots you did not mean?</strong> A pinch has to hold
+          for two frames before it counts as a mark. If stray dots appear anyway,
+          that number is too low; if lines start late, it is too high.
+        </li>
+        <li>
+          <strong>Do your loops close?</strong> The <em>Closed?</em> column above
+          says whether each stroke was read as a region. A loop that looks closed
+          to you and reads as open is a tolerance problem, and it is the
+          difference between selecting a cluster and being told to draw again.
+        </li>
+        <li>
+          <strong>Is the count right?</strong> Draw round a group you can count
+          by eye and compare. This is the number that would be quoted, so a
+          disagreement here matters more than anything else on the page.
+        </li>
+        <li>
+          <strong>Does it stay fast?</strong> Draw thirty or forty strokes and
+          see whether the line lags more than it did at the start. It should not:
+          finished strokes are painted on a separate layer that is not touched
+          while you draw.
+        </li>
+      </ol>
+    </main>
+  );
+}

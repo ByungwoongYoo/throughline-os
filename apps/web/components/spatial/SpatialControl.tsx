@@ -83,7 +83,8 @@ const EXPLAIN: Record<SpatialState, string> = {
 };
 
 export function SpatialControl({ controllerRef, label, onTelemetry,
-                                 onFrameRate, onTracker, onMeasurement }: {
+                                 onFrameRate, onTracker, onMeasurement,
+                                 onFrame }: {
   controllerRef: React.RefObject<VisualizationController | null>;
   /** What this controls, so the button is not an unlabelled camera request. */
   label: string;
@@ -112,6 +113,16 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
    * Throttled to a few times a second: it is read by eye.
    */
   onMeasurement?: (m: HandMeasurement) => void;
+  /**
+   * Every tracked frame, for a subsystem that needs the hand rather than the
+   * gestures — Air Ink is the one that does.
+   *
+   * Opening a second tracker for it would mean two inferences per frame off one
+   * camera, and worse, two slightly different readings of the same hand: the pen
+   * would land a few pixels from where the pointer said it was, on the same
+   * screen, with nothing to explain the gap.
+   */
+  onFrame?: (frame: HandFrame) => void;
 }) {
   const [preferences, setPreferences] =
     useState<SpatialPreferences>(DEFAULT_PREFERENCES);
@@ -158,6 +169,18 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
   /** What the bar was last told, so the throttle can tell when it has news. */
   const publishedProgressRef = useRef(0);
   const lastMeasuredRef = useRef(0);
+
+  /**
+   * The frame observer, read through a ref.
+   *
+   * The session captures its observer object once, when the camera starts.
+   * Passing `onFrame` straight in would freeze whichever closure existed at that
+   * moment, so a host that re-rendered with new state would keep receiving
+   * frames into a stale one — the observer would keep working and quietly act on
+   * values from before the camera was switched on.
+   */
+  const onFrameRef = useRef(onFrame);
+  onFrameRef.current = onFrame;
 
   const [channels, setChannels] = useState(() => availableChannels());
   /** Set briefly on a gesture moment, so the panel can show it landed. */
@@ -235,6 +258,10 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
         onFrameRate,
         onFrame: (frame) => {
           frameRef.current = frame;
+          // Before anything else, and outside the throttles below: ink is drawn
+          // per frame, and a subsystem whose job is hiding latency cannot be fed
+          // at a quarter of the rate the tracker runs at.
+          onFrameRef.current?.(frame);
 
           // A reading of the hand, a few times a second. Deliberately computed
           // from the same frame the machine just judged, so what is displayed is

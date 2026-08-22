@@ -109,6 +109,22 @@ export class InkStateMachine {
     if (this.state === "DISABLED") this.state = "ARMED";
   }
 
+  /**
+   * Abandon the stroke in progress without putting the tool away.
+   *
+   * For the cases where the *host* ends a stroke rather than the hand: clearing
+   * the canvas, undoing into it, switching tools. Without this the machine stays
+   * in DRAWING while the caller has thrown the stroke away, and every subsequent
+   * frame reports `drawing: true` with nowhere to put the points — ink stops
+   * working, silently, until the researcher happens to release the pinch and
+   * start again. Returning to HOVER means the next mark begins the way every
+   * other mark does: two frames of contact, a fresh filter, an empty history.
+   */
+  cancelStroke(): void {
+    if (this.state === "DRAWING" || this.state === "PEN_DOWN") this.state = "HOVER";
+    this.contact = 0;
+  }
+
   /** Put the tool away. Any open stroke is ended by the caller. */
   disarm(): void {
     this.state = "DISABLED";

@@ -224,6 +224,57 @@ finger resting there.
 
 ---
 
+## 3b. Drawing in the air
+
+**<http://localhost:3000/air-ink>.** Same arrangement as the gesture page — no
+account, no project, a synthetic cloud — but a different question. That page asks
+whether the tracking sees your hand; this one assumes it does and asks whether a
+line you draw in mid-air lands where you meant it to.
+
+Press *Take out the pen*, then pinch and move. Two things have to be true at once
+before anything draws: the pen has to be out **and** you have to be pinching.
+Pointing draws nothing at any time, on purpose — pointing is what people do while
+they talk, and a stray mark on a figure is something somebody has to notice and
+delete.
+
+Under the chart there is a row per stroke: how many points it recorded, how long
+it was, whether it was read as a closed region, and what it caught.
+
+### What I would specifically like you to judge
+
+Every number in this subsystem came from reasoning rather than from a hand, so
+these are the things I genuinely do not know:
+
+1. **Does the line feel attached to your fingertip?** It is drawn about one frame
+   ahead of where the camera last saw you, to cover latency that cannot be
+   removed. Ahead is wrong too: if it overshoots when you stop or turn a corner,
+   the horizon is too long.
+2. **Do you get dots you did not mean?** A pinch has to hold for two frames to
+   count as a mark. Stray dots mean that is too low; lines that start late mean
+   it is too high.
+3. **Do your loops close?** The *Closed?* column says whether each stroke was
+   read as a region. A loop that looks closed to you and reads as open is the
+   difference between selecting a cluster and being told to draw it again.
+4. **Is the count right?** Draw round a group you can count by eye and compare.
+   This matters more than anything else on the page: it is the number that would
+   be quoted, and it is the one thing that could be wrong without looking wrong.
+5. **Does it stay fast?** Draw thirty or forty strokes and see whether the line
+   lags more than it did at the start. It should not — finished strokes sit on a
+   separate layer that is not touched while you draw. If it does slow down, that
+   is a real defect and worth telling me about.
+
+### Things that should be true, and are worth checking
+
+- *Clear* while you are mid-stroke stops the line and lets you start a new one
+  straight away, without releasing the pinch first.
+- Putting the pen away mid-line **keeps** the mark you just drew. It does not
+  throw it away.
+- A pinch you abandon after a single frame leaves nothing behind.
+- Nothing on this page can be reached by mouse — the hand is the input — but the
+  chart underneath still rotates and selects with the mouse exactly as before.
+
+---
+
 ## 4. Testing the rest of the interface
 
 **Charts.** Every chart has a *data table* beneath it. That is not a nicety: it
