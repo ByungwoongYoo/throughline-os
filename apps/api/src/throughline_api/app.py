@@ -21,8 +21,8 @@ from throughline_domain import (
     analysis, auth, claim_test, compare, consistency, critic, discovery,
     embeddings, events, example, extraction, findings, graph_projection, graphs,
     harmonize, images, journal, lineage, notebook, objects, observability,
-    patterns, reconcile, retrieval, specification, storage, synthesis,
-    validation, visuals, vocabulary, workflow,
+    patterns, reconcile, retrieval, selection, specification, storage,
+    synthesis, validation, visuals, vocabulary, workflow,
 )
 from throughline_visual.prepare import prepare as visual_prepare
 from throughline_visual.renderers import publication as publication_render
@@ -778,6 +778,12 @@ class NoteBody(BaseModel):
 
 class Question(BaseModel):
     question: str
+    #: What the researcher pointed at, when the question is about a selection
+    #: in a visualization (§26). Validated in `throughline_domain.selection`
+    #: rather than here: the rules are about scientific honesty — statistics
+    #: recomputed rather than trusted, no wording that implies a grouping was
+    #: fitted — and they belong beside the code that renders it for a model.
+    selection: dict[str, Any] | None = None
 
 
 @app.get("/api/projects/{project_id}/objects/{object_id}/journal")
@@ -837,7 +843,17 @@ def ask_about_object(project_id: str, object_id: str, payload: Question,
     with transaction() as cur:
         try:
             return journal.ask(cur, project_id=project_id, object_id=object_id,
-                               question=payload.question, author=user["id"])
+                               question=payload.question, author=user["id"],
+                               selection=payload.selection)
+        except journal.NoSuchObject as exc:
+            # 404, not 503. Reporting a missing object as a service outage sent
+            # researchers to check a model configuration that was working.
+            raise HTTPException(404, str(exc)) from exc
+        except selection.SelectionError as exc:
+            # 400, not 503: a selection this system cannot describe honestly is
+            # the caller's to fix, and reporting it as a model outage would send
+            # the researcher looking in entirely the wrong place.
+            raise HTTPException(400, str(exc)) from exc
         except journal.JournalError as exc:
             raise HTTPException(503, str(exc)) from exc
 

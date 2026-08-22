@@ -195,3 +195,121 @@ def test_a_model_note_is_distinguishable_in_the_stream(cur, project):
     note = journal.recent(cur, project)[0]
     assert note["author_kind"] == "model"
     assert note["model"] == "qwen2.5:7b-instruct"
+
+
+# ---------------------------------------------------------------------------
+# Asking about a selection (§26)
+# ---------------------------------------------------------------------------
+
+class _Recorder:
+    """A model that answers blandly and keeps what it was told."""
+
+    def __init__(self):
+        self.context = None
+
+    def generate_text(self, *, instructions, untrusted_context, prompt_name,
+                      prompt_version):
+        from throughline_model.provider import Completion
+        self.context = untrusted_context
+        return Completion(text="These points sit at the high end of component 1.",
+                          model="test-model", prompt_name=prompt_name,
+                          prompt_version=prompt_version)
+
+
+def _selection(n=3):
+    return {
+        "visualization": "embedding space",
+        "axes": {"x": "component 1", "y": "component 2", "z": "component 3",
+                 "value": "recency"},
+        "points": [{"id": f"p{i}", "label": f"Sample {i}",
+                    "x": float(i), "y": float(i), "z": float(i),
+                    "value": float(i)} for i in range(n)],
+    }
+
+
+def _use(monkeypatch, recorder):
+    import throughline_model
+    monkeypatch.setattr(throughline_model, "provider", lambda: recorder)
+
+
+def test_a_question_about_a_selection_tells_the_model_what_was_selected(
+        cur, project, monkeypatch):
+    """§26's mechanism, end to end: the points reach the prompt."""
+    recorder = _Recorder()
+    _use(monkeypatch, recorder)
+    object_id = _object(cur, project)
+
+    journal.ask(cur, project_id=project, object_id=object_id,
+                question="Why are these different?", author="usr_1",
+                selection=_selection())
+
+    assert "The researcher indicated 3 point(s)" in recorder.context
+    assert "component 1" in recorder.context
+
+
+def test_the_model_is_told_the_selection_is_not_a_finding(
+        cur, project, monkeypatch):
+    """The integrity property, checked where it actually matters — in the text
+    the model receives, not in a unit test of the renderer."""
+    recorder = _Recorder()
+    _use(monkeypatch, recorder)
+    object_id = _object(cur, project)
+
+    journal.ask(cur, project_id=project, object_id=object_id,
+                question="Why are these different?", author="usr_1",
+                selection=_selection())
+
+    assert "nothing was fitted and no test was run" in recorder.context
+
+
+def test_the_note_records_which_points_were_selected(cur, project, monkeypatch):
+    """Otherwise the note says "these points" and the record cannot say which.
+
+    That is D018 in miniature: a chain legible in the moment and broken a week
+    later, which is the defect this project keeps finding in its own work.
+    """
+    _use(monkeypatch, _Recorder())
+    object_id = _object(cur, project)
+
+    note = journal.ask(cur, project_id=project, object_id=object_id,
+                       question="Why are these different?", author="usr_1",
+                       selection=_selection(2))
+
+    stored = journal.notes_for(cur, object_id)[0]
+    assert stored["selection"]["points"][0]["id"] == "p0"
+    assert len(stored["selection"]["points"]) == 2
+    assert note["author_kind"] == "model"
+
+
+def test_a_question_without_a_selection_records_none(cur, project, monkeypatch):
+    """The column is null for every other note, so its presence means something."""
+    _use(monkeypatch, _Recorder())
+    object_id = _object(cur, project)
+
+    journal.ask(cur, project_id=project, object_id=object_id,
+                question="What is this?", author="usr_1")
+
+    assert journal.notes_for(cur, object_id)[0]["selection"] is None
+
+
+def test_a_selection_that_cannot_be_described_is_refused_before_the_model(
+        cur, project, monkeypatch):
+    """Nothing is asked and nothing is recorded.
+
+    Spending a model call on a malformed selection would produce an answer about
+    something other than what the researcher indicated — and then store it.
+    """
+    from throughline_domain import selection as selection_module
+
+    recorder = _Recorder()
+    _use(monkeypatch, recorder)
+    object_id = _object(cur, project)
+
+    with pytest.raises(selection_module.SelectionError):
+        journal.ask(cur, project_id=project, object_id=object_id,
+                    question="Why?", author="usr_1",
+                    selection={"points": [{"id": "a", "x": float("nan"),
+                                           "y": 0, "z": 0}]})
+
+    assert recorder.context is None
+    assert journal.notes_for(cur, object_id) == []

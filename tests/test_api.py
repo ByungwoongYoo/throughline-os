@@ -461,3 +461,50 @@ def test_an_unknown_figure_is_not_found_rather_than_a_crash(client):
 
 def test_the_download_route_requires_a_session(client):
     assert client.get("/api/visuals/vis_x/download").status_code == 401
+
+
+def test_a_malformed_selection_is_the_callers_error_not_a_model_outage(client):
+    """§26 at the boundary.
+
+    The distinction matters more than the number does. A selection this system
+    cannot describe honestly is something the interface sent wrongly; reporting
+    it as 503 would tell the researcher the assistant is down and send them to
+    check a model configuration that is working perfectly.
+    """
+    _account(client)
+    project = client.post("/api/projects", json={"name": "Selection"}).json()
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO research_objects(id, project_id, object_type, title, "
+            "created_by) VALUES ('obj_sel', %s, 'dataset', 'A dataset', 'usr_1')",
+            (project["id"],))
+        conn.commit()
+
+    response = client.post(
+        f"/api/projects/{project['id']}/objects/obj_sel/ask",
+        json={"question": "Why are these different?",
+              # A coordinate that is not a number. Nothing downstream can
+              # describe it, so nothing downstream should be asked to try.
+              "selection": {"points": [{"id": "a", "x": "over there",
+                                        "y": 0, "z": 0}]}})
+
+    assert response.status_code == 400, response.text
+    assert "number" in response.json()["detail"].lower()
+
+
+def test_asking_about_a_missing_object_is_not_reported_as_a_model_outage(client):
+    """A pre-existing bug, found while writing the test above.
+
+    `ask` mapped every `JournalError` to 503, so "No such object in this
+    project" came back as Service Unavailable — telling the researcher the
+    assistant was down and sending them to check a model configuration that was
+    working perfectly. A missing object is a 404.
+    """
+    _account(client)
+    project = client.post("/api/projects", json={"name": "Missing"}).json()
+
+    response = client.post(
+        f"/api/projects/{project['id']}/objects/obj_not_here/ask",
+        json={"question": "What is this?"})
+
+    assert response.status_code == 404, response.text
