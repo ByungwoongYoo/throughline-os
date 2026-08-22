@@ -59,7 +59,7 @@ the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **1116 backend tests and 578 web tests**, with 6 backend
+The current suite is **1128 backend tests and 578 web tests**, with 6 backend
 skips, each carrying a reason CI's allowlist recognises — a skip with an
 unrecognised reason fails the build, so the suite cannot quietly shrink.
 
@@ -120,6 +120,8 @@ one is the usual way two people end up doing the same work twice:
 | `TASKS.md` | Who is doing what **right now**. Where it disagrees with the roadmap, this one is current. |
 | `CONTRIBUTING.md` | The workflow two people share without colliding. |
 | `PLAN.md` | The original specification the section numbers (§55, §102) refer to. |
+| `docs/MASTER_BUILD_PROMPT.md` | The immersive-spatial specification, verbatim, with its hash pinned. Committed rather than remembered: 236 sections do not survive being carried in anybody's head. |
+| `docs/REQUIREMENTS.md` | What exists against each of those 236 sections. `unreviewed` means no claim has been made yet, and the count may only fall. |
 | `CLAUDE.md` | Instructions for Claude sessions working in this repository. |
 
 Planned and not present: the Scientific Motion Grammar and the deterministic 4K
