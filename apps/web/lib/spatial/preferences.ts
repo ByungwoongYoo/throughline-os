@@ -27,6 +27,7 @@
  */
 
 import { DEFAULT_SETTINGS, SpatialSettings } from "./machine";
+import { DEFAULT_FEEDBACK, FeedbackSettings } from "./feedback";
 
 const STORAGE_KEY = "throughline-spatial";
 
@@ -46,6 +47,15 @@ export type SpatialPreferences = {
   enabled: boolean;
   /** Which camera, when the machine has more than one. */
   deviceId: string | null;
+  /**
+   * Whether a gesture is confirmed by touch or sound as well as by sight.
+   *
+   * Vibration defaults on and costs nothing where there is no hardware — most
+   * laptops, where the call is simply ignored. Sound defaults **off**: a
+   * research tool that clicks in a shared office is one somebody mutes on the
+   * first afternoon, and then they have no feedback at all.
+   */
+  feedback: FeedbackSettings;
   /** The tuning the researcher (or calibration) arrived at. */
   settings: Pick<SpatialSettings,
     "adaptiveThresholds" | "pinchRatioOn" | "pinchRatioOff"
@@ -55,6 +65,7 @@ export type SpatialPreferences = {
 export const DEFAULT_PREFERENCES: SpatialPreferences = {
   enabled: false,
   deviceId: null,
+  feedback: DEFAULT_FEEDBACK,
   settings: {
     adaptiveThresholds: DEFAULT_SETTINGS.adaptiveThresholds,
     pinchRatioOn: DEFAULT_SETTINGS.pinchRatioOn,
@@ -142,6 +153,16 @@ export function readPreferences(): SpatialPreferences {
     enabled: stored.enabled === true,
     deviceId: typeof stored.deviceId === "string" && stored.deviceId
       ? stored.deviceId : null,
+    feedback: {
+      // Strictly boolean, like `enabled`. A stored value this code did not write
+      // should fall back to the default rather than be coerced.
+      vibrate: typeof (stored.feedback as FeedbackSettings)?.vibrate === "boolean"
+        ? (stored.feedback as FeedbackSettings).vibrate
+        : DEFAULT_FEEDBACK.vibrate,
+      sound: typeof (stored.feedback as FeedbackSettings)?.sound === "boolean"
+        ? (stored.feedback as FeedbackSettings).sound
+        : DEFAULT_FEEDBACK.sound,
+    },
     settings: {
       adaptiveThresholds: settings.adaptiveThresholds === undefined
         ? fallback.adaptiveThresholds

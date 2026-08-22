@@ -21,8 +21,9 @@ from throughline_domain import (
     analysis, auth, claim_test, compare, consistency, critic, discovery,
     embeddings, events, example, extraction, findings, graph_projection, graphs,
     harmonize, images, journal, lineage, notebook, objects, observability,
-    embedding_space, patterns, reconcile, retrieval, selection, specification,
-    storage, synthesis, validation, visuals, vocabulary, workflow,
+    embedding_space, haptics, patterns, reconcile, retrieval, selection,
+    specification, storage, synthesis, validation, visuals, vocabulary,
+    workflow,
 )
 from throughline_visual.prepare import prepare as visual_prepare
 from throughline_visual.renderers import publication as publication_render
@@ -856,6 +857,39 @@ def ask_about_object(project_id: str, object_id: str, payload: Question,
             raise HTTPException(400, str(exc)) from exc
         except journal.JournalError as exc:
             raise HTTPException(503, str(exc)) from exc
+
+
+class HapticTap(BaseModel):
+    pattern: str = "generic"
+
+
+@app.get("/api/haptics")
+def haptic_capability() -> dict[str, Any]:
+    """What haptic feedback this machine can produce, and where it is felt.
+
+    Unauthenticated, deliberately. It is a property of the hardware rather than
+    of anybody's research: it reads no project, returns no data about anyone,
+    and the gesture-check page has to work before a researcher has an account —
+    testing tracking on a colleague's laptop must not require making them one.
+    """
+    return haptics.capability()
+
+
+@app.post("/api/haptics/tap")
+def haptic_tap(payload: HapticTap) -> dict[str, Any]:
+    """Perform one tap on the trackpad.
+
+    A JSON body rather than an empty POST, and that is a security decision
+    rather than a style one: a request carrying `application/json` is not a
+    "simple" request, so a browser must preflight it, and no cross-origin
+    preflight is permitted here. Without that, any page in any tab could POST to
+    this port and buzz somebody's trackpad.
+
+    Returns whether it fired. A machine with no actuator answers 200 with
+    `performed: false` — the caller asked a reasonable question and the answer is
+    no, which is not a server error.
+    """
+    return {"performed": haptics.tap(payload.pattern)}
 
 
 @app.get("/api/projects/{project_id}/embedding-space")

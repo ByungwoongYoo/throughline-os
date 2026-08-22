@@ -41,15 +41,37 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("testing the tracking without an account", () => {
-  it("reaches no server at all", async () => {
+  it("reads no project data and needs no session", async () => {
     /**
-     * The property that makes it usable on somebody else's laptop. A page that
-     * called the API would need a session, and needing a session is how a
-     * five-minute check becomes a thing nobody does.
+     * The property that makes it usable on somebody else's laptop.
+     *
+     * This asserted "no server at all" until the page began asking the machine
+     * what haptic hardware it has — which is a question about the hardware, not
+     * about anybody's research, and needs no account to answer. The requirement
+     * was always the narrower one: nothing here may touch a project or require
+     * a session, because needing a session is how a five-minute check becomes a
+     * thing nobody does.
      */
     render(<GestureCheck />);
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    for (const [url] of fetchMock.mock.calls) {
+      expect(String(url)).not.toMatch(/\/projects\//);
+      expect(String(url)).not.toMatch(/\/auth\//);
+    }
+  });
+
+  it("works when the API is not running at all", async () => {
+    /**
+     * The check page has to be usable before the rest of the stack is. A
+     * researcher debugging their camera should not first have to debug their
+     * database.
+     */
+    fetchMock.mockRejectedValue(new Error("no API"));
+
+    render(<GestureCheck />);
+
+    expect(await screen.findByRole("button", { name: /try hand gestures/i }))
+      .toBeTruthy();
   });
 
   it("draws a cloud with structure rather than noise", async () => {

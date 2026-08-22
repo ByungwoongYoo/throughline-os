@@ -20,6 +20,11 @@ dependencies = [
   # throughline-ingestion happens to depend on it, which is precisely the
   # accident the two lines above were written about.
   "numpy>=1.26",
+  # Real haptic feedback, on the one platform that offers a program any.
+  # macOS-only by marker rather than by a try/except at install time: on Linux
+  # and Windows this simply is not installed, and `haptics.capability()` reports
+  # that the machine has no actuator — which is true and is the common case.
+  'pyobjc-framework-Cocoa>=10.0; sys_platform == "darwin"',
 ]
 
 [project.optional-dependencies]

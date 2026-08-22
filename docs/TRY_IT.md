@@ -144,6 +144,23 @@ These are the things no test here can answer.
    immediately and not drift or spin.
 6. **Cover the camera, then uncover it.** It should recover without a restart.
 
+### Touch feedback
+
+The check page has a **Tap the trackpad** button. Rest a finger on the trackpad
+and press it: that is a real haptic tap, produced by the local process through
+macOS, and it is the same tap a gesture fires.
+
+**The limit is worth knowing before you judge it.** The actuator is in the
+trackpad. A hand held in mid-air has nothing near it, so the pinch itself cannot
+be felt — no software fixes that, and any product claiming otherwise on a laptop
+is describing hardware it does not have. What the tap improves is the pointer
+path: dragging the scene, and landing on a point, which is a hand on the
+trackpad.
+
+For mid-air gesture, confirmation is visual, plus a short click if you switch
+**Sound** on. Sound is off by default because a tool that clicks in a shared
+office is one you mute permanently, and then you have no feedback at all.
+
 ### The controls
 
 - **Calibrate** — two poses, open then pinched. It measures your hand rather than

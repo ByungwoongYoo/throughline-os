@@ -34,6 +34,7 @@ import { HandMeasurement, SpatialControl }
 import { VisualizationController } from "@/lib/spatial/commands";
 import { SpatialTelemetry, emptyTelemetry } from "@/lib/spatial/session";
 import { TrackerDiagnostics } from "@/lib/spatial/mediapipe";
+import { askNativeCapability } from "@/lib/spatial/feedback";
 import { useEffect } from "react";
 
 /**
@@ -97,6 +98,15 @@ export default function GestureCheck() {
   const [tracker, setTracker] = useState<TrackerDiagnostics | null>(null);
   const onTracker = useCallback(
     (read: () => TrackerDiagnostics | null) => { readTracker.current = read; }, []);
+
+  const [haptics, setHaptics] =
+    useState<{ available: boolean; feltWhere: string | null } | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    void askNativeCapability().then((native) => { if (live) setHaptics(native); });
+    return () => { live = false; };
+  }, []);
 
   const [hand, setHand] = useState<HandMeasurement | null>(null);
   const onMeasurement = useCallback((m: HandMeasurement) => setHand(m), []);
@@ -250,6 +260,43 @@ export default function GestureCheck() {
             from GPU to CPU by itself after ten failures, and *Running on* says
             which it settled on.
           </p>
+        </section>
+      )}
+
+      {haptics && (
+        <section className="gc-numbers">
+          <h2>Touch feedback</h2>
+          {haptics.available ? (
+            <>
+              <p className="gc-note">
+                This machine has a real actuator, and the tap is produced in{" "}
+                {haptics.feltWhere}. <strong>Rest a finger on the trackpad and
+                press the button</strong> — that is the same tap a gesture
+                fires.
+              </p>
+              <p className="gc-note">
+                It is worth being plain about the limit: a hand held in mid-air
+                has no actuator near it, so the pinch itself cannot be felt. What
+                this improves is the pointer path — dragging, and landing on a
+                point — which is a hand on the trackpad.
+              </p>
+              <button type="button" onClick={() => {
+                void fetch("/api/haptics/tap", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ pattern: "alignment" }),
+                }).catch(() => {});
+              }}>
+                Tap the trackpad
+              </button>
+            </>
+          ) : (
+            <p className="gc-note">
+              No haptic actuator this program can reach. Nothing is broken —
+              most machines have none, and the browser cannot produce one on its
+              own. Confirmation here is visual, and sound if you switch it on.
+            </p>
+          )}
         </section>
       )}
 

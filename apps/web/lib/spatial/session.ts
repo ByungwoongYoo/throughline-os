@@ -76,6 +76,16 @@ export type SessionObserver = {
    * they can read out is worth more than an adjective.
    */
   onFrameRate?: (framesPerSecond: number) => void;
+  /**
+   * The events from one frame, when there were any.
+   *
+   * Separate from `onTelemetry`, which carries running totals. Feedback needs to
+   * know that a grab *just started*, and a total cannot say that without the
+   * receiver diffing it — which is the kind of bookkeeping that goes wrong
+   * quietly. Fires only on frames that produced an event, so it is rare by
+   * construction rather than by throttling.
+   */
+  onEvents?: (events: SpatialEvent[]) => void;
 };
 
 export class SpatialSession {
@@ -253,7 +263,10 @@ export class SpatialSession {
     for (const command of result.commands) apply(target, command);
 
     this.publish(result.state);
-    if (result.events.length) this.observer.onTelemetry?.(this.counts());
+    if (result.events.length) {
+      this.observer.onEvents?.(result.events);
+      this.observer.onTelemetry?.(this.counts());
+    }
   }
 
   /**

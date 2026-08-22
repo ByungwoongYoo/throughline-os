@@ -184,8 +184,13 @@ describe("asking about what was selected", () => {
     });
     await user.click(screen.getByRole("button", { name: /^ask$/i }));
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    const body = JSON.parse(fetchMock.mock.calls[1][1].body);
+    const ask = await waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        ([url]) => String(url).includes("/ask"));
+      if (!call) throw new Error("no ask request yet");
+      return call;
+    });
+    const body = JSON.parse(ask[1].body);
     expect(body.selection.points).toHaveLength(1);
     expect(typeof body.selection.points[0].x).toBe("number");
     // No statistics of any kind travel from here.
@@ -202,8 +207,9 @@ describe("asking about what was selected", () => {
 
     await user.click(screen.getByRole("button", { name: /^ask$/i }));
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    expect(fetchMock.mock.calls[1][0]).toContain("/objects/obj_paper/ask");
+    await waitFor(() => expect(
+      fetchMock.mock.calls.some(
+        ([url]) => String(url).includes("/objects/obj_paper/ask"))).toBe(true));
   });
 
   it("attributes the answer to the model, never to the researcher", async () => {
@@ -326,8 +332,13 @@ describe("asking about a region rather than one passage", () => {
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ body: "…" }) });
     await user.click(screen.getByRole("button", { name: /^ask$/i }));
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    const body = JSON.parse(fetchMock.mock.calls[1][1].body);
+    const ask = await waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        ([url]) => String(url).includes("/ask"));
+      if (!call) throw new Error("no ask request yet");
+      return call;
+    });
+    const body = JSON.parse(ask[1].body);
     expect(body.selection.points.length).toBeGreaterThan(1);
     // Still coordinates only — a region is more points, not a summary.
     expect(JSON.stringify(body.selection)).not.toMatch(/mean|count|stddev/i);

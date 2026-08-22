@@ -30,6 +30,9 @@ import {
 import { DEFAULT_SETTINGS } from "@/lib/spatial/machine";
 import { distance } from "@/lib/spatial/types";
 import { HandFrame } from "@/lib/spatial/types";
+import {
+  Feedback, availableChannels, askNativeCapability, momentFor,
+} from "@/lib/spatial/feedback";
 import { HandPreview } from "./HandPreview";
 import {
   DEFAULT_PREFERENCES, SLIDER_RANGE, SpatialPreferences, readPreferences,
@@ -155,13 +158,33 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
   /** What the bar was last told, so the throttle can tell when it has news. */
   const publishedProgressRef = useRef(0);
   const lastMeasuredRef = useRef(0);
+  /** One feedback layer for the component's life; settings are pushed in. */
+  const feedbackRef = useRef<Feedback | null>(null);
+  const [channels, setChannels] = useState(() => availableChannels());
+  /** Set briefly on a gesture moment, so the panel can show it landed. */
+  const [pulse, setPulse] = useState(false);
 
   // Read on mount rather than during render: `localStorage` is not available on
   // the server, and reading it in the component body would make the first client
   // render disagree with the markup Next sent.
   useEffect(() => {
     setMounted(true);
-    setPreferences(readPreferences());
+    const stored = readPreferences();
+    setPreferences(stored);
+    feedbackRef.current = new Feedback(stored.feedback);
+
+    // Ask the machine what it can actually do. Until it answers, the native
+    // channel is off — nothing is promised before it is known.
+    let live = true;
+    void askNativeCapability().then((native) => {
+      if (!live) return;
+      setChannels((current) => ({ ...current, native }));
+      feedbackRef.current?.useNative(native.available);
+    });
+    return () => {
+      live = false;
+      feedbackRef.current?.close();
+    };
   }, []);
 
   const stop = useCallback(() => {
@@ -198,6 +221,17 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
       {
         onState: setState,
         onFailure: (reported) => { setFailure(reported); stop(); },
+        onEvents: (events) => {
+          // The visual channel is the only one always present, so it fires for
+          // every marked moment regardless of what hardware exists.
+          for (const event of events) {
+            const moment = momentFor(event);
+            if (!moment) continue;
+            feedbackRef.current?.emit(moment);
+            setPulse(true);
+            window.setTimeout(() => setPulse(false), 140);
+          }
+        },
         onTelemetry,
         onFrameRate,
         onFrame: (frame) => {
@@ -354,6 +388,7 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
     // A settings panel whose effect is deferred teaches people that it does not
     // work, and they stop touching it.
     if (next.settings) sessionRef.current?.configure(next.settings);
+    if (next.feedback) feedbackRef.current?.configure(next.feedback);
   }
 
   function setSensitivity(key: "rotationSensitivity" | "zoomSensitivity",
@@ -457,7 +492,8 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
                          showSkeleton={showSkeleton} />
           )}
 
-          <p className="spatial-state" role="status" aria-live="polite">
+          <p className={pulse ? "spatial-state spatial-pulse" : "spatial-state"}
+             role="status" aria-live="polite">
             {calibrating ? CALIBRATION_PROMPT[step] : EXPLAIN[state]}
           </p>
 
@@ -561,6 +597,41 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
               Hand outline
             </label>
           </div>
+
+          {/*
+            * A switch only for a channel that exists. Offering "vibration" on a
+            * laptop that cannot vibrate is a control that does nothing, and a
+            * control that does nothing teaches people the panel is decorative.
+            */}
+          <div className="spatial-row spatial-toggles">
+            {(channels.vibration || channels.native.available) && (
+              <label>
+                <input type="checkbox" checked={preferences.feedback.vibrate}
+                       onChange={(event) => update({
+                         feedback: { ...preferences.feedback,
+                                     vibrate: event.target.checked } })} />
+                Touch feedback
+              </label>
+            )}
+            {channels.sound && (
+              <label>
+                <input type="checkbox" checked={preferences.feedback.sound}
+                       onChange={(event) => update({
+                         feedback: { ...preferences.feedback,
+                                     sound: event.target.checked } })} />
+                Sound
+              </label>
+            )}
+          </div>
+
+          {channels.native.available && channels.native.feltWhere && (
+            /* The limit stated where the switch is, not in a help page. A hand
+               in the air has no actuator near it, and a researcher who expected
+               to feel a mid-air pinch would reasonably conclude it was broken. */
+            <p className="spatial-note">
+              Taps are produced in {channels.native.feltWhere}.
+            </p>
+          )}
 
           {devices.length > 1 && (
             <label className="spatial-device">

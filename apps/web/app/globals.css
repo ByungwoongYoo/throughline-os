@@ -3474,3 +3474,14 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 }
 .gc-closed { font-size: 13px; color: var(--positive, var(--accent)); margin-top: 8px; }
 .gc-open { font-size: 13px; color: var(--ink-faint); margin-top: 8px; }
+/* The visual channel: a brief lift at the moment a gesture lands. Always
+   present, because it is the only feedback every machine can give. */
+.spatial-pulse {
+  color: var(--accent);
+  transform: translateX(2px);
+  transition: none;
+}
+.spatial-state {
+  transition: color var(--standard) var(--ease-out-quad),
+              transform var(--standard) var(--ease-out-quad);
+}
