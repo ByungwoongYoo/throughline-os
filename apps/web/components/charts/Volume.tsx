@@ -167,6 +167,8 @@ export function Volume({
   const selectedRef = useRef<string | null>(null);
   /** Ids in the current region, drawn with a lighter emphasis than the selection. */
   const regionRef = useRef<Set<string> | null>(null);
+  /** Whether the chart has keyboard focus, so the aim point can be shown. */
+  const focusedRef = useRef(false);
   const [occluded, setOccluded] = useState(0);
   /** The latest count the paint loop computed, published once drawing stops. */
   const occludedRef = useRef(0);
@@ -296,6 +298,25 @@ export function Volume({
       else grid.set(key, [{ x: m.x, y: m.y, r: m.r }]);
     }
     context.globalAlpha = 1;
+
+    // The aim point, drawn only while the chart has keyboard focus.
+    //
+    // Without it "press Enter to select what is in the centre" asks somebody to
+    // aim at a place the picture does not mark. Only while focused, because a
+    // permanent crosshair on a figure is a mark that means nothing to a reader
+    // who is not using the keyboard — and this chart is also drawn into reports.
+    if (focusedRef.current) {
+      context.strokeStyle = "rgba(20,67,184,0.55)";
+      context.lineWidth = 1;
+      const arm = 7;
+      context.beginPath();
+      context.moveTo(cx - arm, cy); context.lineTo(cx - 2, cy);
+      context.moveTo(cx + 2, cy); context.lineTo(cx + arm, cy);
+      context.moveTo(cx, cy - arm); context.lineTo(cx, cy - 2);
+      context.moveTo(cx, cy + 2); context.lineTo(cx, cy + arm);
+      context.stroke();
+    }
+
     // Emphasis is painted last, over the finished cloud.
     //
     // Drawn inside the depth sort it would be occluded by nearer marks — the
@@ -465,6 +486,19 @@ export function Volume({
     return found.sort((a, b) => a.d - b.d).map((f) => f.target);
   }, [normalised, points, width, height]);
 
+  /**
+   * One zoom, used by the wheel, the controller and the keyboard.
+   *
+   * Written once because three callers clamping independently is three chances
+   * to disagree about the bounds — and the bounds are what stop the scene being
+   * lost (§32).
+   */
+  const zoomBy = useCallback((factor: number) => {
+    const camera = cameraRef.current;
+    camera.zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, camera.zoom * factor));
+    dirtyRef.current = true;
+  }, []);
+
   const rotate = useCallback((dx: number, dy: number) => {
     const camera = cameraRef.current;
     camera.yaw += dx * 0.008;
@@ -577,7 +611,13 @@ export function Volume({
           `${title ?? "Three-dimensional scatter"}. ${points.length} points `
           + `positioned by ${xLabel}, ${yLabel} and ${zLabel}`
           + (valueLabel ? `, coloured by ${valueLabel}` : "")
-          + `. Drag or use the arrow keys to rotate. `
+          // The keys are named here because this is where somebody using a
+          // keyboard finds out they exist. A control that is reachable and
+          // undiscoverable is reachable in the same sense a door with no handle
+          // is a door.
+          + `. Arrow keys rotate, plus and minus zoom, Home resets the view. `
+          + `Enter selects the point nearest the centre, Escape clears it. `
+          + `Dragging and clicking do the same. `
           + `${occluded} points are currently hidden behind others.`}
         onPointerDown={(event) => {
           dragRef.current = { x: event.clientX, y: event.clientY };
@@ -647,13 +687,60 @@ export function Volume({
           if (target) onDetent?.("select");
           onSelect?.(target);
         }}
+        onFocus={() => { focusedRef.current = true; dirtyRef.current = true; }}
+        onBlur={() => { focusedRef.current = false; dirtyRef.current = true; }}
         onKeyDown={(event) => {
+          /*
+           * The keyboard reaches everything the pointer does, which §30 and
+           * Rule 5 both require and this chart did not do: it could rotate and
+           * nothing else. Selection in particular was reachable only with a
+           * pointer, and selection is what feeds a question to the assistant —
+           * so a researcher who cannot use a mouse was locked out of the
+           * product's headline capability, not merely inconvenienced.
+           *
+           * The model is aim-and-press. There is no cursor in a 3D scene and
+           * inventing one would be a second thing to learn, so the target is
+           * the centre of the view: rotate to bring a point there, then press.
+           * A crosshair appears while the chart has focus, because "the centre"
+           * is not a place anybody can see otherwise.
+           */
           const step = 12;
+          const centre = { x: width / 2, y: height / 2 };
+
           if (event.key === "ArrowLeft") rotate(-step, 0);
           else if (event.key === "ArrowRight") rotate(step, 0);
           else if (event.key === "ArrowUp") rotate(0, -step);
           else if (event.key === "ArrowDown") rotate(0, step);
-          else return;
+          else if (event.key === "+" || event.key === "=") zoomBy(1.15);
+          else if (event.key === "-" || event.key === "_") zoomBy(1 / 1.15);
+          else if (event.key === "Home") {
+            cameraRef.current = { yaw: 0.6, pitch: -0.34, zoom: 1 };
+            dirtyRef.current = true;
+          } else if (event.key === "Enter" || event.key === " ") {
+            if (selectionRadius > 0) {
+              const targets = within(centre, selectionRadius);
+              regionRef.current = new Set(targets.map((t) => t.id));
+              setSelected(targets[0]?.id ?? null);
+              if (targets.length) onDetent?.("select");
+              onSelectRegion?.(targets);
+            } else {
+              // A generous radius, because aiming by rotation is coarser than
+              // pointing. Requiring pixel accuracy from the one input that
+              // cannot be precise would make the feature technically present
+              // and practically unusable.
+              const target = nearest(centre, 60);
+              regionRef.current = null;
+              setSelected(target?.id ?? null);
+              if (target) onDetent?.("select");
+              onSelect?.(target);
+            }
+          } else if (event.key === "Escape") {
+            setSelected(null);
+            regionRef.current = null;
+            dirtyRef.current = true;
+            onSelect?.(null);
+            onSelectRegion?.([]);
+          } else return;
           event.preventDefault();
         }}
       />

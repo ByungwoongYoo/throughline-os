@@ -373,3 +373,124 @@ describe("the detent on the pointer path", () => {
     }).not.toThrow();
   });
 });
+
+describe("everything the pointer can do, the keyboard can do", () => {
+  /**
+   * §30 and Rule 5. Before this the chart could rotate with a keyboard and
+   * nothing else — selection in particular was reachable only with a pointer,
+   * and selection is what feeds a question to the assistant. A researcher who
+   * cannot use a mouse was locked out of the product's headline capability,
+   * which is a different thing from being inconvenienced.
+   *
+   * The model is aim-and-press: there is no cursor in a 3D scene, so the target
+   * is the centre of the view. Rotate to bring a point there, then press.
+   */
+  function mountFor(onSelect = vi.fn(), onDetent = vi.fn()) {
+    render(<Volume points={CLOUD} onSelect={onSelect} onDetent={onDetent}
+                   xLabel="x" yLabel="y" zLabel="z" width={400} height={400} />);
+    return { canvas: document.querySelector("canvas")!, onSelect, onDetent };
+  }
+
+  it("selects the point nearest the centre", () => {
+    const { canvas, onSelect } = mountFor();
+
+    fireEvent.keyDown(canvas, { key: "Enter" });
+
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "a" }));
+  });
+
+  it("accepts Space as well as Enter", () => {
+    /** Both are "press this" on a focused control, and picking one would make
+     * the other silently do nothing. */
+    const { canvas, onSelect } = mountFor();
+
+    fireEvent.keyDown(canvas, { key: " " });
+
+    expect(onSelect).toHaveBeenCalled();
+  });
+
+  it("aims generously, because rotating is coarser than pointing", () => {
+    /**
+     * Requiring pixel accuracy from the one input that cannot be precise would
+     * make the feature technically present and practically unusable.
+     */
+    const { canvas, onSelect } = mountFor();
+
+    // Turn the scene, so nothing is exactly on the centre any more.
+    fireEvent.keyDown(canvas, { key: "ArrowRight" });
+    fireEvent.keyDown(canvas, { key: "Enter" });
+
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }));
+  });
+
+  it("clears a selection with Escape", () => {
+    const { canvas, onSelect } = mountFor();
+    fireEvent.keyDown(canvas, { key: "Enter" });
+
+    fireEvent.keyDown(canvas, { key: "Escape" });
+
+    expect(onSelect).toHaveBeenLastCalledWith(null);
+  });
+
+  it("zooms, and stays inside the same bounds the pointer obeys", () => {
+    /**
+     * One zoom helper for wheel, controller and keyboard: three callers clamping
+     * independently is three chances to disagree about the bounds, and the
+     * bounds are what stop the scene being lost (§32).
+     */
+    const ref = createRef<VisualizationController | null>();
+    render(<Volume points={CLOUD} controllerRef={ref} xLabel="x" yLabel="y"
+                   zLabel="z" width={400} height={400} />);
+    const canvas = document.querySelector("canvas")!;
+
+    for (let i = 0; i < 60; i += 1) fireEvent.keyDown(canvas, { key: "+" });
+
+    // Still findable, exactly as the controller's own clamp guarantees.
+    expect(ref.current!.hover({ x: 200, y: 200 })).not.toBeUndefined();
+  });
+
+  it("comes home", () => {
+    const ref = createRef<VisualizationController | null>();
+    render(<Volume points={CLOUD} controllerRef={ref} xLabel="x" yLabel="y"
+                   zLabel="z" width={400} height={400} />);
+    const canvas = document.querySelector("canvas")!;
+    for (let i = 0; i < 8; i += 1) fireEvent.keyDown(canvas, { key: "ArrowRight" });
+
+    fireEvent.keyDown(canvas, { key: "Home" });
+
+    expect(ref.current!.hover({ x: 200, y: 200 })?.id).toBe("a");
+  });
+
+  it("taps when a key chose something, and not when it chose nothing", () => {
+    const { canvas, onDetent } = mountFor();
+
+    fireEvent.keyDown(canvas, { key: "Escape" });
+    expect(onDetent).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(canvas, { key: "Enter" });
+    expect(onDetent).toHaveBeenCalledWith("select");
+  });
+
+  it("leaves keys it does not handle to the browser", () => {
+    /** Swallowing Tab would trap a keyboard user inside the chart. */
+    const { canvas } = mountFor();
+
+    const tab = new KeyboardEvent("keydown", { key: "Tab", cancelable: true,
+                                               bubbles: true });
+    canvas.dispatchEvent(tab);
+
+    expect(tab.defaultPrevented).toBe(false);
+  });
+
+  it("tells a keyboard user the keys exist", () => {
+    /** A control that is reachable and undiscoverable is reachable in the same
+     * sense a door with no handle is a door. */
+    const { canvas } = mountFor();
+    const label = canvas.getAttribute("aria-label") ?? "";
+
+    expect(label).toMatch(/arrow keys rotate/i);
+    expect(label).toMatch(/enter selects/i);
+    expect(label).toMatch(/escape/i);
+  });
+});

@@ -33,6 +33,7 @@ import { Geographic, Place } from "./charts/Geographic";
 import { Volume, Point3D } from "./charts/Volume";
 import { SpatialControl } from "./spatial/SpatialControl";
 import { VisualizationController } from "@/lib/spatial/commands";
+import { deviceFeedback } from "@/lib/spatial/feedback";
 import { Temporal, TemporalEvent } from "./charts/Temporal";
 
 const CORPUS: TreeNode = {
@@ -415,6 +416,7 @@ export function Gallery() {
 
       <Section code="P13">
         <Volume points={CLOUD} controllerRef={volumeRef}
+                onDetent={(moment) => deviceFeedback.emit(moment)}
                 xLabel="component 1" yLabel="component 2"
                 zLabel="component 3" valueLabel="recency"
                 title="Embedding space in three components" />

@@ -168,7 +168,35 @@ export function availableChannels(): FeedbackChannels {
  * still asynchronous. Failure is silence: a machine that cannot answer is a
  * machine with no haptics, which is the common case and not an error.
  */
+let nativeAnswer: Promise<{ available: boolean; feltWhere: string | null }> | null
+  = null;
+
 export async function askNativeCapability():
+    Promise<{ available: boolean; feltWhere: string | null }> {
+  // Asked once per page, not once per component.
+  //
+  // Hardware does not change while a tab is open, and every component that
+  // wants feedback was asking independently — three requests were going out for
+  // one immutable fact, and each new place that wanted a tap would have added
+  // another. The *promise* is cached rather than the result, so components
+  // mounting together share one request instead of racing several.
+  if (!nativeAnswer) nativeAnswer = probeNative();
+  return nativeAnswer;
+}
+
+/**
+ * Forget the cached answer.
+ *
+ * For tests, which need each case to start from nothing — and the memo is
+ * exactly what stops that happening by itself. Named for what it does rather
+ * than for the tests, because a machine whose API only came up after the page
+ * did is a real, if rare, reason to ask again.
+ */
+export function forgetNativeCapability(): void {
+  nativeAnswer = null;
+}
+
+async function probeNative():
     Promise<{ available: boolean; feltWhere: string | null }> {
   try {
     const response = await fetch("/api/haptics");

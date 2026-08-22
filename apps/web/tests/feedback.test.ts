@@ -10,9 +10,14 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  DEFAULT_FEEDBACK, Feedback, askNativeCapability, availableChannels, momentFor,
+  DEFAULT_FEEDBACK, Feedback, askNativeCapability, availableChannels,
+  forgetNativeCapability, momentFor,
 } from "@/lib/spatial/feedback";
 
+// The capability is memoised, deliberately — hardware does not change while a
+// tab is open. Each test has to start from nothing, and the memo is precisely
+// what stops that happening on its own.
+beforeEach(() => { forgetNativeCapability(); });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("what this machine can do", () => {
@@ -244,5 +249,29 @@ describe("the detent, which is the one a laptop can actually deliver", () => {
 
     const [, request] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(JSON.parse(String(request.body)).pattern).toBe("generic");
+  });
+});
+
+
+describe("asking the machine only once", () => {
+  it("shares one request between everything that wants feedback", async () => {
+    /**
+     * Three requests were going out for one immutable fact — the page, the
+     * panel, and React's development double-invocation — and every new place
+     * that wanted a tap would have added another. The promise is cached rather
+     * than the result, so components mounting together share a request instead
+     * of racing several.
+     */
+    const fetchMock = vi.fn(async () => ({
+      ok: true, json: async () => ({ available: true, felt_where: "trackpad" }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const [first, second] = await Promise.all(
+      [askNativeCapability(), askNativeCapability()]);
+    await askNativeCapability();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(first).toEqual(second);
   });
 });

@@ -174,6 +174,31 @@ office is one you mute permanently, and then you have no feedback at all.
   you can see whether the tracker thinks your thumb is where your thumb is.
 - **Turn off the camera** — always visible while running.
 
+### Without a camera, or without a mouse
+
+The chart is fully usable from the keyboard, which §30 requires and Rule 5
+means literally: a capability reachable only by gesture or only by pointer is
+one somebody is locked out of.
+
+Click the chart once to focus it — a small crosshair appears in the centre —
+then:
+
+| Key | What it does |
+|---|---|
+| Arrow keys | Rotate |
+| `+` / `-` | Zoom |
+| `Home` | Reset the view |
+| `Enter` or `Space` | Select the point nearest the centre |
+| `Escape` | Clear the selection |
+
+There is no cursor in a 3D scene, so the target is the middle of the view:
+rotate to bring a point there, then press. The crosshair is only drawn while the
+chart has focus, because a permanent one would be a mark that means nothing to a
+reader who is not using the keyboard.
+
+Selecting this way also fires the trackpad tap, so it is worth trying with a
+finger resting there.
+
 ### Things that should be true, and are worth checking
 
 - The camera light goes out the moment you press *Turn off the camera*.
