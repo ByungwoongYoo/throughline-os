@@ -3384,3 +3384,35 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   gap: 8px; align-items: center; margin-top: 8px;
 }
 .spatial-slider span { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* --- embedding space ------------------------------------------------------- */
+.es-panel { margin-top: 24px; }
+/* The variance line sits above the chart on purpose: read underneath, it is a
+   correction to an impression already formed rather than a frame for it. */
+.es-variance {
+  font-size: 13px; color: var(--ink-soft); margin-bottom: 12px;
+  border-left: 2px solid var(--line-strong); padding-left: 10px;
+}
+.es-loading { font-size: 13px; color: var(--ink-faint); }
+.es-unavailable {
+  font-size: 13px; color: var(--ink);
+  border-left: 2px solid var(--caution); padding-left: 10px;
+}
+.es-selected {
+  margin-top: 12px; padding: 12px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+}
+.es-selected-label { font-size: 13px; color: var(--ink-strong); margin-bottom: 8px; }
+.es-ask { display: block; font-size: 12px; color: var(--ink-soft); margin-bottom: 8px; }
+.es-ask input {
+  display: block; width: 100%; margin-top: 4px; padding: 6px 8px;
+  font: inherit; font-size: 13px;
+  border: 1px solid var(--line); border-radius: var(--r-control);
+  background: var(--paper); color: var(--ink);
+}
+.es-answer {
+  margin-top: 12px; padding: 12px; font-size: 13px; color: var(--ink);
+  border-left: 2px solid var(--accent); background: var(--panel);
+}
+.es-attribution { font-size: 12px; color: var(--ink-faint); margin-bottom: 6px; }

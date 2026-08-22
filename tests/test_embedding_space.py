@@ -294,3 +294,36 @@ def test_a_project_sees_only_its_own_passages(cur, project):
 
     assert len(result["points"]) == 6
     assert all("Someone else" not in p["label"] for p in result["points"])
+
+
+def test_a_point_carries_the_object_a_question_could_be_recorded_against(
+        cur, project):
+    """§26 needs somewhere to put the answer.
+
+    The journal anchors notes on research objects, so a selection whose points
+    know only their passage and source has nothing for an answer to attach to —
+    and the reasoning would be unwalkable a week later, which is the defect
+    D018 recorded.
+    """
+    source = _source(cur, project)
+    cur.execute(
+        "INSERT INTO research_objects(id, project_id, object_type, title, "
+        "source_id, created_by) VALUES ('obj_paper', %s, 'source', 'A paper', "
+        "%s, 'usr_1')", (project, source))
+    for i in range(5):
+        _passage(cur, project, source, ordinal=i, vector=_vector(i * 1.7))
+
+    points = embedding_space.project(cur, project)["points"]
+
+    assert all(p["object_id"] == "obj_paper" for p in points)
+
+
+def test_a_source_with_no_research_object_says_so_rather_than_failing(
+        cur, project):
+    """A corpus mid-ingestion still draws. The interface can offer to ask about
+    the points that have an anchor and explain the ones that do not."""
+    _corpus(cur, project, 5)
+
+    points = embedding_space.project(cur, project)["points"]
+
+    assert all(p["object_id"] is None for p in points)

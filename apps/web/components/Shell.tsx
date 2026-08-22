@@ -25,7 +25,7 @@ import {
 export type Section =
   | "overview" | "sources" | "search"
   | "discover" | "compare" | "patterns" | "connections" | "findings"
-  | "analyses" | "graph"
+  | "analyses" | "graph" | "embedding"
   | "reports" | "figures" | "gallery" | "notebook" | "literature"
   | "datasearch" | "settings";
 
@@ -52,6 +52,7 @@ const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; 
       { id: "findings", label: "Findings", count: "findings" },
       { id: "analyses", label: "Analyses", count: "analyses" },
       { id: "graph", label: "Evidence graph" },
+      { id: "embedding", label: "Embedding space" },
     ],
   },
   {
@@ -90,6 +91,9 @@ const ICONS: Record<Section, (p: { size?: number }) => ReactElement> = {
   literature: IconLiterature, datasearch: IconData, discover: IconDiscover,
   compare: IconCompare, patterns: IconPatterns, connections: IconConnections,
   findings: IconFindings, analyses: IconAnalyses, graph: IconGraph,
+  // Reuses the graph icon: both are 'the corpus as a shape', and inventing
+  // a second glyph for the same idea makes a sidebar harder to scan.
+  embedding: IconGraph,
   reports: IconReports, figures: IconFigures, gallery: IconGallery,
   notebook: IconNotebook, settings: IconSettings,
 };

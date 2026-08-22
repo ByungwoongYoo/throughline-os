@@ -76,7 +76,16 @@ def project(cur, project_id: str, *, limit: int = MAX_POINTS) -> dict[str, Any]:
         """
         SELECT e.passage_id, e.embedding, e.model, e.dimension,
                p.source_id, p.page, p.section, p.content,
-               s.title AS source_title
+               s.title AS source_title,
+               -- The research object standing for this passage's source.
+               -- Without it a selection has nothing to be recorded against:
+               -- the journal anchors on research objects, so a question about
+               -- these points would have no node to attach its answer to and
+               -- the reasoning would be unwalkable afterwards.
+               (SELECT ro.id FROM research_objects ro
+                 WHERE ro.source_id = p.source_id
+                   AND ro.project_id = e.project_id
+                 ORDER BY ro.created_at LIMIT 1) AS object_id
         FROM passage_embeddings e
         JOIN passages p ON p.id = e.passage_id
         LEFT JOIN sources s ON s.id = p.source_id
@@ -182,6 +191,11 @@ def project(cur, project_id: str, *, limit: int = MAX_POINTS) -> dict[str, Any]:
             # there and is available by opening the source.
             "label": _label(row),
             "source_id": row["source_id"],
+            # May be null: a source ingested before its research object exists
+            # has passages but nothing to anchor a question on. Reported rather
+            # than hidden, so the interface can offer to ask about the points it
+            # can and say why it cannot for the rest.
+            "object_id": row["object_id"],
             "x": float(position[0]),
             "y": float(position[1]),
             "z": float(position[2]) if len(position) > 2 else 0.0,

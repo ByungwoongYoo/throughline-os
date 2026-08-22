@@ -17,6 +17,7 @@ import { ReportDetail, Reports } from "@/components/reports";
 import { GraphView } from "@/components/graphview";
 import { Figures } from "@/components/figures";
 import { Gallery } from "@/components/gallery";
+import { EmbeddingSpace } from "@/components/embeddingspace";
 import { ProjectMenu } from "@/components/ProjectMenu";
 import { AccountMenu, SignedInUser } from "@/components/AccountMenu";
 import { IconPlus, IconSpark } from "@/components/icons";
@@ -513,6 +514,7 @@ function Workspace({ user }: { user: SignedInUser }) {
         {section === "graph" && (
           <GraphView projectId={project.id} onSelect={select("object")} />
         )}
+        {section === "embedding" && <EmbeddingSpace projectId={project.id} />}
         {section === "gallery" && <Gallery />}
         {section === "datasearch" && <DataSearch />}
 
