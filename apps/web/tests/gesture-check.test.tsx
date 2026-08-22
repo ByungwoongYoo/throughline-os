@@ -114,3 +114,32 @@ describe("numbers rather than adjectives", () => {
       .toBeTruthy();
   });
 });
+
+describe("explaining a non-response", () => {
+  it("shows the tracker's counters only once it is running", async () => {
+    /**
+     * Before the camera is on there is nothing to report, and a panel of zeroes
+     * would read as a broken tracker rather than an idle one.
+     */
+    render(<GestureCheck />);
+
+    expect(screen.queryByText(/why nothing is happening/i)).toBeNull();
+  });
+
+  it("names the patterns rather than only printing numbers", async () => {
+    /**
+     * The four readings distinguish failures with completely different fixes:
+     * no picture at all, a picture with no hand recognised, a model failing on
+     * this machine, and a hand recognised whose pinch never crosses the
+     * threshold. A page that printed the counters without saying what they mean
+     * would leave the reader exactly as stuck.
+     */
+    const page = (await import("node:fs")).readFileSync(
+      "app/gesture-check/page.tsx", "utf8");
+
+    expect(page).toMatch(/stuck at 0/);
+    expect(page).toMatch(/not recognising a hand/i);
+    expect(page).toMatch(/GPU to CPU/i);
+    expect(page).toMatch(/press <em>Calibrate<\/em>|Calibrate/);
+  });
+});

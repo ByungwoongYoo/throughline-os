@@ -29,7 +29,8 @@
 
 import { useCallback, useRef, useState } from "react";
 import { Volume } from "@/components/charts/Volume";
-import { SpatialControl } from "@/components/spatial/SpatialControl";
+import { HandMeasurement, SpatialControl }
+  from "@/components/spatial/SpatialControl";
 import { VisualizationController } from "@/lib/spatial/commands";
 import { SpatialTelemetry, emptyTelemetry } from "@/lib/spatial/session";
 import { TrackerDiagnostics } from "@/lib/spatial/mediapipe";
@@ -97,6 +98,9 @@ export default function GestureCheck() {
   const onTracker = useCallback(
     (read: () => TrackerDiagnostics | null) => { readTracker.current = read; }, []);
 
+  const [hand, setHand] = useState<HandMeasurement | null>(null);
+  const onMeasurement = useCallback((m: HandMeasurement) => setHand(m), []);
+
   useEffect(() => {
     const timer = setInterval(
       () => setTracker(readTracker.current?.() ?? null), 500);
@@ -118,7 +122,7 @@ export default function GestureCheck() {
 
       <SpatialControl controllerRef={controllerRef} label="this test cloud"
                       onTelemetry={onTelemetry} onFrameRate={onFrameRate}
-                      onTracker={onTracker} />
+                      onTracker={onTracker} onMeasurement={onMeasurement} />
 
       <section className="gc-numbers">
         <h2>What the tracker is doing</h2>
@@ -161,6 +165,47 @@ export default function GestureCheck() {
           wrong for your hand — try Calibrate.
         </p>
       </section>
+
+      {hand && (
+        <section className="gc-numbers">
+          <h2>Your hand, as the tracker sees it</h2>
+          <p className="gc-note">
+            Pinch and watch the bar. It has to cross the line for a grab to
+            start. If it never gets close, the threshold is wrong for your
+            hand — press <em>Calibrate</em>, which measures you instead of
+            assuming.
+          </p>
+          <div className="gc-gauge">
+            <div className="gc-gauge-track">
+              <span className="gc-gauge-fill"
+                    style={{ width: `${Math.min(100, (hand.pinch / (hand.pinchOff * 2)) * 100)}%` }} />
+              <span className="gc-gauge-mark"
+                    style={{ left: `${Math.min(100, (hand.pinchOn / (hand.pinchOff * 2)) * 100)}%` }} />
+            </div>
+            <p className={hand.pinch < hand.pinchOn ? "gc-closed" : "gc-open"}>
+              {hand.pinch < hand.pinchOn ? "Pinch closed" : "Pinch open"}
+            </p>
+          </div>
+          <dl>
+            <div>
+              <dt>Fingers apart</dt>
+              <dd>{hand.pinch.toFixed(3)}</dd>
+            </div>
+            <div>
+              <dt>Closes below</dt>
+              <dd>{hand.pinchOn.toFixed(3)}</dd>
+            </div>
+            <div>
+              <dt>Hand span</dt>
+              <dd>{hand.span.toFixed(3)}</dd>
+            </div>
+            <div>
+              <dt>Confidence</dt>
+              <dd>{hand.confidence.toFixed(2)}</dd>
+            </div>
+          </dl>
+        </section>
+      )}
 
       {tracker && (
         <section className="gc-numbers">

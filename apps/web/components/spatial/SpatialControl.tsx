@@ -24,13 +24,36 @@ import { CameraDevice, CameraFailure, CameraManager } from "@/lib/spatial/camera
 import { SpatialState } from "@/lib/spatial/machine";
 import { SpatialSession, SpatialTelemetry } from "@/lib/spatial/session";
 import { MediaPipeHandTracker, TrackerDiagnostics } from "@/lib/spatial/mediapipe";
-import { CalibrationManager, CalibrationStep } from "@/lib/spatial/calibration";
+import {
+  CalibrationManager, CalibrationStep, handScale, scaleThresholds,
+} from "@/lib/spatial/calibration";
+import { DEFAULT_SETTINGS } from "@/lib/spatial/machine";
+import { distance } from "@/lib/spatial/types";
 import { HandFrame } from "@/lib/spatial/types";
 import { HandPreview } from "./HandPreview";
 import {
   DEFAULT_PREFERENCES, SLIDER_RANGE, SpatialPreferences, readPreferences,
   writePreferences,
 } from "@/lib/spatial/preferences";
+
+/**
+ * A live reading of the hand, for a page that has to explain a non-response.
+ *
+ * The one number that separates "the tracking is not seeing me" from "the
+ * tracking sees me and disagrees about what a pinch is". From the outside those
+ * two are identical — camera on, nothing moving — and they have completely
+ * different fixes: light and distance for the first, calibration for the second.
+ */
+export type HandMeasurement = {
+  /** Wrist to index knuckle: the hand's own ruler, in normalised units. */
+  span: number;
+  /** Thumb tip to index tip, right now. */
+  pinch: number;
+  /** What that has to fall below to close, and rise above to open again. */
+  pinchOn: number;
+  pinchOff: number;
+  confidence: number;
+};
 
 /**
  * What each calibration step asks for.
@@ -57,7 +80,7 @@ const EXPLAIN: Record<SpatialState, string> = {
 };
 
 export function SpatialControl({ controllerRef, label, onTelemetry,
-                                 onFrameRate, onTracker }: {
+                                 onFrameRate, onTracker, onMeasurement }: {
   controllerRef: React.RefObject<VisualizationController | null>;
   /** What this controls, so the button is not an unlabelled camera request. */
   label: string;
@@ -76,6 +99,16 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
    * on screen.
    */
   onTracker?: (read: () => TrackerDiagnostics | null) => void;
+  /**
+   * What the pinch actually measures, against what it has to beat.
+   *
+   * The one number that separates "the tracking is not seeing me" from "the
+   * tracking sees me and disagrees about what a pinch is". Without it those two
+   * look identical from the outside, and they have completely different fixes.
+   *
+   * Throttled to a few times a second: it is read by eye.
+   */
+  onMeasurement?: (m: HandMeasurement) => void;
 }) {
   const [preferences, setPreferences] =
     useState<SpatialPreferences>(DEFAULT_PREFERENCES);
@@ -121,6 +154,7 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
   const calibrationRef = useRef<CalibrationManager | null>(null);
   /** What the bar was last told, so the throttle can tell when it has news. */
   const publishedProgressRef = useRef(0);
+  const lastMeasuredRef = useRef(0);
 
   // Read on mount rather than during render: `localStorage` is not available on
   // the server, and reading it in the component body would make the first client
@@ -168,6 +202,23 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
         onFrameRate,
         onFrame: (frame) => {
           frameRef.current = frame;
+
+          // A reading of the hand, a few times a second. Deliberately computed
+          // from the same frame the machine just judged, so what is displayed is
+          // what was decided on rather than a second sample taken nearby.
+          const hand = frame.hands[0];
+          if (onMeasurement && hand
+              && frame.timestamp - lastMeasuredRef.current > 250) {
+            lastMeasuredRef.current = frame.timestamp;
+            const settings = { ...DEFAULT_SETTINGS, ...preferences.settings };
+            const { pinchOn, pinchOff } = scaleThresholds(hand, settings);
+            onMeasurement({
+              span: handScale(hand),
+              pinch: distance(hand.thumbTip, hand.indexTip),
+              pinchOn, pinchOff,
+              confidence: hand.confidence,
+            });
+          }
 
           // Calibration samples the same frames the gestures do, rather than
           // opening a second path to the tracker. Progress is published coarsely
@@ -232,7 +283,7 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
     // appear after the camera is already running.
     setDevices(await session.devices());
   }, [controllerRef, preferences.deviceId, preferences.settings, stop,
-      onTelemetry, onFrameRate, onTracker]);
+      onTelemetry, onFrameRate, onTracker, onMeasurement]);
 
   /**
    * Begin the two-pose calibration described in §18.

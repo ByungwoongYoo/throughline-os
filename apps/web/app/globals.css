@@ -3456,3 +3456,21 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   border-left: 2px solid var(--caution); padding-left: 10px;
   font-family: var(--mono, monospace); word-break: break-word;
 }
+/* The pinch, against the threshold it has to cross. Watched while pinching, so
+   it is a bar rather than a number: a decimal changing thirty times a second is
+   not something anybody can read. */
+.gc-gauge { margin: 12px 0; }
+.gc-gauge-track {
+  position: relative; height: 10px; background: var(--line);
+  border-radius: 5px; overflow: hidden;
+}
+.gc-gauge-fill {
+  display: block; height: 100%; background: var(--accent);
+  transition: width var(--instant, 80ms) linear;
+}
+.gc-gauge-mark {
+  position: absolute; top: -3px; width: 2px; height: 16px;
+  background: var(--danger, #b3261e);
+}
+.gc-closed { font-size: 13px; color: var(--positive, var(--accent)); margin-top: 8px; }
+.gc-open { font-size: 13px; color: var(--ink-faint); margin-top: 8px; }
