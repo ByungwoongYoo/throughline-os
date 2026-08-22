@@ -32,6 +32,10 @@ import { InkState } from "@/lib/ink/machine";
 import { SpatialStroke, isClosed, observedPoints, strokeLength } from "@/lib/ink/stroke";
 import { describeSelection, selectWithinStroke } from "@/lib/ink/select";
 import { describeContext, selectionContext } from "@/lib/ink/context";
+import { ReferenceTimeline } from "@/lib/voice/timeline";
+import { resolveUtterance } from "@/lib/voice/deixis";
+import { describeIntent, readIntent } from "@/lib/voice/intent";
+import { ScriptedSpeechSource } from "@/lib/voice/source";
 import {
   DEFAULT_STABILISATION_LEVEL, StabilisationLevel,
 } from "@/lib/ink/stabilise";
@@ -116,6 +120,15 @@ export default function AirInkPage() {
   const [state, setState] = useState<InkState>("DISABLED");
   const [readings, setReadings] = useState<Reading[]>([]);
   const [level, setLevel] = useState<StabilisationLevel>(DEFAULT_STABILISATION_LEVEL);
+  const [said, setSaid] = useState("");
+  const [proposal, setProposal] = useState<string | null>(null);
+  /**
+   * What the hand has indicated, on the same clock the words arrive on.
+   *
+   * A ref rather than state: entries are written thirty times a second in the
+   * worst case, and none of them should re-render the page.
+   */
+  const timelineRef = useRef(new ReferenceTimeline());
 
   // Frames go straight through. Anything stateful here would run thirty times a
   // second; the recorder is the thing that holds state, and it is not React.
@@ -123,12 +136,27 @@ export default function AirInkPage() {
     inkRef.current?.step(frame);
   }, []);
 
-  const handleStroke = useCallback((stroke: SpatialStroke) => {
+  const handleStroke = useCallback((stroke: SpatialStroke,
+                                    referenceId: number | null) => {
     const observed = observedPoints(stroke);
     const chart = chartRef.current;
     const selection = chart
       ? selectWithinStroke(stroke, chart)
       : null;
+
+    // Close the timeline entry the layer opened at pen-down. Only this side
+    // knows what was inside the loop, because only this side has the chart.
+    if (referenceId !== null) {
+      const last = observed[observed.length - 1];
+      if (selection?.ok) {
+        timelineRef.current.complete(referenceId, last?.timestamp ?? Date.now(),
+          { targets: selection.targets.map((t) => t.id) });
+      } else {
+        // A loop that caught nothing is not a referent. Leaving it open would
+        // let "these" bind to an empty set and read as though it had worked.
+        timelineRef.current.abandon(referenceId);
+      }
+    }
     setReadings((previous) => [{
       points: observed.length,
       closed: isClosed(observed),
@@ -244,6 +272,7 @@ export default function AirInkPage() {
                 caption="A synthetic cloud in three lobes."
                 xLabel="x" yLabel="y" zLabel="z" />
         <InkLayer ref={inkRef} armed={armed} stabilisation={level}
+                  timeline={timelineRef.current}
                   onState={setState} onStroke={handleStroke} />
       </div>
       </div>
@@ -284,6 +313,58 @@ export default function AirInkPage() {
             </tbody>
           </table>
         )}
+
+      <h2 style={{ fontSize: 18, marginTop: 32 }}>Saying what you mean</h2>
+      <p style={{ color: "#555", fontSize: 14, maxWidth: 640 }}>
+        Draw a loop around some points, then say what you want — &ldquo;why are
+        these different&rdquo;, &ldquo;compare this with this&rdquo;. The word
+        &ldquo;these&rdquo; is resolved against <em>what your hand was doing when
+        you said it</em>, so it works even when you speak while still drawing.
+      </p>
+      <p style={{ color: "#555", fontSize: 13, maxWidth: 640 }}>
+        <strong>Typed, not spoken, and that is deliberate.</strong> The
+        browser&rsquo;s built-in speech recognition sends your microphone audio
+        to Google, which would break the promise that nothing here leaves your
+        machine. Typing runs the identical path — the words are stamped with the
+        time you enter them — so this is the real feature rather than a stand-in.
+      </p>
+      <form onSubmit={(event) => {
+              event.preventDefault();
+              const source = new ScriptedSpeechSource();
+              const words: Array<{ text: string; at: number }> = [];
+              source.start((e) => words.push({ text: e.text, at: e.at }));
+              // Spread over the last second, as speech would have arrived.
+              const now = Date.now();
+              source.utter(said, now - 1000, 1000);
+              const resolved = resolveUtterance({ words, final: true },
+                                                timelineRef.current);
+              setProposal(describeIntent(readIntent(resolved)));
+            }}
+            style={{ display: "flex", gap: 8, maxWidth: 640, margin: "12px 0" }}>
+        <input value={said} onChange={(e) => setSaid(e.target.value)}
+               placeholder="why are these different"
+               aria-label="Say something about what you indicated"
+               style={{ flex: 1, padding: "7px 10px", fontSize: 14,
+                        border: "1px solid #bbb", borderRadius: 6 }} />
+        <button type="submit"
+                style={{ padding: "7px 14px", borderRadius: 6, fontSize: 14,
+                         border: "1px solid #1443B8", background: "transparent",
+                         color: "#1443B8", cursor: "pointer" }}>
+          Read it
+        </button>
+      </form>
+      {proposal && (
+        <p style={{ maxWidth: 640, fontSize: 14, padding: "10px 12px",
+                    background: "#f4f7fd", border: "1px solid #dbe4f7",
+                    borderRadius: 6 }}>
+          {proposal}
+        </p>
+      )}
+      <p style={{ color: "#777", fontSize: 13, maxWidth: 640 }}>
+        Nothing is run. A spoken sentence is ambiguous and has no natural moment
+        to confirm it, so what comes back is a proposal you would accept or
+        decline — a misheard word should cost you a decline, not an analysis.
+      </p>
 
       <h2 style={{ fontSize: 18, marginTop: 32 }}>What is actually unknown</h2>
       <p style={{ color: "#555", fontSize: 14, maxWidth: 640 }}>

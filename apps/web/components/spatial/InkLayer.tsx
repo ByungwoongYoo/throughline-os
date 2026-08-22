@@ -34,6 +34,7 @@ import { InkRecorder, RecorderOptions } from "@/lib/ink/recorder";
 import { InkState } from "@/lib/ink/machine";
 import { SpatialStroke, StrokePoint } from "@/lib/ink/stroke";
 import { StabilisationLevel } from "@/lib/ink/stabilise";
+import { ReferenceTimeline } from "@/lib/voice/timeline";
 
 export type InkSurface = {
   /** Feed a tracked frame. Safe to call at tracker rate. */
@@ -58,11 +59,28 @@ export const InkLayer = forwardRef<InkSurface, {
    */
   stabilisation?: StabilisationLevel;
   options?: RecorderOptions;
-  /** Told when a stroke is finished, so a host can offer to act on it. */
-  onStroke?: (stroke: SpatialStroke) => void;
+  /**
+   * Where gestures are recorded so speech can refer to them (§199).
+   *
+   * The layer opens an entry at pen-down rather than at pen-up, and that timing
+   * is the whole reason the timeline takes intervals: "why are these different"
+   * is usually said *while* the circle is still being drawn, so a referent that
+   * only existed once the stroke finished would never be there when the word
+   * arrived.
+   */
+  timeline?: ReferenceTimeline;
+  /**
+   * Told when a stroke is finished, so a host can offer to act on it.
+   *
+   * The second argument is the timeline entry this stroke opened, if any. The
+   * host resolves what was inside the loop — only it has the chart — and closes
+   * the entry with those targets.
+   */
+  onStroke?: (stroke: SpatialStroke, referenceId: number | null) => void;
   /** Told when the pen state changes, for a status line. Never per frame. */
   onState?: (state: InkState) => void;
-}>(function InkLayer({ armed, stabilisation, options, onStroke, onState }, ref) {
+}>(function InkLayer({ armed, stabilisation, options, timeline, onStroke,
+                       onState }, ref) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const committedRef = useRef<HTMLCanvasElement | null>(null);
   const liveRef = useRef<HTMLCanvasElement | null>(null);
@@ -80,8 +98,10 @@ export const InkLayer = forwardRef<InkSurface, {
   // Callbacks are read through a ref so a host passing an inline arrow does not
   // have to memoise it to avoid rebuilding the recorder — and, more importantly,
   // so the recorder never ends up holding a closure over stale props.
-  const handlers = useRef({ onStroke, onState });
-  handlers.current = { onStroke, onState };
+  const handlers = useRef({ onStroke, onState, timeline });
+  handlers.current = { onStroke, onState, timeline };
+  /** The timeline entry the open stroke belongs to. */
+  const referenceRef = useRef<number | null>(null);
 
   if (!recorderRef.current) {
     recorderRef.current = new InkRecorder({ stabilisation, ...options });
@@ -143,10 +163,45 @@ export const InkLayer = forwardRef<InkSurface, {
       if (!recorder) return;
       const result = recorder.step(frame);
       if (result.open || result.events.length) liveDirty.current = true;
+
+      const timeline = handlers.current.timeline;
+      if (result.events.includes("penDown")) {
+        // Opened here, not on commit. A word spoken mid-stroke has to find
+        // something to bind to, and by the time the stroke commits the word has
+        // already been said.
+        referenceRef.current = timeline?.begin(frame.timestamp, "region") ?? null;
+      }
+
       if (result.committed) {
         committedDirty.current = true;
         const strokes = recorder.strokes();
-        handlers.current.onStroke?.(strokes[strokes.length - 1]);
+        handlers.current.onStroke?.(strokes[strokes.length - 1],
+                                    referenceRef.current);
+        referenceRef.current = null;
+      } else if (referenceRef.current !== null
+                 && (result.events.includes("penUp")
+                     || result.events.includes("strokeCancelled"))) {
+        /*
+         * The pen lifted and no stroke was kept.
+         *
+         * This happens for real: a stroke that begins drawing and then records
+         * fewer than two points — tracking lost immediately, or every frame
+         * after the first rejected as a glitch — is not a mark, so `commit`
+         * discards it and `onStroke` never fires. The timeline entry opened at
+         * pen-down was then never closed, and an open entry is deliberately
+         * never forgotten, because a hand may rest mid-stroke. So one such
+         * stroke would sit open for the rest of the session and capture *every
+         * word spoken afterwards* under the "during" rule, binding each to an
+         * empty referent while reporting success.
+         *
+         * Found by mutation: deleting the original cleanup changed nothing,
+         * because that branch handled `strokeCancelled`, which is emitted from
+         * PEN_DOWN — a state reached *before* `penDown` is emitted, so no entry
+         * existed yet and the code was unreachable. The reachable leak was the
+         * committed-nothing case, which had no handling at all.
+         */
+        timeline?.abandon(referenceRef.current);
+        referenceRef.current = null;
       }
       // State is published on change only. Pushing it per frame would re-render
       // the host's status line thirty times a second to write the same word.

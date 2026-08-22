@@ -277,12 +277,34 @@ export class Feedback {
   }
 
   private vibrate(moment: FeedbackMoment): void {
+    /*
+     * Asked for only once the page has been interacted with.
+     *
+     * Chrome refuses `vibrate` until the document has had a user activation,
+     * and it refuses it by **logging an error and returning false** rather than
+     * by throwing — so the `catch` below never fired and the console filled with
+     * one error per detent. That matters beyond tidiness: this feature's whole
+     * diagnostic story is that a researcher can open the console and report what
+     * they see, and a page that cries wolf eight times a second makes a real
+     * error impossible to notice.
+     *
+     * Gesture detents are exactly the case that trips it, because a hand can
+     * hover marks for a while before anything is clicked.
+     */
+    if (typeof navigator === "undefined") return;
+    const activation = (navigator as Navigator & {
+      userActivation?: { hasBeenActive: boolean };
+    }).userActivation;
+    // Where the property is missing the call is attempted, because the engines
+    // that lack it are the ones that never gated on activation in the first
+    // place. Absence is not a refusal.
+    if (activation && !activation.hasBeenActive) return;
+
     try {
-      navigator?.vibrate?.(PATTERN[moment]);
+      navigator.vibrate?.(PATTERN[moment]);
     } catch {
-      // Some engines throw when the page is not visible or has never been
-      // interacted with. There is nothing to do about it and nothing worth
-      // telling anyone.
+      // Some engines throw when the page is not visible. There is nothing to do
+      // about it and nothing worth telling anyone.
     }
   }
 

@@ -275,3 +275,46 @@ describe("asking the machine only once", () => {
     expect(first).toEqual(second);
   });
 });
+
+describe("vibration is not asked for before the browser allows it", () => {
+  /**
+   * Chrome refuses `vibrate` until the document has had a user activation, and
+   * it refuses by logging an error and returning false rather than by throwing —
+   * so the `try`/`catch` around the call caught nothing and the console filled
+   * with one error per detent.
+   *
+   * That is worse than untidy. The diagnostic story for hand tracking is that a
+   * researcher opens the console and reports what they see, and a page crying
+   * wolf several times a second makes a real error impossible to find. Gesture
+   * detents trip it in particular, because a hand hovers marks long before
+   * anything gets clicked.
+   */
+  function withActivation(hasBeenActive: boolean | undefined) {
+    const calls: unknown[] = [];
+    vi.stubGlobal("navigator", {
+      vibrate: (pattern: unknown) => { calls.push(pattern); return true; },
+      ...(hasBeenActive === undefined ? {} : { userActivation: { hasBeenActive } }),
+    });
+    return calls;
+  }
+
+  it("stays quiet until the page has been interacted with", () => {
+    const calls = withActivation(false);
+    new Feedback({ vibrate: true, sound: false }).emit("hover");
+    expect(calls).toEqual([]);
+  });
+
+  it("vibrates once the page has been interacted with", () => {
+    const calls = withActivation(true);
+    new Feedback({ vibrate: true, sound: false }).emit("select");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("still tries where the browser does not report activation at all", () => {
+    // Absence of the property is not a refusal: the engines that lack it never
+    // gated on activation in the first place.
+    const calls = withActivation(undefined);
+    new Feedback({ vibrate: true, sound: false }).emit("select");
+    expect(calls).toHaveLength(1);
+  });
+});

@@ -160,6 +160,29 @@ If none of them let you write, that is worth telling me: the settings were tuned
 against a simulated tremor, and a real hand is the only thing that can say
 whether the numbers are right.
 
+### Saying what you mean
+
+Under the strokes table there is a box. Draw a loop around some points, then type
+what you want — *why are these different*, *compare this with this*.
+
+The word **these** is resolved against what your hand was doing when you typed
+it, not against whatever happens to be selected. That includes a word entered
+while you are still drawing, which is the normal case in speech and the one that
+is easy to get wrong.
+
+It is typed rather than spoken on purpose. The browser's built-in speech
+recognition sends your microphone audio to Google, which would break the promise
+that nothing here leaves your machine — so it is not switched on by default.
+Typing runs the identical path, so this is the real feature and not a stand-in.
+
+Nothing is run. What comes back is a proposal you would accept or decline,
+because a spoken sentence is ambiguous and has no natural moment to confirm it: a
+misheard word should cost you a decline, not an analysis.
+
+Worth trying: type the sentence **without** drawing anything first. It should
+refuse and tell you to circle something while you say the word — not quietly
+answer about whatever was last selected.
+
 ### What I would specifically like you to judge
 
 These are the things no test here can answer.
