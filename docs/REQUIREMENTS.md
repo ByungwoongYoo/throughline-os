@@ -30,10 +30,10 @@ and looked at the code. The test requires the count never to grow.
 
 | Status | Sections |
 |---|---|
-| built | 42 |
+| built | 44 |
 | partial | 10 |
-| not-built | 23 |
-| unreviewed | 161 |
+| not-built | 22 |
+| unreviewed | 160 |
 | **total** | **236** |
 
 Nothing here has been verified by anybody other than its author. `TASKS.md`
@@ -83,9 +83,9 @@ revisited — an edited specification is exactly when requirements go missing.
 | §34 | CAMERA UX | built | apps/web/lib/spatial/camera.ts | apps/web/tests/spatial-control.test.tsx | Device picker, preview, explicit off. |
 | §35 | PRIVACY | built | apps/web/components/spatial/SpatialControl.tsx | apps/web/tests/spatial-control.test.tsx | All inference local; no frame leaves the machine; counts only in telemetry. |
 | §36 | AI RESEARCH ASSISTANT | partial | packages/research-domain/src/throughline_domain/selection.py | tests/test_selection.py | A selection becomes AI context, computed rather than asserted. There is no ResearchContextEngine: filters, chart configuration, spatial focus and recent actions are not part of what the assistant is told. |
-| §37 | DEICTIC REFERENCES | partial | packages/research-domain/src/throughline_domain/selection.py | tests/test_selection.py | The substrate exists — a gesture produces prose naming what was indicated — but no language resolution of "this"/"these" against it. |
-| §38 | GESTURE | not-built |  |  | No voice channel at all, so no gesture-plus-speech fusion. |
-| §39 | AI SHOULD OPERATE THROUGH COMMANDS | partial | packages/model/src/throughline_model/provider.py | tests/test_anthropic_provider.py | Honoured in the weak form: the model returns text for specific tasks and never mutates state. There is no declared action schema or validating tool boundary, so the safety is structural rather than enforced. |
+| §37 | DEICTIC REFERENCES | partial | apps/web/lib/voice/deixis.ts | apps/web/tests/voice-fusion.test.ts | "this"/"these"/"that"/"those" resolve against the gesture timeline, each word at its own moment. An unresolved word is refused rather than defaulted. Not wired to a live recogniser, and current focus and recent objects are not yet inputs. |
+| §38 | GESTURE | partial | apps/web/lib/voice/timeline.ts | apps/web/tests/voice-fusion.test.ts | The fusion is built and covers the specification's own timing case — a word spoken while the circle is still being drawn. No recogniser is connected, so it runs from typed input today. |
+| §39 | AI SHOULD OPERATE THROUGH COMMANDS | built | apps/web/lib/voice/intent.ts | apps/web/tests/voice-fusion.test.ts | Speech produces a validated structured intent and never an action. A closed verb set, refused clearly rather than misinterpreted confidently, and confirmed before anything happens. |
 | §40 | AI ANALYTICAL GUARDRAILS | built | packages/research-domain/src/throughline_domain/critic.py | tests/test_claim_test.py | Observation, calculation, inference and interpretation are kept apart throughout; a fitted surface says it is a fit, and a hand-drawn selection says it is not a sample. |
 | §41 | RESEARCH PROVENANCE | built | packages/research-domain/src/throughline_domain/lineage.py | tests/test_lineage.py | Every consequential transformation is recorded and inspectable. |
 | §42 | UNDO / REDO | not-built |  |  | No application-level undo or redo. Only Air Ink can undo, which is §179 and a different thing. Named by the specification as mandatory. |
@@ -245,7 +245,7 @@ revisited — an edited specification is exactly when requirements go missing.
 | §196 | AI UNDERSTANDING OF DRAWING | unreviewed |  |  |  |
 | §197 | NEVER LET AI INTERPRET SILENTLY | partial | apps/web/app/air-ink/page.tsx | apps/web/tests/ink.test.ts | A region is reported and not applied. No confirmation UI for anything beyond selection. |
 | §198 | DRAWING AS AI CONTEXT | built | apps/web/lib/ink/context.ts | apps/web/tests/ink-context.test.ts | A drawn region becomes the ask endpoint's selection payload. Nothing is summarised on the way — the count, mean and range are computed by the backend so they are calculated rather than asserted by the interface. |
-| §199 | TEMPORAL SPEECH-GESTURE FUSION | unreviewed |  |  |  |
+| §199 | TEMPORAL SPEECH-GESTURE FUSION | built | apps/web/lib/voice/timeline.ts | apps/web/tests/voice-fusion.test.ts | Referents are intervals on the shared clock, so a word binds to a gesture in progress. Short-lived windows, asymmetric: forward binding gives up sooner than backward, because it guesses at what somebody is about to do. |
 | §200 | LIVE PRESENTATION DRAWING | unreviewed |  |  |  |
 | §201 | INK LAYERS | not-built |  |  |  |
 | §202 | COLOR AND STYLE | unreviewed |  |  |  |
