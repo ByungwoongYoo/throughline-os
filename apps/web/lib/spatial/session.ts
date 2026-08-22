@@ -63,6 +63,19 @@ export type SessionObserver = {
    * front of a progress bar that never moves.
    */
   onFrame?: (frame: HandFrame) => void;
+  /**
+   * Frames actually processed per second, reported about once a second.
+   *
+   * Deliberately not per frame. The rate is a diagnostic — it answers "is the
+   * tracking keeping up" — and a diagnostic that costs a React render thirty
+   * times a second to display a number that changes slowly would be a fine
+   * example of a measurement disturbing what it measures.
+   *
+   * Reported rather than inferred, because "does it feel laggy" is not
+   * something a researcher should have to translate into a bug report. A number
+   * they can read out is worth more than an adjective.
+   */
+  onFrameRate?: (framesPerSecond: number) => void;
 };
 
 export class SpatialSession {
@@ -91,6 +104,9 @@ export class SpatialSession {
    * dropped, which is invisible at 30 Hz and would be maddening in a test.
    */
   private lastProcessed = -Infinity;
+  /** Frame-rate accounting, sampled about once a second. */
+  private rateWindowStart = 0;
+  private rateWindowFrames = 0;
 
   constructor(
     private readonly tracker: HandTracker,
@@ -212,6 +228,7 @@ export class SpatialSession {
     this.lastProcessed = frame.timestamp;
 
     this.telemetry.frames += 1;
+    this.reportFrameRate(frame.timestamp);
 
     // The observer sees the frame whether or not there is a chart to drive.
     //
@@ -239,6 +256,29 @@ export class SpatialSession {
     if (result.events.length) this.observer.onTelemetry?.(this.counts());
   }
 
+  /**
+   * Publish the processed frame rate, at most once a second.
+   *
+   * Measured on the tracker's own timestamps rather than on wall-clock, so it
+   * reports the rate the machine is actually being driven at — which is the
+   * question — rather than how long this code took to run.
+   */
+  private reportFrameRate(timestamp: number): void {
+    if (!this.observer.onFrameRate) return;
+    if (this.rateWindowStart === 0) {
+      this.rateWindowStart = timestamp;
+      this.rateWindowFrames = 0;
+      return;
+    }
+    this.rateWindowFrames += 1;
+    const elapsed = timestamp - this.rateWindowStart;
+    if (elapsed < 1000) return;
+
+    this.observer.onFrameRate(Math.round((this.rateWindowFrames * 1000) / elapsed));
+    this.rateWindowStart = timestamp;
+    this.rateWindowFrames = 0;
+  }
+
   /** Tell the observer only when there is something it does not already know. */
   private publish(state: SpatialState): void {
     if (state === this.published) return;
@@ -262,6 +302,8 @@ export class SpatialSession {
     // what the observer knows cannot disagree — and so a stop after a stop stays
     // quiet rather than re-announcing a state nothing left.
     this.publish("IDLE");
+    this.rateWindowStart = 0;
+    this.rateWindowFrames = 0;
     /**
      * Forget the clock, which matters more than it looks.
      *

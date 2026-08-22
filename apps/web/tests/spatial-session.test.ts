@@ -550,3 +550,85 @@ describe("what it costs to leave running", () => {
     expect(elapsed).toBeLessThan(2000);
   });
 });
+
+describe("reporting how fast it is actually running", () => {
+  beforeEach(() => {
+    const { stream } = fakeStream();
+    grantCamera(stream);
+  });
+
+  function steadyFrames(count: number, intervalMs: number): HandFrame[] {
+    return Array.from({ length: count }, (_, i) => ({
+      timestamp: i * intervalMs,
+      hands: [hand({ x: 0.5, y: 0.5 }, 0.02)],
+    }));
+  }
+
+  it("reports the rate about once a second, not once a frame", async () => {
+    /**
+     * "Does it feel laggy" is not something a researcher should have to
+     * translate into a bug report, so the rate is on screen. But a diagnostic
+     * that costs a React render thirty times a second to display a number that
+     * changes slowly would be a measurement disturbing what it measures.
+     */
+    const rates: number[] = [];
+    const session = new SpatialSession(new ScriptedHandTracker([]),
+                                       () => fakeController().controller,
+                                       { onFrameRate: (r) => rates.push(r) });
+    await session.start({} as HTMLVideoElement);
+
+    // Three seconds of frames at ~30 Hz.
+    for (const frame of steadyFrames(91, 34)) session["onFrame"](frame);
+
+    expect(rates.length).toBeGreaterThanOrEqual(2);
+    expect(rates.length).toBeLessThanOrEqual(4);
+    for (const rate of rates) expect(rate).toBeGreaterThan(20);
+  });
+
+  it("measures the tracker's clock, not how long this code took", async () => {
+    /**
+     * The question is the rate the machine is being driven at. Wall-clock would
+     * answer a different one — how fast the test ran — and would report
+     * thousands per second here.
+     */
+    const rates: number[] = [];
+    const session = new SpatialSession(new ScriptedHandTracker([]),
+                                       () => fakeController().controller,
+                                       { onFrameRate: (r) => rates.push(r) });
+    await session.start({} as HTMLVideoElement);
+
+    for (const frame of steadyFrames(61, 100)) session["onFrame"](frame);  // 10 Hz
+
+    expect(rates.length).toBeGreaterThan(0);
+    for (const rate of rates) expect(rate).toBeLessThan(15);
+  });
+
+  it("costs nothing when nobody is listening", async () => {
+    /** The common case: no diagnostics on screen. */
+    const session = new SpatialSession(new ScriptedHandTracker([]),
+                                       () => fakeController().controller);
+    await session.start({} as HTMLVideoElement);
+
+    expect(() => {
+      for (const frame of steadyFrames(60, 34)) session["onFrame"](frame);
+    }).not.toThrow();
+  });
+
+  it("forgets the window when stopped, so a restart does not report a burst",
+     async () => {
+    const rates: number[] = [];
+    const session = new SpatialSession(new ScriptedHandTracker([]),
+                                       () => fakeController().controller,
+                                       { onFrameRate: (r) => rates.push(r) });
+    await session.start({} as HTMLVideoElement);
+    for (const frame of steadyFrames(40, 34)) session["onFrame"](frame);
+    session.stop();
+    rates.length = 0;
+
+    await session.start({} as HTMLVideoElement);
+    // A new tracker clock, starting near zero again.
+    for (const frame of steadyFrames(40, 34)) session["onFrame"](frame);
+
+    for (const rate of rates) expect(rate).toBeLessThan(60);
+  });
+});

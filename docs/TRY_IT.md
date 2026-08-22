@@ -67,11 +67,27 @@ This is the part that has never been tested by a human hand, so it is the part
 worth your attention. Every reliability claim in it currently rests on synthetic
 landmark data.
 
-**Where:** sidebar → **Chart primitives** → scroll to **P13** (a 3D scatter) →
-*"Try hand gestures for this 3D scatter"*.
+**The quickest way in is <http://localhost:3000/gesture-check>.** That page
+needs no account and touches no project data — it draws a synthetic cloud and
+puts the tracker's own numbers on screen, so you can test tracking here, or on a
+colleague's laptop, without making anybody an account. It also lists the
+specific things worth judging, which are repeated below.
 
-There is also a gesture control on **Embedding space**, on your real corpus, if
-it has been embedded.
+Inside the workspace the same control sits on **Chart primitives → P13** (a 3D
+scatter) and on **Embedding space**, on your real corpus, if it has been
+embedded.
+
+### Reading the numbers
+
+The check page reports frames processed per second, and counts of gestures
+started against completed.
+
+- **Around 30 frames a second** is healthy. Much lower on an idle machine is
+  worth reporting.
+- **Many more grabs started than completed** usually means the pinch threshold
+  is wrong for your hand. Press *Calibrate*.
+- **Tracking lost climbing while your hand is plainly in frame** points at
+  lighting or contrast rather than at the code.
 
 ### Turning it on
 

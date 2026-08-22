@@ -22,7 +22,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { VisualizationController } from "@/lib/spatial/commands";
 import { CameraDevice, CameraFailure, CameraManager } from "@/lib/spatial/camera";
 import { SpatialState } from "@/lib/spatial/machine";
-import { SpatialSession } from "@/lib/spatial/session";
+import { SpatialSession, SpatialTelemetry } from "@/lib/spatial/session";
 import { MediaPipeHandTracker } from "@/lib/spatial/mediapipe";
 import { CalibrationManager, CalibrationStep } from "@/lib/spatial/calibration";
 import { HandFrame } from "@/lib/spatial/types";
@@ -56,10 +56,18 @@ const EXPLAIN: Record<SpatialState, string> = {
   PAUSED: "Paused. Your hand is ignored until you resume.",
 };
 
-export function SpatialControl({ controllerRef, label }: {
+export function SpatialControl({ controllerRef, label, onTelemetry,
+                                 onFrameRate }: {
   controllerRef: React.RefObject<VisualizationController | null>;
   /** What this controls, so the button is not an unlabelled camera request. */
   label: string;
+  /**
+   * Optional diagnostics, for a page whose purpose is to test the tracking
+   * rather than to use it. Counts only — never imagery, never a trace of how
+   * somebody moved.
+   */
+  onTelemetry?: (telemetry: SpatialTelemetry) => void;
+  onFrameRate?: (framesPerSecond: number) => void;
 }) {
   const [preferences, setPreferences] =
     useState<SpatialPreferences>(DEFAULT_PREFERENCES);
@@ -68,6 +76,21 @@ export function SpatialControl({ controllerRef, label }: {
   const [failure, setFailure] = useState<CameraFailure | null>(null);
   const [devices, setDevices] = useState<CameraDevice[]>([]);
   const [running, setRunning] = useState(false);
+  /**
+   * Whether the first client render has happened.
+   *
+   * Without this the component is a hydration mismatch by construction: the
+   * support check below reads `navigator`, which does not exist on the server,
+   * so the server renders nothing and the browser renders a button — and React
+   * throws "server rendered HTML didn't match" on every page carrying this
+   * control. Rendering nothing until mounted makes both passes agree, and the
+   * offer appears a frame later.
+   *
+   * Found in a browser. Nothing in the suite could have caught it: happy-dom
+   * has a `navigator`, so the two renders agree in tests and disagree in
+   * production.
+   */
+  const [mounted, setMounted] = useState(false);
   const [calibrating, setCalibrating] = useState(false);
   const [step, setStep] = useState<CalibrationStep>("open");
   const [progress, setProgress] = useState(0);
@@ -94,7 +117,10 @@ export function SpatialControl({ controllerRef, label }: {
   // Read on mount rather than during render: `localStorage` is not available on
   // the server, and reading it in the component body would make the first client
   // render disagree with the markup Next sent.
-  useEffect(() => { setPreferences(readPreferences()); }, []);
+  useEffect(() => {
+    setMounted(true);
+    setPreferences(readPreferences());
+  }, []);
 
   const stop = useCallback(() => {
     sessionRef.current?.stop();
@@ -129,6 +155,8 @@ export function SpatialControl({ controllerRef, label }: {
       {
         onState: setState,
         onFailure: (reported) => { setFailure(reported); stop(); },
+        onTelemetry,
+        onFrameRate,
         onFrame: (frame) => {
           frameRef.current = frame;
 
@@ -194,7 +222,8 @@ export function SpatialControl({ controllerRef, label }: {
     // otherwise so sites cannot fingerprint hardware — so the picker can only
     // appear after the camera is already running.
     setDevices(await session.devices());
-  }, [controllerRef, preferences.deviceId, preferences.settings, stop]);
+  }, [controllerRef, preferences.deviceId, preferences.settings, stop,
+      onTelemetry, onFrameRate]);
 
   /**
    * Begin the two-pose calibration described in §18.
@@ -271,6 +300,9 @@ export function SpatialControl({ controllerRef, label }: {
                           value: number) {
     update({ settings: { ...preferences.settings, [key]: value } });
   }
+
+  // Nothing at all until the client has rendered once — see `mounted`.
+  if (!mounted) return null;
 
   // A browser that cannot provide a camera is told so once, here, rather than
   // offering a control that fails when pressed.

@@ -545,7 +545,23 @@ export function Volume({
       <canvas
         ref={canvasRef}
         className="chart-canvas volume"
-        style={{ width, height, maxWidth: "100%", touchAction: "none" }}
+        /*
+         * `aspectRatio` with an automatic height, not a fixed one.
+         *
+         * The drawing buffer is width x height, and the previous style pinned
+         * both in CSS with `maxWidth: 100%`. In any container narrower than the
+         * chart — a sidebar, a narrow window, a phone — the browser scaled the
+         * width down and left the height alone, so the canvas was squashed
+         * horizontally: the bounding cube rendered as a tall trapezoid and every
+         * mark sat somewhere it did not belong. A projection that is wrong by a
+         * scale factor is the most convincing kind of wrong, because it still
+         * looks like data.
+         *
+         * Found by looking at it in a browser at 608px wide. happy-dom lays
+         * nothing out, so no test in this suite could have seen it.
+         */
+        style={{ width, height: "auto", aspectRatio: `${width} / ${height}`,
+                 maxWidth: "100%", touchAction: "none" }}
         role="img"
         tabIndex={0}
         aria-label={

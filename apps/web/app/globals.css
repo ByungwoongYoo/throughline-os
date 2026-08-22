@@ -3423,3 +3423,30 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   font-size: 12px; color: var(--ink-soft); margin-top: 12px;
 }
 .es-radius span { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* --- gesture check -------------------------------------------------------- */
+/* A diagnostics page, styled to be read rather than admired. */
+.gc-page { max-width: 820px; margin: 0 auto; padding: 32px 20px 64px; }
+.gc-page h1 { font-size: 22px; color: var(--ink-strong); margin-bottom: 8px; }
+.gc-page h2 {
+  font-size: 15px; color: var(--ink-strong); margin: 28px 0 10px;
+}
+.gc-lede { font-size: 14px; color: var(--ink-soft); margin-bottom: 20px; }
+.gc-note { font-size: 12px; color: var(--ink-faint); margin-top: 10px; }
+.gc-numbers dl {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px; margin: 0;
+}
+.gc-numbers dl > div {
+  padding: 10px 12px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: var(--r-card);
+}
+.gc-numbers dt { font-size: 11px; color: var(--ink-faint); }
+.gc-numbers dd {
+  margin: 4px 0 0; font-size: 20px; color: var(--ink-strong);
+  font-variant-numeric: tabular-nums;
+}
+.gc-checks ol { margin: 0; padding-left: 20px; }
+.gc-checks li { margin-bottom: 12px; font-size: 13px; color: var(--ink); }
+.gc-checks li strong { display: block; color: var(--ink-strong); }
+.gc-checks li span { color: var(--ink-soft); }
