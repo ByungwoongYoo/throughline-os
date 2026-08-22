@@ -33,6 +33,7 @@ import { HandFrame } from "@/lib/spatial/types";
 import { InkRecorder, RecorderOptions } from "@/lib/ink/recorder";
 import { InkState } from "@/lib/ink/machine";
 import { SpatialStroke, StrokePoint } from "@/lib/ink/stroke";
+import { StabilisationLevel } from "@/lib/ink/stabilise";
 
 export type InkSurface = {
   /** Feed a tracked frame. Safe to call at tracker rate. */
@@ -48,12 +49,20 @@ export type InkSurface = {
 export const InkLayer = forwardRef<InkSurface, {
   /** Whether the pen is available at all. The first of the two locks (§139). */
   armed: boolean;
+  /**
+   * How hard to fight the hand's tremor.
+   *
+   * Changing it rebuilds the recorder, which is why any open stroke is committed
+   * first: the settings belong to a stroke, and half a line drawn at one level
+   * and half at another is neither.
+   */
+  stabilisation?: StabilisationLevel;
   options?: RecorderOptions;
   /** Told when a stroke is finished, so a host can offer to act on it. */
   onStroke?: (stroke: SpatialStroke) => void;
   /** Told when the pen state changes, for a status line. Never per frame. */
   onState?: (state: InkState) => void;
-}>(function InkLayer({ armed, options, onStroke, onState }, ref) {
+}>(function InkLayer({ armed, stabilisation, options, onStroke, onState }, ref) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const committedRef = useRef<HTMLCanvasElement | null>(null);
   const liveRef = useRef<HTMLCanvasElement | null>(null);
@@ -74,7 +83,25 @@ export const InkLayer = forwardRef<InkSurface, {
   const handlers = useRef({ onStroke, onState });
   handlers.current = { onStroke, onState };
 
-  if (!recorderRef.current) recorderRef.current = new InkRecorder(options);
+  if (!recorderRef.current) {
+    recorderRef.current = new InkRecorder({ stabilisation, ...options });
+  }
+
+  // Rebuilding on a level change, carrying the finished strokes across. The
+  // alternative — mutating the live recorder — would leave the open stroke's
+  // filter, dead zone and gain anchor half-configured.
+  const level = useRef(stabilisation);
+  if (level.current !== stabilisation) {
+    level.current = stabilisation;
+    const previous = recorderRef.current;
+    previous.disarm();
+    const next = new InkRecorder({ stabilisation, ...options });
+    for (const stroke of previous.strokes()) next.adopt(stroke);
+    if (armed) next.arm();
+    recorderRef.current = next;
+    committedDirty.current = true;
+    liveDirty.current = true;
+  }
 
   /** Match the backing store to the display, or every line is soft. */
   const resize = useCallback(() => {

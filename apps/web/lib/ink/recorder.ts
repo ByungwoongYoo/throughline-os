@@ -33,7 +33,10 @@
  */
 
 import { HandFrame } from "@/lib/spatial/types";
-import { PointFilter, DEFAULT_ONE_EURO, OneEuroSettings } from "@/lib/spatial/filter";
+import {
+  DEFAULT_STABILISATION_LEVEL, InkStabilisation, STABILISATION, Stabiliser,
+  StabilisationLevel,
+} from "./stabilise";
 import { SpatialSettings } from "@/lib/spatial/machine";
 import {
   DEFAULT_STYLE, SpatialStroke, StrokePoint, StrokeStyle, newStrokeId, resample,
@@ -55,7 +58,16 @@ export type RecorderOptions = {
   ink?: Partial<InkSettings>;
   spatial?: Partial<SpatialSettings>;
   predict?: Partial<PredictSettings>;
-  filter?: Partial<OneEuroSettings>;
+  /**
+   * How hard to fight the hand's tremor. See `stabilise.ts`.
+   *
+   * A level rather than a set of constants, because the useful question is
+   * "am I writing or gesturing" and the four numbers that follow from it are
+   * not ones anybody should have to reason about.
+   */
+  stabilisation?: StabilisationLevel;
+  /** Individual overrides, for the settings panel and for tests. */
+  stabiliser?: Partial<InkStabilisation>;
   style?: Partial<StrokeStyle>;
   author?: string;
   /**
@@ -72,18 +84,20 @@ export class InkRecorder {
   private open: SpatialStroke | null = null;
   private finished: SpatialStroke[] = [];
   /**
-   * Smoothing for the *drawn* line, separate from the gesture machine's filter.
+   * Stabilisation for the pen, which is emphatically not the gesture layer's.
    *
-   * Sharing one filter would couple two signals that want opposite things: the
-   * palm centroid driving rotation wants heavy smoothing because a rigid body
-   * does not jitter, while a pen tip wants to keep the corner the researcher
-   * deliberately drew. They also have different lifetimes — this one is reset at
-   * every pen-down, so the first point of a stroke is where the finger is rather
-   * than somewhere between here and the last stroke.
+   * Sharing one filter coupled two signals that want opposite things, and it was
+   * a real defect rather than a tidiness question: the palm centroid driving
+   * rotation wants lag removed above all, while a fingertip being written with
+   * wants to be held still above all. The gesture tuning is also nearly flat
+   * across the pen's speed range, so it barely adapts where §154 needs it to.
+   *
+   * Rebuilt at every pen-down: the filter, the dead zone and the gain anchor all
+   * belong to one stroke.
    */
-  private smoother: PointFilter;
+  private stabiliser: Stabiliser;
+  private stabilisation: InkStabilisation;
   private predictSettings: PredictSettings;
-  private filterSettings: OneEuroSettings;
   private style: StrokeStyle;
   private author: string;
   private now: () => number;
@@ -92,9 +106,17 @@ export class InkRecorder {
   constructor(options: RecorderOptions = {}) {
     this.machine = new InkStateMachine(
       { ...DEFAULT_INK_SETTINGS, ...options.ink }, options.spatial);
-    this.predictSettings = { ...DEFAULT_PREDICT, ...options.predict };
-    this.filterSettings = { ...DEFAULT_ONE_EURO, ...options.filter };
-    this.smoother = new PointFilter(this.filterSettings);
+    this.stabilisation = {
+      ...STABILISATION[options.stabilisation ?? DEFAULT_STABILISATION_LEVEL],
+      ...options.stabiliser,
+    };
+    // The level's prediction horizon, then any explicit override. Prediction and
+    // stabilisation are one decision, not two: a long horizon undoes the
+    // steadiness the filter just bought.
+    this.predictSettings = {
+      ...DEFAULT_PREDICT, ...this.stabilisation.predict, ...options.predict,
+    };
+    this.stabiliser = new Stabiliser(this.stabilisation);
     this.style = { ...DEFAULT_STYLE, ...options.style };
     this.author = options.author ?? "researcher";
     this.now = options.now ?? (() => Date.now());
@@ -148,6 +170,19 @@ export class InkRecorder {
     return this.open ? [...this.finished, this.open] : this.finished;
   }
 
+  /**
+   * Take on a stroke drawn by a previous recorder.
+   *
+   * For the one case where the recorder is replaced mid-session: changing the
+   * stabilisation level. The strokes already on the canvas were drawn under the
+   * old settings and are not re-interpreted — re-stabilising a finished mark
+   * would change what the researcher drew after the fact, which is the thing
+   * §174 forbids most directly.
+   */
+  adopt(stroke: SpatialStroke): void {
+    this.finished.push(stroke);
+  }
+
   /** Remove the most recent finished stroke. Returns it, or null. */
   undo(): SpatialStroke | null {
     return this.finished.pop() ?? null;
@@ -177,7 +212,7 @@ export class InkRecorder {
         // few points of a new mark toward where the last one ended, which is
         // most visible exactly where it matters least tolerably: the start of a
         // deliberate line.
-        this.smoother = new PointFilter(this.filterSettings);
+        this.stabiliser = new Stabiliser(this.stabilisation);
         // Cleared with the filter, and cleared *here only*.
         //
         // A history carried across strokes would make the first prediction of a
@@ -228,11 +263,30 @@ export class InkRecorder {
   private extend(stroke: SpatialStroke,
                  at: { x: number; y: number; confidence: number },
                  timestamp: number): void {
-    // The record: what the hand did, mirrored into viewport pixels and nothing
-    // else. Not smoothed, because smoothing is a rendering choice and this is
-    // the copy that gets measured.
+    // Stabilise first, and record what comes out of it — not the raw landmark.
+    //
+    // This ordering is load-bearing rather than incidental. Once the pen is
+    // stabilised and geared, the line on screen is no longer the raw fingertip
+    // path, and the researcher draws against *the line*. Recording the raw
+    // landmark instead would mean a loop drawn round four points was resolved
+    // against a different, larger loop than the one they saw — the selection
+    // would disagree with the picture, silently, which is the worst failure this
+    // subsystem has available to it.
+    //
+    // `originalPoints` therefore means "the mark as drawn, before any shape
+    // fitting or recognition touches it". That is what §174 is protecting: not
+    // the sensor reading, which nobody drew, but the researcher's own line
+    // before the system offers to tidy it.
+    const pen = this.stabiliser.push({ x: at.x, y: at.y }, timestamp);
+    if (!pen) {
+      // A jump no hand could have made. The frame is dropped whole: not
+      // recorded, not drawn, and not fed to the predictor, because a glitch that
+      // reaches any of the three pulls the line toward it.
+      return;
+    }
+
     const observed: StrokePoint = {
-      ...this.toViewport(at),
+      ...this.toViewport(pen),
       timestamp,
       confidence: at.confidence,
     };
@@ -241,25 +295,21 @@ export class InkRecorder {
     // Kept unmapped rather than recovered by inverting the viewport mapping: a
     // second copy of that arithmetic is a second place for it to disagree with
     // the first, which is precisely how the rotation units diverged.
-    this.normalisedHistory.push({ x: at.x, y: at.y, timestamp });
+    //
+    // The *pen* series, not the raw one. Extrapolating raw velocity and adding
+    // it to a geared position would overshoot by one over the gain — a
+    // prediction that ran 1.8x too far at the handwriting setting, which is the
+    // opposite of what a stabilisation level is being asked for.
+    this.normalisedHistory.push({ x: pen.x, y: pen.y, timestamp });
     if (this.normalisedHistory.length > 3) this.normalisedHistory.shift();
 
-    // The drawn line: smoothed, then extended by at most one frame's motion.
-    const smoothed = this.smoother.filter({ x: at.x, y: at.y }, timestamp);
     const drawn = stroke.points;
     // Drop any predicted tip from the previous frame before appending this one.
     // Leaving it would accumulate a guess per frame into a line of its own, and
     // the stroke would grow a permanent tail made entirely of extrapolation.
     if (drawn.length && drawn[drawn.length - 1].predicted) drawn.pop();
-    drawn.push({
-      ...this.toViewport({ ...smoothed }),
-      timestamp,
-      confidence: at.confidence,
-    });
+    drawn.push({ ...observed });
 
-    // Prediction runs on the *observed* normalised history. Feeding it smoothed
-    // points would extrapolate the filter's lag rather than the hand's velocity,
-    // which is a slower version of the thing prediction exists to cancel.
     const ahead = predictAhead(this.normalisedHistory, this.predictSettings);
     if (ahead) {
       drawn.push({

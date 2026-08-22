@@ -143,6 +143,23 @@ permission prompt before an explanation.
 An open hand does nothing at all. That is the single most important behaviour in
 the feature: the pinch is a clutch, exactly like holding a mouse button.
 
+### If the line is too fast to write with
+
+Use the **Stabilisation** buttons under the pen controls. This was the first
+thing real hands found, and the default has been changed because of it.
+
+- **Steady** (the default) — a hand held still now drifts under 4 pixels, where
+  before it drifted 75. Your hand moves the pen slightly further than the pen
+  travels, which is what makes fine control possible.
+- **Handwriting** — the most precise. Your hand moves about 1.5x further than
+  the ink does, and the line never runs ahead of where the camera last saw you.
+  Use this for letters and equations.
+- **Natural** — one-to-one with your hand, for big marks and arrows.
+
+If none of them let you write, that is worth telling me: the settings were tuned
+against a simulated tremor, and a real hand is the only thing that can say
+whether the numbers are right.
+
 ### What I would specifically like you to judge
 
 These are the things no test here can answer.

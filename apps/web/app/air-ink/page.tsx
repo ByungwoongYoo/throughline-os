@@ -31,6 +31,9 @@ import { HandFrame } from "@/lib/spatial/types";
 import { InkState } from "@/lib/ink/machine";
 import { SpatialStroke, isClosed, observedPoints, strokeLength } from "@/lib/ink/stroke";
 import { describeSelection, selectWithinStroke } from "@/lib/ink/select";
+import {
+  DEFAULT_STABILISATION_LEVEL, StabilisationLevel,
+} from "@/lib/ink/stabilise";
 
 /** The same synthetic cloud shape as the gesture page, so nothing is loaded. */
 const CLOUD = Array.from({ length: 180 }, (_, i) => {
@@ -54,6 +57,29 @@ const CLOUD = Array.from({ length: 180 }, (_, i) => {
  * on the container below.
  */
 const CHART = { width: 720, height: 520 };
+
+const STABILISATION_LABEL: Record<StabilisationLevel, string> = {
+  natural: "Natural",
+  steady: "Steady",
+  handwriting: "Handwriting",
+};
+
+/**
+ * What each setting trades, in the terms somebody choosing between them needs.
+ *
+ * The measurements are quoted because they are the only part of this anybody can
+ * check without a hand, and because "more stable" on its own is the kind of
+ * claim that turns out to be false.
+ */
+const STABILISATION_HELP: Record<StabilisationLevel, string> = {
+  natural: "One-to-one with your hand. Best for big marks and arrows; a hand "
+         + "held still still drifts about 9px.",
+  steady: "The default. A hand held still drifts under 4px, and your hand moves "
+        + "the pen slightly further than the pen travels.",
+  handwriting: "Most precise. Your hand moves about 1.5x further than the ink "
+             + "does, which is what makes small letters controllable, and the "
+             + "line never runs ahead of where the camera last saw you.",
+};
 
 /** What each pen state means, in the researcher's terms. */
 const EXPLAIN: Record<InkState, string> = {
@@ -86,6 +112,7 @@ export default function AirInkPage() {
   const [armed, setArmed] = useState(false);
   const [state, setState] = useState<InkState>("DISABLED");
   const [readings, setReadings] = useState<Reading[]>([]);
+  const [level, setLevel] = useState<StabilisationLevel>(DEFAULT_STABILISATION_LEVEL);
 
   // Frames go straight through. Anything stateful here would run thirty times a
   // second; the recorder is the thing that holds state, and it is not React.
@@ -145,6 +172,31 @@ export default function AirInkPage() {
         <span style={{ color: "#555", fontSize: 14 }}>{EXPLAIN[state]}</span>
       </div>
 
+      {/*
+        * Stabilisation is a control rather than a constant because the right
+        * amount depends on the hand, the camera and the room — none of which
+        * this code can see. The numbers behind each setting were measured
+        * against a simulated tremor; only a person can say which one lets them
+        * write.
+        */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "0 0 16px" }}>
+        <span style={{ fontSize: 14, color: "#333" }}>Stabilisation</span>
+        {(["natural", "steady", "handwriting"] as const).map((option) => (
+          <button key={option} onClick={() => setLevel(option)}
+                  aria-pressed={level === option}
+                  style={{ padding: "5px 11px", borderRadius: 6, fontSize: 13,
+                           border: "1px solid " + (level === option ? "#1443B8" : "#bbb"),
+                           background: level === option ? "#eaf0fc" : "transparent",
+                           color: level === option ? "#1443B8" : "#444",
+                           cursor: "pointer" }}>
+            {STABILISATION_LABEL[option]}
+          </button>
+        ))}
+      </div>
+      <p style={{ color: "#555", fontSize: 13, maxWidth: 640, marginTop: -8 }}>
+        {STABILISATION_HELP[level]}
+      </p>
+
       <p style={{ color: "#555", fontSize: 14, maxWidth: 640, marginTop: 0 }}>
         Two locks, deliberately. The pen has to be out <em>and</em> you have to
         pinch — pointing draws nothing at any time, because pointing is what
@@ -181,7 +233,7 @@ export default function AirInkPage() {
                 width={CHART.width} height={CHART.height}
                 caption="A synthetic cloud in three lobes."
                 xLabel="x" yLabel="y" zLabel="z" />
-        <InkLayer ref={inkRef} armed={armed}
+        <InkLayer ref={inkRef} armed={armed} stabilisation={level}
                   onState={setState} onStroke={handleStroke} />
       </div>
       </div>
