@@ -15,6 +15,26 @@ import userEvent from "@testing-library/user-event";
 import { SpatialControl } from "@/components/spatial/SpatialControl";
 import { VisualizationController } from "@/lib/spatial/commands";
 
+/**
+ * The tracker is stubbed, deliberately and completely.
+ *
+ * Real hand tracking needs a WASM runtime, a GPU delegate, a 7.5MB model and a
+ * person with a hand — none of which exist in happy-dom. More importantly, none
+ * of them are what this file is about: every assertion here is about the order
+ * the component does things in, and inference is downstream of all of it.
+ * `spatial-mediapipe.test.ts` covers the part of the tracker that can be
+ * checked without a camera, which is the landmark mapping.
+ */
+vi.mock("@/lib/spatial/mediapipe", () => ({
+  MediaPipeHandTracker: class {
+    async load() {}
+    start() {}
+    stop() {}
+    close() {}
+    status() { return "running" as const; }
+  },
+}));
+
 let getUserMedia: ReturnType<typeof vi.fn>;
 let tracks: Array<{ stop: ReturnType<typeof vi.fn>; kind: string }>;
 

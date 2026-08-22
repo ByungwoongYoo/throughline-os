@@ -23,7 +23,7 @@ import { VisualizationController } from "@/lib/spatial/commands";
 import { CameraDevice, CameraFailure, CameraManager } from "@/lib/spatial/camera";
 import { SpatialState } from "@/lib/spatial/machine";
 import { SpatialSession } from "@/lib/spatial/session";
-import { ScriptedHandTracker } from "@/lib/spatial/tracker";
+import { MediaPipeHandTracker } from "@/lib/spatial/mediapipe";
 import {
   DEFAULT_PREFERENCES, SpatialPreferences, readPreferences, writePreferences,
 } from "@/lib/spatial/preferences";
@@ -55,6 +55,7 @@ export function SpatialControl({ controllerRef, label }: {
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const sessionRef = useRef<SpatialSession | null>(null);
+  const trackerRef = useRef<MediaPipeHandTracker | null>(null);
 
   // Read on mount rather than during render: `localStorage` is not available on
   // the server, and reading it in the component body would make the first client
@@ -64,6 +65,10 @@ export function SpatialControl({ controllerRef, label }: {
   const stop = useCallback(() => {
     sessionRef.current?.stop();
     sessionRef.current = null;
+    // The session stops the tracker; closing it also frees the model's WASM
+    // heap, which the session deliberately knows nothing about.
+    trackerRef.current?.close();
+    trackerRef.current = null;
     setRunning(false);
     setState("IDLE");
   }, []);
@@ -78,12 +83,14 @@ export function SpatialControl({ controllerRef, label }: {
     const video = videoRef.current;
     if (!video) return;
 
+    // Created per start and closed on stop: the model holds tens of megabytes of
+    // WASM heap, which is not something to keep alive for a feature the
+    // researcher switched off.
+    const tracker = new MediaPipeHandTracker();
+    trackerRef.current = tracker;
+
     const session = new SpatialSession(
-      // The tracker is still the scripted one: MediaPipe fetches its model from
-      // a CDN by default, and a silent network request on enabling a *privacy*
-      // feature contradicts the first thing this product claims. Serving the
-      // model locally is a packaging decision, not a gesture one.
-      new ScriptedHandTracker([]),
+      tracker,
       () => controllerRef.current,
       {
         onState: setState,
