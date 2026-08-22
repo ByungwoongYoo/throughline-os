@@ -44,7 +44,7 @@
 import { IntentCommand, ScreenPoint } from "./commands";
 import { DEFAULT_ONE_EURO, OneEuroSettings, PointFilter } from "./filter";
 import { Hand, HandFrame, distance } from "./types";
-import { scaleThresholds } from "./calibration";
+import { handScale, scaleThresholds } from "./calibration";
 
 export type SpatialState =
   | "IDLE"
@@ -273,6 +273,22 @@ export class SpatialInteractionMachine {
     return this.oneHand(usable[0], frame.timestamp, commands, events);
   }
 
+  /**
+   * Which hand is being used, when more than one is visible.
+   *
+   * A pinched hand is unambiguous: nobody pinches by accident, which is the
+   * whole premise of the clutch. Otherwise the nearer hand, measured by its own
+   * span — the one held out toward the camera is the one being used, and the
+   * one resting on the desk is further away and smaller in frame.
+   */
+  private acting(hands: Hand[]): Hand {
+    const pinched = hands.filter(
+      (hand) => pinchDistance(hand) < scaleThresholds(hand, this.settings).pinchOn);
+    const candidates = pinched.length ? pinched : hands;
+    return candidates.reduce((nearest, hand) =>
+      handScale(hand) > handScale(nearest) ? hand : nearest);
+  }
+
   private twoHands(hands: Hand[], timestamp: number,
                    commands: IntentCommand[], events: SpatialEvent[]): FrameResult {
     // Both hands pinched is the engagement. Two visible hands are not: a
@@ -287,8 +303,23 @@ export class SpatialInteractionMachine {
     if (!engaged) {
       if (this.state === "ZOOMING") events.push("gesture_zoom_completed");
       this.lastSpan = null;
-      this.state = "READY";
-      return { state: this.state, commands, events };
+
+      /*
+       * Fall through to one hand rather than doing nothing, which is what this
+       * did — and it is a bug that presents as the whole feature being broken.
+       *
+       * MediaPipe reports a second hand whenever any part of one is in frame:
+       * resting on the desk, holding a pen, halfway out of shot. Two hands
+       * visible sent every frame down this path, and a single-handed
+       * pinch-and-rotate then did nothing at all, silently, because zoom
+       * requires *both* pinched. The researcher pinches, nothing moves, and
+       * there is no way to tell that the reason is a hand they were not using.
+       *
+       * Two hands in frame is not two hands in use. §17's point is that
+       * visibility is not intent — which cuts both ways, and the version above
+       * only applied it in one direction.
+       */
+      return this.oneHand(this.acting(hands), timestamp, commands, events);
     }
 
     const span = distance(hands[0].palmCenter, hands[1].palmCenter);

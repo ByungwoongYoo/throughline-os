@@ -61,6 +61,8 @@ export type TrackerDiagnostics = {
   inferences: number;
   inferenceErrors: number;
   handsSeen: number;
+  /** The highest confidence any reported hand has carried. */
+  bestConfidence: number;
   delegate: "GPU" | "CPU";
   lastError: string | null;
   status: TrackerStatus;
@@ -161,6 +163,14 @@ export class MediaPipeHandTracker implements HandTracker {
     inferenceErrors: 0,
     handsSeen: 0,
   };
+  /**
+   * The highest confidence any hand has been reported with.
+   *
+   * Without it, "the tracker never saw a hand" and "the tracker saw a hand and
+   * something downstream discarded it" produce the same reading of zero, and
+   * they have completely different causes.
+   */
+  private bestConfidence = 0;
   private lastError: string | null = null;
 
   constructor(
@@ -195,12 +205,28 @@ export class MediaPipeHandTracker implements HandTracker {
         },
         numHands: 2,          // §6 — two-handed zoom needs both
         runningMode: "VIDEO",
-        // Thresholds deliberately above MediaPipe's defaults. §31 is explicit
-        // that a low-confidence detection must not act, and the state machine
-        // gates on confidence again afterwards.
-        minHandDetectionConfidence: 0.6,
-        minHandPresenceConfidence: 0.6,
-        minTrackingConfidence: 0.6,
+        /*
+         * MediaPipe's own defaults, and lowering them back to these is a
+         * correction of a real mistake.
+         *
+         * I had raised all three to 0.6, reasoning from §31 that a
+         * low-confidence detection must not act. That confused two different
+         * jobs. These thresholds decide whether the tracker *reports a hand at
+         * all*; the state machine decides whether to act on one. Raising them
+         * does not make the system more careful — it makes it blind, and blind
+         * in the way that is hardest to diagnose: in ordinary room lighting the
+         * hand is simply never reported, the diagnostics show zero hands seen,
+         * and that is indistinguishable from no hand being in front of the
+         * camera.
+         *
+         * §31's requirement is met where it belongs and where it is tested: the
+         * machine refuses to act below `minConfidence`, and releases every held
+         * gesture the moment tracking drops. Seeing a hand and choosing not to
+         * act on it is a decision. Never seeing it is a blindfold.
+         */
+        minHandDetectionConfidence: 0.5,
+        minHandPresenceConfidence: 0.5,
+        minTrackingConfidence: 0.5,
       });
       this.state = "running";
     } catch (error) {
@@ -262,7 +288,11 @@ export class MediaPipeHandTracker implements HandTracker {
         return;
       }
 
-      if (result.landmarks.length) this.counters.handsSeen += 1;
+      if (result.landmarks.length) {
+        this.counters.handsSeen += 1;
+        const score = result.handednesses?.[0]?.[0]?.score ?? 1;
+        if (score > this.bestConfidence) this.bestConfidence = score;
+      }
       onFrame(toHandFrame(result, now));
     };
 
@@ -307,7 +337,7 @@ export class MediaPipeHandTracker implements HandTracker {
   /** What the loop has been doing, for a page whose job is to say why not. */
   diagnostics(): TrackerDiagnostics {
     return { ...this.counters, delegate: this.delegate, lastError: this.lastError,
-             status: this.state };
+             status: this.state, bestConfidence: this.bestConfidence };
   }
 
   stop(): void {

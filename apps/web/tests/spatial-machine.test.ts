@@ -387,3 +387,81 @@ describe("staying out of the way", () => {
     expect(last.state).toBe("READY");
   });
 });
+
+describe("a second hand that is merely in shot", () => {
+  /**
+   * The failure that presents as the whole feature being broken.
+   *
+   * MediaPipe reports a second hand whenever any part of one is in frame:
+   * resting on the desk, holding a pen, halfway out of shot. Every such frame
+   * went down the two-handed path, and zoom requires *both* pinched — so a
+   * single-handed pinch-and-rotate did nothing at all, silently. The researcher
+   * pinches, nothing moves, and there is no way to tell that the reason is a
+   * hand they were not using.
+   *
+   * §17's point is that visibility is not intent. That cuts both ways, and the
+   * first version only applied it in one direction.
+   */
+  it("still rotates with one hand while the other rests in frame", () => {
+    const machine = new SpatialInteractionMachine();
+    const resting = hand({ at: { x: 0.15, y: 0.8 }, pinch: 0.2 });
+
+    const { events, commands, last } = frames(machine, [
+      [hand({ at: { x: 0.5, y: 0.5 }, pinch: 0.2 }), resting],
+      [hand({ at: { x: 0.5, y: 0.5 }, pinch: 0.02 }), resting],
+      // Two frames of movement, not one: the frame the pinch closes on is the
+      // origin, so the first delta only exists on the frame after it.
+      [hand({ at: { x: 0.56, y: 0.5 }, pinch: 0.02 }), resting],
+      [hand({ at: { x: 0.62, y: 0.5 }, pinch: 0.02 }), resting],
+    ]);
+
+    expect(events).toContain("gesture_grab_started");
+    expect(last.state).toBe("GRABBED");
+    expect(commands.some((c) => c.kind === "rotate")).toBe(true);
+  });
+
+  it("prefers the pinched hand, whichever it is", () => {
+    /** Nobody pinches by accident — that is the premise of the clutch, so a
+     * pinched hand is the unambiguous answer to "which one is being used". */
+    const machine = new SpatialInteractionMachine();
+
+    const { events } = frames(machine, [
+      // The *second* hand is the one doing the work.
+      [hand({ at: { x: 0.2, y: 0.7 }, pinch: 0.2 }),
+       hand({ at: { x: 0.6, y: 0.4 }, pinch: 0.2 })],
+      [hand({ at: { x: 0.2, y: 0.7 }, pinch: 0.2 }),
+       hand({ at: { x: 0.6, y: 0.4 }, pinch: 0.02 })],
+    ]);
+
+    expect(events).toContain("gesture_grab_started");
+  });
+
+  it("still zooms when both hands are genuinely pinched", () => {
+    /** The fallthrough must not have cost the two-handed gesture. */
+    const machine = new SpatialInteractionMachine();
+
+    const { events } = frames(machine, [
+      [hand({ at: { x: 0.35, y: 0.5 }, pinch: 0.02 }),
+       hand({ at: { x: 0.65, y: 0.5 }, pinch: 0.02 })],
+      [hand({ at: { x: 0.25, y: 0.5 }, pinch: 0.02 }),
+       hand({ at: { x: 0.75, y: 0.5 }, pinch: 0.02 })],
+    ]);
+
+    expect(events).toContain("gesture_zoom_started");
+  });
+
+  it("does not act on two open hands", () => {
+    /** Rule 2 still holds: a professor gesturing while talking has two hands in
+     * frame constantly, and none of it may move the scene. */
+    const machine = new SpatialInteractionMachine();
+
+    const { last } = frames(machine, [
+      [hand({ at: { x: 0.3, y: 0.5 }, pinch: 0.2 }),
+       hand({ at: { x: 0.7, y: 0.5 }, pinch: 0.2 })],
+      [hand({ at: { x: 0.4, y: 0.6 }, pinch: 0.2 }),
+       hand({ at: { x: 0.8, y: 0.4 }, pinch: 0.2 })],
+    ]);
+
+    expect(last.commands.filter((c) => c.kind === "rotate")).toEqual([]);
+  });
+});
