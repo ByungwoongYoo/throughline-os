@@ -3450,3 +3450,9 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .gc-checks li { margin-bottom: 12px; font-size: 13px; color: var(--ink); }
 .gc-checks li strong { display: block; color: var(--ink-strong); }
 .gc-checks li span { color: var(--ink-soft); }
+/* The tracker's own error, when it has one. Legible, not alarming. */
+.gc-error {
+  font-size: 12px; color: var(--ink); margin-top: 10px;
+  border-left: 2px solid var(--caution); padding-left: 10px;
+  font-family: var(--mono, monospace); word-break: break-word;
+}

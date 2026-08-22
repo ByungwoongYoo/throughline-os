@@ -23,7 +23,7 @@ import { VisualizationController } from "@/lib/spatial/commands";
 import { CameraDevice, CameraFailure, CameraManager } from "@/lib/spatial/camera";
 import { SpatialState } from "@/lib/spatial/machine";
 import { SpatialSession, SpatialTelemetry } from "@/lib/spatial/session";
-import { MediaPipeHandTracker } from "@/lib/spatial/mediapipe";
+import { MediaPipeHandTracker, TrackerDiagnostics } from "@/lib/spatial/mediapipe";
 import { CalibrationManager, CalibrationStep } from "@/lib/spatial/calibration";
 import { HandFrame } from "@/lib/spatial/types";
 import { HandPreview } from "./HandPreview";
@@ -57,7 +57,7 @@ const EXPLAIN: Record<SpatialState, string> = {
 };
 
 export function SpatialControl({ controllerRef, label, onTelemetry,
-                                 onFrameRate }: {
+                                 onFrameRate, onTracker }: {
   controllerRef: React.RefObject<VisualizationController | null>;
   /** What this controls, so the button is not an unlabelled camera request. */
   label: string;
@@ -68,6 +68,14 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
    */
   onTelemetry?: (telemetry: SpatialTelemetry) => void;
   onFrameRate?: (framesPerSecond: number) => void;
+  /**
+   * The tracker's own counters, polled by a diagnostics page.
+   *
+   * A function rather than a stream: these are read when somebody is looking at
+   * them, and pushing them per frame would cost a render for numbers nobody has
+   * on screen.
+   */
+  onTracker?: (read: () => TrackerDiagnostics | null) => void;
 }) {
   const [preferences, setPreferences] =
     useState<SpatialPreferences>(DEFAULT_PREFERENCES);
@@ -148,6 +156,7 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
     // researcher switched off.
     const tracker = new MediaPipeHandTracker();
     trackerRef.current = tracker;
+    onTracker?.(() => trackerRef.current?.diagnostics() ?? null);
 
     const session = new SpatialSession(
       tracker,
@@ -223,7 +232,7 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
     // appear after the camera is already running.
     setDevices(await session.devices());
   }, [controllerRef, preferences.deviceId, preferences.settings, stop,
-      onTelemetry, onFrameRate]);
+      onTelemetry, onFrameRate, onTracker]);
 
   /**
    * Begin the two-pose calibration described in §18.

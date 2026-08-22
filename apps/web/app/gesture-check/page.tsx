@@ -32,6 +32,8 @@ import { Volume } from "@/components/charts/Volume";
 import { SpatialControl } from "@/components/spatial/SpatialControl";
 import { VisualizationController } from "@/lib/spatial/commands";
 import { SpatialTelemetry, emptyTelemetry } from "@/lib/spatial/session";
+import { TrackerDiagnostics } from "@/lib/spatial/mediapipe";
+import { useEffect } from "react";
 
 /**
  * A fixed synthetic cloud with visible structure.
@@ -82,6 +84,25 @@ export default function GestureCheck() {
   }, []);
   const onFrameRate = useCallback((rate: number) => setFps(rate), []);
 
+  /**
+   * The tracker's counters, polled twice a second while it is running.
+   *
+   * Polled rather than pushed: these exist for the case where *nothing* is
+   * happening, and a push-based reading would go quiet exactly when it was
+   * needed. Twice a second is often enough to watch a number climb and rare
+   * enough to cost nothing.
+   */
+  const readTracker = useRef<(() => TrackerDiagnostics | null) | null>(null);
+  const [tracker, setTracker] = useState<TrackerDiagnostics | null>(null);
+  const onTracker = useCallback(
+    (read: () => TrackerDiagnostics | null) => { readTracker.current = read; }, []);
+
+  useEffect(() => {
+    const timer = setInterval(
+      () => setTracker(readTracker.current?.() ?? null), 500);
+    return () => clearInterval(timer);
+  }, []);
+
   return (
     <main className="gc-page">
       <h1>Gesture check</h1>
@@ -96,7 +117,8 @@ export default function GestureCheck() {
               title="A synthetic cloud, for testing the controls" />
 
       <SpatialControl controllerRef={controllerRef} label="this test cloud"
-                      onTelemetry={onTelemetry} onFrameRate={onFrameRate} />
+                      onTelemetry={onTelemetry} onFrameRate={onFrameRate}
+                      onTracker={onTracker} />
 
       <section className="gc-numbers">
         <h2>What the tracker is doing</h2>
@@ -139,6 +161,52 @@ export default function GestureCheck() {
           wrong for your hand — try Calibrate.
         </p>
       </section>
+
+      {tracker && (
+        <section className="gc-numbers">
+          <h2>Why nothing is happening, if nothing is happening</h2>
+          <dl>
+            <div>
+              <dt>Camera frames read</dt>
+              <dd>{tracker.inferences}</dd>
+            </div>
+            <div>
+              <dt>Frames with a hand in them</dt>
+              <dd>{tracker.handsSeen}</dd>
+            </div>
+            <div>
+              <dt>Skipped — no picture yet</dt>
+              <dd>{tracker.skippedNoVideo}</dd>
+            </div>
+            <div>
+              <dt>Inference errors</dt>
+              <dd>{tracker.inferenceErrors}</dd>
+            </div>
+            <div>
+              <dt>Running on</dt>
+              <dd>{tracker.delegate}</dd>
+            </div>
+            <div>
+              <dt>Tracker</dt>
+              <dd>{tracker.status}</dd>
+            </div>
+          </dl>
+          {tracker.lastError && (
+            <p className="gc-error" role="alert">
+              Last error from the tracker: {tracker.lastError}
+            </p>
+          )}
+          <p className="gc-note">
+            <strong>Camera frames read stuck at 0</strong>, with skipped climbing:
+            the video is producing no picture. <strong>Frames read climbing but
+            no hand</strong>: the tracker is running and not recognising a hand —
+            try more light, or moving closer. <strong>Inference errors
+            climbing</strong>: the model is failing on this machine; it switches
+            from GPU to CPU by itself after ten failures, and *Running on* says
+            which it settled on.
+          </p>
+        </section>
+      )}
 
       <section className="gc-checks">
         <h2>What to judge</h2>

@@ -54,6 +54,18 @@ const LANDMARK = {
   pinkyTip: 20,
 } as const;
 
+export type TrackerDiagnostics = {
+  ticks: number;
+  skippedNoVideo: number;
+  skippedRate: number;
+  inferences: number;
+  inferenceErrors: number;
+  handsSeen: number;
+  delegate: "GPU" | "CPU";
+  lastError: string | null;
+  status: TrackerStatus;
+};
+
 export type MediaPipeFailure =
   | { reason: "model-missing"; message: string }
   | { reason: "unsupported"; message: string }
@@ -129,8 +141,27 @@ export class MediaPipeHandTracker implements HandTracker {
   private state: TrackerStatus = "idle";
   private frame = 0;
   private lastInference = 0;
-  /** Last video timestamp handed to MediaPipe, which requires them increasing. */
-  private lastVideoTime = -1;
+  private delegate: "GPU" | "CPU" = "GPU";
+  private reloading = false;
+  /**
+   * Why nothing is happening, when nothing is happening.
+   *
+   * Every guard in the loop below is a `return`, and a loop made of silent
+   * returns is untestable by the person it is failing for: the camera light is
+   * on, the panel says no hand is in the picture, and there is no way to tell
+   * whether the video is blank, the inference is throwing, or the hand simply
+   * is not being recognised. These counters are the difference between "it does
+   * not work" and a diagnosis.
+   */
+  private readonly counters = {
+    ticks: 0,
+    skippedNoVideo: 0,
+    skippedRate: 0,
+    inferences: 0,
+    inferenceErrors: 0,
+    handsSeen: 0,
+  };
+  private lastError: string | null = null;
 
   constructor(
     /**
@@ -160,7 +191,7 @@ export class MediaPipeHandTracker implements HandTracker {
           modelAssetPath: MODEL_PATH,
           // GPU where available; MediaPipe falls back on its own. Hand tracking
           // on the CPU competes with the rendering it exists to serve.
-          delegate: "GPU",
+          delegate: this.delegate,
         },
         numHands: 2,          // §6 — two-handed zoom needs both
         runningMode: "VIDEO",
@@ -187,39 +218,96 @@ export class MediaPipeHandTracker implements HandTracker {
 
     const tick = () => {
       this.frame = requestAnimationFrame(tick);
+      this.counters.ticks += 1;
 
       const landmarker = this.landmarker;
       if (!landmarker) return;
 
       // A video that has not produced a frame yet has width 0, and MediaPipe
       // throws on it rather than returning nothing.
-      if (!source.videoWidth || !source.videoHeight) return;
+      if (!source.videoWidth || !source.videoHeight) {
+        this.counters.skippedNoVideo += 1;
+        return;
+      }
 
       const now = performance.now();
-      if (now - this.lastInference < this.minInterval) return;
+      if (now - this.lastInference < this.minInterval) {
+        this.counters.skippedRate += 1;
+        return;
+      }
       this.lastInference = now;
 
-      // MediaPipe requires strictly increasing timestamps in VIDEO mode and
-      // throws otherwise. A paused or looping video repeats `currentTime`, so
-      // the guard is against the source rather than against our own clock.
-      const videoTime = source.currentTime;
-      if (videoTime === this.lastVideoTime) return;
-      this.lastVideoTime = videoTime;
+      // There was a guard here that skipped whenever `video.currentTime` had
+      // not changed since the last inference. It was an optimisation — avoid
+      // re-reading an identical frame — and it could deadlock the entire
+      // feature: on any source where `currentTime` does not advance the way this
+      // assumed, *every* frame is skipped for ever, the camera light stays on
+      // and nothing responds, with no error anywhere. MediaPipe only requires
+      // the timestamp we pass it to increase, and `performance.now()` always
+      // does. Re-inferring the occasional identical frame is a rounding error
+      // next to a feature that silently does nothing.
 
       let result: HandLandmarkerResult;
       try {
         result = landmarker.detectForVideo(source, now);
-      } catch {
-        // One bad inference must not end the session. The camera is still on
-        // and the next frame is 30ms away; tearing down here would drop the
-        // researcher out of a gesture for a transient GPU hiccup.
+        this.counters.inferences += 1;
+      } catch (error) {
+        // One bad inference must not end the session — the camera is still on
+        // and the next frame is 30ms away. But it is recorded, because an
+        // inference that throws on *every* frame is indistinguishable, from the
+        // outside, from a hand that is never recognised.
+        this.counters.inferenceErrors += 1;
+        this.lastError = error instanceof Error ? error.message : String(error);
+        this.recoverFromRepeatedFailure(source, onFrame);
         return;
       }
 
+      if (result.landmarks.length) this.counters.handsSeen += 1;
       onFrame(toHandFrame(result, now));
     };
 
     this.frame = requestAnimationFrame(tick);
+  }
+
+  /**
+   * If every inference is failing, try the CPU before giving up on the feature.
+   *
+   * The GPU delegate is the right default — hand tracking on the CPU competes
+   * with the rendering it exists to serve — but it is also the part most likely
+   * to be unavailable, on an old browser, a locked-down machine, or a driver
+   * that reports support it does not have. That failure arrives as an exception
+   * on every frame, which without this reads as "the camera is on and nothing
+   * happens".
+   *
+   * One attempt, once. A loop that kept rebuilding the model would turn a
+   * broken GPU path into a broken machine.
+   */
+  private recoverFromRepeatedFailure(
+    source: HTMLVideoElement, onFrame: (frame: HandFrame) => void): void {
+    if (this.delegate === "CPU" || this.reloading) return;
+    if (this.counters.inferenceErrors < 10) return;
+
+    this.reloading = true;
+    this.delegate = "CPU";
+    void (async () => {
+      try {
+        this.landmarker?.close();
+        this.landmarker = null;
+        await this.load();
+        this.start(source, onFrame);
+      } catch (error) {
+        this.state = "failed";
+        this.lastError = error instanceof Error ? error.message : String(error);
+      } finally {
+        this.reloading = false;
+      }
+    })();
+  }
+
+  /** What the loop has been doing, for a page whose job is to say why not. */
+  diagnostics(): TrackerDiagnostics {
+    return { ...this.counters, delegate: this.delegate, lastError: this.lastError,
+             status: this.state };
   }
 
   stop(): void {
@@ -227,7 +315,6 @@ export class MediaPipeHandTracker implements HandTracker {
       cancelAnimationFrame(this.frame);
       this.frame = 0;
     }
-    this.lastVideoTime = -1;
     if (this.state === "running") this.state = "idle";
   }
 
