@@ -20,6 +20,12 @@ dependencies = [
   # throughline-ingestion happens to depend on it, which is precisely the
   # accident the two lines above were written about.
   "numpy>=1.26",
+  # `example.py` builds the worked example's PDF with it. The third instance of
+  # the accident the two notes above describe, and its own import comment said
+  # so out loud — "PyMuPDF, a dependency of throughline-ingestion" — while
+  # nothing here declared it. A package that names the borrowing in a comment
+  # and still does not declare it is a clean install away from failing.
+  "PyMuPDF>=1.24",
   # Real haptic feedback, on the one platform that offers a program any.
   # macOS-only by marker rather than by a try/except at install time: on Linux
   # and Windows this simply is not installed, and `haptics.capability()` reports

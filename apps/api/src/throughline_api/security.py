@@ -238,10 +238,23 @@ def _apply_headers(response: Response) -> None:
     headers.setdefault(
         "Content-Security-Policy",
         "default-src 'self'; img-src 'self' data: blob:; "
-        # Next's development build needs inline and eval; production does not,
-        # so the policy tightens automatically rather than staying loose.
+        # Next's development build needs inline and eval; a deployment does
+        # not, so the policy tightens for one and stays loose for the other.
+        #
+        # Gated on the deployment, not on NODE_ENV. It read NODE_ENV first,
+        # which this process never sets — it is a Python process, and the
+        # Next.js process that does set it has its own environment. So the
+        # comparison was always `None != "production"`, the branch always took
+        # the permissive arm, and every deployment shipped 'unsafe-inline' and
+        # 'unsafe-eval' while the comment above it said the policy tightened
+        # automatically. A security control that silently never engages is
+        # worse than none, because nobody goes looking for it.
+        #
+        # `deployment_is_local()` reads THROUGHLINE_DEPLOYMENT, which is set
+        # and read consistently across this codebase and already decides the
+        # cookie's Secure flag and the HSTS header below.
         + ("script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
-           if os.environ.get("NODE_ENV") != "production" else "script-src 'self'; ")
+           if deployment_is_local() else "script-src 'self'; ")
         + "style-src 'self' 'unsafe-inline'; "
           "connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; "
           "form-action 'self'")
