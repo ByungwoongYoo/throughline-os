@@ -1464,6 +1464,18 @@ def get_artifact(artifact_id: str,
     with transaction() as cur:
         try:
             artifact = communication.load_artifact(cur, artifact_id, resolve=True)
+        except communication.UnresolvedReference:
+            """A reference that no longer resolves is the case a researcher
+            most needs to *see*.
+
+            Answering 404 — which this did first — says the report does not
+            exist, when in fact it exists and one of its numbers has lost the
+            run behind it. That is unfixable from the interface: the document
+            cannot be opened to find out which block is at fault.
+
+            So the blocks are returned unresolved and `integrity` below names
+            the problem. Rendering still refuses; only reading is allowed."""
+            artifact = communication.load_artifact(cur, artifact_id, resolve=False)
         except communication.CommunicationError as exc:
             raise HTTPException(404, str(exc)) from exc
         artifact["integrity"] = communication.check_integrity(cur, artifact_id)

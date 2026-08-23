@@ -22,6 +22,7 @@ project afterwards.
 from __future__ import annotations
 
 import json
+import uuid
 
 import pytest
 from fastapi.testclient import TestClient
@@ -57,9 +58,13 @@ def workspace():
     """
     project_id = new_id("prj")
     user_id = ""
+    # Unique per test: these commit, so a fixed address collides with the
+    # previous run — and a failed teardown then makes every later run fail for
+    # a reason that has nothing to do with the code.
+    email = f"reporter-{uuid.uuid4().hex[:12]}@reports-test.invalid"
     with transaction() as cur:
         user = auth.create_user(
-            cur, email=f"{user_id}@reports-test.invalid",
+            cur, email=email,
             display_name="Reporter", password="a long enough password")
         user_id = user["id"]
         token = auth.create_session(cur, user_id=user_id)
@@ -108,7 +113,20 @@ def workspace():
            "token": token}
 
     with transaction() as cur:
-        # Cascades through artifacts, blocks, renders and runs.
+        # `block_citations` first, by hand.
+        #
+        # Deleting a project cascades to `citations`, but the link table's
+        # foreign key to them is not ON DELETE CASCADE — so the delete fails on
+        # a dangling reference. Worth knowing beyond this fixture: the same
+        # would happen to a researcher deleting a project that contains a cited
+        # report.
+        cur.execute(
+            "DELETE FROM block_citations WHERE block_id IN ("
+            "  SELECT b.id FROM artifact_blocks b"
+            "   JOIN communication_artifacts a ON a.id = b.artifact_id"
+            "  WHERE a.project_id = %s)", (project_id,))
+        # Then the project, which cascades through artifacts, blocks, renders,
+        # connections and runs.
         cur.execute("DELETE FROM projects WHERE id = %s", (project_id,))
         cur.execute("DELETE FROM users WHERE id = %s", (user_id,))
 
@@ -232,3 +250,184 @@ class TestCitations:
             f"/api/artifacts/{workspace['artifact']}/check-citations")
         assert response.status_code == 200
         assert response.json()["checked"] == 0
+
+
+@pytest.fixture()
+def tested_connection(workspace):
+    """A connection that has been through validation, as §74 requires.
+
+    §74 assembles a report from a *tested* connection — what was asked, what was
+    found, what was done to break it, what remains uncertain — so a fixture with
+    no validation report would exercise the endpoint without exercising the
+    thing that makes the report worth reading.
+    """
+    connection_id = new_id("con")
+    report_id = new_id("vrep")
+    with transaction() as cur:
+        cur.execute(
+            """
+            INSERT INTO connections
+              (id, project_id, analysis_run_id, left_variable, right_variable,
+               relationship_type, method, lifecycle_status, estimate, p_value,
+               q_value, effect_size, effect_size_name, sample_size,
+               evidence_quality, rank_score, rank_components)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, '{}'::jsonb)
+            """,
+            (connection_id, workspace["project"], workspace["run"],
+             "sleep_hours", "reaction_ms", "association", "pearson_correlation",
+             # A q as well as a p: a validated connection has been through
+             # multiplicity correction, and the report cites the corrected
+             # value. Without it the draft refuses to resolve — correctly.
+             "validated", 0.9025253041275638, 4.919e-67, 1.2e-64, 0.81,
+             "r_squared", 180, "weak", 0.5))
+
+        cur.execute(
+            "INSERT INTO validation_reports(id, project_id, connection_id, "
+            "status, checks, passed, summary) "
+            "VALUES (%s, %s, %s, %s, '[]'::jsonb, %s, %s)",
+            (report_id, workspace["project"], connection_id, "complete", True,
+             "Survived every attempt to break it that was run."))
+        cur.execute(
+            "INSERT INTO validation_checks(id, report_id, name, outcome, detail, "
+            "analysis_run_id, evidence) VALUES (%s, %s, %s, %s, %s, %s, '{}'::jsonb)",
+            (new_id("vchk"), report_id, "influential_points", "passed",
+             "No single observation moved the estimate materially.",
+             workspace["run"]))
+
+    return connection_id
+
+
+class TestDraftingFromAConnection:
+    """§74's entry point, and the way into everything the other tests cover.
+
+    Wired but uncovered until now, which is the weakest place for a gap to be: a
+    researcher who cannot draft never reaches the rendering that does work.
+    """
+
+    def test_a_report_is_assembled_from_a_tested_connection(
+            self, client, workspace, tested_connection):
+        response = client.post(
+            f"/api/projects/{workspace['project']}/artifacts/draft",
+            json={"connection_id": tested_connection})
+        assert response.status_code == 201, response.text
+        assert response.json()["artifact_id"].startswith("art_")
+
+    def test_the_draft_is_readable_and_publishable(
+            self, client, workspace, tested_connection):
+        """The whole path in one test: draft, read, render.
+
+        Worth asserting together because each step passing in isolation is what
+        the product already had — the domain layer worked and nothing could
+        reach it.
+        """
+        artifact_id = client.post(
+            f"/api/projects/{workspace['project']}/artifacts/draft",
+            json={"connection_id": tested_connection}).json()["artifact_id"]
+
+        body = client.get(f"/api/artifacts/{artifact_id}").json()
+        assert body["blocks"], "a drafted report with no blocks says nothing"
+        assert body["integrity"]["publishable"] is True
+
+        rendered = client.post(f"/api/artifacts/{artifact_id}/render?fmt=docx")
+        assert rendered.status_code == 200
+        assert rendered.json()["byte_size"] > 0
+
+    def test_it_states_the_limitations_rather_than_only_the_result(
+            self, client, workspace, tested_connection):
+        """§74's narrative order is the point of the section.
+
+        A result presented without the attempt to break it is the overstatement
+        this product exists to prevent, so a draft that skipped the validation
+        would be worse than no draft — it would look complete.
+        """
+        artifact_id = client.post(
+            f"/api/projects/{workspace['project']}/artifacts/draft",
+            json={"connection_id": tested_connection}).json()["artifact_id"]
+        body = client.get(f"/api/artifacts/{artifact_id}").json()
+
+        templates = " ".join(b["template"] for b in body["blocks"]).lower()
+        assert "limitation" in templates or "uncertain" in templates \
+            or any(b["block_type"] == "limitation" for b in body["blocks"])
+
+    def test_a_talk_is_cut_from_the_report_and_cites_the_same_runs(
+            self, client, workspace, tested_connection):
+        """A presentation is the same evidence at a different length.
+
+        Derived from the report rather than assembled again, which is what keeps
+        the slides and the paper from drifting into two accounts of one result.
+        """
+        report_id = client.post(
+            f"/api/projects/{workspace['project']}/artifacts/draft",
+            json={"connection_id": tested_connection}).json()["artifact_id"]
+
+        response = client.post(f"/api/artifacts/{report_id}/presentation")
+        assert response.status_code == 201, response.text
+        talk_id = response.json()["artifact_id"]
+        assert talk_id != report_id
+
+        talk = client.get(f"/api/artifacts/{talk_id}").json()
+        assert talk["artifact_type"] == "presentation"
+        rendered = client.post(f"/api/artifacts/{talk_id}/render?fmt=pptx")
+        assert rendered.status_code == 200
+        assert rendered.json()["byte_size"] > 0
+
+    def test_a_connection_from_another_project_is_refused(
+            self, client, workspace, tested_connection):
+        # An identifier is not an authorisation. Drafting across projects would
+        # put one researcher's evidence into another's paper.
+        response = client.post(
+            "/api/projects/prj_somewhere_else/artifacts/draft",
+            json={"connection_id": tested_connection})
+        assert response.status_code == 400
+
+    def test_a_connection_that_does_not_exist(self, client, workspace):
+        response = client.post(
+            f"/api/projects/{workspace['project']}/artifacts/draft",
+            json={"connection_id": "con_nothing"})
+        assert response.status_code == 400
+        assert "No such connection" in response.json()["detail"]
+
+
+class TestABrokenReportCanStillBeOpened:
+    """The case a researcher most needs to see, rather than be locked out of.
+
+    When a value loses the run behind it, the document still exists and one of
+    its numbers is now unsupported. Answering 404 — which this endpoint did at
+    first — says the report is not there, which is both untrue and unfixable
+    from the interface: there is no way to open it and find out which block is
+    at fault.
+    """
+
+    def test_it_is_readable_after_its_run_is_gone(self, client, workspace):
+        with transaction() as cur:
+            cur.execute("DELETE FROM analysis_runs WHERE id = %s",
+                        (workspace["run"],))
+
+        response = client.get(f"/api/artifacts/{workspace['artifact']}")
+        assert response.status_code == 200
+        body = response.json()
+        # The blocks come back unresolved rather than not at all, so the
+        # researcher can see the sentence whose number has gone.
+        assert len(body["blocks"]) == 1
+
+    def test_it_says_what_is_wrong(self, client, workspace):
+        with transaction() as cur:
+            cur.execute("DELETE FROM analysis_runs WHERE id = %s",
+                        (workspace["run"],))
+
+        body = client.get(f"/api/artifacts/{workspace['artifact']}").json()
+        assert body["integrity"]["publishable"] is False
+        assert body["integrity"]["problems"], \
+            "a document that cannot be published must say which block is at fault"
+
+    def test_but_it_still_refuses_to_be_published(self, client, workspace):
+        # Reading is allowed; publishing is not. The whole point of opening it
+        # is to fix it, and a document that exported anyway would put an
+        # unsupported number into a paper.
+        with transaction() as cur:
+            cur.execute("DELETE FROM analysis_runs WHERE id = %s",
+                        (workspace["run"],))
+        assert client.post(
+            f"/api/artifacts/{workspace['artifact']}/render?fmt=docx"
+        ).status_code == 400
