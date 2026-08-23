@@ -95,7 +95,15 @@ export const DEFAULT_ONE_EURO: OneEuroSettings = {
 };
 
 /** One scalar signal, adaptively smoothed. */
-export class OneEuroFilter {
+/**
+ * One scalar signal, adaptively smoothed.
+ *
+ * Not exported: every caller wants `PointFilter`, because every signal in this
+ * system is a position. Exposing the scalar form invites two independently
+ * configured filters on x and y, which drift apart on a diagonal movement in a
+ * way nobody would think to look for.
+ */
+class OneEuroFilter {
   private readonly x = new LowPass();
   private readonly dx = new LowPass();
   private lastTime: number | null = null;

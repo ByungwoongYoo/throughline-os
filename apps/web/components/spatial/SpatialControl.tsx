@@ -227,6 +227,15 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
   onFrameRef.current = onFrame;
 
   /**
+   * The latest preferences, for anything held by a closure built once.
+   *
+   * The frame handler and the session observer both outlive the render that
+   * created them, and both need to read preferences that may have changed since.
+   */
+  const preferencesRef = useRef(preferences);
+  preferencesRef.current = preferences;
+
+  /**
    * The figure the hand is addressing, and whether it is being held (§189).
    *
    * Refs rather than state: this is recomputed on every frame, and re-rendering
@@ -483,10 +492,15 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
     sessionRef.current = session;
     // Only for somebody who has not done it. §97 is a first session, not a
     // thing that greets you every time you switch the camera on.
-    onboardingRef.current = preferences.onboarded
-      ? null : new Onboarding({ ...DEFAULT_SETTINGS, ...preferences.settings });
+    // Read now rather than from the render that built this callback: the
+    // researcher may have finished the introduction on another figure since.
+    const alreadyOnboarded = preferencesRef.current.onboarded;
+    onboardingRef.current = alreadyOnboarded
+      ? null
+      : new Onboarding({ ...DEFAULT_SETTINGS,
+                         ...preferencesRef.current.settings });
     teachingRef.current = null;
-    setTeaching(preferences.onboarded ? null : "point");
+    setTeaching(alreadyOnboarded ? null : "point");
     setRunning(true);
     // Say something true immediately. No state is published until a frame is
     // processed, so without this the panel reads "Not running." at the exact
@@ -564,8 +578,23 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
     setShowPreview(false);
   }
 
+  /**
+   * Merge a change into the preferences, from wherever it is called.
+   *
+   * Reads the latest through a ref rather than the `preferences` this render
+   * closed over, and that is a correctness fix rather than tidiness. The frame
+   * handler is built once, when the camera starts, and it calls this when the
+   * introduction finishes — so merging into a captured snapshot meant
+   * **completing the introduction silently reverted every setting changed since
+   * the camera was switched on**. A researcher who turned the camera on, raised
+   * the rotation sensitivity, and then finished pointing and pinching would find
+   * the sensitivity back where it started, with nothing connecting the two.
+   *
+   * Found by a lint warning about a missing dependency, which is exactly the
+   * class of thing that warning exists to catch.
+   */
   function update(next: Partial<SpatialPreferences>) {
-    const merged = { ...preferences, ...next };
+    const merged = { ...preferencesRef.current, ...next };
     setPreferences(merged);
     writePreferences(merged);
     // Applied to the running session too, so a sensitivity change is felt on

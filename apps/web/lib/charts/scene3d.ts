@@ -52,7 +52,16 @@ export const DEFAULT_CAMERA: Camera = { yaw: 0.6, pitch: -0.34, zoom: 1 };
  * arrives as pixels of the viewport, so the mapping from pixels to radians is a
  * property of the scene rather than of whichever input produced them.
  */
-export const RADIANS_PER_PIXEL = 0.008;
+/*
+ * Not exported, and that is the point.
+ *
+ * The comment above says this is the one place the constant exists, and an
+ * export is an invitation to a second place — a chart converting its own pixels
+ * to radians, staying self-consistent, and drifting from the projection. That is
+ * precisely how rotation was broken from its first commit. Anything needing to
+ * turn a scene calls `rotateCamera`.
+ */
+const RADIANS_PER_PIXEL = 0.008;
 
 /** Clamped short of the poles: past vertical the scene flips and up is lost. */
 const MAX_PITCH = 1.35;

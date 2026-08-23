@@ -179,3 +179,46 @@ describe("the rest of the round trip", () => {
     }
   });
 });
+
+describe("a change merges into the latest preferences, not a captured one", () => {
+  /**
+   * The bug this covers was invisible and cost a researcher their settings.
+   *
+   * `SpatialControl` builds its frame handler once, when the camera starts, and
+   * that handler writes a preference when the introduction finishes. Merging
+   * into the `preferences` value the surrounding render closed over meant
+   * **finishing the introduction reverted everything changed since the camera
+   * was switched on** — raise the rotation sensitivity, then finish pointing and
+   * pinching, and the sensitivity goes back, with nothing to connect the two.
+   *
+   * Expressed here against the storage contract, because that is what the fix
+   * relies on: a merge must be against what is stored now.
+   */
+  it("keeps a change made after an earlier snapshot was taken", () => {
+    const snapshot = readPreferences();
+
+    // Something the researcher changes mid-session.
+    writePreferences({ ...snapshot, settings: {
+      ...snapshot.settings, rotationSensitivity: 3.5 } });
+
+    // Something written later from a closure that only knows the old value —
+    // merged against what is stored, not against the snapshot.
+    const latest = readPreferences();
+    writePreferences({ ...latest, onboarded: true });
+
+    const after = readPreferences();
+    expect(after.onboarded).toBe(true);
+    expect(after.settings.rotationSensitivity).toBe(3.5);
+  });
+
+  it("would have lost it by merging into the snapshot", () => {
+    // The failure stated, so the mechanism is pinned rather than the outcome.
+    const snapshot = readPreferences();
+    writePreferences({ ...snapshot, settings: {
+      ...snapshot.settings, rotationSensitivity: 3.5 } });
+
+    writePreferences({ ...snapshot, onboarded: true });   // the old way
+
+    expect(readPreferences().settings.rotationSensitivity).not.toBe(3.5);
+  });
+});

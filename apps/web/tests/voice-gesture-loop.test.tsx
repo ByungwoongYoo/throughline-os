@@ -196,7 +196,8 @@ describe("a hand draws and a word finds it", () => {
     const timeline = new ReferenceTimeline();
     const ref = createRef<InkSurface>();
     render(<InkLayer ref={ref} armed={false} timeline={timeline} />);
-    for (const _ of drawing(ref.current!, 1_000)) { /* draw with pen away */ }
+    // Drawn with the pen away: the loop is driven for its side effects.
+    for (const step of drawing(ref.current!, 1_000)) void step;
 
     expect(timeline.active(1_500)).toEqual([]);
   });

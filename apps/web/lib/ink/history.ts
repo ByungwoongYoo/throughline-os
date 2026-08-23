@@ -73,7 +73,8 @@ export type HistoryLimits = {
   depth: number;
 };
 
-export const DEFAULT_LIMITS: HistoryLimits = { depth: 100 };
+/** Not exported: the depth is this module's business, adjustable per instance. */
+const DEFAULT_LIMITS: HistoryLimits = { depth: 100 };
 
 export class InkHistory {
   private done: InkOperation[] = [];
