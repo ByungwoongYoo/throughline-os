@@ -75,10 +75,88 @@ Nothing of yours is in there; it is entirely regenerated.
 
 ---
 
-## 2. What to look at first
+## 2. Making yourself an account
 
 Sign in. If this is a fresh machine it asks you to create the first account
-instead.
+instead, and that first account is the administrator — nobody after it is.
+
+If accounts already exist, **Create an account** on the sign-in page works from
+this machine without anything further. Sign-up is deliberately allowed from
+`127.0.0.1`, `::1` and `localhost` only: a laptop holding somebody's corpus also
+joins café wifi, and an open registration endpoint there would let anyone on the
+network make themselves an account next to unpublished data. To allow it from
+elsewhere, turn on **open registration** in Settings — a deliberate act, off by
+default.
+
+The only rule on the password is that it is at least twelve characters. There is
+no email verification, no invite code and no network call, so nothing about
+signing up depends on this machine being online.
+
+A new account owns nothing and sees an empty workspace. That is a property of
+the queries — projects are scoped by owner — rather than of the interface hiding
+rows, which matters because only one of those two survives somebody writing a
+new page. Once in, **Open a worked example** seeds a real project with two
+ingested and analysed sources, which is the quickest way to have something on
+screen.
+
+---
+
+## 2a. What works with no AI model at all
+
+Worth reading before you conclude something is broken. **This installation does
+not need, and does not default to, any paid API.** Nothing here calls Anthropic
+or OpenAI unless you deliberately configure it to.
+
+The default model provider is **Ollama**, which runs on your own machine and
+costs nothing. If Ollama is not installed, or is installed with no model pulled,
+the system does not fail — it reports the capability as unavailable and says
+what would fix it. `GET /api/system/capabilities` is where that lives, and the
+interface reads it.
+
+**Works with no model whatsoever:**
+
+- ingesting PDFs and datasets, and everything about sources
+- literature and dataset search across the outside repositories
+- reading and marking papers, and taking excerpts to the board
+- every statistical analysis: correlations, estimates, specification curves,
+  discoveries, consistency checks
+- the knowledge graph — centrality, communities, reachability, paths
+- embedding space, chart primitives, the whole visual language
+- search, notebook, provenance, impact, vocabulary, patterns, key findings
+- hand tracking, Air Ink, and the gesture pages
+
+**Needs a model** — these report unavailability rather than approximating:
+
+- plain-language summaries of an analysis run
+- asking a question about an object
+- proposing variable labels
+- extracting structured fields from a paper
+- locating claims in a source
+
+To turn those on without spending anything, install Ollama and pull a model:
+
+```
+ollama pull qwen2.5:7b-instruct
+```
+
+Then `ollama serve`, and the capability check starts reporting it as usable.
+Nothing else has to change — the provider is already the default.
+
+A smaller model works too, and is worth choosing on a laptop: `qwen2.5:1.5b-instruct`
+answers far faster and needs a fraction of the memory. Set it with
+`THROUGHLINE_MODEL`, or in Settings, which refuses to select a model that is not
+actually installed rather than leaving you configured-but-broken.
+
+**Health says "degraded" and that is usually fine.** `/api/health` reports
+degraded when any *optional* capability is missing, and each check says which
+one — a missing model, or no background worker having reported in recently, are
+both degraded and neither stops you using the product. Only an unreachable
+database is critical, and only that gives a 503. Read the `checks` object rather
+than the top-line word.
+
+---
+
+## 2b. What to look at first
 
 The sidebar is grouped by what you are doing rather than by what the software
 contains. A reasonable first pass:
