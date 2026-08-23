@@ -34,6 +34,14 @@ dependencies = [
 # PostgreSQL regardless.
 graph = ["neo4j>=5"]
 
+# Local speech recognition (§38). Optional for the same reason as the graph
+# driver, and more so: it pulls in torch, which is gigabytes. Everything except
+# actual transcription works without it — `speech.transcribe` validates and
+# refuses malformed audio before the model is touched, and the import is lazy —
+# so a clone that never installs this still runs the whole suite, with the
+# transcription tests skipped rather than failed.
+speech = ["openai-whisper>=20250625"]
+
 # Reading points off a published figure, and comparing two images. Both already
 # import cv2 lazily and raise a DigitiseError naming OpenCV when it is missing, so
 # the capability degrades the way a missing embedding model does. Declared here so

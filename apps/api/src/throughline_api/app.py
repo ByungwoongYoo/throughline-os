@@ -21,7 +21,7 @@ from throughline_domain import (
     analysis, auth, claim_test, compare, consistency, critic, discovery,
     embeddings, events, example, extraction, findings, graph_projection, graphs,
     harmonize, images, journal, lineage, notebook, objects, observability,
-    embedding_space, haptics, patterns, reconcile, retrieval, selection,
+    embedding_space, haptics, patterns, reconcile, retrieval, selection, speech,
     specification, storage, synthesis, validation, visuals, vocabulary,
     workflow,
 )
@@ -159,6 +159,39 @@ def scoped_project(project_id: str, user: dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 # System
 # ---------------------------------------------------------------------------
+
+
+@app.post("/api/speech/transcribe")
+async def transcribe_speech(request: Request) -> dict[str, Any]:
+    """Turn recorded audio into timed words, without it leaving the machine.
+
+    The body is raw 16 kHz mono float32 — not a container — because the browser
+    already has a complete audio decoder and Whisper's usual path would otherwise
+    shell out to ffmpeg, which is one more thing a researcher has to install
+    before speech works at all.
+
+    **Word times are relative to the clip and never absolute.** This process has
+    no idea what the browser's monotonic clock reads, and inventing an absolute
+    time would put speech and gesture on different clocks — which this codebase
+    shipped once, silently, and will not again. The caller knows when it started
+    recording and does the addition.
+
+    Not authenticated, like the rest of the local surface: the API binds to
+    localhost and the whole product is one researcher on one machine.
+    """
+    raw = await request.body()
+    try:
+        return speech.transcribe(raw)
+    except speech.SpeechError as exc:
+        # 400 rather than 500: audio this system will not transcribe is a
+        # request problem with a sentence a person can act on, not a fault.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover - defensive
+        # A model that fails to load or infer must not take the API down; the
+        # researcher's hand is still drawing and everything else still works.
+        raise HTTPException(
+            status_code=503,
+            detail=f"Local transcription is unavailable: {exc}") from exc
 
 
 @app.get("/health")

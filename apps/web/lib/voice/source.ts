@@ -141,6 +141,117 @@ export class ScriptedSpeechSource implements SpeechSource {
 }
 
 /**
+ * The browser's own recogniser, behind an explicit choice.
+ *
+ * Chrome's `SpeechRecognition` streams microphone audio to Google. This project
+ * says nothing leaves the machine *unless the researcher connects an external
+ * service, and the interface says so before it is used* — so this is allowed by
+ * the rule rather than an exception to it, provided both halves hold. It refuses
+ * to start without `consent`, and `describeSource` refuses to describe it
+ * without naming who receives the audio.
+ *
+ * **Words are stamped on arrival, on the shared clock.** The API's own timing is
+ * unusable for this: results carry no per-word times, and `SpeechRecognitionEvent`
+ * has no timestamp on the same monotonic clock the hand frames use. Stamping when
+ * a result reaches the page is a small overestimate — recognition takes a moment
+ * — and a consistent one, which is what the fusion needs. Dating them any other
+ * way would put speech and gesture on different clocks, which this codebase has
+ * already shipped once and will not again.
+ *
+ * **Interim results are delivered too.** A researcher who says "why are these
+ * different" while circling should have "these" bind to the circle they were
+ * drawing at the time, and waiting for the final result would date every word to
+ * the end of the sentence — the exact mistake the typed path made.
+ */
+export class BrowserSpeechSource implements SpeechSource {
+  private recognition: { stop: () => void } | null = null;
+  private readonly consent: boolean;
+  private readonly now: () => number;
+
+  constructor(options: { consent: boolean; now?: () => number }) {
+    this.consent = options.consent;
+    this.now = options.now ?? (() => performance.now());
+  }
+
+  info(): SpeechSourceInfo {
+    return { label: "Browser speech recognition", privacy: "remote",
+             recipient: "Google" };
+  }
+
+  /** Whether this browser has it at all. */
+  static available(): boolean {
+    if (typeof window === "undefined") return false;
+    const w = window as unknown as Record<string, unknown>;
+    return typeof (w.SpeechRecognition ?? w.webkitSpeechRecognition) === "function";
+  }
+
+  async start(onEvent: (event: SpeechEvent) => void): Promise<void> {
+    if (!this.consent) {
+      throw new Error(
+        "This sends your microphone audio to Google. It will not start until "
+        + "that has been accepted explicitly.");
+    }
+    const w = window as unknown as Record<string, unknown>;
+    const Constructor = (w.SpeechRecognition ?? w.webkitSpeechRecognition) as
+      (new () => {
+        continuous: boolean; interimResults: boolean;
+        onresult: ((event: unknown) => void) | null;
+        start: () => void; stop: () => void;
+      }) | undefined;
+    if (!Constructor) {
+      throw new Error("This browser has no built-in speech recognition.");
+    }
+
+    const recognition = new Constructor();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.onresult = (event: unknown) => {
+      const at = this.now();
+      for (const word of wordsFrom(event)) onEvent({ ...word, at });
+    };
+    recognition.start();
+    this.recognition = recognition;
+  }
+
+  stop(): void {
+    try {
+      this.recognition?.stop();
+    } catch {
+      // Already stopped, or never started.
+    }
+    this.recognition = null;
+  }
+
+  listening(): boolean {
+    return this.recognition !== null;
+  }
+}
+
+/**
+ * The words in a recognition event, whatever shape it arrives in.
+ *
+ * Defensive because this is the one place the product touches an API it does not
+ * control, and a shape it did not expect must produce no words rather than an
+ * exception — a speech recogniser that throws inside a callback takes the page
+ * with it, and the researcher's hand is still drawing.
+ */
+export function wordsFrom(event: unknown): Array<{ text: string; final: boolean }> {
+  const results = (event as { results?: ArrayLike<unknown> })?.results;
+  if (!results) return [];
+  const out: Array<{ text: string; final: boolean }> = [];
+  for (let i = 0; i < results.length; i += 1) {
+    const result = results[i] as
+      { isFinal?: boolean; 0?: { transcript?: unknown } } | undefined;
+    const transcript = result?.[0]?.transcript;
+    if (typeof transcript !== "string") continue;
+    for (const word of transcript.split(/\s+/).filter(Boolean)) {
+      out.push({ text: word, final: result?.isFinal === true });
+    }
+  }
+  return out;
+}
+
+/**
  * When a *typed* sentence should be considered to have been said.
  *
  * The typed path is not a stand-in for speech — it is the path that works today
