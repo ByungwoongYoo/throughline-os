@@ -3652,3 +3652,53 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   background: rgba(255,255,250,0.97);
   box-shadow: 0 2px 10px rgba(0,0,0,0.16);
 }
+
+/* --- The workboard (§4, §109) -------------------------------------------- */
+
+.board-wrap { display: flex; flex-direction: column; height: 100%; min-height: 30rem; }
+
+.board-bar {
+  display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;
+  padding-bottom: 0.75rem;
+}
+.board-bar button {
+  padding: 0.3rem 0.65rem; border-radius: 6px; font: inherit; cursor: pointer;
+  border: 1px solid rgba(120,130,150,0.4); background: transparent;
+}
+.board-bar button:disabled { opacity: 0.45; cursor: default; }
+.board-zoom, .board-count { font-size: 0.85rem; opacity: 0.7; }
+.board-problem { color: rgb(150,40,40); margin: 0 0 0.5rem; }
+
+.board-surface {
+  position: relative; flex: 1; overflow: hidden;
+  border: 1px solid rgba(120,130,150,0.25); border-radius: 8px;
+  /* The plane is dragged, so the browser's own panning must not also claim
+     the gesture — otherwise a drag scrolls the page on a trackpad. */
+  touch-action: none;
+  cursor: grab;
+  /* A faint grid, so panning an empty area is visibly motion rather than
+     nothing happening. */
+  background-image:
+    linear-gradient(rgba(120,130,150,0.10) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(120,130,150,0.10) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+.board-surface:active { cursor: grabbing; }
+
+.board-plane { position: absolute; inset: 0; will-change: transform; }
+
+.board-card {
+  position: absolute; box-sizing: border-box;
+  padding: 0.7rem 0.85rem; border-radius: 8px; cursor: grab;
+  border: 1px solid rgba(120,130,150,0.45);
+  background: var(--paper, #fff);
+  box-shadow: 0 1px 6px rgba(0,0,0,0.10);
+  display: flex; flex-direction: column; gap: 0.3rem; overflow: hidden;
+}
+.board-card:active { cursor: grabbing; }
+.board-card h3 { font-size: 0.95rem; line-height: 1.3; margin: 0; }
+.board-kind, .board-status {
+  font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase;
+  opacity: 0.6;
+}
+.board-status { margin-top: auto; }

@@ -1,0 +1,297 @@
+/**
+ * The workboard's behaviour (§4, §109).
+ *
+ * The geometry underneath is proved separately and exhaustively, so these tests
+ * are about the things composition can still get wrong: that a drag is a drag
+ * and a click is a click, that the server hears once rather than per pointer
+ * event, and that a failed save puts the card back instead of leaving a
+ * researcher believing they moved something.
+ *
+ * happy-dom lays nothing out, so a real drag distance in pixels cannot be
+ * measured here. What can be checked is every decision the component makes
+ * *given* a pointer position, which is where the bugs in this kind of code
+ * actually are.
+ */
+
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { Board, Placement } from "@/components/board/Board";
+
+const CARDS: Placement[] = [
+  { id: "plc1", object_id: "obj1", x: 100, y: 100, width: 200, height: 120,
+    z: 0, object_type: "analysis", title: "Sleep and reaction time",
+    status: "complete" },
+  { id: "plc2", object_id: "obj2", x: 500, y: 300, width: 200, height: 120,
+    z: 1, object_type: "figure", title: "Figure 2", status: "complete" },
+];
+
+function mockApi(placements: Placement[] = CARDS) {
+  const put = vi.fn((body: Record<string, unknown>) => body);
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method === "PUT") {
+      put(JSON.parse(String(init.body)));
+      return new Response("{}", { status: 200 });
+    }
+    return new Response(JSON.stringify({ placements }), { status: 200 });
+  }));
+  return { put };
+}
+
+afterEach(() => { vi.unstubAllGlobals(); });
+
+/** A card element, once the board has loaded. */
+async function card(objectId: string) {
+  return await waitFor(() => {
+    const found = document.querySelector(`[data-object="${objectId}"]`);
+    if (!found) throw new Error(`no card for ${objectId}`);
+    return found as HTMLElement;
+  });
+}
+
+describe("what the board shows", () => {
+  it("draws a card for everything placed on it", async () => {
+    mockApi();
+    render(<Board projectId="prj1" />);
+    expect(await screen.findByText("Sleep and reaction time")).toBeInTheDocument();
+    expect(screen.getByText("Figure 2")).toBeInTheDocument();
+  });
+
+  it("says what each card is and what state it is in", async () => {
+    // A board of untitled rectangles is a diagram. The type and status are
+    // what let somebody scan it rather than open everything.
+    mockApi();
+    render(<Board projectId="prj1" />);
+    await screen.findByText("Sleep and reaction time");
+    expect(screen.getByText("analysis")).toBeInTheDocument();
+    expect(screen.getByText("figure")).toBeInTheDocument();
+  });
+
+  it("lays cards out at their world position", async () => {
+    /*
+     * Position comes from the card's own coordinates and the plane is
+     * transformed as a whole — so panning and zooming are one compositor
+     * operation rather than a style recalculation per card.
+     */
+    mockApi();
+    render(<Board projectId="prj1" />);
+    const first = await card("obj1");
+    expect(first.style.left).toBe("100px");
+    expect(first.style.top).toBe("100px");
+  });
+
+  it("offers a way back when a board is empty", async () => {
+    // An empty surface with no words on it reads as a page that failed to
+    // load rather than a board waiting to be used.
+    mockApi([]);
+    render(<Board projectId="prj1" />);
+    expect(await screen.findByText(/nothing on the board yet/i))
+      .toBeInTheDocument();
+  });
+});
+
+describe("moving a card", () => {
+  it("saves once, on release, rather than per pointer event", async () => {
+    /*
+     * A request per pointermove would put a network round trip inside the drag
+     * loop, which is how a board becomes something you fight rather than
+     * something you arrange.
+     */
+    const { put } = mockApi();
+    render(<Board projectId="prj1" />);
+    const target = await card("obj1");
+
+    fireEvent.pointerDown(target, { clientX: 0, clientY: 0, pointerId: 1 });
+    for (let i = 1; i <= 20; i += 1) {
+      fireEvent.pointerMove(target, { clientX: i * 10, clientY: i * 5, pointerId: 1 });
+    }
+    expect(put).not.toHaveBeenCalled();
+
+    fireEvent.pointerUp(target, { clientX: 200, clientY: 100, pointerId: 1 });
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+  });
+
+  it("sends the card's own identity and size, not just a position", async () => {
+    // The endpoint is an upsert keyed by object, so a move that omitted the
+    // size would silently resize the card to whatever the caller last sent.
+    const { put } = mockApi();
+    render(<Board projectId="prj1" />);
+    const target = await card("obj1");
+
+    fireEvent.pointerDown(target, { clientX: 0, clientY: 0, pointerId: 1 });
+    fireEvent.pointerMove(target, { clientX: 90, clientY: 60, pointerId: 1 });
+    fireEvent.pointerUp(target, { clientX: 90, clientY: 60, pointerId: 1 });
+
+    await waitFor(() => expect(put).toHaveBeenCalled());
+    expect(put.mock.calls[0][0]).toMatchObject({
+      object_id: "obj1", width: 200, height: 120,
+    });
+  });
+
+  it("puts the card back when the move cannot be saved", async () => {
+    /*
+     * A card a researcher believes they moved, which returns to where it was
+     * on reload, is worse than one that refused to move — the board would be
+     * quietly lying about the arrangement of their work.
+     */
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PUT") {
+        return new Response(JSON.stringify({ detail: "no" }), { status: 400 });
+      }
+      return new Response(JSON.stringify({ placements: CARDS }), { status: 200 });
+    }));
+
+    render(<Board projectId="prj1" />);
+    const target = await card("obj1");
+    fireEvent.pointerDown(target, { clientX: 0, clientY: 0, pointerId: 1 });
+    fireEvent.pointerMove(target, { clientX: 120, clientY: 80, pointerId: 1 });
+    fireEvent.pointerUp(target, { clientX: 120, clientY: 80, pointerId: 1 });
+
+    expect(await screen.findByText(/could not be saved/i)).toBeInTheDocument();
+    await waitFor(async () => {
+      expect((await card("obj1")).style.left).toBe("100px");
+    });
+  });
+});
+
+describe("a click is not a drag", () => {
+  it("raises a card that was pressed and released in place", async () => {
+    /*
+     * A press raises rather than opens. There is nowhere in this workspace that
+     * shows a research object on its own yet, and a callback the host cannot
+     * satisfy would be dead surface — a prop declared, threaded through and
+     * never supplied, which this codebase has produced three times already.
+     *
+     * Raising is also what a board is for: cards overlap, and the one pressed
+     * is the one meant.
+     */
+    const raised: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (String(url).endsWith("/front")) {
+        raised.push(String(url));
+        return new Response(JSON.stringify({ z: 9 }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ placements: CARDS }), { status: 200 });
+    }));
+
+    render(<Board projectId="prj1" />);
+    const target = await card("obj1");
+    fireEvent.pointerDown(target, { clientX: 40, clientY: 40, pointerId: 1 });
+    fireEvent.pointerUp(target, { clientX: 40, clientY: 40, pointerId: 1 });
+
+    await waitFor(() => expect(raised).toHaveLength(1));
+    expect(raised[0]).toContain("/board/obj1/front");
+  });
+
+  it("still counts as a press when the hand wobbled a pixel", async () => {
+    /*
+     * The case the threshold actually exists for, and the one the first version
+     * of these tests missed entirely: a real click carries a pixel or two of
+     * jitter, so a click with no pointermove at all is not a click anybody
+     * performs. Without the threshold that jitter makes every click a
+     * one-pixel drag — the card is not raised, and the non-move is saved.
+     *
+     * A mutation removing the threshold survived until this existed.
+     */
+    const { put } = mockApi();
+    render(<Board projectId="prj1" />);
+    const target = await card("obj1");
+
+    fireEvent.pointerDown(target, { clientX: 40, clientY: 40, pointerId: 1 });
+    fireEvent.pointerMove(target, { clientX: 41, clientY: 40, pointerId: 1 });
+    fireEvent.pointerUp(target, { clientX: 41, clientY: 40, pointerId: 1 });
+
+    // Not saved as a move. Whether it raised is the previous test's business.
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it("does not raise a card that was dragged", async () => {
+    const raised: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (String(url).endsWith("/front")) { raised.push(String(url)); }
+      return new Response(JSON.stringify({ placements: CARDS }), { status: 200 });
+    }));
+
+    render(<Board projectId="prj1" />);
+    const target = await card("obj1");
+    fireEvent.pointerDown(target, { clientX: 0, clientY: 0, pointerId: 1 });
+    fireEvent.pointerMove(target, { clientX: 150, clientY: 90, pointerId: 1 });
+    fireEvent.pointerUp(target, { clientX: 150, clientY: 90, pointerId: 1 });
+    expect(raised).toEqual([]);
+  });
+
+  it("does not save a move for a press", async () => {
+    const { put } = mockApi();
+    render(<Board projectId="prj1" />);
+    const target = await card("obj1");
+    fireEvent.pointerDown(target, { clientX: 10, clientY: 10, pointerId: 1 });
+    fireEvent.pointerUp(target, { clientX: 10, clientY: 10, pointerId: 1 });
+    expect(put).not.toHaveBeenCalled();
+  });
+});
+
+describe("moving the board itself", () => {
+  it("pans when the empty surface is dragged", async () => {
+    mockApi();
+    render(<Board projectId="prj1" />);
+    await screen.findByText("Sleep and reaction time");
+    const surface = screen.getByTestId("board-surface");
+    const plane = screen.getByTestId("board-plane");
+    const before = plane.style.transform;
+
+    fireEvent.pointerDown(surface, { clientX: 200, clientY: 200, pointerId: 1 });
+    fireEvent.pointerMove(surface, { clientX: 260, clientY: 240, pointerId: 1 });
+    fireEvent.pointerUp(surface, { clientX: 260, clientY: 240, pointerId: 1 });
+
+    expect(plane.style.transform).not.toBe(before);
+  });
+
+  it("does not save anything for a pan", async () => {
+    // The camera is where somebody is looking, not a property of the project.
+    // Persisting it would make one researcher's view everybody's view.
+    const { put } = mockApi();
+    render(<Board projectId="prj1" />);
+    await screen.findByText("Sleep and reaction time");
+    const surface = screen.getByTestId("board-surface");
+
+    fireEvent.pointerDown(surface, { clientX: 0, clientY: 0, pointerId: 1 });
+    fireEvent.pointerMove(surface, { clientX: 300, clientY: 300, pointerId: 1 });
+    fireEvent.pointerUp(surface, { clientX: 300, clientY: 300, pointerId: 1 });
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it("zooms on the wheel, and shows what the zoom is", async () => {
+    mockApi();
+    render(<Board projectId="prj1" />);
+    await screen.findByText("Sleep and reaction time");
+    expect(screen.getByText("100%")).toBeInTheDocument();
+
+    fireEvent.wheel(screen.getByTestId("board-surface"),
+                    { deltaY: -500, clientX: 100, clientY: 100 });
+    await waitFor(() => expect(screen.queryByText("100%")).toBeNull());
+  });
+
+  it("can be put back to where it started", async () => {
+    // "Where did everything go" needs an answer that does not require finding
+    // the work again by dragging.
+    mockApi();
+    render(<Board projectId="prj1" />);
+    await screen.findByText("Sleep and reaction time");
+    const plane = screen.getByTestId("board-plane");
+    const home = plane.style.transform;
+
+    fireEvent.wheel(screen.getByTestId("board-surface"),
+                    { deltaY: -800, clientX: 10, clientY: 10 });
+    await waitFor(() => expect(plane.style.transform).not.toBe(home));
+
+    fireEvent.click(screen.getByRole("button", { name: /reset view/i }));
+    await waitFor(() => expect(plane.style.transform).toBe(home));
+  });
+
+  it("will not offer to fit an empty board", async () => {
+    mockApi([]);
+    render(<Board projectId="prj1" />);
+    await screen.findByText(/nothing on the board yet/i);
+    expect(screen.getByRole("button", { name: /fit to contents/i }))
+      .toBeDisabled();
+  });
+});

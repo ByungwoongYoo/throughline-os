@@ -24,6 +24,7 @@ import { IconPlus, IconSpark } from "@/components/icons";
 import { DataSearch } from "@/components/datasearch";
 import { Compare } from "@/components/compare";
 import { Patterns } from "@/components/patterns";
+import { Board } from "@/components/board/Board";
 import { Literature } from "@/components/literature";
 import { Notebook } from "@/components/notebook";
 import { Settings } from "@/components/settings";
@@ -365,6 +366,15 @@ function Workspace({ user }: { user: SignedInUser }) {
           <Inspector selection={selection} capabilities={capabilities.data} map={map.data} />
         }
       >
+        {section === "board" && (
+          /*
+           * The central operating surface (§4). Cards are the project's own
+           * research objects — an analysis, a figure, an excerpt — so arranging
+           * the board arranges the work rather than a set of shortcuts to it.
+           */
+          <Board projectId={project.id} />
+        )}
+
         {section === "overview" && (
           <>
             <Overview project={project} map={map.data} onGo={goSection} />

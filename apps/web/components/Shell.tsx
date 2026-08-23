@@ -23,6 +23,7 @@ import {
 } from "./icons";
 
 export type Section =
+  | "board"
   | "overview" | "sources" | "search"
   | "discover" | "compare" | "patterns" | "connections" | "findings"
   | "analyses" | "graph" | "embedding"
@@ -35,6 +36,13 @@ const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; 
   {
     label: "Research",
     items: [
+      /*
+       * First, because §4 calls the workboard "the central operating surface
+       * of the product" and §109 puts it at Phase 0. It was never built, so
+       * every object a project accumulated lived in a list and never in a
+       * place.
+       */
+      { id: "board", label: "Workboard" },
       { id: "overview", label: "Overview" },
       { id: "sources", label: "Sources", count: "sources" },
       { id: "search", label: "Search" },
@@ -107,7 +115,8 @@ type CountMap = { sources: number; connections: number; findings: number;
  * unillustrated row in the rail.
  */
 const ICONS: Record<Section, (p: { size?: number }) => ReactElement> = {
-  overview: IconOverview, sources: IconSources, search: IconSearch,
+  board: IconGallery, overview: IconOverview, sources: IconSources,
+  search: IconSearch,
   literature: IconLiterature, datasearch: IconData, discover: IconDiscover,
   compare: IconCompare, patterns: IconPatterns, connections: IconConnections,
   findings: IconFindings, analyses: IconAnalyses, graph: IconGraph,
