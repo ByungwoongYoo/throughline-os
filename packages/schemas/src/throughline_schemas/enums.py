@@ -44,6 +44,7 @@ class ObjectType(StrEnum):
     VISUALIZATION = "visualization"
     DASHBOARD = "dashboard"
     MANUSCRIPT = "manuscript"
+    EXCERPT = "excerpt"
     PRESENTATION = "presentation"
     VIDEO = "video"
     VIDEO_SCENE = "video_scene"
