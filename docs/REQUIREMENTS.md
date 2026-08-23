@@ -30,10 +30,10 @@ and looked at the code. The test requires the count never to grow.
 
 | Status | Sections |
 |---|---|
-| built | 60 |
-| partial | 19 |
+| built | 61 |
+| partial | 20 |
 | not-built | 13 |
-| unreviewed | 144 |
+| unreviewed | 142 |
 | **total** | **236** |
 
 Nothing here has been verified by anybody other than its author. `TASKS.md`
@@ -84,7 +84,7 @@ revisited — an edited specification is exactly when requirements go missing.
 | §35 | PRIVACY | built | apps/web/components/spatial/SpatialControl.tsx | apps/web/tests/spatial-control.test.tsx | All inference local; no frame leaves the machine; counts only in telemetry. |
 | §36 | AI RESEARCH ASSISTANT | partial | packages/research-domain/src/throughline_domain/selection.py | tests/test_selection.py | A selection becomes AI context, computed rather than asserted. There is no ResearchContextEngine: filters, chart configuration, spatial focus and recent actions are not part of what the assistant is told. |
 | §37 | DEICTIC REFERENCES | partial | apps/web/lib/voice/deixis.ts | apps/web/tests/voice-fusion.test.ts | "this"/"these"/"that"/"those" resolve against the gesture timeline, each word at its own moment. An unresolved word is refused rather than defaulted. Not wired to a live recogniser, and current focus and recent objects are not yet inputs. |
-| §38 | GESTURE | partial | apps/web/lib/voice/timeline.ts | apps/web/tests/voice-fusion.test.ts | The fusion is built and covers the specification's own timing case — a word spoken while the circle is still being drawn. No recogniser is connected, so it runs from typed input today. |
+| §38 | GESTURE | partial | apps/web/lib/voice/timeline.ts, packages/research-domain/src/throughline_domain/speech.py | apps/web/tests/voice-fusion.test.ts, tests/test_speech.py | The fusion is built and covers the specification's own timing case — a word spoken while the circle is still being drawn. No recogniser is connected, so it runs from typed input today. |
 | §39 | AI SHOULD OPERATE THROUGH COMMANDS | built | apps/web/lib/voice/intent.ts | apps/web/tests/voice-fusion.test.ts | Speech produces a validated structured intent and never an action. A closed verb set, refused clearly rather than misinterpreted confidently, and confirmed before anything happens. |
 | §40 | AI ANALYTICAL GUARDRAILS | built | packages/research-domain/src/throughline_domain/critic.py | tests/test_claim_test.py | Observation, calculation, inference and interpretation are kept apart throughout; a fitted surface says it is a fit, and a hand-drawn selection says it is not a sample. |
 | §41 | RESEARCH PROVENANCE | built | packages/research-domain/src/throughline_domain/lineage.py | tests/test_lineage.py | Every consequential transformation is recorded and inspectable. |
@@ -250,8 +250,8 @@ revisited — an edited specification is exactly when requirements go missing.
 | §201 | INK LAYERS | built | apps/web/lib/ink/layers.ts | apps/web/tests/ink-layers.test.ts | Layers with per-layer visibility, and the integrity requirement enforced rather than styled: an assistant's annotation is drawn dashed from its origin at render time, so it stays distinguishable however its style is set or copied. |
 | §202 | COLOR AND STYLE | built | apps/web/lib/ink/layers.ts | apps/web/tests/ink-layers.test.ts | Colour, width, opacity and dash per layer, with four colours rather than a picker — §202 warns against a floating palette for every change. A researcher's own dash is deliberately not the assistant's. |
 | §203 | HANDWRITING | not-built |  |  |  |
-| §204 | WRITING ON PAPERS A | unreviewed |  |  |  |
-| §205 | RESEARCH PAPER TO WORKBOARD A | unreviewed |  |  |  |
+| §204 | WRITING ON PAPERS A | partial | apps/web/components/literature/PaperReader.tsx | apps/web/tests/literature-pdfjs-agreement.test.ts | Underline, circle, highlight and arrow are drawable on a rendered page, and the guarantee the section states — annotations stay aligned when the zoom changes — is built, tested and verified in a browser: a mark drawn at 100% sits on the same part of the paper at 200%, measured in canvas pixels. Marks are stored in PDF user space so zoom is not an input to where a mark is, and the transform is checked against PDF.js's own viewport at all four rotations, because a uniformly wrong transform round-trips perfectly and 11 of 12 self-consistency tests passed against a deliberately broken one. **Missing: the margin note.** `note` is in the vocabulary but there is no text entry for it. Drawing is by pointer; the hand is not yet wired to this surface. |
+| §205 | RESEARCH PAPER TO WORKBOARD A | built | apps/web/lib/literature/excerpt.ts | apps/web/tests/literature-excerpt.test.ts | Circling a figure and taking it to the board carries all five things the section lists — source paper, page, bounding region, citation, original context — and an excerpt that cannot state its provenance is refused rather than created with a placeholder, because an unsourced figure on a board is indistinguishable from a sourced one. The publication year is deliberately absent unless the document states one: it was first taken from the PDF's CreationDate, which is when the *file* was made, so a re-exported 1999 paper would have been cited as this year. |
 | §206 | GRAPH ANNOTATION TO DATA | unreviewed |  |  |  |
 | §207 | FREEFORM IDEA SPACE | unreviewed |  |  |  |
 | §208 | AI SKETCH ASSIST | not-built |  |  |  |

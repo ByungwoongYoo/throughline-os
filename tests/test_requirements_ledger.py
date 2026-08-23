@@ -84,12 +84,23 @@ def test_a_built_or_partial_row_names_code_and_a_test():
 
 
 def test_every_file_the_ledger_names_exists():
-    """Renames are the usual way a ledger rots without anybody noticing."""
+    """Renames are the usual way a ledger rots without anybody noticing.
+
+    A cell may name more than one file, comma-separated. Several requirements
+    are genuinely met across two — §38's fusion is in the web app and its
+    recogniser is in the Python package — and forcing one path per row would
+    mean recording only half of where a requirement actually lives, which is the
+    thing this ledger exists to prevent.
+    """
     for number, _title, _status, code, test in rows():
-        for path in (code, test):
-            if not path:
+        for cell in (code, test):
+            if not cell:
                 continue
-            assert (ROOT / path).exists(), f"§{number} names {path}, which is gone"
+            for path in (part.strip() for part in cell.split(",")):
+                if not path:
+                    continue
+                assert (ROOT / path).exists(), \
+                    f"§{number} names {path}, which is gone"
 
 
 def test_a_row_claiming_nothing_names_nothing():
