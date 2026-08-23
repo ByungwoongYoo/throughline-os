@@ -21,7 +21,8 @@ from throughline_domain import (
     analysis, auth, claim_test, compare, consistency, critic, discovery,
     embeddings, events, example, extraction, findings, graph_projection, graphs,
     harmonize, images, journal, lineage, notebook, objects, observability,
-    authoring, citations, communication, embedding_space, excerpts, haptics, marks,
+    authoring, board, citations, communication, embedding_space, excerpts, haptics,
+    marks,
     patterns, reconcile, render_artifact, retrieval, selection, speech,
     specification, storage, synthesis, validation, visuals, vocabulary,
     workflow,
@@ -1190,6 +1191,21 @@ class DraftRequest(BaseModel):
     audience: str = "researcher"
 
 
+class PlacementRequest(BaseModel):
+    """Where an object sits on the workboard (§4).
+
+    Coordinates are world units, not pixels — a board arranged on a laptop
+    opens on a monitor with everything in the same relation.
+    """
+
+    object_id: str
+    x: float
+    y: float
+    width: float
+    height: float
+    z: int | None = None
+
+
 class MarkRequest(BaseModel):
     """A mark drawn on a paper (§204).
 
@@ -1539,6 +1555,71 @@ def verify_citations(project_id: str,
     """Which citations in this project still resolve (§73)."""
     with transaction() as cur:
         return citations.verify_project(cur, project_id)
+
+
+# ---------------------------------------------------------------------------
+# The workboard (§4, §109)
+#
+# §109 puts this at Phase 0, before gesture and before Air Ink, and it was never
+# built — so the objects a project accumulates have existed in a list and never
+# in a place. A placement is a view over an object rather than an object: taking
+# something off the board removes its position and nothing else.
+# ---------------------------------------------------------------------------
+
+@app.get("/api/projects/{project_id}/board")
+def read_board(project_id: str,
+               user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Everything on this project's board, bottom to top."""
+    with transaction() as cur:
+        return {"placements": board.for_project(cur, project_id=project_id)}
+
+
+@app.put("/api/projects/{project_id}/board")
+def place_on_board(project_id: str, payload: PlacementRequest,
+                   user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Put an object on the board, or move one already there.
+
+    PUT rather than POST because it is idempotent by design: a drag emits a
+    position repeatedly, and the same object at the same place is the same
+    board however many times it is said.
+    """
+    with transaction() as cur:
+        try:
+            return board.place(
+                cur, project_id=project_id, object_id=payload.object_id,
+                x=payload.x, y=payload.y, width=payload.width,
+                height=payload.height, z=payload.z, actor=user["id"])
+        except board.BoardError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/projects/{project_id}/board/{object_id}/front")
+def raise_on_board(project_id: str, object_id: str,
+                   user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Bring a card above everything else."""
+    with transaction() as cur:
+        try:
+            return {"z": board.bring_to_front(
+                cur, project_id=project_id, object_id=object_id)}
+        except board.BoardError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+
+@app.delete("/api/projects/{project_id}/board/{object_id}")
+def take_off_board(project_id: str, object_id: str,
+                   user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Take something off the board.
+
+    The object itself is untouched — this removes a position, not a piece of
+    research. Answering 404 for something that was never placed matters: "it is
+    off the board now" and "it was never on it" are different answers to
+    somebody who believes they just removed something.
+    """
+    with transaction() as cur:
+        removed = board.remove(cur, project_id=project_id, object_id=object_id)
+    if not removed:
+        raise HTTPException(404, "That object is not on this board.")
+    return {"removed": object_id}
 
 
 @app.post("/api/projects/{project_id}/marks", status_code=201)
