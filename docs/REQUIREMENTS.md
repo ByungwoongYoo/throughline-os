@@ -30,9 +30,9 @@ and looked at the code. The test requires the count never to grow.
 
 | Status | Sections |
 |---|---|
-| built | 57 |
+| built | 60 |
 | partial | 19 |
-| not-built | 16 |
+| not-built | 13 |
 | unreviewed | 144 |
 | **total** | **236** |
 
@@ -71,7 +71,7 @@ revisited — an edited specification is exactly when requirements go missing.
 | §22 | PSEUDO-WEIGHT | not-built |  |  | No pseudo-weight. |
 | §23 | HAPTICS ARCHITECTURE | built | apps/web/lib/spatial/feedback.ts | apps/web/tests/spatial-control.test.tsx | Real macOS trackpad haptics via the local API. Cannot be felt mid-air, which is stated rather than implied. |
 | §24 | PSEUDO-HAPTICS | partial | apps/web/lib/spatial/feedback.ts | apps/web/tests/spatial-control.test.tsx | Detents exist; no visual resistance or pseudo-force. |
-| §25 | AUDIO FEEDBACK | not-built |  |  | No audio feedback. |
+| §25 | AUDIO FEEDBACK | built | apps/web/lib/spatial/feedback.ts | apps/web/tests/feedback.test.ts | A short click on a lazily created AudioContext, off by default because a research tool that clicks in a shared office gets muted on the first afternoon and then there is no feedback at all. |
 | §26 | GESTURE STATE MACHINE | built | apps/web/lib/spatial/machine.ts | apps/web/tests/spatial-machine.test.ts | Explicit states and transitions. |
 | §27 | HYSTERESIS | built | apps/web/lib/spatial/machine.ts | apps/web/tests/spatial-machine.test.ts | Separate on/off thresholds throughout. |
 | §28 | LANDMARK PROCESSING | built | apps/web/lib/spatial/mediapipe.ts | apps/web/tests/spatial-mediapipe.test.ts | Vendored model and WASM; never a CDN. |
@@ -229,8 +229,8 @@ revisited — an edited specification is exactly when requirements go missing.
 | §180 | LASSO TOOL | built | apps/web/lib/ink/recorder.ts | apps/web/tests/ink-lasso.test.ts | A freeform boundary that selects and does not become a mark, drawn visibly while it is being made (§180's persistent feedback) and absent from the undo history afterwards. Resolved through the same exact region query a drawn loop uses, against whichever figure the hand was addressing. |
 | §181 | SHAPE TOOL | built | apps/web/lib/ink/shapes.ts | apps/web/tests/ink-shapes.test.ts | Line, circle, ellipse, rectangle, polygon, arrow and bracket, read after the stroke finishes and never during it, offered rather than applied, and reversible when accepted. A mark that fits nothing is reported as fitting nothing. |
 | §182 | STRAIGHTEDGE MODE | built | apps/web/lib/ink/straightedge.ts | apps/web/tests/ink-straightedge.test.ts | Straight, horizontal, vertical, 45 degrees and magnetic constraints, applied while drawing rather than after. Magnetic pulls a line onto an axis or a diagonal only when it is already near one, so a deliberately oblique line is left alone. |
-| §183 | SPATIAL RULER | not-built |  |  |  |
-| §184 | HAND-DRAWN MEASUREMENTS A | not-built |  |  |  |
+| §183 | SPATIAL RULER | built | apps/web/lib/ink/measure.ts | apps/web/tests/ink-measure.test.ts | Two observations picked, and the difference along each axis in that axis's own units. The single distance §183 draws is refused, because the axes are scaled independently and the line between two observations has no length in the data — reporting one would invent a unit. |
+| §184 | HAND-DRAWN MEASUREMENTS A | built | apps/web/lib/ink/measure.ts | apps/web/tests/ink-measure.test.ts | "Never infer physical dimensions if scale information is unavailable. Say so clearly." — said with every measurement rather than once in a footnote, since the person reading it months later is the one without the surrounding conversation. |
 | §185 | TWO-HANDED DRAWING WORKFLOW | unreviewed |  |  |  |
 | §186 | BIMANUAL OBJECT MANIPULATION | unreviewed |  |  |  |
 | §187 | "EVERYTHING THROUGH THE HAND" PRINCIPLE | unreviewed |  |  |  |

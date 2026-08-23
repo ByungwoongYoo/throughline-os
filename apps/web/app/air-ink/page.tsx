@@ -34,7 +34,10 @@ import { SpatialStroke, isClosed, observedPoints, strokeLength } from "@/lib/ink
 import { describeSelection, selectWithinStroke } from "@/lib/ink/select";
 import { describeContext, selectionContext } from "@/lib/ink/context";
 import { ReferenceTimeline } from "@/lib/voice/timeline";
-import { ScreenPoint, ViewState, sameView } from "@/lib/spatial/commands";
+import {
+  ScreenPoint, TargetRef, ViewState, sameView,
+} from "@/lib/spatial/commands";
+import { describeMeasurement, measureBetween } from "@/lib/ink/measure";
 import { Shape } from "@/lib/ink/shapes";
 import { InkTool } from "@/lib/ink/stroke";
 import { ERASER_RADIUS } from "@/lib/ink/erase";
@@ -180,6 +183,14 @@ export default function AirInkPage() {
   const [lassoed, setLassoed] = useState<string | null>(null);
   const [edge, setEdge] = useState<Straightedge>("off");
   const [colour, setColour] = useState<string>(INK_COLOURS[0].value);
+  /**
+   * The two observations a measurement is between (§183).
+   *
+   * Two marks rather than two screen points, because a point on screen over a
+   * rotatable scene is a ray: depth is ambiguous from one projection, so "the
+   * place I indicated" only has data coordinates when it is a mark that exists.
+   */
+  const [measuring, setMeasuring] = useState<TargetRef[]>([]);
   const [layers, setLayers] = useState<AnnotationLayer[]>([]);
   const [activeLayerId, setActiveLayerId] = useState("researcher");
   const refreshLayers = useCallback(() => {
@@ -535,6 +546,14 @@ export default function AirInkPage() {
                     border: "1px solid #ddd", borderRadius: 8, overflow: "hidden" }}>
       <div style={{ position: "relative", width: CHART.width, height: CHART.height }}>
         <Volume controllerRef={chartRef} points={CLOUD}
+                onSelect={(target) => {
+                  if (!target) return;
+                  // The two most recent, so a third replaces the first rather
+                  // than being ignored — a control that stops responding is
+                  // harder to understand than one that moves on.
+                  setMeasuring((previous) =>
+                    [...previous, target].slice(-2));
+                }}
                 width={CHART.width} height={CHART.height}
                 caption="A synthetic cloud in three lobes."
                 xLabel="x" yLabel="y" zLabel="z" />
@@ -678,6 +697,43 @@ export default function AirInkPage() {
                              ? "3px solid #12203a" : "1px solid #bbb" }} />
         ))}
       </div>
+
+      <h2 style={{ fontSize: 18, marginTop: 32 }}>Measuring between two points</h2>
+      <p style={{ color: "#555", fontSize: 14, maxWidth: 640 }}>
+        Click two observations on the cloud above — or pinch them, with the pen
+        away. What comes back is the difference along each axis, in that axis&rsquo;s
+        own units.
+      </p>
+      <p style={{ color: "#555", fontSize: 13, maxWidth: 640 }}>
+        <strong>It will not give you a single distance, and that is deliberate.</strong>{" "}
+        The three axes are scaled independently so the shape of the cloud is
+        legible, which means a centimetre along one is a different amount of a
+        different quantity from a centimetre along another. There is no length of
+        the line between two observations — not one that is hard to compute, one
+        that does not exist. A number here would be an invented unit, and it
+        would get quoted.
+      </p>
+      <p style={{ maxWidth: 640, fontSize: 14, padding: "10px 12px",
+                  background: "#f4f7fd", border: "1px solid #dbe4f7",
+                  borderRadius: 6 }}>
+        {measuring.length < 2
+          ? `Select ${2 - measuring.length} more observation${
+              measuring.length === 1 ? "" : "s"}.`
+          : describeMeasurement(measureBetween(
+              (measuring[0].datum ?? {}) as Record<string, unknown>,
+              (measuring[1].datum ?? {}) as Record<string, unknown>,
+              // The chart's own labels, so a difference reads in the terms the
+              // figure is drawn in rather than as an anonymous axis letter.
+              { x: "x", y: "y", z: "z" }))}
+      </p>
+      {measuring.length > 0 && (
+        <button onClick={() => setMeasuring([])}
+                style={{ font: "inherit", fontSize: 13, color: "#1443B8",
+                         background: "none", border: "none", padding: 0,
+                         textDecoration: "underline", cursor: "pointer" }}>
+          Start again
+        </button>
+      )}
 
       <h2 style={{ fontSize: 18, marginTop: 32 }}>Layers</h2>
       <p style={{ color: "#555", fontSize: 14, maxWidth: 640 }}>

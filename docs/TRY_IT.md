@@ -236,6 +236,22 @@ column. It says *yes* while the scene is where you drew it, and offers **no — 
 back to it** once you have moved. Pressing that returns the chart to exactly the
 orientation and zoom the annotation was made at.
 
+### Measuring between two observations
+
+Click two points on the cloud. You get the difference **along each axis, in that
+axis's own units** — and no single distance.
+
+That refusal is the feature, not a limitation I could not get round. The three
+axes are scaled independently so the shape of the cloud is legible, which means a
+centimetre along one is a different amount of a different quantity from a
+centimetre along another. There is no length of the line between two
+observations — not one that is hard to compute, one that **does not exist**. A
+number there would be an invented unit, and it would end up in a paper.
+
+Click the same point twice and it says so rather than reporting three zeroes.
+Two *different* observations that happen to coincide still measure as zero,
+because that is a real finding.
+
 ### Colours and layers
 
 A **Colour** row with four colours — not a picker, because a floating palette for
