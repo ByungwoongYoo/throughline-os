@@ -26,6 +26,8 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { Empty, Failure, Loading } from "./primitives";
 import { SourceChip, SourceMark } from "./SourceMark";
+import { PaperReader } from "./literature/PaperReader";
+import type { Excerpt, PaperSource } from "@/lib/literature/excerpt";
 
 type Disagreement = {
   preferred: { value: unknown; source: string };
@@ -59,6 +61,16 @@ type Results = {
   note: string;
 };
 
+/** An excerpt as the server returns it (§205). */
+type KeptExcerpt = {
+  id: string;
+  source_id: string;
+  page: number;
+  citation: string;
+  context: string | null;
+  source_title: string;
+};
+
 type Capability = {
   name: string; ready: boolean; polite: boolean; rate_per_second: number;
   note: string | null;
@@ -71,6 +83,46 @@ export function Literature({ projectId }: { projectId: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [imported, setImported] = useState<Set<string>>(new Set());
+  /*
+   * The paper currently being read, and what has been taken from papers.
+   *
+   * Reading lives here rather than on a route of its own, which was the first
+   * mistake: a reader a researcher has to navigate away to is a second
+   * Literature feature, not a continuation of this one. Finding a paper and
+   * marking it are one activity.
+   */
+  const [reading, setReading] = useState<Paper | null>(null);
+  /*
+   * The source the paper being read corresponds to, once it is in the project.
+   *
+   * Marks attach to a source, and a paper is only a source after import — so
+   * this is filled in when the reader opens, by the same idempotent import that
+   * taking an excerpt uses.
+   */
+  const [readingSource, setReadingSource] = useState<string | null>(null);
+  /*
+   * Reading a PDF the researcher already has, which the search cannot reach.
+   *
+   * Kept in the same section rather than on a route of its own: "the paper I
+   * downloaded last week" and "the paper I just found" are the same activity,
+   * and separating them was what produced two Literature features.
+   */
+  const [readingOwn, setReadingOwn] = useState(false);
+  /** Excerpts as the server has them — the board proper. */
+  const [kept, setKept] = useState<KeptExcerpt[]>([]);
+
+  /*
+   * What is already on the board.
+   *
+   * Loaded rather than started empty, because the board was previously React
+   * state and therefore emptied by navigating away — which made §205 a
+   * demonstration rather than a place to put anything.
+   */
+  useEffect(() => {
+    api.get<{ excerpts: KeptExcerpt[] }>(`/api/projects/${projectId}/excerpts`)
+      .then((r) => setKept(r.excerpts))
+      .catch(() => setKept([]));
+  }, [projectId]);
 
   useEffect(() => {
     api.get<{ sources: Capability[] }>("/api/literature/sources")
@@ -87,12 +139,128 @@ export function Literature({ projectId }: { projectId: string }) {
     } catch (err) { setError(err); } finally { setBusy(false); }
   }
 
-  async function add(record: Paper) {
+  /**
+   * A search record as the reader's idea of a paper.
+   *
+   * Worth doing explicitly rather than passing the record through: the reader
+   * needs exactly five things to build a citation, and every one of them here
+   * has been reconciled across four databases — which is why a paper opened
+   * this way has a year and one opened from disk usually does not.
+   */
+  function sourceFor(record: Paper): PaperSource {
+    return {
+      id: record.doi || record.arxiv_id || record.pmid || record.title,
+      title: record.title,
+      authors: record.authors,
+      year: record.year ?? undefined,
+      doi: record.doi ?? undefined,
+    };
+  }
+
+  /**
+   * Make sure the paper is in the project, and say which source it is.
+   *
+   * An excerpt has to attach to a source row, and a paper is only a source once
+   * it has been imported — so taking a piece of a paper the project does not
+   * have yet would otherwise fail on an ordering rule the researcher cannot
+   * see. The import is idempotent on the record's identifier, so doing it here
+   * costs nothing when the paper is already present.
+   */
+  async function ensureImported(record: Paper): Promise<string> {
     const key = record.doi || record.arxiv_id || record.pmid || record.title;
+    const result = await api.post<{ source_id: string }>(
+      `/api/projects/${projectId}/literature/import`, record);
+    setImported((current) => new Set(current).add(key));
+    return result.source_id;
+  }
+
+  async function add(record: Paper) {
     try {
-      await api.post(`/api/projects/${projectId}/literature/import`, record);
-      setImported((current) => new Set(current).add(key));
+      await ensureImported(record);
     } catch (err) { setError(err); }
+  }
+
+  /**
+   * Put a circled region on the board, and keep it there.
+   *
+   * The server re-checks everything §205 requires rather than trusting what
+   * arrives — the reader already refuses to build an incomplete excerpt, and
+   * this is the same guarantee held against a caller that is not the reader.
+   */
+  /**
+   * Open a paper for reading, and give its ink somewhere to live.
+   *
+   * The import happens here rather than at the first mark, so that annotations
+   * made in the first few seconds are kept like all the others. It is
+   * idempotent, so a paper already in the project costs nothing.
+   */
+  async function read(record: Paper) {
+    setReading(record);
+    setReadingSource(null);
+    try {
+      setReadingSource(await ensureImported(record));
+    } catch (err) {
+      // Readable either way: without a source the marks stay in memory and the
+      // reader says so, which is better than refusing to open the paper.
+      setError(err);
+    }
+  }
+
+  async function keepExcerpt(record: Paper, excerpt: Excerpt) {
+    try {
+      const sourceId = await ensureImported(record);
+      const stored = await api.post<KeptExcerpt>(
+        `/api/projects/${projectId}/excerpts`, {
+          source_id: sourceId,
+          page: excerpt.page,
+          region: excerpt.region,
+          citation: excerpt.citation,
+          context: excerpt.context,
+          title: excerpt.source.title,
+        });
+      setKept((current) => [stored, ...current]);
+    } catch (err) { setError(err); }
+  }
+
+  if (readingOwn) {
+    return (
+      <>
+        <div className="lit-reading-bar">
+          <button className="ct-dataset" onClick={() => setReadingOwn(false)}>
+            Back to search
+          </button>
+        </div>
+        {/*
+          * A PDF the researcher already has. Excerpts from it are not kept:
+          * the board attaches to a source in this project, and a file off the
+          * desktop is not one. Offering to keep it would either invent a
+          * source with no provenance or fail at the last step, and both are
+          * worse than the reader plainly being a reader here.
+          */}
+        <PaperReader />
+      </>
+    );
+  }
+
+  if (reading) {
+    return (
+      <>
+        <div className="lit-reading-bar">
+          <button className="ct-dataset"
+                  onClick={() => { setReading(null); setReadingSource(null); }}>
+            Back to results
+          </button>
+          <span className="lit-reading-title">{reading.title}</span>
+        </div>
+        <PaperReader
+          opening={{ source: sourceFor(reading), pdfUrl: reading.pdf_url }}
+          marks={readingSource
+            ? { sourceId: readingSource, projectId }
+            : undefined}
+          onExcerpt={(excerpt) => void keepExcerpt(reading, excerpt)}
+        />
+      </>
+    );
   }
 
   return (
@@ -115,6 +283,9 @@ export function Literature({ projectId }: { projectId: string }) {
         />
         <button className="nj-primary" disabled={busy} onClick={() => void search()}>
           {busy ? "Searching…" : "Search"}
+        </button>
+        <button className="ct-dataset" onClick={() => setReadingOwn(true)}>
+          Read a PDF you have
         </button>
       </div>
 
@@ -220,6 +391,19 @@ export function Literature({ projectId }: { projectId: string }) {
                             <a href={record.url} target="_blank"
                                rel="noreferrer noopener">Open</a>
                           )}
+                          {/*
+                            * Offered only where the paper is open access and
+                            * names a PDF. This does not route around a paywall
+                            * and does not fetch anything until it is pressed —
+                            * the note below the results says so, and this is
+                            * the deliberate act it describes.
+                            */}
+                          {record.open_access && record.pdf_url && (
+                            <button className="ct-dataset"
+                                    onClick={() => void read(record)}>
+                              Read and mark
+                            </button>
+                          )}
                           <button
                             className="ct-dataset"
                             disabled={imported.has(key)}
@@ -233,6 +417,32 @@ export function Literature({ projectId }: { projectId: string }) {
                   );
                 })}
               </ol>
+
+              {kept.length > 0 && (
+                /*
+                 * Kept here rather than inside the reader so that going back to
+                 * the results does not discard what was taken. This is the
+                 * board in its smallest honest form — every entry carries the
+                 * citation §205 requires, and nothing appears here that could
+                 * not state where it came from.
+                 */
+                <section className="lit-board">
+                  <h2>Taken from papers</h2>
+                  <ul>
+                    {kept.map((excerpt) => (
+                      <li key={excerpt.id}>
+                        <strong>{excerpt.citation}</strong>
+                        {/* The page, because a citation without one sends a
+                            reader to the whole paper. */}
+                        <span className="numeric"> · p. {excerpt.page}</span>
+                        {excerpt.context && (
+                          <span> — {excerpt.context.slice(0, 160)}…</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
 
               <p className="pat-foot">
                 Only metadata is imported. Fetching a PDF is a separate,

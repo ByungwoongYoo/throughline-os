@@ -3629,3 +3629,26 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .reader-board { margin-top: 2rem; }
 .reader-board h2 { font-size: 1.05rem; margin-bottom: 0.5rem; }
 .reader-board li { margin-bottom: 0.4rem; line-height: 1.45; }
+
+/* --- Reading a paper found by the search (§204, §205) -------------------- */
+
+.lit-reading-bar {
+  display: flex; gap: 0.75rem; align-items: baseline; flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+.lit-reading-title { font-weight: 600; }
+
+/* The board. Every entry carries a citation, so it is a list of sourced
+   things rather than a gallery of pictures. */
+.lit-board { margin: 2rem 0 1rem; }
+.lit-board h2 { font-size: 1.05rem; margin-bottom: 0.5rem; }
+.lit-board li { margin-bottom: 0.4rem; line-height: 1.45; }
+
+/* A margin note being written (§204). Positioned from its page anchor. */
+.reader-note-input {
+  z-index: 3; min-width: 16rem; padding: 0.3rem 0.5rem;
+  font: inherit; font-size: 0.9rem;
+  border: 1px solid rgba(90,105,135,0.7); border-radius: 5px;
+  background: rgba(255,255,250,0.97);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.16);
+}
