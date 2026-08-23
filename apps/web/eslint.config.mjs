@@ -23,6 +23,11 @@ const eslintConfig = [
       // output produces noise that buries this project's own findings, which is
       // how a lint step stops being read.
       "public/mediapipe/**",
+      // Vendored at install time by scripts/vendor-pdf-worker.mjs — PDF.js's
+      // own worker, minified and generated. Same reasoning as MediaPipe above:
+      // it added 1,686 warnings in one copy, which is exactly the volume that
+      // stops anybody reading the output at all.
+      "public/pdfjs/**",
     ],
   },
 ];
