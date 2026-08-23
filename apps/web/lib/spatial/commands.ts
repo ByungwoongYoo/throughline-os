@@ -137,6 +137,20 @@ export interface VisualizationController {
   /** Pixel dimensions, so normalised hand coordinates can be mapped in. */
   viewport(): { width: number; height: number };
   /**
+   * Where this chart is on the page, in client coordinates, or null if it
+   * cannot be measured yet.
+   *
+   * Needed to answer "which figure is the hand addressing" (§189). `viewport`
+   * gives the size a command is expressed in; this gives the position, and only
+   * with both can a hand pointing at the second chart on a page reach it rather
+   * than steering the first.
+   *
+   * Null rather than a zero rectangle when unmeasurable: a zero rectangle is a
+   * real region that nothing is inside, and it would silently make the chart
+   * unreachable instead of visibly unmounted.
+   */
+  bounds(): { x: number; y: number; width: number; height: number } | null;
+  /**
    * An opaque snapshot of how the scene is currently being looked at.
    *
    * Opaque on purpose. The seam has no business knowing that a chart has a yaw

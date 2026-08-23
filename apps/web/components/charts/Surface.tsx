@@ -331,6 +331,15 @@ export function Surface({
     focus: (objectId) => { setSelected(objectId); dirtyRef.current = true; },
     deselect: () => { setSelected(null); dirtyRef.current = true; onSelect?.(null); },
     resetView: () => { resetCamera(cameraRef.current); dirtyRef.current = true; },
+      bounds: () => {
+        const canvas = canvasRef.current;
+        if (!canvas) return null;
+        const box = canvas.getBoundingClientRect();
+        // A canvas that has not been laid out yet measures zero, which is not a
+        // position — reporting it would make this chart quietly unreachable.
+        if (box.width === 0 || box.height === 0) return null;
+        return { x: box.left, y: box.top, width: box.width, height: box.height };
+      },
       viewState: () => ({ yaw: cameraRef.current.yaw,
                           pitch: cameraRef.current.pitch,
                           zoom: cameraRef.current.zoom }),

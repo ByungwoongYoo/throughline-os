@@ -217,6 +217,21 @@ Worth trying: type the sentence **without** drawing anything first. It should
 refuse and tell you to circle something while you say the word — not quietly
 answer about whatever was last selected.
 
+### Two charts on one page
+
+This page has two figures — the cloud and the saddle — and until now **only the
+cloud responded to your hand**. The saddle was connected to the page and to
+nothing that produces gestures, so waving at it did nothing and looked exactly
+like broken tracking.
+
+Both are live now. The one your hand is over is the one you are steering, and
+once you pinch, that figure is **held until you let go** — dragging across the
+other one will not hand your gesture to it halfway through.
+
+One thing that is deliberate and might read as a fault: **you can only address a
+figure that is on screen.** Scroll so the saddle is visible and it becomes
+reachable; the cloud, now scrolled off, does not. You point at what you can see.
+
 ### What I would specifically like you to judge
 
 These are the things no test here can answer.

@@ -24,6 +24,7 @@ import { CameraDevice, CameraFailure, CameraManager } from "@/lib/spatial/camera
 import { SpatialState } from "@/lib/spatial/machine";
 import { SpatialSession, SpatialTelemetry } from "@/lib/spatial/session";
 import { LatencySummary } from "@/lib/spatial/latency";
+import { chooseTarget, pointerFor } from "@/lib/spatial/targeting";
 import { MediaPipeHandTracker, TrackerDiagnostics } from "@/lib/spatial/mediapipe";
 import {
   CalibrationManager, CalibrationStep, handScale, scaleThresholds,
@@ -83,11 +84,20 @@ const EXPLAIN: Record<SpatialState, string> = {
   PAUSED: "Paused. Your hand is ignored until you resume.",
 };
 
-export function SpatialControl({ controllerRef, label, onTelemetry,
+export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry,
                                  onFrameRate, onTracker, onMeasurement, onLatency,
                                  onInferenceLatency,
                                  onFrame }: {
   controllerRef: React.RefObject<VisualizationController | null>;
+  /**
+   * Further figures on the page that the hand may address (§189).
+   *
+   * Optional, and `controllerRef` remains the first of them, so a page with one
+   * chart is unchanged. A page with two had no way to say so at all: the second
+   * chart was simply dead to the hand, and a researcher waving at it concludes
+   * the tracking is broken rather than that nothing was wired.
+   */
+  alsoControls?: Array<React.RefObject<VisualizationController | null>>;
   /** What this controls, so the button is not an unlabelled camera request. */
   label: string;
   /**
@@ -194,6 +204,16 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
   const onFrameRef = useRef(onFrame);
   onFrameRef.current = onFrame;
 
+  /**
+   * The figure the hand is addressing, and whether it is being held (§189).
+   *
+   * Refs rather than state: this is recomputed on every frame, and re-rendering
+   * the page thirty times a second to record which chart is under a hand would
+   * cost more than everything it is deciding between.
+   */
+  const activeRef = useRef<VisualizationController | null>(null);
+  const engagedRef = useRef(false);
+
   const [channels, setChannels] = useState(() => availableChannels());
   /** Set briefly on a gesture moment, so the panel can show it landed. */
   const [pulse, setPulse] = useState(false);
@@ -253,7 +273,10 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
 
     const session = new SpatialSession(
       tracker,
-      () => controllerRef.current,
+      // Whichever figure the hand is on, decided a moment ago in `onFrame`.
+      // Falls back to the first, so a page with one chart behaves as before and
+      // a hand that is over nothing does not lose a gesture already in flight.
+      () => activeRef.current ?? controllerRef.current,
       {
         onState: setState,
         onFailure: (reported) => { setFailure(reported); stop(); },
@@ -276,6 +299,42 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
           // per frame, and a subsystem whose job is hiding latency cannot be fed
           // at a quarter of the rate the tracker runs at.
           onFrameRef.current?.(frame);
+
+          /*
+           * Choose which figure this frame is addressed to, before the session
+           * asks for it.
+           *
+           * Ordering is what makes this work without touching the session at
+           * all: `SpatialSession` calls its `controller()` resolver *after*
+           * publishing the frame to this observer, so deciding here is decided
+           * in time. The resolver below simply returns what was chosen.
+           */
+          const chartHand = frame.hands[0];
+          if (chartHand) {
+            const settings = { ...DEFAULT_SETTINGS, ...preferences.settings };
+            const { pinchOn, pinchOff } = scaleThresholds(chartHand, settings);
+            const pinch = distance(chartHand.thumbTip, chartHand.indexTip);
+            // The same hysteresis the gesture machine uses, so the lock is held
+            // for exactly as long as the machine considers the hand closed.
+            engagedRef.current = engagedRef.current
+              ? pinch < pinchOff
+              : pinch < pinchOn;
+
+            const candidates = [controllerRef, ...(alsoControls ?? [])]
+              .map((ref) => ref.current)
+              .filter((c): c is VisualizationController => c !== null);
+            const pointer = pointerFor(
+              { x: chartHand.indexTip.x, y: chartHand.indexTip.y },
+              { width: window.innerWidth, height: window.innerHeight });
+            activeRef.current = chooseTarget(candidates, pointer, {
+              engaged: engagedRef.current,
+              heldTarget: activeRef.current,
+            }).target;
+          } else {
+            // No hand, no lock. Leaving it engaged would hold a chart hostage
+            // after the researcher walked away.
+            engagedRef.current = false;
+          }
 
           // A reading of the hand, a few times a second. Deliberately computed
           // from the same frame the machine just judged, so what is displayed is
@@ -356,7 +415,7 @@ export function SpatialControl({ controllerRef, label, onTelemetry,
     // otherwise so sites cannot fingerprint hardware — so the picker can only
     // appear after the camera is already running.
     setDevices(await session.devices());
-  }, [controllerRef, preferences.deviceId, preferences.settings, stop,
+  }, [controllerRef, alsoControls, preferences.deviceId, preferences.settings, stop,
       onTelemetry, onFrameRate, onTracker, onMeasurement, onLatency,
       onInferenceLatency]);
 

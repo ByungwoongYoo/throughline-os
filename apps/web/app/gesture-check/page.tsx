@@ -259,7 +259,18 @@ export default function GestureCheck() {
                xLabel="dose" yLabel="duration" zLabel="response"
                title="A saddle, fitted over two predictors" />
 
-      <SpatialControl controllerRef={controllerRef} label="this test cloud"
+      {/*
+        * Both figures, so the hand can address either (§189).
+        *
+        * `surfaceRef` existed and was passed to the chart and to nothing else,
+        * which meant the saddle was dead to every gesture on this page — the
+        * "written by one part of the system and read by none" defect the README
+        * names, in the one place where it looks like broken tracking rather
+        * than a missing wire.
+        */}
+      <SpatialControl controllerRef={controllerRef}
+                      alsoControls={[surfaceRef]}
+                      label="this test cloud"
                       onTelemetry={onTelemetry} onFrameRate={onFrameRate}
                       onTracker={onTracker} onMeasurement={onMeasurement}
                       onLatency={(read) => { readLatency.current = read; }}

@@ -30,10 +30,10 @@ and looked at the code. The test requires the count never to grow.
 
 | Status | Sections |
 |---|---|
-| built | 45 |
-| partial | 15 |
+| built | 46 |
+| partial | 17 |
 | not-built | 23 |
-| unreviewed | 153 |
+| unreviewed | 150 |
 | **total** | **236** |
 
 Nothing here has been verified by anybody other than its author. `TASKS.md`
@@ -235,8 +235,8 @@ revisited — an edited specification is exactly when requirements go missing.
 | §186 | BIMANUAL OBJECT MANIPULATION | unreviewed |  |  |  |
 | §187 | "EVERYTHING THROUGH THE HAND" PRINCIPLE | unreviewed |  |  |  |
 | §188 | MANIPULATION LOCKS | unreviewed |  |  |  |
-| §189 | GESTURE TARGET OWNERSHIP | unreviewed |  |  |  |
-| §190 | DEPTH-AWARE TARGETING | unreviewed |  |  |  |
+| §189 | GESTURE TARGET OWNERSHIP | built | apps/web/lib/spatial/targeting.ts | apps/web/tests/targeting.test.ts | A pinch locks the figure it started on until release, so a drag that crosses another chart, or leaves every chart, stays with the one it began on. Unlocking when the held target leaves the page, so a gesture cannot be stuck holding something unmounted. |
+| §190 | DEPTH-AWARE TARGETING | partial | apps/web/lib/spatial/targeting.ts | apps/web/tests/targeting.test.ts | Overlapping figures are ranked by nearest centre, and an unmeasurable one is skipped. No raycast, visibility or selection-history ranking within a figure. |
 | §191 | MAGNETIC TARGETING | unreviewed |  |  |  |
 | §192 | SMART GRAB VOLUME | unreviewed |  |  |  |
 | §193 | HAPTIC DRAWING LANGUAGE | unreviewed |  |  |  |
@@ -270,7 +270,7 @@ revisited — an edited specification is exactly when requirements go missing.
 | §221 | REFERENCE HARDWARE PROFILES | unreviewed |  |  |  |
 | §222 | DRAWING TEST HARNESS | unreviewed |  |  |  |
 | §223 | END-TO-END DRAWING LATENCY TEST | unreviewed |  |  |  |
-| §224 | GESTURE CONFLICT RESOLUTION | unreviewed |  |  |  |
+| §224 | GESTURE CONFLICT RESOLUTION | partial | apps/web/lib/spatial/targeting.ts | apps/web/tests/targeting.test.ts | Target is now part of how intent is resolved, alongside gesture state and the active tool: a hand over nothing addresses nothing rather than steering the nearest figure. Erasing and lassoing do not exist, so those modes are not yet distinguished. |
 | §225 | HAND AS UNIVERSAL RESEARCH INSTRUMENT | unreviewed |  |  |  |
 | §226 | AIR INK MODULES | unreviewed |  |  |  |
 | §227 | NEW COMMANDS | unreviewed |  |  |  |

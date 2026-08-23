@@ -219,6 +219,7 @@ function fakeController() {
     focus: () => { calls.push("focus"); },
     deselect: () => { calls.push("deselect"); },
     resetView: () => { calls.push("resetView"); },
+    bounds: () => ({ x: 0, y: 0, width: 720, height: 520 }),
     viewState: () => ({}),
     restoreViewState: () => {},
     viewport: () => ({ width: 400, height: 400 }),

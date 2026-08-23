@@ -534,6 +534,7 @@ describe("settings that take effect", () => {
       withinPolygon: vi.fn(() => []),
       focus: vi.fn(), deselect: vi.fn(),
       resetView,
+      bounds: () => ({ x: 0, y: 0, width: 720, height: 520 }),
       viewState: () => ({}),
       restoreViewState: () => {},
       viewport: () => ({ width: 400, height: 400 }),
@@ -593,6 +594,7 @@ describe("sensitivity, measured at the chart", () => {
         zoom: vi.fn(), pan: vi.fn(), hover: vi.fn(), select: vi.fn(),
         selectRegion: vi.fn(() => []), withinPolygon: vi.fn(() => []),
         focus: vi.fn(), deselect: vi.fn(), resetView: vi.fn(),
+        bounds: () => ({ x: 0, y: 0, width: 720, height: 520 }),
         viewState: () => ({}),
         restoreViewState: () => {},
         viewport: () => ({ width: 400, height: 400 }),
@@ -795,5 +797,104 @@ describe("frames reach a subsystem that asks for them", () => {
     render(<SpatialControl controllerRef={controllerRef} label="this scatter"
                            onFrame={() => {}} />);
     expect(getUserMedia).not.toHaveBeenCalled();
+  });
+});
+
+describe("a page with two figures", () => {
+  /**
+   * The bug this covers had no symptom of its own. The session takes one
+   * controller, so every gesture went to the first chart and the second was
+   * dead to the hand — and a researcher waving at a chart that does not respond
+   * concludes the tracking is broken, not that nothing was connected.
+   *
+   * Driven through the real control, because the fault was entirely in the
+   * wiring: every part in isolation was correct.
+   */
+  function twoCharts() {
+    const first = createRef<VisualizationController | null>();
+    const second = createRef<VisualizationController | null>();
+    const calls: string[] = [];
+    const make = (name: string, rect: { x: number; y: number }) => ({
+      rotate: () => calls.push(`${name}.rotate`),
+      zoom: () => calls.push(`${name}.zoom`),
+      pan: vi.fn(), hover: vi.fn(() => null), select: vi.fn(() => null),
+      selectRegion: vi.fn(() => []), withinPolygon: vi.fn(() => []),
+      focus: vi.fn(), deselect: vi.fn(), resetView: vi.fn(),
+      // Full window width: the hand is distinguished by height alone, so a
+      // pointer landing outside both horizontally cannot quietly decide the
+      // test. The first version used 400-wide charts and a pointer at x = 500,
+      // which was outside both and fell through to the default.
+      bounds: () => ({ ...rect, width: 1000, height: 300 }),
+      viewState: () => ({}), restoreViewState: () => {},
+      viewport: () => ({ width: 1000, height: 300 }),
+    });
+    first.current = make("first", { x: 0, y: 0 });
+    second.current = make("second", { x: 0, y: 400 });
+    render(<SpatialControl controllerRef={first} alsoControls={[second]}
+                           label="two charts" />);
+    return { calls };
+  }
+
+  async function turnOn(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole("button", { name: /try hand gestures/i }));
+    await user.click(screen.getByRole("button", { name: /set up hand gestures/i }));
+    await user.click(screen.getByRole("button", { name: /turn on the camera/i }));
+    await waitFor(() => screen.getByRole("button", { name: /turn off the camera/i }));
+  }
+
+  /** A pinched hand at a position in the window, dragged sideways. */
+  function dragAt(y: number, startX = 0.5) {
+    for (let i = 0; i < 6; i += 1) {
+      clock += 40;
+      const x = startX + i * 0.02;
+      const span = 0.12, pinch = span * 0.15;
+      act(() => {
+        deliverFrame?.({
+          timestamp: clock,
+          hands: [{
+            handedness: "right", confidence: 0.95,
+            wrist: { x, y: y + span * 2 },
+            indexBase: { x, y: y + span },
+            thumbTip: { x: x - pinch / 2, y },
+            indexTip: { x: x + pinch / 2, y },
+            middleTip: { x, y: y + span * 1.7 },
+            ringTip: { x, y: y + span * 1.8 },
+            pinkyTip: { x, y: y + span * 1.9 },
+            palmCenter: { x, y },
+          }],
+        });
+      });
+    }
+  }
+
+  beforeEach(() => {
+    // happy-dom lays nothing out, so the window has to be given a size for a
+    // hand's normalised position to mean anything.
+    vi.stubGlobal("innerWidth", 1000);
+    vi.stubGlobal("innerHeight", 800);
+  });
+
+  it("drives the second figure when the hand is over it", async () => {
+    const user = userEvent.setup();
+    const { calls } = twoCharts();
+    await turnOn(user);
+
+    // y = 0.75 of the camera frame is y = 600 on an 800px window: the lower
+    // chart, which starts at 400.
+    dragAt(0.75);
+
+    expect(calls.some((c) => c.startsWith("second."))).toBe(true);
+    expect(calls.some((c) => c.startsWith("first."))).toBe(false);
+  });
+
+  it("drives the first when the hand is over that", async () => {
+    const user = userEvent.setup();
+    const { calls } = twoCharts();
+    await turnOn(user);
+
+    dragAt(0.2);
+
+    expect(calls.some((c) => c.startsWith("first."))).toBe(true);
+    expect(calls.some((c) => c.startsWith("second."))).toBe(false);
   });
 });
