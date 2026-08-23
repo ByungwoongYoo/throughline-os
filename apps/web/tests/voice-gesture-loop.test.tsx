@@ -21,6 +21,18 @@ import { Hand, HandFrame } from "@/lib/spatial/types";
 const PINCHED = 0.02;
 const OPEN = 0.2;
 
+/**
+ * Run a gesture sequence to completion.
+ *
+ * `drawing` is a generator, so nothing happens until it is iterated — and what
+ * these tests want is the *effect* of the frames, never the frames themselves.
+ * Written as a `for` loop it needed a binding it did not use, which is both a
+ * lint warning and a small lie about what the line is for.
+ */
+function perform(frames: Iterable<unknown>): void {
+  for (const frame of frames) void frame;
+}
+
 function hand(at: { x: number; y: number }, pinch: number): Hand {
   const span = 0.1;
   return {
@@ -255,7 +267,7 @@ describe("erasing must not leave a referent behind", () => {
   it("leaves nothing open when a wipe erases nothing", () => {
     const { timeline, ref } = erasing(() => ["never"]);
     ref.current!.setTool("eraser");
-    for (const _ of drawing(ref.current!, 1_000)) { /* wipe over nothing */ }
+    perform(drawing(ref.current!, 1_000)); // wipe over nothing
 
     expect(timeline.active(2_000)).toEqual([]);
     // And a sentence much later finds nothing rather than the ghost.
@@ -265,7 +277,7 @@ describe("erasing must not leave a referent behind", () => {
   it("does not report a stroke that was erased rather than drawn", () => {
     const { ref, strokes } = erasing(() => ["never"]);
     ref.current!.setTool("eraser");
-    for (const _ of drawing(ref.current!, 1_000)) { /* wipe over nothing */ }
+    perform(drawing(ref.current!, 1_000)); // wipe over nothing
 
     expect(strokes).toEqual([]);
   });
@@ -282,12 +294,12 @@ describe("erasing must not leave a referent behind", () => {
     const { ref, strokes, timeline } = erasing(() => ["never"]);
 
     // Draw first, so there is ink to take.
-    for (const _ of drawing(ref.current!, 1_000)) { /* a mark */ }
+    perform(drawing(ref.current!, 1_000)); // a mark
     const drawn = strokes.length;
     expect(drawn).toBe(1);
 
     ref.current!.setTool("eraser");
-    for (const _ of drawing(ref.current!, 20_000)) { /* over the same place */ }
+    perform(drawing(ref.current!, 20_000)); // over the same place
 
     // Nothing new reported: erasing is not drawing.
     expect(strokes).toHaveLength(drawn);
