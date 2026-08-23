@@ -109,6 +109,26 @@ Inside the workspace the same control sits on **Chart primitives → P13** (a 3D
 scatter) and on **Embedding space**, on your real corpus, if it has been
 embedded.
 
+### You can see your hand now
+
+With the camera on there is a small ring where the system thinks your pinch
+point is, and **a ring around it that fills as your fingers close**.
+
+That arc is the important part. Before, when a pinch did not register, there was
+no way to tell whether the camera could not see your hand, or could see it and
+disagreed about what counts as a pinch, or your hand was not over a figure —
+three different faults with one symptom, nothing happened. Now you can see
+whether you are at a tenth or at nine tenths.
+
+The ring pulses at the moment the pinch is *accepted*, which is a little after
+your fingers meet — that gap is the two-frame rule that stops a passing hand
+leaving a dot. Watching it once tells you more about the feature than any
+explanation.
+
+It also says what a pinch would do — *pinch to draw*, *pinch to rub out*, *pinch
+to select* — and it sits where the mark would begin rather than at your
+fingertip, which is about 65 pixels away.
+
 ### Reading the numbers
 
 **Delay from frame to response** is three numbers — typical, 95th percentile,

@@ -25,6 +25,8 @@ import { SpatialState } from "@/lib/spatial/machine";
 import { SpatialSession, SpatialTelemetry } from "@/lib/spatial/session";
 import { LatencySummary } from "@/lib/spatial/latency";
 import { chooseTarget, pointerFor } from "@/lib/spatial/targeting";
+import { CursorIntent, cursorFrom } from "@/lib/spatial/cursor";
+import { HandCursor, HandCursorHandle } from "./HandCursor";
 import { MediaPipeHandTracker, TrackerDiagnostics } from "@/lib/spatial/mediapipe";
 import {
   CalibrationManager, CalibrationStep, handScale, scaleThresholds,
@@ -86,7 +88,7 @@ const EXPLAIN: Record<SpatialState, string> = {
 
 export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry,
                                  onFrameRate, onTracker, onMeasurement, onLatency,
-                                 onInferenceLatency, onActiveTarget,
+                                 onInferenceLatency, onActiveTarget, intentOf,
                                  onFrame }: {
   controllerRef: React.RefObject<VisualizationController | null>;
   /**
@@ -134,6 +136,13 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
    * the caller must treat as "no figure" rather than as "the usual one".
    */
   onActiveTarget?: (read: () => VisualizationController | null) => void;
+  /**
+   * What a pinch would do right now, so the cursor can say (§95).
+   *
+   * A function rather than a value, read once per frame, because the answer
+   * depends on the tool the host has in hand and only the host knows that.
+   */
+  intentOf?: () => CursorIntent;
   /**
    * What the pinch actually measures, against what it has to beat.
    *
@@ -222,6 +231,7 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
    */
   const activeRef = useRef<VisualizationController | null>(null);
   const engagedRef = useRef(false);
+  const cursorRef = useRef<HandCursorHandle | null>(null);
 
   const [channels, setChannels] = useState(() => availableChannels());
   /** Set briefly on a gesture moment, so the panel can show it landed. */
@@ -346,6 +356,26 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
             engagedRef.current = false;
           }
 
+          /*
+           * The cursor, every frame, and never through React (§94, §142).
+           *
+           * Computed here because this is the only place that has the hand, the
+           * settings the machine is using, and whether a figure is under it —
+           * and a cursor computed from any subset of those would disagree with
+           * the machine about what is happening, which is worse than no cursor.
+           */
+          cursorRef.current?.show(cursorFrom({
+            hand: chartHand ?? null,
+            settings: { ...DEFAULT_SETTINGS, ...preferences.settings },
+            engaged: engagedRef.current,
+            overTarget: activeRef.current !== null,
+            intent: intentOf?.() ?? "grab",
+            project: (point) => ({
+              x: (1 - point.x) * window.innerWidth,
+              y: point.y * window.innerHeight,
+            }),
+          }));
+
           // A reading of the hand, a few times a second. Deliberately computed
           // from the same frame the machine just judged, so what is displayed is
           // what was decided on rather than a second sample taken nearby.
@@ -427,7 +457,7 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
     setDevices(await session.devices());
   }, [controllerRef, alsoControls, preferences.deviceId, preferences.settings, stop,
       onTelemetry, onFrameRate, onTracker, onMeasurement, onLatency,
-      onInferenceLatency, onActiveTarget]);
+      onInferenceLatency, onActiveTarget, intentOf]);
 
   /**
    * Begin the two-pose calibration described in §18.
@@ -564,6 +594,7 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
               */
              style={{ position: "fixed", top: 0, left: 0, width: 2, height: 2,
                       opacity: 0.01, pointerEvents: "none", zIndex: -1 }} />
+      <HandCursor ref={cursorRef} active={running} />
 
       {!running && !explaining && (
         <div className="spatial-row">

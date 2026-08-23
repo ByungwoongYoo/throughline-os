@@ -30,10 +30,10 @@ and looked at the code. The test requires the count never to grow.
 
 | Status | Sections |
 |---|---|
-| built | 53 |
+| built | 55 |
 | partial | 19 |
 | not-built | 16 |
-| unreviewed | 148 |
+| unreviewed | 146 |
 | **total** | **236** |
 
 Nothing here has been verified by anybody other than its author. `TASKS.md`
@@ -188,7 +188,7 @@ revisited — an edited specification is exactly when requirements go missing.
 | §139 | AIR INK MUST BE INTENTIONAL | built | apps/web/lib/ink/machine.ts | apps/web/tests/ink.test.ts | Two locks: armed, and pinched. Pointing never draws. |
 | §140 | DRAWING STATE MACHINE | built | apps/web/lib/ink/machine.ts | apps/web/tests/ink.test.ts | Full drawing state machine. |
 | §141 | THE FINGERTIP BECOMES A TOOL | built | apps/web/lib/ink/machine.ts | apps/web/tests/ink-stabilise.test.ts | The pen is the pinch midpoint, not the fingertip — T044. |
-| §142 | PEN-DOWN FEEDBACK | unreviewed |  |  |  |
+| §142 | PEN-DOWN FEEDBACK | built | apps/web/components/spatial/HandCursor.tsx | apps/web/tests/cursor.test.ts | A ring at the pinch point, an arc filling as the fingers close, and a pulse at the moment contact is accepted. The arc answers "am I drawing yet" continuously rather than confirming it afterwards, which is what makes a failing pinch diagnosable instead of silent. |
 | §143 | DRAWING COORDINATE SYSTEMS | partial | apps/web/lib/spatial/commands.ts | apps/web/tests/chart-conformance.test.tsx | Screen space, plus the honest treatment of the case with no data-space equivalent: a screen loop over a rotatable 3D scene cannot be converted, because depth is ambiguous from one projection. An annotation therefore carries the view it was drawn in, says when that is no longer the view, and offers to go back to it. Object, data, world and surface spaces are still unimplemented — data space is well-posed for the 2D charts and is the next one worth building. |
 | §144 | STROKE DATA MODEL | built | apps/web/lib/ink/stroke.ts | apps/web/tests/ink.test.ts | Structural stroke model: coordinate space, tool, style, author, per-point timestamp and confidence, the predicted flag, and originalPoints kept apart from the drawn copy so no later interpretation can overwrite what the hand did. |
 | §145 | THE ZERO-LAG PRINCIPLE | built | apps/web/lib/ink/predict.ts | apps/web/tests/ink-recorder.test.ts | Short-horizon prediction, clamped and abandoned at corners. |
@@ -237,7 +237,7 @@ revisited — an edited specification is exactly when requirements go missing.
 | §188 | MANIPULATION LOCKS | unreviewed |  |  |  |
 | §189 | GESTURE TARGET OWNERSHIP | built | apps/web/lib/spatial/targeting.ts | apps/web/tests/targeting.test.ts | A pinch locks the figure it started on until release, so a drag that crosses another chart, or leaves every chart, stays with the one it began on. Unlocking when the held target leaves the page, so a gesture cannot be stuck holding something unmounted. |
 | §190 | DEPTH-AWARE TARGETING | partial | apps/web/lib/spatial/targeting.ts | apps/web/tests/targeting.test.ts | Overlapping figures are ranked by nearest centre, and an unmeasurable one is skipped. No raycast, visibility or selection-history ranking within a figure. |
-| §191 | MAGNETIC TARGETING | unreviewed |  |  |  |
+| §191 | MAGNETIC TARGETING | built | apps/web/components/charts/Volume.tsx | apps/web/tests/chart-conformance.test.tsx | Nearest-within-a-radius selection in each chart, so a hand never needs surgical precision — and the cursor is drawn where the hand is, never at what it would select, because §191 asks the attraction to affect selection rather than move the pointer. |
 | §192 | SMART GRAB VOLUME | unreviewed |  |  |  |
 | §193 | HAPTIC DRAWING LANGUAGE | unreviewed |  |  |  |
 | §194 | HAPTIC TEXTURE | unreviewed |  |  |  |

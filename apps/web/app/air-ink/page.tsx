@@ -355,7 +355,10 @@ export default function AirInkPage() {
                       alsoControls={[surfaceRef]}
                       label="the figures on this page"
                       onFrame={handleFrame}
-                      onActiveTarget={(read) => { readTarget.current = read; }} />
+                      onActiveTarget={(read) => { readTarget.current = read; }}
+                      intentOf={() => (!armed ? "grab"
+                                     : tool === "eraser" ? "erase"
+                                     : tool === "lasso" ? "lasso" : "draw")} />
 
       <div style={{ display: "flex", gap: 8, alignItems: "center",
                     margin: "16px 0" }}>
