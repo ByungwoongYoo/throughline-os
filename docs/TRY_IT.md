@@ -109,6 +109,25 @@ Inside the workspace the same control sits on **Chart primitives → P13** (a 3D
 scatter) and on **Embedding space**, on your real corpus, if it has been
 embedded.
 
+### The first time you turn the camera on
+
+You get four steps: **point, pinch, move, release**. They advance when the system
+actually *sees* you do them — not when you press Next.
+
+That is the point of them. A slideshow with a Next button teaches nothing and
+confirms nothing: you could click through all four without the tracking having
+seen your hand once. Getting to the end here is proof that gestures work on this
+machine, with this camera, in this light, for your hand.
+
+It is also the best diagnostic in the product. If you get stuck on **pinch**
+while **point** completed, you know the camera can see you and the pinch
+threshold is the problem — which is a specific thing to tell me, rather than "it
+doesn't work".
+
+Every step can be skipped on its own, and the whole thing can be skipped. Nothing
+is blocked while it runs — the figures respond to your hand throughout. It only
+appears once; after that it is remembered.
+
 ### You can see which figure you have hold of
 
 With two figures on a page, the one your hand is over gets a **dashed outline**,

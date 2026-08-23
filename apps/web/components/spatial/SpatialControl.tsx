@@ -26,6 +26,7 @@ import { SpatialSession, SpatialTelemetry } from "@/lib/spatial/session";
 import { LatencySummary } from "@/lib/spatial/latency";
 import { chooseTarget, pointerFor } from "@/lib/spatial/targeting";
 import { CursorIntent, cursorFrom } from "@/lib/spatial/cursor";
+import { GUIDANCE, Onboarding, OnboardingStep } from "@/lib/spatial/onboarding";
 import { HandCursor, HandCursorHandle } from "./HandCursor";
 import { MediaPipeHandTracker, TrackerDiagnostics } from "@/lib/spatial/mediapipe";
 import {
@@ -235,6 +236,20 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
   const activeRef = useRef<VisualizationController | null>(null);
   const engagedRef = useRef(false);
   const cursorRef = useRef<HandCursorHandle | null>(null);
+  /**
+   * The four-step introduction (§97), driven by the hand rather than by a Next
+   * button — so finishing it is proof that gestures work here, and being stuck
+   * on one step is a precise report rather than "it doesn't work".
+   */
+  const onboardingRef = useRef<Onboarding | null>(null);
+  const [teaching, setTeaching] =
+    useState<Exclude<OnboardingStep, "done"> | null>(null);
+  const [teachingProgress, setTeachingProgress] = useState(0);
+  const teachingRef = useRef<OnboardingStep | null>(null);
+  /** Narrowing helper: "done" is not a step with anything to say. */
+  const asGuided = (step: OnboardingStep) =>
+    (step === "done" ? null : step);
+  const progressRef = useRef(0);
 
   const [channels, setChannels] = useState(() => availableChannels());
   /** Set briefly on a gesture moment, so the panel can show it landed. */
@@ -367,6 +382,25 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
            * and a cursor computed from any subset of those would disagree with
            * the machine about what is happening, which is worse than no cursor.
            */
+          const guide = onboardingRef.current;
+          if (guide && !guide.finished()) {
+            const state = guide.step_(frame);
+            // Published on change only: progress moves at tracker rate and a
+            // setState per frame would re-render the page to move a bar.
+            if (state.justCompleted || state.step !== teachingRef.current) {
+              teachingRef.current = state.step;
+              setTeaching(asGuided(state.step));
+              if (state.justCompleted) deviceFeedback.emit("select");
+              if (state.step === "done") {
+                update({ onboarded: true });
+              }
+            }
+            if (Math.round(state.progress * 3) !== progressRef.current) {
+              progressRef.current = Math.round(state.progress * 3);
+              setTeachingProgress(state.progress);
+            }
+          }
+
           cursorRef.current?.show(cursorFrom({
             hand: chartHand ?? null,
             settings: { ...DEFAULT_SETTINGS, ...preferences.settings },
@@ -447,6 +481,12 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
       // must not take down a session that is otherwise working.
     }
     sessionRef.current = session;
+    // Only for somebody who has not done it. §97 is a first session, not a
+    // thing that greets you every time you switch the camera on.
+    onboardingRef.current = preferences.onboarded
+      ? null : new Onboarding({ ...DEFAULT_SETTINGS, ...preferences.settings });
+    teachingRef.current = null;
+    setTeaching(preferences.onboarded ? null : "point");
     setRunning(true);
     // Say something true immediately. No state is published until a frame is
     // processed, so without this the panel reads "Not running." at the exact
@@ -600,6 +640,41 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
              style={{ position: "fixed", top: 0, left: 0, width: 2, height: 2,
                       opacity: 0.01, pointerEvents: "none", zIndex: -1 }} />
       <HandCursor ref={cursorRef} active={running} />
+
+      {/*
+        * The introduction (§97), and it is never a gate.
+        *
+        * Rendered beside everything rather than over it: the scene responds to
+        * the hand throughout, so a researcher who would rather just start can,
+        * and one who is stuck on a step can skip that step alone rather than the
+        * whole sequence — being held at the one thing your hand or your camera
+        * is bad at is exactly what would make somebody give up on the feature.
+        */}
+      {teaching && (
+        <div className="spatial-teaching">
+          <p className="spatial-teaching-step">
+            <strong>{GUIDANCE[teaching].instruction}</strong>{" "}
+            <span>— {GUIDANCE[teaching].because}.</span>
+          </p>
+          <div className="spatial-teaching-bar" aria-hidden="true">
+            <span style={{ width: `${Math.round(teachingProgress * 100)}%` }} />
+          </div>
+          <div className="spatial-teaching-actions">
+            <button type="button" onClick={() => {
+              onboardingRef.current?.skipStep();
+              const next = onboardingRef.current?.current() ?? "done";
+              teachingRef.current = next;
+              setTeaching(asGuided(next));
+              if (next === "done") update({ onboarded: true });
+            }}>Skip this step</button>
+            <button type="button" onClick={() => {
+              onboardingRef.current?.skipAll();
+              setTeaching(null);
+              update({ onboarded: true });
+            }}>Skip the introduction</button>
+          </div>
+        </div>
+      )}
 
       {!running && !explaining && (
         <div className="spatial-row">

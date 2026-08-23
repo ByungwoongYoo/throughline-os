@@ -48,6 +48,15 @@ export type SpatialPreferences = {
   /** Which camera, when the machine has more than one. */
   deviceId: string | null;
   /**
+   * Whether the four-step introduction has been completed (§97).
+   *
+   * Remembered so it is not repeated, and stored rather than derived: "has this
+   * person done it" is a fact about them, and inferring it from whether any
+   * gesture has ever succeeded would show it again to somebody who learnt on a
+   * different machine and skip it for somebody who once brushed a chart.
+   */
+  onboarded: boolean;
+  /**
    * Whether a gesture is confirmed by touch or sound as well as by sight.
    *
    * Vibration defaults on and costs nothing where there is no hardware — most
@@ -65,6 +74,7 @@ export type SpatialPreferences = {
 export const DEFAULT_PREFERENCES: SpatialPreferences = {
   enabled: false,
   deviceId: null,
+  onboarded: false,
   feedback: DEFAULT_FEEDBACK,
   settings: {
     adaptiveThresholds: DEFAULT_SETTINGS.adaptiveThresholds,
@@ -153,6 +163,10 @@ export function readPreferences(): SpatialPreferences {
     enabled: stored.enabled === true,
     deviceId: typeof stored.deviceId === "string" && stored.deviceId
       ? stored.deviceId : null,
+    // Strictly `true`, and defaulting to *not* done: a preferences blob written
+    // before this existed must show the introduction rather than silently skip
+    // it for somebody who has never seen it.
+    onboarded: stored.onboarded === true,
     feedback: {
       // Strictly boolean, like `enabled`. A stored value this code did not write
       // should fall back to the default rather than be coerced.

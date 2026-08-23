@@ -1385,6 +1385,62 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
  * visible control is the recovery path for a pointer user, and the discoverable
  * one for everybody else.
  */
+/*
+ * The four-step introduction (§97).
+ *
+ * Beside the controls rather than over the figure: it must never be a gate, and
+ * anything that covers what somebody is trying to use is a gate in practice
+ * whatever it says about itself.
+ */
+.spatial-teaching {
+  margin: 10px 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  max-width: 60ch;
+}
+
+.spatial-teaching-step {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--ink-strong);
+}
+
+.spatial-teaching-step span {
+  color: var(--ink-soft);
+}
+
+.spatial-teaching-bar {
+  height: 3px;
+  background: var(--line);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.spatial-teaching-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.spatial-teaching-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.spatial-teaching-actions button {
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink-soft);
+  background: none;
+  border: none;
+  padding: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .chart-controls {
   display: flex;
   gap: 8px;
