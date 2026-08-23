@@ -30,10 +30,10 @@ and looked at the code. The test requires the count never to grow.
 
 | Status | Sections |
 |---|---|
-| built | 56 |
+| built | 57 |
 | partial | 19 |
 | not-built | 16 |
-| unreviewed | 145 |
+| unreviewed | 144 |
 | **total** | **236** |
 
 Nothing here has been verified by anybody other than its author. `TASKS.md`
@@ -144,7 +144,7 @@ revisited — an edited specification is exactly when requirements go missing.
 | §95 | INTENT PREVIEW | unreviewed |  |  |  |
 | §96 | DESTRUCTIVE ACTIONS | partial | apps/web/lib/ink/history.ts | apps/web/tests/ink-history.test.ts | The one destructive action here is now recoverable and its control says what it would take back — "Undo clearing 12 strokes" rather than "Undo". No confirmation step before destructive actions. |
 | §97 | ONBOARDING | built | apps/web/lib/spatial/onboarding.ts | apps/web/tests/onboarding.test.ts | Point, pinch, move, release — advanced by evidence from the hand rather than by a Next button, so finishing it is proof that gestures work here and being stuck on a step is a precise report. Skippable a step at a time and entirely, blocks nothing, and shown once. |
-| §98 | DISCOVERABILITY | unreviewed |  |  |  |
+| §98 | DISCOVERABILITY | built | apps/web/lib/spatial/cursor.ts | apps/web/tests/cursor.test.ts | What a pinch would do, shown beside the hand when the answer changes and whenever the hand goes still, and faded while it is moving — §98 asks for a cue and forbids permanent clutter, and a label pinned to the cursor is the version that loses. |
 | §99 | SETTINGS | unreviewed |  |  |  |
 | §100 | TECHNICAL MODULES | unreviewed |  |  |  |
 | §101 | STATE MANAGEMENT | unreviewed |  |  |  |

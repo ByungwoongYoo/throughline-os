@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { closenessOf, cursorFrom } from "@/lib/spatial/cursor";
+import { closenessOf, cueOpacity, cursorFrom } from "@/lib/spatial/cursor";
 import { paintCursor } from "@/components/spatial/HandCursor";
 import { DEFAULT_SETTINGS } from "@/lib/spatial/machine";
 import { Hand } from "@/lib/spatial/types";
@@ -46,6 +46,16 @@ function recordingContext() {
     get(_t, property: string) {
       if (property === "canvas") return undefined;
       if (property === "globalAlpha") return alpha;
+      // `measureText` is asked for a width, and a double returning undefined
+      // makes the caller throw on `.width` — which skipped the label entirely
+      // and made the test read as though the feature were missing. The double
+      // has to answer the questions the real thing answers.
+      if (property === "measureText") {
+        return (text: string) => {
+          calls[property] = (calls[property] ?? 0) + 1;
+          return { width: text.length * 6 } as TextMetrics;
+        };
+      }
       return () => { calls[property] = (calls[property] ?? 0) + 1; };
     },
     set(_t, property: string, value) {
@@ -324,5 +334,85 @@ describe("how far the tool reaches (§177)", () => {
     const none = recordingContext();
     paintCursor(canvasWith(none), cursor({ reach: null }), SIZE, null);
     expect(small.calls.arc).toBe(none.calls.arc);
+  });
+});
+
+describe("the cue appears when it helps and gets out of the way (§98)", () => {
+  /**
+   * §98 asks for a cue when somebody points at something and, in the same
+   * breath, says not to clutter the interface permanently. Those pull against
+   * each other, and a label pinned to the cursor forever is the version that
+   * loses: it follows the hand across the figure, sits on the data somebody is
+   * trying to read, and after ten minutes it is furniture nobody sees.
+   */
+  /**
+   * A hand that moved this instant is one whose stillness began *now*.
+   *
+   * The first version of these tests used 0, meaning "still since the epoch",
+   * which reads as maximally still and made every case return 1 — the tests
+   * failed and the policy was correct.
+   */
+  const movingAt = (now: number) => now;
+
+  it("shows when what a pinch would do has just changed", () => {
+    // The hand has arrived somewhere new, or the tool has: precisely when
+    // somebody needs telling.
+    expect(cueOpacity(1000, 1000, movingAt(1000))).toBe(1);
+  });
+
+  it("fades once the answer has been on screen a while", () => {
+    expect(cueOpacity(2700, 1000, movingAt(2700))).toBeGreaterThan(0);
+    expect(cueOpacity(2700, 1000, movingAt(2700))).toBeLessThan(1);
+  });
+
+  it("goes entirely, rather than lingering faintly", () => {
+    // A permanent ghost is still permanent clutter.
+    expect(cueOpacity(5000, 1000, movingAt(5000))).toBe(0);
+  });
+
+  it("comes back when the hand goes still", () => {
+    /**
+     * A researcher holding their hand over something without acting is
+     * deliberating, and deliberating is the other moment a cue helps. A hand in
+     * motion is a hand that has already decided.
+     */
+    const longAfterChange = 60_000;
+    const stillSince = longAfterChange - 900;
+    expect(cueOpacity(longAfterChange, 0, stillSince)).toBe(1);
+  });
+
+  it("stays away while the hand keeps moving", () => {
+    const now = 60_000;
+    expect(cueOpacity(now, 0, now)).toBe(0);
+  });
+
+  it("does not flicker on a hand that is only briefly still", () => {
+    // Below the stillness threshold nothing changes, so a hand slowing through
+    // a turn does not summon a label each time.
+    const now = 60_000;
+    expect(cueOpacity(now, 0, now - 200)).toBe(0);
+  });
+
+  it("fades rather than blinking out", () => {
+    // A label that vanished would draw more attention leaving than arriving.
+    const readings = [2600, 2700, 2800].map((t) => cueOpacity(t, 1000, movingAt(t)));
+    expect([...readings]).toEqual([...readings].sort((a, b) => b - a));
+    expect(new Set(readings).size).toBeGreaterThan(1);
+  });
+
+  it("is drawn beside the hand, not on it", () => {
+    /**
+     * Offset rather than centred: the point being aimed at is the one place on
+     * screen that has to stay legible.
+     */
+    const recorded = recordingContext();
+    paintCursor(canvasWith(recorded), cursor(), SIZE, null, undefined, 1);
+    expect(recorded.calls.fillText).toBe(1);
+  });
+
+  it("draws nothing at all when the cue has faded", () => {
+    const recorded = recordingContext();
+    paintCursor(canvasWith(recorded), cursor(), SIZE, null, undefined, 0);
+    expect(recorded.calls.fillText ?? 0).toBe(0);
   });
 });

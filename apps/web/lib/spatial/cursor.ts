@@ -190,3 +190,41 @@ export function cursorFrom(input: CursorInput): CursorState {
  * would feel possessed, and the researcher would stop trusting the position they
  * can see.
  */
+
+/**
+ * How visible the "pinch to draw" cue should be right now (§98).
+ *
+ * §98 asks for a cue when somebody points at something and, in the same breath,
+ * says not to clutter the interface permanently. Those pull against each other,
+ * and a label pinned to the cursor forever is the version that loses: it follows
+ * the hand across the figure, sitting on top of the data the researcher is
+ * trying to read, and after ten minutes it is furniture nobody sees anyway.
+ *
+ * So the cue appears at the two moments it is worth anything:
+ *
+ * **When the intent changes.** The hand has arrived somewhere new, or the tool
+ * has, and what a pinch would do is now a different answer than it was a moment
+ * ago. That is precisely when somebody needs telling.
+ *
+ * **When the hand goes still.** A researcher holding their hand over something
+ * without acting is deliberating, and deliberating is the other moment a cue
+ * helps. A hand in motion is a hand that has already decided.
+ *
+ * It fades rather than vanishing, because a label that blinks out draws more
+ * attention leaving than it did arriving.
+ */
+export function cueOpacity(now: number, changedAt: number, stillSince: number,
+                           options = { holdMs: 1500, fadeMs: 400,
+                                       stillMs: 450 }): number {
+  const sinceChange = now - changedAt;
+  const still = now - stillSince >= options.stillMs;
+
+  // While the hand is still, the cue simply stays: there is no moment at which
+  // somebody deliberating stops wanting to know what would happen.
+  if (still) return 1;
+
+  if (sinceChange <= options.holdMs) return 1;
+  const fading = sinceChange - options.holdMs;
+  if (fading >= options.fadeMs) return 0;
+  return 1 - fading / options.fadeMs;
+}

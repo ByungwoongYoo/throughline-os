@@ -23,7 +23,7 @@
  */
 
 import { useEffect, useImperativeHandle, useRef, forwardRef } from "react";
-import { CursorState } from "@/lib/spatial/cursor";
+import { CursorState, cueOpacity } from "@/lib/spatial/cursor";
 
 export type HandCursorHandle = {
   /** Show this state. Safe to call at tracker rate. */
@@ -48,6 +48,9 @@ export const HandCursor = forwardRef<HandCursorHandle, {
   const dirtyRef = useRef(false);
   /** When contact last began, for the pulse §142 asks for. */
   const contactAtRef = useRef<number | null>(null);
+  /** When the cue last changed, and when the hand last moved (§98). */
+  const cueChangedRef = useRef(0);
+  const movedAtRef = useRef(0);
   const sizeRef = useRef({ width: 0, height: 0 });
 
   useImperativeHandle(ref, (): HandCursorHandle => ({
@@ -60,6 +63,17 @@ export const HandCursor = forwardRef<HandCursorHandle, {
         contactAtRef.current = performance.now();
       }
       if (state.phase !== "active") contactAtRef.current = null;
+
+      const at = performance.now();
+      if (state.intent !== previous?.intent) cueChangedRef.current = at;
+      // "Moved" means moved enough to be going somewhere, not enough to be a
+      // hand held as still as a hand can be held.
+      if (!previous?.at || !state.at
+          || Math.hypot(state.at.x - previous.at.x,
+                        state.at.y - previous.at.y) > 4) {
+        movedAtRef.current = at;
+      }
+
       stateRef.current = state;
       dirtyRef.current = true;
     },
@@ -89,10 +103,16 @@ export const HandCursor = forwardRef<HandCursorHandle, {
       if (!running) return;
       // Repainted while a pulse is running even if nothing else changed, since
       // the pulse is a function of time rather than of the hand.
-      if (dirtyRef.current || contactAtRef.current !== null) {
+      // Repainted while a pulse or a fade is running, since both are functions
+      // of time rather than of the hand.
+      if (dirtyRef.current || contactAtRef.current !== null
+          || cueOpacity(performance.now(), cueChangedRef.current,
+                        movedAtRef.current) > 0) {
         dirtyRef.current = false;
         paintCursor(canvasRef.current, active ? stateRef.current : null,
-                    sizeRef.current, contactAtRef.current);
+                    sizeRef.current, contactAtRef.current, undefined,
+                    cueOpacity(performance.now(), cueChangedRef.current,
+                               movedAtRef.current));
       }
       handle = requestAnimationFrame(tick);
     };
@@ -119,7 +139,8 @@ export function paintCursor(canvas: HTMLCanvasElement | null,
                             state: CursorState | null,
                             size: { width: number; height: number },
                             contactAt: number | null,
-                            now = () => performance.now()): void {
+                            now = () => performance.now(),
+                            cue = 0): void {
   if (!canvas) return;
   const context = canvas.getContext("2d");
   if (!context) return;
@@ -222,6 +243,31 @@ export function paintCursor(canvas: HTMLCanvasElement | null,
     context.arc(x, y, 4, 0, Math.PI * 2);
     context.fillStyle = colour;
     context.fill();
+  }
+
+  /*
+   * The cue itself (§98): what a pinch would do, beside the hand.
+   *
+   * Offset rather than centred, so it never sits on the point the researcher is
+   * aiming at — the one place on screen that must stay legible.
+   */
+  if (cue > 0 && state.intent) {
+    context.save();
+    context.globalAlpha = cue * 0.9;
+    context.font = "12px ui-sans-serif, system-ui, sans-serif";
+    context.textBaseline = "middle";
+    const label = state.intent;
+    const width = context.measureText(label).width;
+    const boxX = x + radius + 10, boxY = y - 10;
+    context.fillStyle = "rgba(255,255,255,0.92)";
+    context.fillRect(boxX - 5, boxY - 2, width + 10, 20);
+    context.strokeStyle = "rgba(20,30,50,0.15)";
+    context.lineWidth = 1;
+    context.setLineDash([]);
+    context.strokeRect(boxX - 5, boxY - 2, width + 10, 20);
+    context.fillStyle = "rgba(20,30,50,0.9)";
+    context.fillText(label, boxX, boxY + 8);
+    context.restore();
   }
 
   context.globalAlpha = 1;

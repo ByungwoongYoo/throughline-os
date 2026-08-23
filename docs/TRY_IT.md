@@ -141,6 +141,18 @@ The outline stays on the figure you started on even if your hand wanders off it,
 which is the rule that stops a long drag being handed to whatever you passed
 over.
 
+### It tells you what a pinch would do
+
+Beside the cursor you will see *pinch to draw*, *pinch to rub out*, *pinch to
+select* — whichever applies.
+
+It does not stay there. It appears when the answer **changes** (your hand has
+arrived somewhere new, or you switched tool) and whenever your hand **goes
+still** — because holding your hand over something without acting is
+deliberating, and that is the other moment it helps. While you are moving, it
+fades away. A label pinned to the cursor forever would follow you across the
+figure, sit on the data you are reading, and become furniture you stop seeing.
+
 ### The eraser has a size
 
 Switch to the eraser and you will see a faint dashed circle around the cursor.
