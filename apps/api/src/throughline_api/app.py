@@ -21,7 +21,8 @@ from throughline_domain import (
     analysis, auth, claim_test, compare, consistency, critic, discovery,
     embeddings, events, example, extraction, findings, graph_projection, graphs,
     harmonize, images, journal, lineage, notebook, objects, observability,
-    embedding_space, excerpts, haptics, marks, patterns, reconcile, retrieval, selection, speech,
+    authoring, citations, communication, embedding_space, excerpts, haptics, marks,
+    patterns, reconcile, render_artifact, retrieval, selection, speech,
     specification, storage, synthesis, validation, visuals, vocabulary,
     workflow,
 )
@@ -1181,6 +1182,14 @@ def synthesis_key_points(project_id: str, payload: SynthesisRequest,
             raise HTTPException(400, str(exc)) from exc
 
 
+class DraftRequest(BaseModel):
+    """Which tested connection to assemble a report from (§74)."""
+
+    connection_id: str
+    artifact_type: str = "report"
+    audience: str = "researcher"
+
+
 class MarkRequest(BaseModel):
     """A mark drawn on a paper (§204).
 
@@ -1366,6 +1375,158 @@ def fetch_paper_pdf(payload: PaperPdfRequest,
         # the browser render an untrusted PDF in this origin would undo that.
         headers={"Content-Disposition": "attachment"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Reports and presentations (§74, §75)
+#
+# These five routes were the whole gap between a finished analysis and a
+# document. Everything below this line already existed and was tested —
+# `authoring` assembles a report from a tested connection, `communication`
+# resolves every displayed value back to the run it came from, and
+# `render_artifact` produces real .docx and .pptx bytes — and none of it was
+# reachable, because the API never imported any of it. The Reports screen
+# called these paths and received 404s.
+# ---------------------------------------------------------------------------
+
+@app.get("/api/projects/{project_id}/artifacts")
+def list_artifacts(project_id: str,
+                   user: dict = Depends(current_user)) -> list[dict[str, Any]]:
+    """Every report and presentation in this project, newest first."""
+    with transaction() as cur:
+        cur.execute(
+            """
+            SELECT a.id, a.artifact_type, a.title, a.status, a.version,
+                   a.created_at,
+                   (SELECT COUNT(*) FROM artifact_blocks b
+                     WHERE b.artifact_id = a.id) AS block_count,
+                   (SELECT COUNT(*) FROM artifact_renders r
+                     WHERE r.artifact_id = a.id) AS render_count
+              FROM communication_artifacts a
+             WHERE a.project_id = %s
+          ORDER BY a.created_at DESC
+            """,
+            (project_id,))
+        return [dict(row) for row in cur.fetchall()]
+
+
+@app.post("/api/projects/{project_id}/artifacts/draft", status_code=201)
+def draft_artifact(project_id: str, payload: DraftRequest,
+                   user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Assemble a report from a tested connection (§74).
+
+    Nothing here is written by a model. The narrative is built from the
+    connection, its validation report and the runs behind them, so every
+    sentence in the result is traceable to something that was computed.
+    """
+    with transaction() as cur:
+        try:
+            artifact_id = authoring.draft_from_connection(
+                cur, project_id=project_id, connection_id=payload.connection_id,
+                artifact_type=payload.artifact_type, audience=payload.audience)
+        except (authoring.AuthoringError, communication.CommunicationError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+    return {"artifact_id": artifact_id}
+
+
+@app.post("/api/artifacts/{artifact_id}/presentation", status_code=201)
+def draft_presentation(artifact_id: str,
+                       user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Re-cut an existing report as a talk (§75).
+
+    A presentation is the same evidence at a different length, so it is derived
+    from the report rather than assembled again — which is what keeps the slides
+    and the paper referencing the same runs.
+    """
+    with transaction() as cur:
+        cur.execute("SELECT project_id FROM communication_artifacts WHERE id = %s",
+                    (artifact_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "There is no such report.")
+        try:
+            new_id = authoring.draft_presentation_from_report(
+                cur, project_id=row["project_id"], report_id=artifact_id)
+        except (authoring.AuthoringError, communication.CommunicationError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+    return {"artifact_id": new_id}
+
+
+@app.get("/api/artifacts/{artifact_id}")
+def get_artifact(artifact_id: str,
+                 user: dict = Depends(current_user)) -> dict[str, Any]:
+    """An artifact, its resolved blocks, its integrity and its renders.
+
+    Integrity travels with the document rather than behind a separate call: a
+    reader deciding whether to export needs to know what will be refused, and a
+    screen that has to ask twice tends to show one of the two.
+    """
+    with transaction() as cur:
+        try:
+            artifact = communication.load_artifact(cur, artifact_id, resolve=True)
+        except communication.CommunicationError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        artifact["integrity"] = communication.check_integrity(cur, artifact_id)
+        cur.execute(
+            "SELECT id, fmt, storage_key, byte_size, resolved_hash, "
+            "artifact_version, created_at FROM artifact_renders "
+            "WHERE artifact_id = %s ORDER BY created_at DESC", (artifact_id,))
+        artifact["renders"] = [dict(row) for row in cur.fetchall()]
+        return artifact
+
+
+@app.post("/api/artifacts/{artifact_id}/render")
+def render_artifact_to_file(artifact_id: str, fmt: str = Query("markdown"),
+                            user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Produce the document (§75).
+
+    Refused, with the specific problems, when a value no longer traces to the
+    run it came from — "3 blocks reference an analysis run that no longer
+    exists" is actionable in a way that "export failed" is not, and a document
+    that quietly published a stale number is the failure this product exists to
+    prevent.
+    """
+    with transaction() as cur:
+        try:
+            return render_artifact.render(cur, artifact_id=artifact_id, fmt=fmt)
+        except render_artifact.RenderError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except communication.CommunicationError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+
+@app.post("/api/artifacts/{artifact_id}/check-citations")
+def check_artifact_citations(artifact_id: str,
+                             user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Check every citation in this artifact still says what it is quoted for."""
+    with transaction() as cur:
+        # Through the link table: a citation belongs to the project and is
+        # attached to blocks, so it can support more than one sentence.
+        cur.execute(
+            "SELECT c.id, b.template FROM artifact_blocks b "
+            "JOIN block_citations bc ON bc.block_id = b.id "
+            "JOIN citations c ON c.id = bc.citation_id "
+            "WHERE b.artifact_id = %s",
+            (artifact_id,))
+        rows = list(cur.fetchall())
+        checked = []
+        for row in rows:
+            try:
+                checked.append(citations.check_entailment(
+                    cur, row["id"], row["template"] or ""))
+            except Exception as exc:  # noqa: BLE001 - reported, never fatal
+                # One unresolvable citation must not stop the others being
+                # checked; the researcher needs the whole picture.
+                checked.append({"citation_id": row["id"], "error": str(exc)})
+    return {"checked": len(checked), "citations": checked}
+
+
+@app.get("/api/projects/{project_id}/citations/verify")
+def verify_citations(project_id: str,
+                     user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Which citations in this project still resolve (§73)."""
+    with transaction() as cur:
+        return citations.verify_project(cur, project_id)
 
 
 @app.post("/api/projects/{project_id}/marks", status_code=201)

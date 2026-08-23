@@ -31,9 +31,9 @@ and looked at the code. The test requires the count never to grow.
 | Status | Sections |
 |---|---|
 | built | 62 |
-| partial | 19 |
+| partial | 21 |
 | not-built | 13 |
-| unreviewed | 142 |
+| unreviewed | 140 |
 | **total** | **236** |
 
 Nothing here has been verified by anybody other than its author. `TASKS.md`
@@ -120,8 +120,8 @@ revisited — an edited specification is exactly when requirements go missing.
 | §71 | COLLABORATIVE AI CONTEXT | unreviewed |  |  |  |
 | §72 | COMMENTS AND ANNOTATIONS | unreviewed |  |  |  |
 | §73 | CITATIONS | unreviewed |  |  |  |
-| §74 | RESEARCH REPORT GENERATION | unreviewed |  |  |  |
-| §75 | EXPORT | unreviewed |  |  |  |
+| §74 | RESEARCH REPORT GENERATION | partial | apps/api/src/throughline_api/app.py, packages/research-domain/src/throughline_domain/authoring.py | tests/test_reports_api.py | A report is assembled from a tested connection and its validation report — nothing in it is written by a model, and every displayed number arrives by reference to a recorded run rather than as a literal, so "does the number in the document match the analysis" stops being a question. The pipeline was fully built and entirely unreachable until now: the API imported none of these modules, and the Reports screen called five routes that did not exist, so pressing Draft report answered 404. Drafting from a connection is wired but not yet covered end to end — it needs a validated connection fixture. |
+| §75 | EXPORT | partial | packages/research-domain/src/throughline_domain/render_artifact.py | tests/test_reports_api.py | Markdown, HTML, .docx and .pptx all render over HTTP now, and a render is refused — with the specific blocks named — when a value no longer traces to the run it came from, because a document that quietly published a stale number is the failure this product exists to prevent. Figures already export as SVG/PDF/PNG/TIFF with their spec hash embedded in the file. Not built: CSV and spreadsheet export, workspace snapshot, shareable link, code and provenance-log export. The section never asks for animation or video. |
 | §76 | SAVING | unreviewed |  |  |  |
 | §77 | AUTOSAVE | unreviewed |  |  |  |
 | §78 | OFFLINE / DEGRADED MODE | unreviewed |  |  |  |
