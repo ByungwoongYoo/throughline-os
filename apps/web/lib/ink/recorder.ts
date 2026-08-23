@@ -39,7 +39,8 @@ import {
 } from "./stabilise";
 import { SpatialSettings } from "@/lib/spatial/machine";
 import {
-  DEFAULT_STYLE, SpatialStroke, StrokePoint, StrokeStyle, newStrokeId, resample,
+  DEFAULT_STYLE, InkTool, SpatialStroke, StrokePoint, StrokeStyle, newStrokeId,
+  resample,
 } from "./stroke";
 import { DEFAULT_INK_SETTINGS, InkEvent, InkSettings, InkStateMachine } from "./machine";
 import { DEFAULT_PREDICT, PredictSettings, predictAhead } from "./predict";
@@ -54,6 +55,15 @@ export type RecorderResult = {
   open: SpatialStroke | null;
   /** True only when `finished` gained a stroke on this frame. */
   committed: boolean;
+  /**
+   * A finished lasso boundary (§180), which is never kept as a mark.
+   *
+   * A lasso is a question, not an annotation: the researcher drew it to ask
+   * *which of these*, and leaving it on the figure afterwards would turn every
+   * selection into a permanent scribble somebody has to clean up. It is handed
+   * over once, on the frame it closes, and then it is gone.
+   */
+  lasso: SpatialStroke | null;
   events: InkEvent[];
 };
 
@@ -212,13 +222,13 @@ export class InkRecorder {
    * what establishes intent; without it, erasing would be the most destructive
    * thing on the canvas and the easiest to trigger by accident.
    */
-  private tool: "pen" | "eraser" = "pen";
+  private tool: InkTool = "pen";
 
-  setTool(tool: "pen" | "eraser"): void {
+  setTool(tool: InkTool): void {
     this.tool = tool;
   }
 
-  currentTool(): "pen" | "eraser" {
+  currentTool(): InkTool {
     return this.tool;
   }
 
@@ -388,11 +398,32 @@ export class InkRecorder {
 
     if (this.tool === "eraser") committed = this.rub(result) || committed;
 
+    /*
+     * A lasso is drawn like a stroke and kept like a question.
+     *
+     * §180 asks for persistent visual feedback *while* lassoing, which is why
+     * it is drawn at all — a boundary you cannot see is one you cannot close
+     * accurately. What it must not do is survive: it is handed to the host on
+     * the frame it closes and removed from the canvas in the same breath.
+     */
+    let lasso: SpatialStroke | null = null;
+    if (this.tool === "lasso" && committed) {
+      lasso = this.finished[this.finished.length - 1] ?? null;
+      if (lasso) {
+        this.finished = this.finished.slice(0, -1);
+        // And out of the history too. A lasso is not something a researcher
+        // would ever want to undo *back onto* the figure.
+        this.past.undo();
+        committed = false;
+      }
+    }
+
+    void 0;
     const events = this.pendingEvents.length
       ? [...result.events, ...this.pendingEvents]
       : result.events;
     this.pendingEvents = [];
-    return { open: this.open, committed, events };
+    return { open: this.open, committed, lasso, events };
   }
 
   /**

@@ -30,10 +30,10 @@ and looked at the code. The test requires the count never to grow.
 
 | Status | Sections |
 |---|---|
-| built | 49 |
+| built | 50 |
 | partial | 19 |
 | not-built | 18 |
-| unreviewed | 150 |
+| unreviewed | 149 |
 | **total** | **236** |
 
 Nothing here has been verified by anybody other than its author. `TASKS.md`
@@ -226,7 +226,7 @@ revisited — an edited specification is exactly when requirements go missing.
 | §177 | PHYSICAL ERASER FEEDBACK | partial | apps/web/components/spatial/InkLayer.tsx | apps/web/tests/ink-erase.test.ts | A haptic tick at the moment the eraser meets ink, on the transition rather than per frame — a tick along a long line is a buzz, not a boundary. No visual resistance. |
 | §178 | PARTIAL STROKE ERASING | built | apps/web/lib/ink/erase.ts | apps/web/tests/ink-erase.test.ts | Erasing the middle of a stroke leaves two strokes. Each fragment is a subsequence of the points the hand made — never resampled or refitted — and carries `derivedFrom`, so a mark that was once one and is now two can still say what it was. |
 | §179 | UNDO MUST BE INSTANT | built | apps/web/lib/ink/history.ts | apps/web/tests/ink-history.test.ts | Synchronous and local: no network, no await, nothing that can fail. An undo that might not work is not an undo. |
-| §180 | LASSO TOOL | unreviewed |  |  |  |
+| §180 | LASSO TOOL | built | apps/web/lib/ink/recorder.ts | apps/web/tests/ink-lasso.test.ts | A freeform boundary that selects and does not become a mark, drawn visibly while it is being made (§180's persistent feedback) and absent from the undo history afterwards. Resolved through the same exact region query a drawn loop uses, against whichever figure the hand was addressing. |
 | §181 | SHAPE TOOL | built | apps/web/lib/ink/shapes.ts | apps/web/tests/ink-shapes.test.ts | Line, circle, ellipse, rectangle, polygon, arrow and bracket, read after the stroke finishes and never during it, offered rather than applied, and reversible when accepted. A mark that fits nothing is reported as fitting nothing. |
 | §182 | STRAIGHTEDGE MODE | not-built |  |  |  |
 | §183 | SPATIAL RULER | not-built |  |  |  |

@@ -165,6 +165,17 @@ column. It says *yes* while the scene is where you drew it, and offers **no — 
 back to it** once you have moved. Pressing that returns the chart to exactly the
 orientation and zoom the annotation was made at.
 
+### Selecting with a lasso
+
+The **Tool** row has a third setting: *Lasso*. Draw a loop around some points and
+it tells you what was inside — then **the boundary disappears**.
+
+That is the difference from drawing a loop with the pen. A lasso is a question,
+not an annotation: you drew it to ask *which of these*, and if it stayed on the
+figure every selection would leave a scribble behind for you to clean up. It is
+also absent from undo, so pressing undo after a selection does not put a
+boundary you had finished with back on the chart.
+
 ### Tidying a shape
 
 Draw a circle, a box, a line, an arrow, a bracket or a region. If the mark looks

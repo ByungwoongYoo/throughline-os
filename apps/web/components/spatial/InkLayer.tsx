@@ -35,6 +35,7 @@ import { InkState } from "@/lib/ink/machine";
 import { SpatialStroke, StrokePoint } from "@/lib/ink/stroke";
 import { StabilisationLevel } from "@/lib/ink/stabilise";
 import { Shape } from "@/lib/ink/shapes";
+import { InkTool } from "@/lib/ink/stroke";
 import { ReferenceTimeline } from "@/lib/voice/timeline";
 import { deviceFeedback } from "@/lib/spatial/feedback";
 
@@ -48,9 +49,9 @@ export type InkSurface = {
   shapeOf: (strokeId: string) => Shape | null;
   /** Accept an offered shape. Keeps what was drawn (§174). */
   tidy: (strokeId: string, shape: Shape) => void;
-  /** Switch between the pen and the eraser (§176). */
-  setTool: (tool: "pen" | "eraser") => void;
-  tool: () => "pen" | "eraser";
+  /** Switch between the pen, the eraser (§176) and the lasso (§180). */
+  setTool: (tool: InkTool) => void;
+  tool: () => InkTool;
   undo: () => void;
   redo: () => void;
   /** What undo and redo would do, so a control can say so before it is pressed. */
@@ -104,10 +105,19 @@ export const InkLayer = forwardRef<InkSurface, {
    * the entry with those targets.
    */
   onStroke?: (stroke: SpatialStroke, referenceId: number | null) => void;
+  /**
+   * A finished lasso boundary (§180), handed over once and never kept.
+   *
+   * Separate from `onStroke` because it is not a mark: the host resolves it into
+   * a selection and it disappears. Reporting it as a stroke would put it in the
+   * annotation list and invite somebody to tidy or erase a thing that no longer
+   * exists.
+   */
+  onLasso?: (boundary: SpatialStroke, referenceId: number | null) => void;
   /** Told when the pen state changes, for a status line. Never per frame. */
   onState?: (state: InkState) => void;
 }>(function InkLayer({ armed, stabilisation, options, timeline, fullViewport,
-                       onStroke, onState }, ref) {
+                       onStroke, onLasso, onState }, ref) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const committedRef = useRef<HTMLCanvasElement | null>(null);
   const liveRef = useRef<HTMLCanvasElement | null>(null);
@@ -125,8 +135,8 @@ export const InkLayer = forwardRef<InkSurface, {
   // Callbacks are read through a ref so a host passing an inline arrow does not
   // have to memoise it to avoid rebuilding the recorder — and, more importantly,
   // so the recorder never ends up holding a closure over stale props.
-  const handlers = useRef({ onStroke, onState, timeline });
-  handlers.current = { onStroke, onState, timeline };
+  const handlers = useRef({ onStroke, onLasso, onState, timeline });
+  handlers.current = { onStroke, onLasso, onState, timeline };
   /** The timeline entry the open stroke belongs to. */
   const referenceRef = useRef<number | null>(null);
 
@@ -211,6 +221,13 @@ export const InkLayer = forwardRef<InkSurface, {
         // something to bind to, and by the time the stroke commits the word has
         // already been said.
         referenceRef.current = timeline?.begin(frame.timestamp, "region") ?? null;
+      }
+
+      if (result.lasso) {
+        liveDirty.current = true;
+        committedDirty.current = true;
+        handlers.current.onLasso?.(result.lasso, referenceRef.current);
+        referenceRef.current = null;
       }
 
       if (result.committed) {

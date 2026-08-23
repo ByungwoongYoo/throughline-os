@@ -36,6 +36,7 @@ import { describeContext, selectionContext } from "@/lib/ink/context";
 import { ReferenceTimeline } from "@/lib/voice/timeline";
 import { ScreenPoint, ViewState, sameView } from "@/lib/spatial/commands";
 import { Shape } from "@/lib/ink/shapes";
+import { InkTool } from "@/lib/ink/stroke";
 import { now } from "@/lib/spatial/clock";
 import { resolveUtterance } from "@/lib/voice/deixis";
 import { describeIntent, readIntent } from "@/lib/voice/intent";
@@ -167,7 +168,9 @@ export default function AirInkPage() {
   const [state, setState] = useState<InkState>("DISABLED");
   const [readings, setReadings] = useState<Reading[]>([]);
   const [level, setLevel] = useState<StabilisationLevel>(DEFAULT_STABILISATION_LEVEL);
-  const [tool, setTool] = useState<"pen" | "eraser">("pen");
+  const [tool, setTool] = useState<InkTool>("pen");
+  /** What the last lasso caught, reported and not applied (§197). */
+  const [lassoed, setLassoed] = useState<string | null>(null);
   const [said, setSaid] = useState("");
   const [proposal, setProposal] = useState<string | null>(null);
   /** What undo and redo would do right now, read after anything changes. */
@@ -215,6 +218,39 @@ export default function AirInkPage() {
   // second; the recorder is the thing that holds state, and it is not React.
   const handleFrame = useCallback((frame: HandFrame) => {
     inkRef.current?.step(frame);
+  }, []);
+
+  /**
+   * A finished lasso (§180).
+   *
+   * Resolved exactly as a drawn region is — the same `selectWithinStroke`, the
+   * same conversion into the addressed figure's frame — because it *is* one.
+   * The only difference is that nothing is kept afterwards.
+   */
+  const handleLasso = useCallback((boundary: SpatialStroke,
+                                   referenceId: number | null) => {
+    const chart = readTarget.current?.() ?? chartRef.current;
+    const box = chart?.bounds() ?? null;
+    const selection = chart && box
+      ? selectWithinStroke(boundary, {
+          withinPolygon: (polygon: ScreenPoint[]) => chart.withinPolygon(
+            polygon.map((p) => ({ x: p.x - box.x, y: p.y - box.y }))),
+        })
+      : null;
+
+    setLassoed(selection ? describeSelection(selection)
+                         : "No figure was under that loop.");
+
+    // The timeline entry the layer opened at pen-down still has to be closed, or
+    // it stays open for ever and captures every word spoken afterwards.
+    if (referenceId !== null) {
+      if (selection?.ok) {
+        timelineRef.current.complete(referenceId, now(),
+          { targets: selection.targets.map((t) => t.id) });
+      } else {
+        timelineRef.current.abandon(referenceId);
+      }
+    }
   }, []);
 
   const handleStroke = useCallback((stroke: SpatialStroke,
@@ -358,7 +394,7 @@ export default function AirInkPage() {
       <div style={{ display: "flex", gap: 8, alignItems: "center",
                     margin: "0 0 12px" }}>
         <span style={{ fontSize: 14, color: "#333" }}>Tool</span>
-        {(["pen", "eraser"] as const).map((option) => (
+        {(["pen", "eraser", "lasso"] as const).map((option) => (
           <button key={option}
                   onClick={() => { inkRef.current?.setTool(option); setTool(option); }}
                   aria-pressed={tool === option}
@@ -367,14 +403,17 @@ export default function AirInkPage() {
                            background: tool === option ? "#eaf0fc" : "transparent",
                            color: tool === option ? "#1443B8" : "#444",
                            cursor: "pointer" }}>
-            {option === "pen" ? "Pen" : "Eraser"}
+            {option === "pen" ? "Pen" : option === "eraser" ? "Eraser" : "Lasso"}
           </button>
         ))}
         <span style={{ color: "#555", fontSize: 13 }}>
           {tool === "pen"
             ? "Pinch and move to draw."
-            : "Pinch and move across a mark to rub it out. Erasing the middle of "
-              + "a line leaves two lines."}
+            : tool === "eraser"
+              ? "Pinch and move across a mark to rub it out. Erasing the middle "
+                + "of a line leaves two lines."
+              : "Pinch and draw a loop around some points. The boundary selects "
+                + "them and then disappears — it is a question, not a mark."}
         </span>
       </div>
 
@@ -472,7 +511,8 @@ export default function AirInkPage() {
                     zIndex: 5 }}>
         <InkLayer ref={inkRef} armed={armed} stabilisation={level} fullViewport
                   timeline={timelineRef.current}
-                  onState={setState} onStroke={handleStroke} />
+                  onState={setState} onStroke={handleStroke}
+                  onLasso={handleLasso} />
       </div>
 
       <h2 style={{ fontSize: 18, marginTop: 32 }}>What each stroke turned out to be</h2>
@@ -597,6 +637,14 @@ export default function AirInkPage() {
           Read it
         </button>
       </form>
+      {lassoed && (
+        <p style={{ maxWidth: 640, fontSize: 14, padding: "10px 12px",
+                    background: "#f4f7fd", border: "1px solid #dbe4f7",
+                    borderRadius: 6 }}>
+          {lassoed}
+        </p>
+      )}
+
       {proposal && (
         <p style={{ maxWidth: 640, fontSize: 14, padding: "10px 12px",
                     background: "#f4f7fd", border: "1px solid #dbe4f7",

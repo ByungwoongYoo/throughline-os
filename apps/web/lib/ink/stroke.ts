@@ -39,7 +39,16 @@ export type InkCoordinateSpace =
   | "world"
   | "surface";
 
-export type InkTool = "pen" | "highlighter" | "eraser" | "lasso";
+/**
+ * The tools that exist.
+ *
+ * `highlighter` was listed here and implemented nowhere — a member of a union
+ * that reads as a capability and is only a plan. The specification does mention
+ * one, and it will be added when it draws something; until then the type says
+ * what the product does rather than what it intends, which is the standard this
+ * codebase holds its documentation to and owes its types as well.
+ */
+export type InkTool = "pen" | "eraser" | "lasso";
 
 export type StrokePoint = {
   x: number;
