@@ -255,7 +255,8 @@ function makeStroke(
     x: p.x, y: p.y, timestamp: i * 33, confidence: 0.95, predicted: p.predicted,
   }));
   return {
-    id: newStrokeId(), tool: "lasso", space: "screen", style: DEFAULT_STYLE,
+    id: newStrokeId(), tool: "lasso", space: "screen",
+    layerId: "researcher", style: DEFAULT_STYLE,
     originalPoints: full, points: full, createdAt: 0, createdBy: "test",
   };
 }

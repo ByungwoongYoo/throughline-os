@@ -88,6 +88,13 @@ export type SpatialStroke = {
   space: InkCoordinateSpace;
   /** Which research object this is attached to, for object/data/surface ink. */
   parentObjectId?: string;
+  /**
+   * Which layer this belongs to (§201).
+   *
+   * Carried on the stroke rather than inferred, because whose mark it is has to
+   * survive being reordered, split by an eraser, or tidied into a shape.
+   */
+  layerId: string;
   style: StrokeStyle;
   /** Exactly what the hand did. Never rewritten. */
   originalPoints: StrokePoint[];

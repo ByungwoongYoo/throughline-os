@@ -191,6 +191,7 @@ describe("the stack behaves the way people expect", () => {
   function stroke(id: string): SpatialStroke {
     return {
       id, tool: "pen", space: "screen",
+      layerId: "researcher",
       style: { colour: "#000", width: 2, opacity: 1 },
       originalPoints: [], points: [], createdAt: 0, createdBy: "test",
     };

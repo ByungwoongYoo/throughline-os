@@ -221,6 +221,7 @@ describe("the painter itself", () => {
   function strokeOf(points: Array<{ x: number; y: number }>): SpatialStroke {
     return {
       id: "s1", tool: "pen", space: "screen",
+      layerId: "researcher",
       style: { colour: "#000", width: 2, opacity: 1 },
       originalPoints: points.map((p, i) => ({ ...p, timestamp: i, confidence: 1 })),
       points: points.map((p, i) => ({ ...p, timestamp: i, confidence: 1 })),

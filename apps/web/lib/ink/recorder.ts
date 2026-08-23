@@ -47,6 +47,7 @@ import { DEFAULT_PREDICT, PredictSettings, predictAhead } from "./predict";
 import { InkHistory, applyOperation } from "./history";
 import { ERASER_RADIUS, ErasePath, eraseAlong } from "./erase";
 import { Shape, recognise } from "./shapes";
+import { InkLayer, researcherLayer } from "./layers";
 import {
   Straightedge, constrain, headingOf,
 } from "./straightedge";
@@ -124,6 +125,15 @@ export class InkRecorder {
   private stabilisation: InkStabilisation;
   private predictSettings: PredictSettings;
   private style: StrokeStyle;
+  /**
+   * The layers on this canvas, and which one is being drawn into (§201).
+   *
+   * A recorder always has at least one, so a stroke can never be orphaned — a
+   * mark on no layer is a mark that cannot be hidden, cannot be attributed and
+   * cannot be told apart from one the assistant drew.
+   */
+  private layers: InkLayer[];
+  private activeLayer: string;
   private author: string;
   private now: () => number;
   private viewport: Viewport = { width: 1, height: 1 };
@@ -143,8 +153,47 @@ export class InkRecorder {
     };
     this.stabiliser = new Stabiliser(this.stabilisation);
     this.style = { ...DEFAULT_STYLE, ...options.style };
+    this.layers = [researcherLayer(this.style)];
+    this.activeLayer = this.layers[0].id;
     this.author = options.author ?? "researcher";
     this.now = options.now ?? (() => Date.now());
+  }
+
+  /** Every layer on this canvas, for a control that toggles them. */
+  allLayers(): InkLayer[] {
+    return this.layers;
+  }
+
+  /** Add a layer, or replace one with the same id. */
+  putLayer(layer: InkLayer): void {
+    const at = this.layers.findIndex((l) => l.id === layer.id);
+    if (at < 0) this.layers.push(layer);
+    else this.layers[at] = layer;
+  }
+
+  setLayerVisible(id: string, visible: boolean): void {
+    this.layers = this.layers.map(
+      (l) => (l.id === id ? { ...l, visible } : l));
+  }
+
+  /** Draw into this layer from now on. Ignores an id that does not exist. */
+  setActiveLayer(id: string): void {
+    if (this.layers.some((l) => l.id === id)) this.activeLayer = id;
+  }
+
+  activeLayerId(): string {
+    return this.activeLayer;
+  }
+
+  /** Change the style new strokes are drawn with (§202). */
+  setStyle(style: Partial<StrokeStyle>): void {
+    this.layers = this.layers.map((l) => (l.id === this.activeLayer
+      ? { ...l, style: { ...l.style, ...style } } : l));
+  }
+
+  private layerStyle(): StrokeStyle {
+    return this.layers.find((l) => l.id === this.activeLayer)?.style
+        ?? this.style;
   }
 
   /** Set by the host, in the pixels of whatever the ink is drawn over. */
@@ -511,7 +560,8 @@ export class InkRecorder {
       // controller seam consumes. Object, data, world and surface strokes are a
       // mapping applied on top of this, not a different recorder.
       space: "screen",
-      style: { ...this.style },
+      layerId: this.activeLayer,
+      style: { ...this.layerStyle() },
       originalPoints: [],
       points: [],
       createdAt: this.now(),

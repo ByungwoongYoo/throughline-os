@@ -40,6 +40,9 @@ import { InkTool } from "@/lib/ink/stroke";
 import {
   STRAIGHTEDGE_HELP, STRAIGHTEDGE_LABEL, Straightedge,
 } from "@/lib/ink/straightedge";
+import {
+  INK_COLOURS, InkLayer as AnnotationLayer, describeLayer,
+} from "@/lib/ink/layers";
 import { now } from "@/lib/spatial/clock";
 import { resolveUtterance } from "@/lib/voice/deixis";
 import { describeIntent, readIntent } from "@/lib/voice/intent";
@@ -175,6 +178,10 @@ export default function AirInkPage() {
   /** What the last lasso caught, reported and not applied (§197). */
   const [lassoed, setLassoed] = useState<string | null>(null);
   const [edge, setEdge] = useState<Straightedge>("off");
+  const [colour, setColour] = useState<string>(INK_COLOURS[0].value);
+  const [layers, setLayers] = useState<AnnotationLayer[]>([]);
+  const refreshLayers = useCallback(
+    () => setLayers(inkRef.current?.layers() ?? []), []);
   const [said, setSaid] = useState("");
   const [proposal, setProposal] = useState<string | null>(null);
   /** What undo and redo would do right now, read after anything changes. */
@@ -323,7 +330,8 @@ export default function AirInkPage() {
       // Newest first, and only the last few: this is a live reading, not a log.
     }, ...previous].slice(0, 6));
     syncPresent();
-  }, [syncPresent]);
+    refreshLayers();
+  }, [syncPresent, refreshLayers]);
 
   /** The rows to draw: readings whose stroke is still on the canvas. */
   const visible = readings.filter((r) => present.has(r.strokeId));
@@ -626,6 +634,60 @@ export default function AirInkPage() {
               ))}
             </tbody>
           </table>
+        )}
+
+      {/*
+        * Colour and layers (§202, §201), kept to one row each.
+        *
+        * §202 warns against a floating palette for every change, so there are
+        * four colours rather than a picker, and layers are a list of switches
+        * rather than a panel.
+        */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center",
+                    margin: "0 0 16px" }}>
+        <span style={{ fontSize: 14, color: "#333" }}>Colour</span>
+        {INK_COLOURS.map((option) => (
+          <button key={option.id}
+                  onClick={() => { inkRef.current?.setStyle({ colour: option.value });
+                                   setColour(option.value); }}
+                  aria-pressed={colour === option.value}
+                  aria-label={option.name}
+                  style={{ width: 26, height: 26, borderRadius: "50%",
+                           background: option.value, cursor: "pointer",
+                           border: colour === option.value
+                             ? "3px solid #12203a" : "1px solid #bbb" }} />
+        ))}
+      </div>
+
+      <h2 style={{ fontSize: 18, marginTop: 32 }}>Layers</h2>
+      <p style={{ color: "#555", fontSize: 14, maxWidth: 640 }}>
+        Turn a group of annotations off to see the figure underneath. Hiding is
+        not erasing — everything comes back.
+      </p>
+      {layers.length === 0
+        ? <p style={{ color: "#888", fontSize: 14 }}>
+            Nothing drawn yet. <button
+              onClick={refreshLayers}
+              style={{ font: "inherit", color: "#1443B8", background: "none",
+                       border: "none", padding: 0, textDecoration: "underline",
+                       cursor: "pointer" }}>Show layers</button>
+          </p>
+        : (
+          <ul style={{ listStyle: "none", padding: 0, maxWidth: 640 }}>
+            {layers.map((layer) => (
+              <li key={layer.id} style={{ marginBottom: 8, fontSize: 14 }}>
+                <label style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+                  <input type="checkbox" checked={layer.visible}
+                         onChange={(e) => {
+                           inkRef.current?.setLayerVisible(layer.id,
+                                                           e.target.checked);
+                           refreshLayers();
+                         }} />
+                  <span style={{ color: "#333" }}>{describeLayer(layer)}</span>
+                </label>
+              </li>
+            ))}
+          </ul>
         )}
 
       <h2 style={{ fontSize: 18, marginTop: 32 }}>Saying what you mean</h2>

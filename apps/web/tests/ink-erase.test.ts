@@ -38,6 +38,7 @@ function line(id: string, x0: number, x1: number, y: number): SpatialStroke {
   for (let x = x0, i = 0; x <= x1; x += 10, i += 1) points.push(point(x, y, i));
   return {
     id, tool: "pen", space: "screen",
+    layerId: "researcher",
     style: { colour: "#000", width: 2, opacity: 1 },
     originalPoints: points, points,
     createdAt: 0, createdBy: "test",

@@ -32,11 +32,17 @@ import {
 import { HandFrame } from "@/lib/spatial/types";
 import { InkRecorder, RecorderOptions } from "@/lib/ink/recorder";
 import { InkState } from "@/lib/ink/machine";
-import { SpatialStroke, StrokePoint } from "@/lib/ink/stroke";
+import { SpatialStroke, StrokePoint, StrokeStyle } from "@/lib/ink/stroke";
 import { StabilisationLevel } from "@/lib/ink/stabilise";
 import { Shape } from "@/lib/ink/shapes";
 import { InkTool } from "@/lib/ink/stroke";
 import { Straightedge } from "@/lib/ink/straightedge";
+// Aliased: this file's component is also called `InkLayer`, and the canvas
+// overlay and the annotation group are different things that happen to share a
+// word.
+import {
+  InkLayer as AnnotationLayer, dashFor, isShowing,
+} from "@/lib/ink/layers";
 import { ReferenceTimeline } from "@/lib/voice/timeline";
 import { deviceFeedback } from "@/lib/spatial/feedback";
 
@@ -50,6 +56,13 @@ export type InkSurface = {
   shapeOf: (strokeId: string) => Shape | null;
   /** Accept an offered shape. Keeps what was drawn (§174). */
   tidy: (strokeId: string, shape: Shape) => void;
+  /** The layers on this canvas, and their visibility (§201). */
+  layers: () => AnnotationLayer[];
+  setLayerVisible: (id: string, visible: boolean) => void;
+  putLayer: (layer: AnnotationLayer) => void;
+  setActiveLayer: (id: string) => void;
+  /** Change the style new strokes are drawn with (§202). */
+  setStyle: (style: Partial<StrokeStyle>) => void;
   /** Constrain the line while it is drawn (§182). */
   setStraightedge: (mode: Straightedge) => void;
   straightedge: () => Straightedge;
@@ -290,6 +303,18 @@ export const InkLayer = forwardRef<InkSurface, {
       recorderRef.current?.tidy(strokeId, shape);
       committedDirty.current = true;
     },
+    layers() { return recorderRef.current?.allLayers() ?? []; },
+    setLayerVisible(id, visible) {
+      recorderRef.current?.setLayerVisible(id, visible);
+      committedDirty.current = true;
+      liveDirty.current = true;
+    },
+    putLayer(layer) {
+      recorderRef.current?.putLayer(layer);
+      committedDirty.current = true;
+    },
+    setActiveLayer(id) { recorderRef.current?.setActiveLayer(id); },
+    setStyle(style) { recorderRef.current?.setStyle(style); },
     setStraightedge(mode) { recorderRef.current?.setStraightedge(mode); },
     straightedge() {
       return recorderRef.current?.currentStraightedge() ?? "off";
@@ -325,12 +350,14 @@ export const InkLayer = forwardRef<InkSurface, {
       if (recorder) {
         if (committedDirty.current) {
           committedDirty.current = false;
-          paint(committedRef.current, recorder.strokes(), size);
+          paint(committedRef.current, recorder.strokes(), size,
+                recorder.allLayers());
         }
         if (liveDirty.current) {
           liveDirty.current = false;
           const open = recorder.openStroke();
-          paint(liveRef.current, open ? [open] : [], size);
+          paint(liveRef.current, open ? [open] : [], size,
+                recorder.allLayers());
         }
       }
       handle = requestAnimationFrame(tick);
@@ -372,7 +399,8 @@ export const InkLayer = forwardRef<InkSurface, {
  */
 export function paint(canvas: HTMLCanvasElement | null,
                       strokes: SpatialStroke[],
-                      size: { width: number; height: number }): void {
+                      size: { width: number; height: number },
+                      layers: readonly AnnotationLayer[] = []): void {
   if (!canvas) return;
   const context = canvas.getContext("2d");
   if (!context) return;
@@ -381,7 +409,24 @@ export function paint(canvas: HTMLCanvasElement | null,
   context.setTransform(dpr, 0, 0, dpr, 0, 0);
   context.clearRect(0, 0, size.width, size.height);
 
+  const layerOf = (id: string) => layers.find((l) => l.id === id);
+
   for (const stroke of strokes) {
+    /*
+     * Whose mark it is decides how it is drawn, and the style does not get a
+     * vote (§201).
+     *
+     * An assistant's annotation is always dashed, whatever style it carries.
+     * That override is the whole mechanism: distinguishability cannot be lost
+     * by a caller setting a style, by a style being copied between strokes, or
+     * by a future control offering "dash" as an option. A figure showing a
+     * suggested trend line is making a different claim from one showing a trend
+     * line somebody committed to, and the difference has to survive being
+     * screenshotted and looked at a year later.
+     */
+    const layer = layerOf(stroke.layerId);
+    if (layer && !isShowing(layer)) continue;
+
     const points = stroke.points.length ? stroke.points : stroke.originalPoints;
     if (points.length < 2) {
       // A single point is not drawn as a line, and drawing it as a dot would
@@ -393,8 +438,9 @@ export function paint(canvas: HTMLCanvasElement | null,
     context.globalAlpha = stroke.style.opacity;
     context.lineCap = "round";
     context.lineJoin = "round";
-    if (stroke.style.dashed) context.setLineDash([6, 5]);
-    else context.setLineDash([]);
+    const dash = layer ? dashFor(layer)
+                       : (stroke.style.dashed ? [6, 5] : null);
+    context.setLineDash(dash ? [...dash] : []);
 
     context.beginPath();
     drawPath(context, points);

@@ -165,6 +165,21 @@ column. It says *yes* while the scene is where you drew it, and offers **no — 
 back to it** once you have moved. Pressing that returns the chart to exactly the
 orientation and zoom the annotation was made at.
 
+### Colours and layers
+
+A **Colour** row with four colours — not a picker, because a floating palette for
+every change is worse than four good choices.
+
+A **Layers** list below the strokes table lets you turn a group of annotations
+off to see the figure underneath. Hiding is not erasing: everything comes back.
+
+One thing there is worth knowing even though you cannot trigger it yet.
+**Anything the assistant draws is always dashed**, and that cannot be changed —
+not by picking a style, not by copying one from another mark. A figure showing a
+*suggested* trend line is making a different claim from one showing a trend line
+you committed to, and that difference has to survive being screenshotted,
+printed in greyscale, and read a year later by somebody who was not there.
+
 ### Drawing a straight line
 
 A hand in mid-air cannot draw a straight line, and smoothing does not fix it:

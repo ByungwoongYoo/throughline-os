@@ -30,10 +30,10 @@ and looked at the code. The test requires the count never to grow.
 
 | Status | Sections |
 |---|---|
-| built | 51 |
+| built | 53 |
 | partial | 19 |
-| not-built | 17 |
-| unreviewed | 149 |
+| not-built | 16 |
+| unreviewed | 148 |
 | **total** | **236** |
 
 Nothing here has been verified by anybody other than its author. `TASKS.md`
@@ -247,8 +247,8 @@ revisited — an edited specification is exactly when requirements go missing.
 | §198 | DRAWING AS AI CONTEXT | built | apps/web/lib/ink/context.ts | apps/web/tests/ink-context.test.ts | A drawn region becomes the ask endpoint's selection payload. Nothing is summarised on the way — the count, mean and range are computed by the backend so they are calculated rather than asserted by the interface. |
 | §199 | TEMPORAL SPEECH-GESTURE FUSION | built | apps/web/lib/voice/timeline.ts | apps/web/tests/voice-fusion.test.ts | Referents are intervals on the shared clock, so a word binds to a gesture in progress. Short-lived windows, asymmetric: forward binding gives up sooner than backward, because it guesses at what somebody is about to do. |
 | §200 | LIVE PRESENTATION DRAWING | unreviewed |  |  |  |
-| §201 | INK LAYERS | not-built |  |  |  |
-| §202 | COLOR AND STYLE | unreviewed |  |  |  |
+| §201 | INK LAYERS | built | apps/web/lib/ink/layers.ts | apps/web/tests/ink-layers.test.ts | Layers with per-layer visibility, and the integrity requirement enforced rather than styled: an assistant's annotation is drawn dashed from its origin at render time, so it stays distinguishable however its style is set or copied. |
+| §202 | COLOR AND STYLE | built | apps/web/lib/ink/layers.ts | apps/web/tests/ink-layers.test.ts | Colour, width, opacity and dash per layer, with four colours rather than a picker — §202 warns against a floating palette for every change. A researcher's own dash is deliberately not the assistant's. |
 | §203 | HANDWRITING | not-built |  |  |  |
 | §204 | WRITING ON PAPERS A | unreviewed |  |  |  |
 | §205 | RESEARCH PAPER TO WORKBOARD A | unreviewed |  |  |  |
