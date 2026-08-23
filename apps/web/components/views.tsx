@@ -885,6 +885,8 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding }: {
   const [chosen, setChosen] = useState<string[]>([]);
   const [validating, setValidating] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  /** Whether the derivation chain is open beneath the result. */
+  const [tracing, setTracing] = useState(false);
 
   // The profiled schema, so confounders are picked rather than typed.
   const columns = useApi<DatasetColumn[]>(
@@ -945,7 +947,30 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding }: {
         labels={labels}
         summary={summary.data ?? null}
         sourceCount={{ sources: 0, datasets: connection.dataset_version_id ? 1 : 0 }}
+        /*
+         * "Where did this come from", finally answerable.
+         *
+         * The card has always rendered a Trace control and no caller ever
+         * supplied the handler, so the button could not appear — while
+         * `ProvenanceChain`, which answers exactly that question, was written
+         * and imported by nobody. Two halves of one feature, each complete,
+         * never joined. Provenance is the claim this product rests on, so this
+         * was the most valuable disconnected wire in the codebase.
+         *
+         * Offered only when there is an object to walk. A Trace button that
+         * opened an empty chain would be worse than none: it would suggest the
+         * lineage was checked and found empty.
+         */
+        onTrace={connection.analysis_object_id
+          ? () => setTracing((open) => !open)
+          : undefined}
       />
+
+      {tracing && connection.analysis_object_id && (
+        <div className="card">
+          <ProvenanceChain objectId={connection.analysis_object_id} />
+        </div>
+      )}
 
       <EvidenceGrade
         runId={connection.analysis_run_id}

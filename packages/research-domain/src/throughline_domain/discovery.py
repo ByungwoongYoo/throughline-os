@@ -464,10 +464,18 @@ def list_connections(
     #
     # Left joined, because a connection created outside a discovery run has no
     # dataset version and must still be listed rather than disappearing.
+    #
+    # `analysis_object_id` is the addressable object for the run that produced
+    # this connection, and it is what "where did this come from" needs. The
+    # connection's own `object_id` is not it: nothing sets that column, whereas
+    # `analysis.record_run` creates an ANALYSIS object for every run. Without
+    # this join the provenance chain has no anchor to start from, which is why
+    # the interface had a Trace control and no way to answer it.
     cur.execute(
-        f"SELECT c.*, dr.dataset_version_id "
+        f"SELECT c.*, dr.dataset_version_id, ar.object_id AS analysis_object_id "
         f"FROM connections c "
         f"LEFT JOIN discovery_runs dr ON dr.id = c.discovery_run_id "
+        f"LEFT JOIN analysis_runs ar ON ar.id = c.analysis_run_id "
         f"WHERE {' AND '.join('c.' + clause for clause in clauses)} "
         f"ORDER BY c.rank_score DESC, c.created_at DESC LIMIT %s",
         (*params, limit),

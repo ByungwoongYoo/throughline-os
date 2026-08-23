@@ -157,6 +157,15 @@ export type Connection = {
   evidence_quality: string;
   rank_score: number;
   analysis_run_id: string | null;
+  /**
+   * The addressable object for the run that produced this, or null.
+   *
+   * What "where did this come from" starts from. Deliberately not the
+   * connection's own `object_id` — nothing sets that column, while every
+   * analysis run gets an ANALYSIS object, so this is the anchor the provenance
+   * chain can actually walk.
+   */
+  analysis_object_id?: string | null;
   /** Null when the connection did not come from a discovery run. */
   dataset_version_id: string | null;
 };
