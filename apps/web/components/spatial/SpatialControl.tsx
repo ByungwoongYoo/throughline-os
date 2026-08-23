@@ -86,7 +86,7 @@ const EXPLAIN: Record<SpatialState, string> = {
 
 export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry,
                                  onFrameRate, onTracker, onMeasurement, onLatency,
-                                 onInferenceLatency,
+                                 onInferenceLatency, onActiveTarget,
                                  onFrame }: {
   controllerRef: React.RefObject<VisualizationController | null>;
   /**
@@ -125,6 +125,15 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
   onLatency?: (read: () => LatencySummary | null) => void;
   /** How long inference alone blocks the main thread. Read, not streamed. */
   onInferenceLatency?: (read: () => LatencySummary | null) => void;
+  /**
+   * Which figure the hand is currently addressing (§189).
+   *
+   * A reader rather than a stream: this is asked at the moment a stroke lands,
+   * not thirty times a second, and pushing it per frame would re-render the page
+   * to report the same chart. Returns null when the hand is over nothing, which
+   * the caller must treat as "no figure" rather than as "the usual one".
+   */
+  onActiveTarget?: (read: () => VisualizationController | null) => void;
   /**
    * What the pinch actually measures, against what it has to beat.
    *
@@ -270,6 +279,7 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
     onTracker?.(() => trackerRef.current?.diagnostics() ?? null);
     onLatency?.(() => sessionRef.current?.latencySummary() ?? null);
     onInferenceLatency?.(() => sessionRef.current?.inferenceSummary() ?? null);
+    onActiveTarget?.(() => activeRef.current);
 
     const session = new SpatialSession(
       tracker,
@@ -417,7 +427,7 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
     setDevices(await session.devices());
   }, [controllerRef, alsoControls, preferences.deviceId, preferences.settings, stop,
       onTelemetry, onFrameRate, onTracker, onMeasurement, onLatency,
-      onInferenceLatency]);
+      onInferenceLatency, onActiveTarget]);
 
   /**
    * Begin the two-pose calibration described in §18.

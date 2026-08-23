@@ -24,6 +24,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Volume } from "@/components/charts/Volume";
+import { Surface } from "@/components/charts/Surface";
 import { InkLayer, InkSurface } from "@/components/spatial/InkLayer";
 import { SpatialControl } from "@/components/spatial/SpatialControl";
 import { VisualizationController } from "@/lib/spatial/commands";
@@ -33,7 +34,7 @@ import { SpatialStroke, isClosed, observedPoints, strokeLength } from "@/lib/ink
 import { describeSelection, selectWithinStroke } from "@/lib/ink/select";
 import { describeContext, selectionContext } from "@/lib/ink/context";
 import { ReferenceTimeline } from "@/lib/voice/timeline";
-import { ViewState, sameView } from "@/lib/spatial/commands";
+import { ScreenPoint, ViewState, sameView } from "@/lib/spatial/commands";
 import { now } from "@/lib/spatial/clock";
 import { resolveUtterance } from "@/lib/voice/deixis";
 import { describeIntent, readIntent } from "@/lib/voice/intent";
@@ -54,6 +55,32 @@ const CLOUD = Array.from({ length: 180 }, (_, i) => {
     y: Math.sin(t) * (2 + lobe) + jitter(i + 99) * 0.8,
     z: (lobe - 1) * 2 + jitter(i + 7) * 0.9,
     value: lobe,
+  };
+});
+
+/**
+ * A saddle, so the second figure is a different *kind* of thing.
+ *
+ * Not a second cloud: the point of having two is to check that a loop drawn on
+ * one resolves against that one, and two identical figures would make a
+ * mis-resolution invisible.
+ */
+const SADDLE = (() => {
+  const axis = Array.from({ length: 15 }, (_, i) => i / 1.75);
+  return {
+    x: axis,
+    y: axis,
+    z: axis.map((y) => axis.map((x) =>
+      Math.pow(x - 4, 2) / 3 - Math.pow(y - 4, 2) / 3)),
+  };
+})();
+
+const SADDLE_POINTS = Array.from({ length: 12 }, (_, i) => {
+  const x = 1 + (i % 6) * 1.2;
+  const y = 1.5 + Math.floor(i / 6) * 3;
+  return {
+    id: `run${i}`, label: `Run ${i + 1}`, x, y,
+    z: Math.pow(x - 4, 2) / 3 - Math.pow(y - 4, 2) / 3 + Math.sin(i * 2.1) * 0.3,
   };
 });
 
@@ -121,6 +148,15 @@ type Reading = {
 
 export default function AirInkPage() {
   const chartRef = useRef<VisualizationController | null>(null);
+  const surfaceRef = useRef<VisualizationController | null>(null);
+  /**
+   * Which figure the hand was addressing, read at the moment a stroke lands.
+   *
+   * §189 makes this the right question to ask then rather than continuously:
+   * the pen is a pinch, so the target is locked for the whole stroke, and
+   * whatever it was at pen-down is still what it is at pen-up.
+   */
+  const readTarget = useRef<(() => VisualizationController | null) | null>(null);
   const inkRef = useRef<InkSurface>(null);
   const [armed, setArmed] = useState(false);
   const [state, setState] = useState<InkState>("DISABLED");
@@ -178,9 +214,27 @@ export default function AirInkPage() {
   const handleStroke = useCallback((stroke: SpatialStroke,
                                     referenceId: number | null) => {
     const observed = observedPoints(stroke);
-    const chart = chartRef.current;
-    const selection = chart
-      ? selectWithinStroke(stroke, chart)
+    // The figure the hand was on, not a fixed one. With the pen spanning the
+    // page, a stroke over the surface must resolve against the surface.
+    const chart = readTarget.current?.() ?? chartRef.current;
+    const box = chart?.bounds() ?? null;
+
+    /*
+     * Strokes are in viewport coordinates and a chart hit-tests in its own, so
+     * the polygon is moved into the chart's frame before it is asked anything.
+     *
+     * A subtraction rather than a projection, and only because `bounds()` and
+     * the stroke are expressed in the same frame — which is the entire reason
+     * the layer measures the viewport rather than a container.
+     */
+    const inChartFrame = chart && box
+      ? {
+          withinPolygon: (polygon: ScreenPoint[]) => chart.withinPolygon(
+            polygon.map((p) => ({ x: p.x - box.x, y: p.y - box.y }))),
+        }
+      : null;
+    const selection = inChartFrame
+      ? selectWithinStroke(stroke, inChartFrame)
       : null;
 
     // The view this was drawn in, kept with the stroke (§143). A screen loop
@@ -239,8 +293,11 @@ export default function AirInkPage() {
         processed in the browser and never uploaded.
       </p>
 
-      <SpatialControl controllerRef={chartRef} label="the point cloud"
-                      onFrame={handleFrame} />
+      <SpatialControl controllerRef={chartRef}
+                      alsoControls={[surfaceRef]}
+                      label="the figures on this page"
+                      onFrame={handleFrame}
+                      onActiveTarget={(read) => { readTarget.current = read; }} />
 
       <div style={{ display: "flex", gap: 8, alignItems: "center",
                     margin: "16px 0" }}>
@@ -344,10 +401,40 @@ export default function AirInkPage() {
                 width={CHART.width} height={CHART.height}
                 caption="A synthetic cloud in three lobes."
                 xLabel="x" yLabel="y" zLabel="z" />
-        <InkLayer ref={inkRef} armed={armed} stabilisation={level}
+      </div>
+      </div>
+
+      <h2 style={{ fontSize: 18, marginTop: 32 }}>A second figure</h2>
+      <p style={{ color: "#555", fontSize: 14, maxWidth: 640 }}>
+        The pen spans the page rather than one chart, so a loop drawn here
+        resolves against <em>this</em> figure. Whichever one your hand is over is
+        the one being drawn on, and once you pinch it is held until you let go.
+      </p>
+      <div style={{ width: "fit-content", margin: "0 auto",
+                    border: "1px solid #ddd", borderRadius: 8, overflow: "hidden" }}>
+      <div style={{ position: "relative", width: CHART.width, height: CHART.height }}>
+        <Surface controllerRef={surfaceRef} grid={SADDLE}
+                 observations={SADDLE_POINTS}
+                 width={CHART.width} height={CHART.height}
+                 caption="A fitted saddle over two predictors."
+                 xLabel="dose" yLabel="duration" zLabel="response" />
+      </div>
+      </div>
+
+      {/*
+        * One pen for the whole page.
+        *
+        * Fixed to the viewport rather than sized to a figure: a layer inside a
+        * chart can only be drawn on inside that chart, and would need its own
+        * recorder and its own undo history per figure. Strokes are recorded in
+        * viewport coordinates and converted into a chart's frame through its
+        * `bounds()` when they are resolved.
+        */}
+      <div style={{ position: "fixed", inset: 0, pointerEvents: "none",
+                    zIndex: 5 }}>
+        <InkLayer ref={inkRef} armed={armed} stabilisation={level} fullViewport
                   timeline={timelineRef.current}
                   onState={setState} onStroke={handleStroke} />
-      </div>
       </div>
 
       <h2 style={{ fontSize: 18, marginTop: 32 }}>What each stroke turned out to be</h2>

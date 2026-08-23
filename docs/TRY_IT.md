@@ -177,6 +177,21 @@ decision anybody can make.
 Worth trying: draw several marks, press *Clear*, then *Undo*. Everything should
 come back in the order you drew it. *Redo* puts it away again.
 
+### The pen spans the page, not one chart
+
+There are two figures on this page now — the cloud and a fitted saddle — and
+**one pen across both**. Whichever figure your hand is over is the one you are
+drawing on, and a loop resolves against *that* figure's observations.
+
+That is not cosmetic. A layer that sat inside one chart could only be drawn on
+inside it, and would need its own recorder and its own undo history per figure,
+so a mark could never cross from one to the other and undo would not span them.
+
+Worth checking: draw a loop on the saddle and read the count, then draw the same
+loop on the cloud. The two should describe different observations. If a loop over
+one figure ever reports observations from the other, that is a serious fault and
+worth telling me about — the number would be plausible and wrong.
+
 ### If the line is too fast to write with
 
 Use the **Stabilisation** buttons under the pen controls. This was the first

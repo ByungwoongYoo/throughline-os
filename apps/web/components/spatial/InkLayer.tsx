@@ -54,6 +54,21 @@ export const InkLayer = forwardRef<InkSurface, {
   /** Whether the pen is available at all. The first of the two locks (§139). */
   armed: boolean;
   /**
+   * Cover the whole viewport rather than one figure.
+   *
+   * A layer sized to a single chart can only be drawn on inside that chart, and
+   * strokes are recorded in its pixels — so a page with two figures needs two
+   * layers, two recorders and two undo histories, and a mark cannot cross from
+   * one to the other. Covering the viewport makes the pen one pen: strokes are
+   * recorded in viewport coordinates, and the figure a stroke belongs to is
+   * whichever the hand was addressing when it was drawn (§189), converted
+   * through that chart's `bounds()`.
+   *
+   * The host must be positioned for this to mean anything — `position: fixed`
+   * with the layer inside it, or the overlay scrolls away from the hand.
+   */
+  fullViewport?: boolean;
+  /**
    * How hard to fight the hand's tremor.
    *
    * Changing it rebuilds the recorder, which is why any open stroke is committed
@@ -82,8 +97,8 @@ export const InkLayer = forwardRef<InkSurface, {
   onStroke?: (stroke: SpatialStroke, referenceId: number | null) => void;
   /** Told when the pen state changes, for a status line. Never per frame. */
   onState?: (state: InkState) => void;
-}>(function InkLayer({ armed, stabilisation, options, timeline, onStroke,
-                       onState }, ref) {
+}>(function InkLayer({ armed, stabilisation, options, timeline, fullViewport,
+                       onStroke, onState }, ref) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const committedRef = useRef<HTMLCanvasElement | null>(null);
   const liveRef = useRef<HTMLCanvasElement | null>(null);
@@ -133,8 +148,11 @@ export const InkLayer = forwardRef<InkSurface, {
   const resize = useCallback(() => {
     const host = hostRef.current;
     if (!host) return;
-    const width = host.clientWidth;
-    const height = host.clientHeight;
+    // The viewport when the pen spans the page, so a stroke's coordinates and a
+    // chart's `bounds()` are in the same frame and converting between them is a
+    // subtraction rather than a guess.
+    const width = fullViewport ? window.innerWidth : host.clientWidth;
+    const height = fullViewport ? window.innerHeight : host.clientHeight;
     if (!width || !height) return;
     setSize({ width, height });
     recorderRef.current?.setViewport({ width, height });
@@ -143,15 +161,23 @@ export const InkLayer = forwardRef<InkSurface, {
     // may not be repainted again for a minute.
     committedDirty.current = true;
     liveDirty.current = true;
-  }, []);
+  }, [fullViewport]);
 
   useEffect(() => {
     resize();
-    if (typeof ResizeObserver === "undefined") return;
+    if (typeof window !== "undefined" && fullViewport) {
+      window.addEventListener("resize", resize);
+    }
+    if (typeof ResizeObserver === "undefined") {
+      return () => window.removeEventListener?.("resize", resize);
+    }
     const observer = new ResizeObserver(resize);
     if (hostRef.current) observer.observe(hostRef.current);
-    return () => observer.disconnect();
-  }, [resize]);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener?.("resize", resize);
+    };
+  }, [resize, fullViewport]);
 
   useEffect(() => {
     const recorder = recorderRef.current;

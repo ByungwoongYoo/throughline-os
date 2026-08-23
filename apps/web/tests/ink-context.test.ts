@@ -12,7 +12,7 @@ import {
   MAX_SELECTION_POINTS, describeContext, selectionContext,
 } from "@/lib/ink/context";
 import { RegionSelection } from "@/lib/ink/select";
-import { TargetRef } from "@/lib/spatial/commands";
+import { ScreenPoint, TargetRef } from "@/lib/spatial/commands";
 
 const CHART = {
   visualization: "a saddle, fitted over two predictors",
@@ -162,5 +162,88 @@ describe("the researcher is asked before anything is sent", () => {
   it("shows the refusal when there is one", () => {
     expect(describeContext(selectionContext(ok([mark("bare", {})]), CHART)))
       .toMatch(/nothing to ask about/i);
+  });
+});
+
+describe("a stroke resolves against the figure it was drawn on", () => {
+  /**
+   * With the pen spanning the page rather than sitting inside one chart, a loop
+   * has to be moved into the frame of whichever figure the hand was addressing
+   * before that figure is asked what is inside it. Getting this wrong is silent
+   * in the worst way: the count comes back, it is plausible, and it describes
+   * observations from the other chart.
+   *
+   * The conversion is a subtraction only because strokes and `bounds()` are
+   * expressed in the same frame — which is why the layer measures the viewport.
+   */
+  type Rect = { x: number; y: number; width: number; height: number };
+
+  /** A chart at a position, whose marks sit at known chart-local points. */
+  function figureAt(box: Rect, marks: Array<{ id: string; at: ScreenPoint }>) {
+    const seen: ScreenPoint[][] = [];
+    return {
+      seen,
+      bounds: () => box,
+      withinPolygon: (polygon: ScreenPoint[]) => {
+        seen.push(polygon);
+        // Inside the polygon's bounding box, in *this chart's* coordinates.
+        const xs = polygon.map((p) => p.x), ys = polygon.map((p) => p.y);
+        const lo = { x: Math.min(...xs), y: Math.min(...ys) };
+        const hi = { x: Math.max(...xs), y: Math.max(...ys) };
+        return marks
+          .filter((m) => m.at.x >= lo.x && m.at.x <= hi.x
+                      && m.at.y >= lo.y && m.at.y <= hi.y)
+          .map((m) => ({ id: m.id, datum: { id: m.id, x: 1, y: 2, z: 3 } }));
+      },
+    };
+  }
+
+  /** What the page does: move the polygon into the chart's frame. */
+  function inFrameOf(chart: ReturnType<typeof figureAt>) {
+    const box = chart.bounds();
+    return {
+      withinPolygon: (polygon: ScreenPoint[]) => chart.withinPolygon(
+        polygon.map((p) => ({ x: p.x - box.x, y: p.y - box.y }))),
+    };
+  }
+
+  /** A loop in viewport coordinates, over the lower figure. */
+  const LOOP: ScreenPoint[] = Array.from({ length: 16 }, (_, i) => {
+    const t = (i / 16) * Math.PI * 2;
+    return { x: 400 + Math.cos(t) * 60, y: 900 + Math.sin(t) * 60 };
+  });
+
+  it("moves the loop into the chart's own coordinates", () => {
+    const lower = figureAt({ x: 100, y: 800, width: 700, height: 500 },
+                           [{ id: "in-lower", at: { x: 300, y: 100 } }]);
+
+    const found = inFrameOf(lower).withinPolygon(LOOP);
+
+    // The mark sits at chart-local (300, 100), which is viewport (400, 900) —
+    // the centre of the loop.
+    expect(found.map((t) => t.id)).toEqual(["in-lower"]);
+    expect(lower.seen[0][0].y).toBeLessThan(500);   // converted, not raw
+  });
+
+  it("does not answer with the other figure's observations", () => {
+    /**
+     * The failure worth guarding. Resolving the same viewport loop against the
+     * upper figure — the one the hand was not on — hands back a count that is
+     * plausible and wrong, and nothing downstream can tell.
+     */
+    const upper = figureAt({ x: 100, y: 0, width: 700, height: 500 },
+                           [{ id: "in-upper", at: { x: 300, y: 100 } }]);
+
+    expect(inFrameOf(upper).withinPolygon(LOOP)).toEqual([]);
+  });
+
+  it("would have been wrong without the conversion", () => {
+    // Handing the raw viewport polygon to the chart finds nothing at all, since
+    // the chart's own coordinates never reach y = 900 on a 500-tall figure.
+    const lower = figureAt({ x: 100, y: 800, width: 700, height: 500 },
+                           [{ id: "in-lower", at: { x: 300, y: 100 } }]);
+
+    expect(lower.withinPolygon(LOOP)).toEqual([]);
+    expect(inFrameOf(lower).withinPolygon(LOOP)).toHaveLength(1);
   });
 });
