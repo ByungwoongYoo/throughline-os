@@ -30,9 +30,9 @@ and looked at the code. The test requires the count never to grow.
 
 | Status | Sections |
 |---|---|
-| built | 46 |
-| partial | 17 |
-| not-built | 23 |
+| built | 48 |
+| partial | 18 |
+| not-built | 20 |
 | unreviewed | 150 |
 | **total** | **236** |
 
@@ -221,10 +221,10 @@ revisited — an edited specification is exactly when requirements go missing.
 | §172 | VOICE-CONTROLLED PEN | unreviewed |  |  |  |
 | §173 | DRAW AND TRANSFORM A | unreviewed |  |  |  |
 | §174 | PRESERVE HUMAN INTENT | built | apps/web/lib/ink/stroke.ts | apps/web/tests/ink.test.ts | originalPoints is never rewritten by any later interpretation. |
-| §175 | ERASE WITH THE HAND | not-built |  |  | No erasing. |
-| §176 | DO NOT USE RANDOM PALM MOVEMENT AS DELETE | not-built |  |  | No erasing. |
-| §177 | PHYSICAL ERASER FEEDBACK | not-built |  |  | No erasing. |
-| §178 | PARTIAL STROKE ERASING | not-built |  |  | No erasing. |
+| §175 | ERASE WITH THE HAND | partial | apps/web/lib/ink/erase.ts | apps/web/tests/ink-erase.test.ts | Method A, the eraser tool: the fingertip rubs out along a path, splitting strokes rather than removing them whole. Grab-and-throw, region erase by voice and whole-annotation delete are not built. |
+| §176 | DO NOT USE RANDOM PALM MOVEMENT AS DELETE | built | apps/web/lib/ink/recorder.ts | apps/web/tests/ink-erase.test.ts | Erasing refuses unless the eraser is the active tool, checked in the recorder rather than at a button so a second entry point cannot route around it. People wave their hands while they talk; the mode is what establishes intent. |
+| §177 | PHYSICAL ERASER FEEDBACK | not-built |  |  | No visual resistance or haptic event while the eraser crosses ink. |
+| §178 | PARTIAL STROKE ERASING | built | apps/web/lib/ink/erase.ts | apps/web/tests/ink-erase.test.ts | Erasing the middle of a stroke leaves two strokes. Each fragment is a subsequence of the points the hand made — never resampled or refitted — and carries `derivedFrom`, so a mark that was once one and is now two can still say what it was. |
 | §179 | UNDO MUST BE INSTANT | built | apps/web/lib/ink/history.ts | apps/web/tests/ink-history.test.ts | Synchronous and local: no network, no await, nothing that can fail. An undo that might not work is not an undo. |
 | §180 | LASSO TOOL | unreviewed |  |  |  |
 | §181 | SHAPE TOOL | not-built |  |  |  |

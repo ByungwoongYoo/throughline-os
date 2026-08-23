@@ -44,6 +44,7 @@ import {
 import { DEFAULT_INK_SETTINGS, InkEvent, InkSettings, InkStateMachine } from "./machine";
 import { DEFAULT_PREDICT, PredictSettings, predictAhead } from "./predict";
 import { InkHistory, applyOperation } from "./history";
+import { ERASER_RADIUS, ErasePath, eraseAlong } from "./erase";
 
 export type Viewport = { width: number; height: number };
 
@@ -198,6 +199,44 @@ export class InkRecorder {
   adoptFrom(previous: InkRecorder): void {
     this.finished = [...previous.finished];
     this.past.adoptFrom(previous.past);
+  }
+
+  /**
+   * The pen or the eraser (§176).
+   *
+   * A mode, and that is the requirement rather than an implementation choice.
+   * People wave their hands while they talk, so an open-hand wipe may only
+   * erase once the researcher has said they are erasing — "do not interpret an
+   * arbitrary wiping motion as delete during normal interaction". The mode is
+   * what establishes intent; without it, erasing would be the most destructive
+   * thing on the canvas and the easiest to trigger by accident.
+   */
+  private tool: "pen" | "eraser" = "pen";
+
+  setTool(tool: "pen" | "eraser"): void {
+    this.tool = tool;
+  }
+
+  currentTool(): "pen" | "eraser" {
+    return this.tool;
+  }
+
+  /**
+   * Rub out along a path, splitting strokes rather than removing them whole.
+   *
+   * Refuses unless the eraser is the active tool, so the mode lock cannot be
+   * bypassed by calling this directly — §176 is a property of the system, not
+   * of one button.
+   */
+  erase(path: ErasePath, radius = ERASER_RADIUS): boolean {
+    if (this.tool !== "eraser") return false;
+    const result = eraseAlong(this.finished, path, radius, this.now);
+    if (!result.changed) return false;
+    this.past.did({ kind: "rub", before: result.affected,
+                    after: result.strokes.filter(
+                      (s) => !this.finished.includes(s)) });
+    this.finished = result.strokes;
+    return true;
   }
 
   canUndo(): boolean { return this.past.canUndo(); }

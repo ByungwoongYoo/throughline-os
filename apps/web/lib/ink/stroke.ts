@@ -87,6 +87,15 @@ export type SpatialStroke = {
   createdAt: number;
   createdBy: string;
   /**
+   * The stroke this was split from, if it was (§178).
+   *
+   * Erasing the middle of a mark leaves two, and a fragment with no ancestry is
+   * indistinguishable from something the researcher drew separately — which
+   * matters the moment anything downstream asks what an annotation was, or how
+   * many marks a figure carries.
+   */
+  derivedFrom?: string;
+  /**
    * How the chart was being looked at when this was drawn (§143).
    *
    * Present for screen-space ink over a rotatable scene, which is the case with

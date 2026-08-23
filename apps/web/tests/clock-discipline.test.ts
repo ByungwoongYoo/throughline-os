@@ -47,6 +47,10 @@ const ALLOWED: Record<string, string> = {
     "createdAt is metadata a person reads, and is never compared with a frame",
   "lib/ink/stroke.ts":
     "seeds a unique stroke id; the value is an identifier, never a timestamp",
+  "lib/ink/erase.ts":
+    "stamps createdAt on a split fragment, which a person reads and nothing "
+    + "subtracts from a frame; the fragment's own points keep their original "
+    + "monotonic timestamps",
 };
 
 function walk(dir: string): string[] {
