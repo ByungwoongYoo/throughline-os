@@ -17,7 +17,7 @@ import { DiscoveryMap } from "@/lib/api";
 import { ThemeToggle } from "./Theme";
 import {
   IconAnalyses, IconCompare, IconConnections, IconData, IconDiscover,
-  IconFigures, IconFindings, IconGallery, IconGraph, IconLiterature,
+  IconFigures, IconFindings, IconGallery, IconGraph, IconHand, IconLiterature,
   IconNotebook, IconOverview, IconPatterns, IconReports, IconSearch,
   IconSettings, IconSources,
 } from "./icons";
@@ -70,6 +70,26 @@ const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; 
       { id: "settings", label: "Settings" },
     ],
   },
+];
+
+/**
+ * Pages that are routes of their own rather than sections of the workspace.
+ *
+ * Both existed and neither was linked from anywhere — a researcher could only
+ * reach them by typing the URL, so the largest and most carefully built part of
+ * this codebase was, in practice, unreachable from the product.
+ *
+ * They sit under "This machine" rather than in the research groups because
+ * that is what they are: one asks whether hand tracking works on this camera in
+ * this room, the other is where drawing in the air can be tried. Neither is a
+ * step in a piece of research, and filing them between Findings and Reports
+ * would say they were.
+ */
+const MACHINE_PAGES: Array<{ href: string; label: string; note: string }> = [
+  { href: "/gesture-check", label: "Check hand tracking",
+    note: "Does the camera see your hands, and how quickly" },
+  { href: "/air-ink", label: "Draw in the air",
+    note: "Marking up a figure by hand" },
 ];
 
 /** Flattened for the command palette, which needs the group name too. */
@@ -206,6 +226,19 @@ export function Shell({
                   <span className="rail-count">{counts[item.count]}</span>
                 )}
               </button>
+            ))}
+
+            {/* Real links, because these are separate pages and leaving the
+                workspace is what pressing them does. A button that navigated
+                would break opening one in a new tab. */}
+            {group.label === "This machine" && MACHINE_PAGES.map((page) => (
+              <a key={page.href} className="rail-item" href={page.href}
+                 title={page.note}>
+                <span className="rail-icon" aria-hidden>
+                  {IconHand({ size: 16 })}
+                </span>
+                <span>{page.label}</span>
+              </a>
             ))}
           </div>
         ))}
