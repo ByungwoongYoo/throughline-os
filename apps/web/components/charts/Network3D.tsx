@@ -239,7 +239,7 @@ export function Network3D({
           dirtyRef.current = true;
         }}
       />
-      <figcaption>
+      <figcaption className="chart-caption">
         {caption ? `${caption} ` : ""}
         {describeLayout(layout)}
         {selected && (

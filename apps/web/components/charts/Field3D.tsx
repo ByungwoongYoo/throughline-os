@@ -214,7 +214,7 @@ export function Field3D({
           dirtyRef.current = true;
         }}
       />
-      <figcaption>
+      <figcaption className="chart-caption">
         {caption ? `${caption} ` : ""}
         {describeField(field)}
         {selected !== null && field.glyphs[selected] && (
