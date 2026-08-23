@@ -109,6 +109,26 @@ Inside the workspace the same control sits on **Chart primitives → P13** (a 3D
 scatter) and on **Embedding space**, on your real corpus, if it has been
 embedded.
 
+### You can see which figure you have hold of
+
+With two figures on a page, the one your hand is over gets a **dashed outline**,
+and the one you have actually taken hold of gets a **solid green one**. Those are
+deliberately different pictures rather than the same one at two strengths: "this
+is the one I would grab" and "this is the one I have" are different facts, and
+until now neither was shown at all. If you pinched the wrong figure, the way you
+found out was by turning something you did not mean to.
+
+The outline stays on the figure you started on even if your hand wanders off it,
+which is the rule that stops a long drag being handed to whatever you passed
+over.
+
+### The eraser has a size
+
+Switch to the eraser and you will see a faint dashed circle around the cursor.
+That is how far it actually reaches. Before, you had to guess — and a tool whose
+extent you cannot see takes more than you meant about half the time, which on an
+eraser costs you an annotation.
+
 ### You can see your hand now
 
 With the camera on there is a small ring where the system thinks your pinch

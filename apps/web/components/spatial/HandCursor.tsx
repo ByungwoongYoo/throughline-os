@@ -134,6 +134,26 @@ export function paintCursor(canvas: HTMLCanvasElement | null,
   const colour = PHASE_COLOUR[state.phase];
   const radius = 13;
 
+  /*
+   * The figure the hand has taken hold of (§189).
+   *
+   * Drawn first, underneath everything, and only as an edge — a filled or
+   * tinted region over a figure competes with the data it is meant to be
+   * pointing at. Solid while held, dashed while merely under the hand, so
+   * "this is the one I would grab" and "this is the one I have" are different
+   * pictures rather than the same one at two opacities.
+   */
+  if (state.addressing) {
+    const box = state.addressing;
+    context.save();
+    context.strokeStyle = state.locked ? "rgba(27,122,62,0.9)"
+                                       : "rgba(20,67,184,0.45)";
+    context.lineWidth = state.locked ? 2.5 : 1.5;
+    context.setLineDash(state.locked ? [] : [6, 6]);
+    context.strokeRect(box.x, box.y, box.width, box.height);
+    context.restore();
+  }
+
   // Confidence dims the whole cursor, so a hand the tracker is unsure about
   // looks unsure rather than looking exactly like one it is certain of.
   context.globalAlpha = 0.35 + 0.65 * Math.min(1, Math.max(0, state.confidence));
@@ -173,6 +193,26 @@ export function paintCursor(canvas: HTMLCanvasElement | null,
       context.lineWidth = 2;
       context.stroke();
     }
+  }
+
+  /*
+   * How far the tool reaches (§177).
+   *
+   * The eraser has a radius and the researcher was expected to guess it, which
+   * on an eraser means losing an annotation about half the time. Drawn at true
+   * size and faintly, so it reads as the tool's extent rather than as another
+   * thing on the figure.
+   */
+  if (state.reach !== null && state.reach > radius) {
+    context.save();
+    context.beginPath();
+    context.arc(x, y, state.reach, 0, Math.PI * 2);
+    context.strokeStyle = colour;
+    context.globalAlpha *= 0.45;
+    context.setLineDash([3, 4]);
+    context.lineWidth = 1;
+    context.stroke();
+    context.restore();
   }
 
   // A filled centre while acting, so "drawing" and "about to draw" are not the

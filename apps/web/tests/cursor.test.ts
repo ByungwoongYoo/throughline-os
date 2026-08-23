@@ -39,6 +39,33 @@ function cursor(over: Partial<Parameters<typeof cursorFrom>[0]> = {}) {
   });
 }
 
+function recordingContext() {
+  const calls: Record<string, number> = {};
+  let alpha = 1;
+  const context = new Proxy({} as CanvasRenderingContext2D, {
+    get(_t, property: string) {
+      if (property === "canvas") return undefined;
+      if (property === "globalAlpha") return alpha;
+      return () => { calls[property] = (calls[property] ?? 0) + 1; };
+    },
+    set(_t, property: string, value) {
+      if (property === "globalAlpha") alpha = value as number;
+      return true;
+    },
+  });
+  return { context, calls, alpha: () => alpha };
+}
+
+const SIZE = { width: 1000, height: 800 };
+
+function canvasWith(recorded: ReturnType<typeof recordingContext>) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 2000; canvas.height = 1600;
+  canvas.getContext = (() => recorded.context) as never;
+  return canvas;
+}
+
+
 describe('"am I drawing yet" is answered continuously', () => {
   it("reads near zero with the hand open", () => {
     expect(closenessOf(hand(0.2), DEFAULT_SETTINGS)).toBeLessThan(0.15);
@@ -148,32 +175,6 @@ describe("what gets painted", () => {
    * only reachable through an animation frame in happy-dom is one no test ever
    * runs, which was true of the volume chart's painter for most of its life.
    */
-  function recordingContext() {
-    const calls: Record<string, number> = {};
-    let alpha = 1;
-    const context = new Proxy({} as CanvasRenderingContext2D, {
-      get(_t, property: string) {
-        if (property === "canvas") return undefined;
-        if (property === "globalAlpha") return alpha;
-        return () => { calls[property] = (calls[property] ?? 0) + 1; };
-      },
-      set(_t, property: string, value) {
-        if (property === "globalAlpha") alpha = value as number;
-        return true;
-      },
-    });
-    return { context, calls, alpha: () => alpha };
-  }
-
-  const SIZE = { width: 1000, height: 800 };
-
-  function canvasWith(recorded: ReturnType<typeof recordingContext>) {
-    const canvas = document.createElement("canvas");
-    canvas.width = 2000; canvas.height = 1600;
-    canvas.getContext = (() => recorded.context) as never;
-    return canvas;
-  }
-
   it("draws nothing at all when there is no hand", () => {
     const recorded = recordingContext();
     paintCursor(canvasWith(recorded), cursor({ hand: null }), SIZE, null);
@@ -256,5 +257,72 @@ describe("what gets painted", () => {
     const canvas = document.createElement("canvas");
     canvas.getContext = (() => null) as never;
     expect(() => paintCursor(canvas, cursor(), SIZE, null)).not.toThrow();
+  });
+});
+
+describe("which figure the hand has taken hold of (§189)", () => {
+  /**
+   * The audit finding this exists for. §189's lock is the most important
+   * guarantee in the spatial layer and nothing on screen confirmed it: with two
+   * figures on a page a researcher pinches and cannot tell which they have
+   * taken until it moves — and if it is the wrong one, they find out by turning
+   * a figure they did not mean to.
+   */
+  const box = { x: 100, y: 200, width: 400, height: 300 };
+
+  it("reports the figure under the hand", () => {
+    expect(cursor({ addressing: box }).addressing).toEqual(box);
+  });
+
+  it("distinguishes held from merely under the hand", () => {
+    // "This is the one I would grab" and "this is the one I have" must be
+    // different pictures, not the same one at two opacities.
+    expect(cursor({ addressing: box, engaged: false }).locked).toBe(false);
+    expect(cursor({ hand: hand(0.005), addressing: box, engaged: true }).locked)
+      .toBe(true);
+  });
+
+  it("is not locked onto nothing", () => {
+    // Engaged over empty space is engaged over empty space; drawing a lock
+    // there would promise something §189 has not given.
+    expect(cursor({ hand: hand(0.005), engaged: true, addressing: null }).locked)
+      .toBe(false);
+  });
+
+  it("draws the figure's edge, and more strongly when held", () => {
+    const recorded = recordingContext();
+    paintCursor(canvasWith(recorded), cursor({ addressing: box }), SIZE, null);
+    expect(recorded.calls.strokeRect).toBe(1);
+  });
+
+  it("draws no edge when the hand is over nothing", () => {
+    const recorded = recordingContext();
+    paintCursor(canvasWith(recorded), cursor({ addressing: null }), SIZE, null);
+    expect(recorded.calls.strokeRect ?? 0).toBe(0);
+  });
+});
+
+describe("how far the tool reaches (§177)", () => {
+  it("shows the eraser's size rather than expecting it to be guessed", () => {
+    /**
+     * A tool whose extent cannot be seen takes more than intended about half the
+     * time, and on an eraser that means losing an annotation.
+     */
+    const withReach = recordingContext();
+    paintCursor(canvasWith(withReach), cursor({ reach: 40 }), SIZE, null);
+
+    const without = recordingContext();
+    paintCursor(canvasWith(without), cursor({ reach: null }), SIZE, null);
+
+    expect(withReach.calls.arc).toBeGreaterThan(without.calls.arc ?? 0);
+  });
+
+  it("shows nothing extra for a tool smaller than the cursor itself", () => {
+    // A reach ring inside the ring would be noise rather than information.
+    const small = recordingContext();
+    paintCursor(canvasWith(small), cursor({ reach: 4 }), SIZE, null);
+    const none = recordingContext();
+    paintCursor(canvasWith(none), cursor({ reach: null }), SIZE, null);
+    expect(small.calls.arc).toBe(none.calls.arc);
   });
 });

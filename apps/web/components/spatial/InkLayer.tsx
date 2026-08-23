@@ -61,6 +61,8 @@ export type InkSurface = {
   setLayerVisible: (id: string, visible: boolean) => void;
   putLayer: (layer: AnnotationLayer) => void;
   setActiveLayer: (id: string) => void;
+  /** Which layer a mark would land on, so it can be shown. */
+  activeLayer: () => string;
   /** Change the style new strokes are drawn with (§202). */
   setStyle: (style: Partial<StrokeStyle>) => void;
   /** Constrain the line while it is drawn (§182). */
@@ -243,6 +245,15 @@ export const InkLayer = forwardRef<InkSurface, {
       if (result.lasso) {
         liveDirty.current = true;
         committedDirty.current = true;
+        /*
+         * A selection lands with a detent (§94's "selected").
+         *
+         * The lasso's boundary vanishes the instant it closes, which is right —
+         * it is a question, not a mark — but it meant the most consequential
+         * gesture in the subsystem was also the only one that ended in silence.
+         * The researcher let go and the loop simply was not there any more.
+         */
+        deviceFeedback.emit("select");
         handlers.current.onLasso?.(result.lasso, referenceRef.current);
         referenceRef.current = null;
       }
@@ -314,6 +325,9 @@ export const InkLayer = forwardRef<InkSurface, {
       committedDirty.current = true;
     },
     setActiveLayer(id) { recorderRef.current?.setActiveLayer(id); },
+    activeLayer() {
+      return recorderRef.current?.activeLayerId() ?? "researcher";
+    },
     setStyle(style) { recorderRef.current?.setStyle(style); },
     setStraightedge(mode) { recorderRef.current?.setStraightedge(mode); },
     straightedge() {

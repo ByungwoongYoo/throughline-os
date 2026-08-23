@@ -55,6 +55,27 @@ export type CursorState = {
   confidence: number;
   /** What would happen on contact, for a person rather than a machine. */
   intent: string;
+  /**
+   * The figure the hand is addressing, in the same coordinates as `at` (§189).
+   *
+   * Drawn because the lock was otherwise invisible: with two figures on a page
+   * a researcher pinches and cannot tell which one they have taken hold of until
+   * it moves — and if they have taken the wrong one, the way they find out is by
+   * turning a figure they did not mean to. The most important guarantee in the
+   * spatial layer was the one nothing on screen confirmed.
+   */
+  addressing: { x: number; y: number; width: number; height: number } | null;
+  /** Whether that figure is held until release (§189), rather than merely under the hand. */
+  locked: boolean;
+  /**
+   * How far the tool reaches, in the same pixels, or null for a tool with no
+   * extent.
+   *
+   * The eraser has a radius and the researcher was expected to guess it. A tool
+   * whose size cannot be seen is one that takes more than intended about half
+   * the time, and on an eraser that means losing an annotation.
+   */
+  reach: number | null;
 };
 
 /** What the hand is holding, which decides what a pinch would mean (§95). */
@@ -103,6 +124,10 @@ export type CursorInput = {
   intent: CursorIntent;
   /** Normalised hand position mapped into the caller's coordinates. */
   project: (point: { x: number; y: number }) => { x: number; y: number };
+  /** Where the addressed figure is, if one is addressed. */
+  addressing?: { x: number; y: number; width: number; height: number } | null;
+  /** How far the tool in hand reaches, for a tool that has an extent. */
+  reach?: number | null;
 };
 
 /**
@@ -119,7 +144,8 @@ export function cursorFrom(input: CursorInput): CursorState {
 
   if (!hand) {
     return { phase: "lost", at: null, closeness: 0, confidence: 0,
-             intent: "your hand is not in the picture" };
+             intent: "your hand is not in the picture",
+             addressing: null, locked: false, reach: null };
   }
 
   const closeness = closenessOf(hand, settings);
@@ -138,6 +164,12 @@ export function cursorFrom(input: CursorInput): CursorState {
     intent: phase === "active" ? `${INTENT_WORDS[intent]}ing`.replace("eing", "ing")
           : intent === "none" ? INTENT_WORDS.none
           : `pinch to ${INTENT_WORDS[intent]}`,
+    addressing: input.addressing ?? null,
+    // Locked only while actually engaged: a figure merely under the hand is a
+    // candidate, and drawing it as held would promise something §189 has not
+    // yet given.
+    locked: engaged && (input.addressing ?? null) !== null,
+    reach: input.reach ?? null,
   };
 }
 

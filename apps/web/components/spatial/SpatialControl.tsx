@@ -89,6 +89,7 @@ const EXPLAIN: Record<SpatialState, string> = {
 export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry,
                                  onFrameRate, onTracker, onMeasurement, onLatency,
                                  onInferenceLatency, onActiveTarget, intentOf,
+                                 reachOf,
                                  onFrame }: {
   controllerRef: React.RefObject<VisualizationController | null>;
   /**
@@ -143,6 +144,8 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
    * depends on the tool the host has in hand and only the host knows that.
    */
   intentOf?: () => CursorIntent;
+  /** How far the tool in hand reaches, so its size can be seen (§177). */
+  reachOf?: () => number | null;
   /**
    * What the pinch actually measures, against what it has to beat.
    *
@@ -370,6 +373,8 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
             engaged: engagedRef.current,
             overTarget: activeRef.current !== null,
             intent: intentOf?.() ?? "grab",
+            addressing: activeRef.current?.bounds() ?? null,
+            reach: reachOf?.() ?? null,
             project: (point) => ({
               x: (1 - point.x) * window.innerWidth,
               y: point.y * window.innerHeight,
@@ -457,7 +462,7 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
     setDevices(await session.devices());
   }, [controllerRef, alsoControls, preferences.deviceId, preferences.settings, stop,
       onTelemetry, onFrameRate, onTracker, onMeasurement, onLatency,
-      onInferenceLatency, onActiveTarget, intentOf]);
+      onInferenceLatency, onActiveTarget, intentOf, reachOf]);
 
   /**
    * Begin the two-pose calibration described in §18.

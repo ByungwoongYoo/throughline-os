@@ -37,6 +37,7 @@ import { ReferenceTimeline } from "@/lib/voice/timeline";
 import { ScreenPoint, ViewState, sameView } from "@/lib/spatial/commands";
 import { Shape } from "@/lib/ink/shapes";
 import { InkTool } from "@/lib/ink/stroke";
+import { ERASER_RADIUS } from "@/lib/ink/erase";
 import {
   STRAIGHTEDGE_HELP, STRAIGHTEDGE_LABEL, Straightedge,
 } from "@/lib/ink/straightedge";
@@ -180,8 +181,19 @@ export default function AirInkPage() {
   const [edge, setEdge] = useState<Straightedge>("off");
   const [colour, setColour] = useState<string>(INK_COLOURS[0].value);
   const [layers, setLayers] = useState<AnnotationLayer[]>([]);
-  const refreshLayers = useCallback(
-    () => setLayers(inkRef.current?.layers() ?? []), []);
+  const [activeLayerId, setActiveLayerId] = useState("researcher");
+  const refreshLayers = useCallback(() => {
+    setLayers(inkRef.current?.layers() ?? []);
+    setActiveLayerId(inkRef.current?.activeLayer() ?? "researcher");
+  }, []);
+  /**
+   * The name of the layer a mark would land on.
+   *
+   * Shown because a researcher who switched layers and forgot is drawing into a
+   * group they may then hide — and would conclude the ink had vanished rather
+   * than that it was somewhere they were not looking.
+   */
+  const activeLayer = layers.find((l) => l.id === activeLayerId)?.name ?? null;
   const [said, setSaid] = useState("");
   const [proposal, setProposal] = useState<string | null>(null);
   /** What undo and redo would do right now, read after anything changes. */
@@ -356,6 +368,8 @@ export default function AirInkPage() {
                       label="the figures on this page"
                       onFrame={handleFrame}
                       onActiveTarget={(read) => { readTarget.current = read; }}
+                      reachOf={() => (armed && tool === "eraser"
+                        ? ERASER_RADIUS : null)}
                       intentOf={() => (!armed ? "grab"
                                      : tool === "eraser" ? "erase"
                                      : tool === "lasso" ? "lasso" : "draw")} />
@@ -422,6 +436,9 @@ export default function AirInkPage() {
           </button>
         ))}
         <span style={{ color: "#555", fontSize: 13 }}>
+          {tool === "pen" && activeLayer
+            ? `Drawing into "${activeLayer}". `
+            : ""}
           {tool === "pen"
             ? "Pinch and move to draw."
             : tool === "eraser"
