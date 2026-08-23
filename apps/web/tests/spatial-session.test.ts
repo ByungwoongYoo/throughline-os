@@ -219,6 +219,8 @@ function fakeController() {
     focus: () => { calls.push("focus"); },
     deselect: () => { calls.push("deselect"); },
     resetView: () => { calls.push("resetView"); },
+    viewState: () => ({}),
+    restoreViewState: () => {},
     viewport: () => ({ width: 400, height: 400 }),
   };
   return { controller, calls };

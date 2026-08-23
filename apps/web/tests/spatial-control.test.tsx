@@ -534,6 +534,8 @@ describe("settings that take effect", () => {
       withinPolygon: vi.fn(() => []),
       focus: vi.fn(), deselect: vi.fn(),
       resetView,
+      viewState: () => ({}),
+      restoreViewState: () => {},
       viewport: () => ({ width: 400, height: 400 }),
     };
     await turnOn(user);
@@ -591,6 +593,8 @@ describe("sensitivity, measured at the chart", () => {
         zoom: vi.fn(), pan: vi.fn(), hover: vi.fn(), select: vi.fn(),
         selectRegion: vi.fn(() => []), withinPolygon: vi.fn(() => []),
         focus: vi.fn(), deselect: vi.fn(), resetView: vi.fn(),
+        viewState: () => ({}),
+        restoreViewState: () => {},
         viewport: () => ({ width: 400, height: 400 }),
       };
 

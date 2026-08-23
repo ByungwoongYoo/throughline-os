@@ -21,7 +21,9 @@ import { createRef } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Volume } from "@/components/charts/Volume";
 import { Surface } from "@/components/charts/Surface";
-import { ScreenPoint, VisualizationController } from "@/lib/spatial/commands";
+import {
+  ScreenPoint, VisualizationController, sameView,
+} from "@/lib/spatial/commands";
 
 beforeEach(() => {
   HTMLCanvasElement.prototype.getContext = vi.fn(() => null) as never;
@@ -100,7 +102,7 @@ describe.each(CHARTS)("$name honours the spatial contract", ({ mount }) => {
     // implements most of it still breaks whichever gesture reaches the rest.
     for (const method of ["rotate", "zoom", "pan", "hover", "select",
                           "selectRegion", "withinPolygon", "focus", "deselect",
-                          "resetView", "viewport"]) {
+                          "resetView", "viewport", "viewState", "restoreViewState"]) {
       expect(typeof (c as unknown as Record<string, unknown>)[method])
         .toBe("function");
     }
@@ -215,8 +217,89 @@ describe.each(CHARTS)("$name honours the spatial contract", ({ mount }) => {
     expect(anyVisibleMark(c)).not.toBeNull();
   });
 
+  it("reports a view that changes when the scene does", () => {
+    /**
+     * §143. Ink is drawn in screen pixels, and a screen loop over a rotatable
+     * scene has no data-space equivalent — depth is ambiguous from one
+     * projection, so there is no region of data the researcher can be said to
+     * have circled independently of where they were standing. An annotation
+     * therefore carries the view it was drawn in, and that is only possible if
+     * a chart can report one.
+     */
+    const c = controller();
+    const before = c.viewState();
+
+    c.rotate(90, 30);
+    expect(sameView(before, c.viewState())).toBe(false);
+  });
+
+  it("goes back to a view exactly, so an annotation can be revisited", () => {
+    const c = controller();
+    const mark = anyVisibleMark(c)!;
+    const drawnAt = c.viewState();
+    const where = locate(c, mark.id)!;
+
+    c.rotate(300, -140);
+    c.zoom(2.2);
+    c.restoreViewState(drawnAt);
+
+    expect(sameView(drawnAt, c.viewState())).toBe(true);
+    const now = locate(c, mark.id)!;
+    expect(now.x).toBeCloseTo(where.x, 3);
+    expect(now.y).toBeCloseTo(where.y, 3);
+  });
+
+  it("ignores a view it does not recognise rather than half-applying it", () => {
+    // A partial restore puts the scene somewhere the researcher has never been,
+    // which is worse than leaving it where they left it.
+    const c = controller();
+    c.rotate(60, 20);
+    const current = c.viewState();
+
+    c.restoreViewState({ nonsense: 1 });
+
+    expect(sameView(current, c.viewState())).toBe(true);
+  });
+
   it("draws a data table beside the figure, for a reader who cannot see it", () => {
     controller();
     expect(screen.getByRole("table")).toBeTruthy();
+  });
+});
+
+describe("sameView", () => {
+  /**
+   * The comparison the whole staleness signal rests on. It is deliberately
+   * opaque about *what* a view is — a map has a centre and a zoom, a timeline
+   * has a range — so all it can ask is whether two snapshots agree.
+   */
+  it("treats identical snapshots as the same view", () => {
+    expect(sameView({ yaw: 0.6, pitch: -0.34, zoom: 1 },
+                    { yaw: 0.6, pitch: -0.34, zoom: 1 })).toBe(true);
+  });
+
+  it("notices a change in any single component", () => {
+    const base = { yaw: 0.6, pitch: -0.34, zoom: 1 };
+    expect(sameView(base, { ...base, yaw: 0.9 })).toBe(false);
+    expect(sameView(base, { ...base, pitch: 0.1 })).toBe(false);
+    expect(sameView(base, { ...base, zoom: 1.4 })).toBe(false);
+  });
+
+  it("scales its tolerance to the magnitude", () => {
+    // A zoom of 4 should not be judged by the same absolute slack as a pitch of
+    // 0.02, or the signal is noisy at one end and blind at the other.
+    expect(sameView({ zoom: 4 }, { zoom: 4 + 1e-9 })).toBe(true);
+    expect(sameView({ pitch: 0.02 }, { pitch: 0.03 })).toBe(false);
+  });
+
+  it("treats a missing snapshot as not the same view", () => {
+    // Never drawn, or never recorded, is not evidence that nothing moved.
+    expect(sameView(null, { yaw: 1 })).toBe(false);
+    expect(sameView({ yaw: 1 }, null)).toBe(false);
+    expect(sameView(null, null)).toBe(false);
+  });
+
+  it("treats snapshots of different shapes as different", () => {
+    expect(sameView({ yaw: 1 }, { yaw: 1, zoom: 2 })).toBe(false);
   });
 });

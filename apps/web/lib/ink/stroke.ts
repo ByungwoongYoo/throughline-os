@@ -86,6 +86,22 @@ export type SpatialStroke = {
   points: StrokePoint[];
   createdAt: number;
   createdBy: string;
+  /**
+   * How the chart was being looked at when this was drawn (§143).
+   *
+   * Present for screen-space ink over a rotatable scene, which is the case with
+   * no honest data-space conversion: a loop on screen picks out a set of marks,
+   * but rotate the scene and the marks move while the annotation stays, so a
+   * circle that meant "these four" comes to mean nothing — silently, and while
+   * still looking like a deliberate annotation.
+   *
+   * A 2D chart does not need this, because a screen loop there *does* convert to
+   * data coordinates. Storing the view is the answer for the case where the
+   * conversion is ill-posed rather than merely unimplemented: depth is ambiguous
+   * from a single projection, so there is no region of data the researcher can
+   * be said to have circled independently of where they were standing.
+   */
+  viewState?: Readonly<Record<string, number>>;
 };
 
 let counter = 0;

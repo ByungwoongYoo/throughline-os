@@ -22,7 +22,7 @@
  * without arranging anything first.
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Volume } from "@/components/charts/Volume";
 import { InkLayer, InkSurface } from "@/components/spatial/InkLayer";
 import { SpatialControl } from "@/components/spatial/SpatialControl";
@@ -33,6 +33,7 @@ import { SpatialStroke, isClosed, observedPoints, strokeLength } from "@/lib/ink
 import { describeSelection, selectWithinStroke } from "@/lib/ink/select";
 import { describeContext, selectionContext } from "@/lib/ink/context";
 import { ReferenceTimeline } from "@/lib/voice/timeline";
+import { ViewState, sameView } from "@/lib/spatial/commands";
 import { now } from "@/lib/spatial/clock";
 import { resolveUtterance } from "@/lib/voice/deixis";
 import { describeIntent, readIntent } from "@/lib/voice/intent";
@@ -112,6 +113,8 @@ type Reading = {
   verdict: string;
   /** What could be asked about it, or why it could not be. */
   context: string | null;
+  /** Where the scene was when this was drawn, for noticing it has moved. */
+  viewState?: ViewState;
 };
 
 export default function AirInkPage() {
@@ -124,6 +127,13 @@ export default function AirInkPage() {
   const [said, setSaid] = useState("");
   const [proposal, setProposal] = useState<string | null>(null);
   /** What undo and redo would do right now, read after anything changes. */
+  /**
+   * The current view, polled so the table can say when an annotation no longer
+   * corresponds to what is on screen.
+   *
+   * Polled rather than pushed: rotating fires per frame and this is read by eye.
+   */
+  const [view, setView] = useState<ViewState | null>(null);
   const [pending, setPendingState] =
     useState<{ undo: string | null; redo: string | null }>({ undo: null, redo: null });
   const setPending = useCallback(() => {
@@ -151,6 +161,11 @@ export default function AirInkPage() {
       ? selectWithinStroke(stroke, chart)
       : null;
 
+    // The view this was drawn in, kept with the stroke (§143). A screen loop
+    // over a rotatable scene has no data-space equivalent, so the honest record
+    // is where the researcher was standing when they drew it.
+    if (chart) stroke.viewState = chart.viewState();
+
     // Close the timeline entry the layer opened at pen-down. Only this side
     // knows what was inside the loop, because only this side has the chart.
     if (referenceId !== null) {
@@ -173,6 +188,7 @@ export default function AirInkPage() {
       // §198: what the region would hand the assistant, shown rather than sent.
       // §197 is the reason it is only shown — an interpretation that changes
       // what a researcher is analysing gets confirmed, not applied.
+      viewState: stroke.viewState,
       context: selection ? describeContext(selectionContext(selection, {
         visualization: "a synthetic cloud in three lobes",
         xLabel: "x", yLabel: "y", zLabel: "z",
@@ -181,6 +197,12 @@ export default function AirInkPage() {
     }, ...previous].slice(0, 6));
     setPending();
   }, [setPending]);
+
+  useEffect(() => {
+    const timer = setInterval(
+      () => setView(chartRef.current?.viewState() ?? null), 400);
+    return () => clearInterval(timer);
+  }, []);
 
   return (
     <main style={{ maxWidth: 1080, margin: "0 auto", padding: "32px 24px 64px" }}>
@@ -319,6 +341,7 @@ export default function AirInkPage() {
                 <th style={{ padding: "6px 8px" }}>Closed?</th>
                 <th style={{ padding: "6px 8px" }}>Reading</th>
                 <th style={{ padding: "6px 8px" }}>As a question</th>
+                <th style={{ padding: "6px 8px" }}>Still the same view?</th>
               </tr>
             </thead>
             <tbody>
@@ -332,6 +355,25 @@ export default function AirInkPage() {
                   <td style={{ padding: "6px 8px" }}>{reading.verdict}</td>
                   <td style={{ padding: "6px 8px", color: "#555" }}>
                     {reading.context ?? "—"}
+                  </td>
+                  <td style={{ padding: "6px 8px" }}>
+                    {!reading.viewState ? "—"
+                      : sameView(reading.viewState, view)
+                        ? <span style={{ color: "#2c7" }}>yes</span>
+                        : (
+                          <button
+                            onClick={() => {
+                              chartRef.current?.restoreViewState(reading.viewState!);
+                              setView(chartRef.current?.viewState() ?? null);
+                            }}
+                            style={{ font: "inherit", fontSize: 13,
+                                     color: "#1443B8", background: "none",
+                                     border: "none", padding: 0,
+                                     textDecoration: "underline",
+                                     cursor: "pointer" }}>
+                            no — go back to it
+                          </button>
+                        )}
                   </td>
                 </tr>
               ))}

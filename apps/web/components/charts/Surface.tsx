@@ -331,6 +331,20 @@ export function Surface({
     focus: (objectId) => { setSelected(objectId); dirtyRef.current = true; },
     deselect: () => { setSelected(null); dirtyRef.current = true; onSelect?.(null); },
     resetView: () => { resetCamera(cameraRef.current); dirtyRef.current = true; },
+      viewState: () => ({ yaw: cameraRef.current.yaw,
+                          pitch: cameraRef.current.pitch,
+                          zoom: cameraRef.current.zoom }),
+      restoreViewState: (state) => {
+        // Ignores anything it does not recognise rather than half-applying it.
+        // A partial restore puts the scene somewhere the researcher has never
+        // been, which is worse than leaving it where they left it.
+        if (typeof state.yaw !== "number" || typeof state.pitch !== "number"
+            || typeof state.zoom !== "number") return;
+        cameraRef.current.yaw = state.yaw;
+        cameraRef.current.pitch = state.pitch;
+        cameraRef.current.zoom = state.zoom;
+        dirtyRef.current = true;
+      },
     viewport: () => ({ width, height }),
   }), [nearest, onSelect, scene, width, height]);
 

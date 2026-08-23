@@ -85,6 +85,30 @@ export type IntentCommand =
  * nothing" and "pointing at something" — §7 — and it cannot know that without
  * asking the thing that owns the geometry.
  */
+/**
+ * A chart's view, as far as anything outside the chart is concerned.
+ *
+ * Compared with `sameView`, never inspected. Each chart chooses its own shape.
+ */
+export type ViewState = Readonly<Record<string, number>>;
+
+/** Whether two snapshots describe the same view, within a tolerance. */
+export function sameView(a: ViewState | null, b: ViewState | null,
+                         tolerance = 1e-6): boolean {
+  if (!a || !b) return false;
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const key of keys) {
+    const left = a[key], right = b[key];
+    if (left === undefined || right === undefined) return false;
+    // Relative to the magnitude, so a zoom of 4 is not judged by the same
+    // absolute slack as a pitch of 0.02.
+    if (Math.abs(left - right) > tolerance * Math.max(1, Math.abs(left))) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export interface VisualizationController {
   rotate(deltaX: number, deltaY: number): void;
   zoom(factor: number): void;
@@ -112,6 +136,26 @@ export interface VisualizationController {
   resetView(): void;
   /** Pixel dimensions, so normalised hand coordinates can be mapped in. */
   viewport(): { width: number; height: number };
+  /**
+   * An opaque snapshot of how the scene is currently being looked at.
+   *
+   * Opaque on purpose. The seam has no business knowing that a chart has a yaw
+   * and a pitch — a map has a centre and a zoom, a timeline has a range — and a
+   * seam that assumed three Euler angles would stop being usable the first time
+   * a chart was not a 3D scatter. What every chart *can* answer is "is this the
+   * same view as that one", and that is all the caller needs.
+   *
+   * It exists because ink is drawn in screen pixels and a screen loop over a 3D
+   * scene has no data-space equivalent: rotate the scene and the marks move
+   * while the annotation stays, so a circle that meant "these four" quietly
+   * means nothing. §143 says never to treat every stroke merely as screen
+   * pixels; for a 2D chart the answer is to store data coordinates, and for a
+   * rotatable 3D one there is no honest conversion — so the annotation carries
+   * the view it was drawn in and can say when that is no longer the view.
+   */
+  viewState(): ViewState;
+  /** Return to a snapshot from `viewState`. Ignores one it does not recognise. */
+  restoreViewState(state: ViewState): void;
 }
 
 /**

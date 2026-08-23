@@ -152,6 +152,19 @@ permission prompt before an explanation.
 An open hand does nothing at all. That is the single most important behaviour in
 the feature: the pinch is a clutch, exactly like holding a mouse button.
 
+### An annotation knows which view it was drawn in
+
+Circle some points, then rotate the chart. The ink stays where it is on screen
+while the marks move underneath — which is honest, because a loop drawn on a
+screen has no fixed meaning in a scene you can turn. Depth is ambiguous from one
+angle, so there is no region of data you can be said to have circled
+independently of where you were standing.
+
+Rather than pretend otherwise, the strokes table has a **Still the same view?**
+column. It says *yes* while the scene is where you drew it, and offers **no — go
+back to it** once you have moved. Pressing that returns the chart to exactly the
+orientation and zoom the annotation was made at.
+
 ### Undo covers clearing now
 
 *Clear* used to throw away every mark on the canvas permanently. It no longer
