@@ -36,6 +36,7 @@ import { SpatialStroke, StrokePoint } from "@/lib/ink/stroke";
 import { StabilisationLevel } from "@/lib/ink/stabilise";
 import { Shape } from "@/lib/ink/shapes";
 import { InkTool } from "@/lib/ink/stroke";
+import { Straightedge } from "@/lib/ink/straightedge";
 import { ReferenceTimeline } from "@/lib/voice/timeline";
 import { deviceFeedback } from "@/lib/spatial/feedback";
 
@@ -49,6 +50,9 @@ export type InkSurface = {
   shapeOf: (strokeId: string) => Shape | null;
   /** Accept an offered shape. Keeps what was drawn (§174). */
   tidy: (strokeId: string, shape: Shape) => void;
+  /** Constrain the line while it is drawn (§182). */
+  setStraightedge: (mode: Straightedge) => void;
+  straightedge: () => Straightedge;
   /** Switch between the pen, the eraser (§176) and the lasso (§180). */
   setTool: (tool: InkTool) => void;
   tool: () => InkTool;
@@ -285,6 +289,10 @@ export const InkLayer = forwardRef<InkSurface, {
     tidy(strokeId, shape) {
       recorderRef.current?.tidy(strokeId, shape);
       committedDirty.current = true;
+    },
+    setStraightedge(mode) { recorderRef.current?.setStraightedge(mode); },
+    straightedge() {
+      return recorderRef.current?.currentStraightedge() ?? "off";
     },
     setTool(tool) { recorderRef.current?.setTool(tool); },
     tool() { return recorderRef.current?.currentTool() ?? "pen"; },

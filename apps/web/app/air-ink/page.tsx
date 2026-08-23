@@ -37,6 +37,9 @@ import { ReferenceTimeline } from "@/lib/voice/timeline";
 import { ScreenPoint, ViewState, sameView } from "@/lib/spatial/commands";
 import { Shape } from "@/lib/ink/shapes";
 import { InkTool } from "@/lib/ink/stroke";
+import {
+  STRAIGHTEDGE_HELP, STRAIGHTEDGE_LABEL, Straightedge,
+} from "@/lib/ink/straightedge";
 import { now } from "@/lib/spatial/clock";
 import { resolveUtterance } from "@/lib/voice/deixis";
 import { describeIntent, readIntent } from "@/lib/voice/intent";
@@ -171,6 +174,7 @@ export default function AirInkPage() {
   const [tool, setTool] = useState<InkTool>("pen");
   /** What the last lasso caught, reported and not applied (§197). */
   const [lassoed, setLassoed] = useState<string | null>(null);
+  const [edge, setEdge] = useState<Straightedge>("off");
   const [said, setSaid] = useState("");
   const [proposal, setProposal] = useState<string | null>(null);
   /** What undo and redo would do right now, read after anything changes. */
@@ -416,6 +420,34 @@ export default function AirInkPage() {
                 + "them and then disappears — it is a question, not a mark."}
         </span>
       </div>
+
+      {/*
+        * The straightedge (§182). A hand in mid-air cannot draw a straight line
+        * — an arm rotates about a shoulder while the researcher believes they
+        * are moving it sideways, so the line bows — and no amount of smoothing
+        * fixes that, because the problem is not tremor.
+        */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center",
+                    flexWrap: "wrap", margin: "0 0 6px" }}>
+        <span style={{ fontSize: 14, color: "#333" }}>Straightedge</span>
+        {(["off", "line", "horizontal", "vertical", "diagonal",
+           "magnetic"] as const).map((option) => (
+          <button key={option}
+                  onClick={() => { inkRef.current?.setStraightedge(option);
+                                   setEdge(option); }}
+                  aria-pressed={edge === option}
+                  style={{ padding: "5px 11px", borderRadius: 6, fontSize: 13,
+                           border: "1px solid " + (edge === option ? "#1443B8" : "#bbb"),
+                           background: edge === option ? "#eaf0fc" : "transparent",
+                           color: edge === option ? "#1443B8" : "#444",
+                           cursor: "pointer" }}>
+            {STRAIGHTEDGE_LABEL[option]}
+          </button>
+        ))}
+      </div>
+      <p style={{ color: "#555", fontSize: 13, maxWidth: 640, marginTop: 0 }}>
+        {STRAIGHTEDGE_HELP[edge]}
+      </p>
 
       {/*
         * Stabilisation is a control rather than a constant because the right

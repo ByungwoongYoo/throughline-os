@@ -47,6 +47,9 @@ import { DEFAULT_PREDICT, PredictSettings, predictAhead } from "./predict";
 import { InkHistory, applyOperation } from "./history";
 import { ERASER_RADIUS, ErasePath, eraseAlong } from "./erase";
 import { Shape, recognise } from "./shapes";
+import {
+  Straightedge, constrain, headingOf,
+} from "./straightedge";
 
 export type Viewport = { width: number; height: number };
 
@@ -223,6 +226,28 @@ export class InkRecorder {
    * thing on the canvas and the easiest to trigger by accident.
    */
   private tool: InkTool = "pen";
+  /**
+   * The straightedge (§182), applied while drawing rather than after.
+   *
+   * The opposite of shape recognition, and deliberately: a shape offer must wait
+   * until the stroke is finished because morphing a mark under a moving hand
+   * takes the drawing away from the person doing it. A ruler is not an
+   * interpretation of what somebody drew — it is a tool they picked up first,
+   * and one that only straightened the line after they lifted the pen would be
+   * useless.
+   */
+  private straightedge: Straightedge = "off";
+  /** Where the current stroke began, and the direction it set off in. */
+  private anchor: { x: number; y: number } | null = null;
+  private heading: number | null = null;
+
+  setStraightedge(mode: Straightedge): void {
+    this.straightedge = mode;
+  }
+
+  currentStraightedge(): Straightedge {
+    return this.straightedge;
+  }
 
   setTool(tool: InkTool): void {
     this.tool = tool;
@@ -381,6 +406,8 @@ export class InkRecorder {
         // guard could not be shown to work, and the paths that skipped commit
         // entirely — `clear()` while a stroke was open — skipped both.
         this.normalisedHistory = [];
+        this.anchor = null;
+        this.heading = null;
         this.open = this.begin();
       } else if (event === "penUp") {
         if (this.commit()) committed = true;
@@ -517,8 +544,53 @@ export class InkRecorder {
       return;
     }
 
+    /*
+     * The straightedge acts on the viewport position, after stabilisation.
+     *
+     * After, because a ruler constrains where the *pen* goes, and the pen is
+     * what stabilisation produces. Constraining the raw landmark and then
+     * smoothing it would round the corners of the constraint itself, so a
+     * horizontal line would leave and rejoin the horizontal at every change of
+     * speed.
+     */
+    const free = this.toViewport(pen);
+    if (!this.anchor) this.anchor = free;
+    if (this.heading === null) {
+      const found = headingOf(this.anchor, [...stroke.originalPoints, free]);
+      if (found !== null) {
+        this.heading = found;
+        /*
+         * The points drawn before the direction was known are pulled onto the
+         * line, once.
+         *
+         * They were necessarily unconstrained: the first samples of a stroke are
+         * a hand accelerating from rest and their direction is mostly noise, so
+         * the heading cannot be taken until the stroke has gone somewhere. But
+         * leaving them free puts a visible kink in the first few pixels of every
+         * line drawn with a ruler, and a ruler that produces a nearly straight
+         * line has missed the point of being a ruler.
+         *
+         * Retroactive, and allowed to be, because a straightedge is a tool the
+         * researcher chose before drawing rather than an interpretation applied
+         * afterwards — which is the distinction that makes §181 wait and this
+         * not.
+         */
+        for (const point of stroke.originalPoints) {
+          const pulled = constrain(this.anchor, point, this.straightedge, found);
+          point.x = pulled.x;
+          point.y = pulled.y;
+        }
+        for (const point of stroke.points) {
+          const pulled = constrain(this.anchor, point, this.straightedge, found);
+          point.x = pulled.x;
+          point.y = pulled.y;
+        }
+      }
+    }
+    const placed = constrain(this.anchor, free, this.straightedge, this.heading);
+
     const observed: StrokePoint = {
-      ...this.toViewport(pen),
+      ...placed,
       timestamp,
       confidence: at.confidence,
     };

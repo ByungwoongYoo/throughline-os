@@ -30,9 +30,9 @@ and looked at the code. The test requires the count never to grow.
 
 | Status | Sections |
 |---|---|
-| built | 50 |
+| built | 51 |
 | partial | 19 |
-| not-built | 18 |
+| not-built | 17 |
 | unreviewed | 149 |
 | **total** | **236** |
 
@@ -228,7 +228,7 @@ revisited — an edited specification is exactly when requirements go missing.
 | §179 | UNDO MUST BE INSTANT | built | apps/web/lib/ink/history.ts | apps/web/tests/ink-history.test.ts | Synchronous and local: no network, no await, nothing that can fail. An undo that might not work is not an undo. |
 | §180 | LASSO TOOL | built | apps/web/lib/ink/recorder.ts | apps/web/tests/ink-lasso.test.ts | A freeform boundary that selects and does not become a mark, drawn visibly while it is being made (§180's persistent feedback) and absent from the undo history afterwards. Resolved through the same exact region query a drawn loop uses, against whichever figure the hand was addressing. |
 | §181 | SHAPE TOOL | built | apps/web/lib/ink/shapes.ts | apps/web/tests/ink-shapes.test.ts | Line, circle, ellipse, rectangle, polygon, arrow and bracket, read after the stroke finishes and never during it, offered rather than applied, and reversible when accepted. A mark that fits nothing is reported as fitting nothing. |
-| §182 | STRAIGHTEDGE MODE | not-built |  |  |  |
+| §182 | STRAIGHTEDGE MODE | built | apps/web/lib/ink/straightedge.ts | apps/web/tests/ink-straightedge.test.ts | Straight, horizontal, vertical, 45 degrees and magnetic constraints, applied while drawing rather than after. Magnetic pulls a line onto an axis or a diagonal only when it is already near one, so a deliberately oblique line is left alone. |
 | §183 | SPATIAL RULER | not-built |  |  |  |
 | §184 | HAND-DRAWN MEASUREMENTS A | not-built |  |  |  |
 | §185 | TWO-HANDED DRAWING WORKFLOW | unreviewed |  |  |  |

@@ -165,6 +165,25 @@ column. It says *yes* while the scene is where you drew it, and offers **no — 
 back to it** once you have moved. Pressing that returns the chart to exactly the
 orientation and zoom the annotation was made at.
 
+### Drawing a straight line
+
+A hand in mid-air cannot draw a straight line, and smoothing does not fix it:
+your arm rotates about your shoulder while you believe you are moving it
+sideways, so the line bows. Fine for an annotation, wrong for an axis marker or
+a trend line.
+
+The **Straightedge** row constrains the line *as you draw it* — Free, Straight
+(holds whatever direction you set off in), Horizontal, Vertical, 45°, or
+Magnetic.
+
+**Magnetic** is the one worth trying. It pulls the line onto level, upright or
+45° when you are already close, and leaves a deliberately oblique line alone. A
+tool that snapped everything to the nearest of those would drag every thirty-
+degree line to forty-five, and you would be fighting it rather than using it.
+
+Unlike the shape offer, this is not something applied afterwards — it is a ruler
+you picked up first, so the constrained line *is* what you drew.
+
 ### Selecting with a lasso
 
 The **Tool** row has a third setting: *Lasso*. Draw a loop around some points and
