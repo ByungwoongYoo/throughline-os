@@ -35,6 +35,16 @@ import {
 } from "@/lib/board/viewport";
 import { Empty, Failure, Loading } from "../primitives";
 
+export type Placeable = {
+  id: string;
+  object_type: string;
+  title: string;
+  status: string;
+};
+
+/** The size a card is given when it first arrives. */
+const NEW_CARD = { width: 240, height: 140 };
+
 export type Placement = {
   id: string;
   object_id: string;
@@ -58,6 +68,7 @@ export function Board({ projectId }: { projectId: string }) {
   const [cards, setCards] = useState<Placement[]>([]);
   const [camera, setCamera] = useState<Camera>(ORIGIN);
   const [problem, setProblem] = useState<string | null>(null);
+  const [picking, setPicking] = useState(false);
   const surface = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
 
@@ -89,6 +100,55 @@ export function Board({ projectId }: { projectId: string }) {
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
+
+  /*
+   * What could still be put on the board.
+   *
+   * Fetched only while the picker is open. A board is opened far more often
+   * than something is added to it, and a list of everything unplaced is a
+   * query nobody asked for on every visit.
+   */
+  const offered = useApi<{ objects: Placeable[] }>(
+    picking ? `/api/projects/${projectId}/board/available` : null, [picking]);
+
+  /**
+   * Put something on the board, where the researcher is looking.
+   *
+   * The middle of the current view rather than the origin: a card placed at
+   * (0, 0) on a board that has been panned away lands somewhere off screen,
+   * and the researcher's conclusion is that pressing the button did nothing.
+   *
+   * Nudged by however many are already here, so adding several in a row deals
+   * them out rather than stacking them into one pile that has to be
+   * unstacked by hand.
+   */
+  const add = useCallback(async (object: Placeable) => {
+    const view = {
+      x: camera.x + (size.width / camera.zoom) / 2 - NEW_CARD.width / 2,
+      y: camera.y + (size.height / camera.zoom) / 2 - NEW_CARD.height / 2,
+    };
+    const offset = (cards.length % 6) * 28;
+
+    try {
+      const placement = await api.put<Placement>(
+        `/api/projects/${projectId}/board`, {
+          object_id: object.id,
+          x: view.x + offset, y: view.y + offset,
+          ...NEW_CARD,
+        });
+      // Drawn from what came back rather than from what was sent, so the card
+      // on screen is the row that exists.
+      setCards((current) => [...current, {
+        ...placement,
+        object_type: object.object_type,
+        title: object.title,
+        status: object.status,
+      }]);
+      setPicking(false);
+    } catch {
+      setProblem("That could not be put on the board.");
+    }
+  }, [camera, size, cards.length, projectId]);
 
   const worldAt = useCallback((event: { clientX: number; clientY: number }) => {
     const element = surface.current;
@@ -219,6 +279,10 @@ export function Board({ projectId }: { projectId: string }) {
   return (
     <div className="board-wrap">
       <div className="board-bar">
+        <button type="button" className="nj-primary"
+                onClick={() => setPicking((open) => !open)}>
+          {picking ? "Close" : "Put something on the board"}
+        </button>
         <button type="button" onClick={() => setCamera(ORIGIN)}>Reset view</button>
         <button type="button"
                 onClick={() => setCamera(fitTo(cards, size))}
@@ -236,6 +300,30 @@ export function Board({ projectId }: { projectId: string }) {
       </div>
 
       {problem && <p className="board-problem" role="status">{problem}</p>}
+
+      {picking && (
+        <section className="board-picker">
+          {offered.error ? <Failure error={offered.error} /> : null}
+          {offered.loading && <Loading rows={3} label="Reading the project" />}
+          {offered.data && offered.data.objects.length === 0 && (
+            <Empty title="Everything is already on the board"
+                   hint="Analyses, figures and excerpts appear here as the
+                         project makes them." />
+          )}
+          {offered.data && offered.data.objects.length > 0 && (
+            <ul>
+              {offered.data.objects.map((object) => (
+                <li key={object.id}>
+                  <button type="button" onClick={() => void add(object)}>
+                    <span className="board-kind">{object.object_type}</span>
+                    <span>{object.title}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       <div
         ref={surface}

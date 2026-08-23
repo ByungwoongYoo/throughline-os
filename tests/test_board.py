@@ -190,3 +190,54 @@ class TestWhatItRefuses:
         # The board is meant to be big. A researcher who has spread a project
         # over a wide area has not made a mistake.
         assert put(cur, project, thing, x=-250_000.0, y=900_000.0)["id"]
+
+
+class TestWhatCanStillBePlaced:
+    def test_it_lists_what_is_not_on_the_board(self, cur, project, thing):
+        """Only what is missing, rather than everything with a flag.
+
+        A picker that listed the whole project and greyed out most of it would
+        make placing the fortieth thing an exercise in scanning past
+        thirty-nine.
+        """
+        spare = objects.create_object(
+            cur, project_id=project, object_type=ObjectType.FIGURE,
+            title="Not placed yet", actor="researcher")
+        put(cur, project, thing)
+
+        offered = board.available(cur, project_id=project)
+        assert [o["id"] for o in offered] == [spare]
+
+    def test_it_offers_the_newest_first(self, cur, project):
+        # The thing somebody wants to place is almost always the thing they
+        # just made.
+        older = objects.create_object(
+            cur, project_id=project, object_type=ObjectType.ANALYSIS,
+            title="Older", actor="researcher")
+        newer = objects.create_object(
+            cur, project_id=project, object_type=ObjectType.ANALYSIS,
+            title="Newer", actor="researcher")
+        cur.execute("UPDATE research_objects SET created_at = now() - interval "
+                    "'1 day' WHERE id = %s", (older,))
+
+        assert [o["title"] for o in board.available(cur, project_id=project)] \
+            == ["Newer", "Older"]
+
+    def test_something_taken_off_the_board_is_offered_again(
+            self, cur, project, thing):
+        put(cur, project, thing)
+        assert board.available(cur, project_id=project) == []
+        board.remove(cur, project_id=project, object_id=thing)
+        assert [o["id"] for o in board.available(cur, project_id=project)] \
+            == [thing]
+
+    def test_it_does_not_offer_another_project_s_work(self, cur, project, thing):
+        # The picker is the one place a researcher would place something
+        # without first checking whose it is.
+        cur.execute(
+            "INSERT INTO users(id, email, display_name, password_hash, "
+            "password_salt) VALUES ('usr_o2', 'o2@test.local', 'O', 'x', 'y')")
+        cur.execute(
+            "INSERT INTO projects(id, owner_user_id, name, research_question) "
+            "VALUES ('prj_o2', 'usr_o2', 'Other', 'Q?')")
+        assert board.available(cur, project_id="prj_o2") == []

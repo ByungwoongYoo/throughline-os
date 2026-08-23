@@ -295,3 +295,116 @@ describe("moving the board itself", () => {
       .toBeDisabled();
   });
 });
+
+describe("putting something on the board", () => {
+  const AVAILABLE = [
+    { id: "obj9", object_type: "analysis", title: "Not placed yet",
+      status: "complete" },
+  ];
+
+  function mockWithPicker(available = AVAILABLE) {
+    const put = vi.fn((body: Record<string, unknown>) => body);
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PUT") {
+        const body = JSON.parse(String(init.body));
+        put(body);
+        return new Response(JSON.stringify({
+          id: "plc9", object_id: body.object_id, x: body.x, y: body.y,
+          width: body.width, height: body.height, z: 0,
+        }), { status: 200 });
+      }
+      if (String(url).includes("/available")) {
+        return new Response(JSON.stringify({ objects: available }),
+                            { status: 200 });
+      }
+      return new Response(JSON.stringify({ placements: CARDS }), { status: 200 });
+    }));
+    return { put };
+  }
+
+  it("offers what is not on the board yet", async () => {
+    mockWithPicker();
+    render(<Board projectId="prj1" />);
+    await screen.findByText("Sleep and reaction time");
+
+    fireEvent.click(screen.getByRole("button", { name: /put something on the board/i }));
+    expect(await screen.findByText("Not placed yet")).toBeInTheDocument();
+  });
+
+  it("asks for nothing until the picker is opened", async () => {
+    /*
+     * A board is opened far more often than something is added to it, so a
+     * list of everything unplaced is a query nobody asked for on every visit.
+     */
+    mockWithPicker();
+    render(<Board projectId="prj1" />);
+    await screen.findByText("Sleep and reaction time");
+
+    const asked = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+      .some((c) => String(c[0]).includes("/available"));
+    expect(asked).toBe(false);
+  });
+
+  it("places it where the researcher is looking, not at the origin", async () => {
+    /*
+     * A card placed at (0, 0) on a board that has been panned away lands off
+     * screen, and the researcher's conclusion is that the button did nothing.
+     *
+     * happy-dom reports a zero-sized surface, so the centre of the view is the
+     * camera's own corner — which is still the point: it follows the camera
+     * rather than sitting at the world origin.
+     */
+    const { put } = mockWithPicker();
+    render(<Board projectId="prj1" />);
+    await screen.findByText("Sleep and reaction time");
+
+    const surface = screen.getByTestId("board-surface");
+    fireEvent.pointerDown(surface, { clientX: 0, clientY: 0, pointerId: 1 });
+    fireEvent.pointerMove(surface, { clientX: -600, clientY: -400, pointerId: 1 });
+    fireEvent.pointerUp(surface, { clientX: -600, clientY: -400, pointerId: 1 });
+
+    fireEvent.click(screen.getByRole("button", { name: /put something on the board/i }));
+    fireEvent.click(await screen.findByText("Not placed yet"));
+
+    await waitFor(() => expect(put).toHaveBeenCalled());
+    const body = put.mock.calls[0][0] as { x: number; y: number };
+    expect(body.x).toBeGreaterThan(100);
+    expect(body.y).toBeGreaterThan(100);
+  });
+
+  it("gives a new card a size it can be read at", async () => {
+    // The table refuses anything under forty units, and a card that arrived
+    // too small to click would be indistinguishable from one that failed.
+    const { put } = mockWithPicker();
+    render(<Board projectId="prj1" />);
+    await screen.findByText("Sleep and reaction time");
+    fireEvent.click(screen.getByRole("button", { name: /put something on the board/i }));
+    fireEvent.click(await screen.findByText("Not placed yet"));
+
+    await waitFor(() => expect(put).toHaveBeenCalled());
+    const body = put.mock.calls[0][0] as { width: number; height: number };
+    expect(body.width).toBeGreaterThanOrEqual(40);
+    expect(body.height).toBeGreaterThanOrEqual(40);
+  });
+
+  it("shows the new card without waiting for a reload", async () => {
+    mockWithPicker();
+    render(<Board projectId="prj1" />);
+    await screen.findByText("Sleep and reaction time");
+    fireEvent.click(screen.getByRole("button", { name: /put something on the board/i }));
+    fireEvent.click(await screen.findByText("Not placed yet"));
+
+    await waitFor(() => {
+      expect(document.querySelector('[data-object="obj9"]')).not.toBeNull();
+    });
+  });
+
+  it("says so when there is nothing left to place", async () => {
+    // Rather than an empty panel, which reads as a list that failed to load.
+    mockWithPicker([]);
+    render(<Board projectId="prj1" />);
+    await screen.findByText("Sleep and reaction time");
+    fireEvent.click(screen.getByRole("button", { name: /put something on the board/i }));
+    expect(await screen.findByText(/already on the board/i)).toBeInTheDocument();
+  });
+});

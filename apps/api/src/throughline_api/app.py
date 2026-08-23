@@ -1574,6 +1574,14 @@ def read_board(project_id: str,
         return {"placements": board.for_project(cur, project_id=project_id)}
 
 
+@app.get("/api/projects/{project_id}/board/available")
+def board_available(project_id: str,
+                    user: dict = Depends(current_user)) -> dict[str, Any]:
+    """What this project has that is not on the board yet."""
+    with transaction() as cur:
+        return {"objects": board.available(cur, project_id=project_id)}
+
+
 @app.put("/api/projects/{project_id}/board")
 def place_on_board(project_id: str, payload: PlacementRequest,
                    user: dict = Depends(current_user)) -> dict[str, Any]:

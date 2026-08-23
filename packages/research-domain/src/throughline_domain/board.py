@@ -137,6 +137,31 @@ def for_project(cur, *, project_id: str) -> list[dict[str, Any]]:
     return [dict(row) for row in cur.fetchall()]
 
 
+def available(cur, *, project_id: str, limit: int = 200) -> list[dict[str, Any]]:
+    """What this project has that is not on the board yet.
+
+    Only what is missing, rather than everything with a flag: a picker that
+    listed the whole project and greyed out most of it would make putting the
+    fortieth thing on a board an exercise in scanning past thirty-nine.
+
+    Newest first, because the thing somebody wants to place is almost always the
+    thing they just made.
+    """
+    cur.execute(
+        """
+        SELECT o.id, o.object_type, o.title, o.status, o.created_at
+          FROM research_objects o
+     LEFT JOIN board_placements p
+            ON p.object_id = o.id AND p.project_id = o.project_id
+         WHERE o.project_id = %s AND p.id IS NULL
+      ORDER BY o.created_at DESC
+         LIMIT %s
+        """,
+        (project_id, limit),
+    )
+    return [dict(row) for row in cur.fetchall()]
+
+
 def remove(cur, *, project_id: str, object_id: str) -> bool:
     """Take something off the board. The object itself is untouched.
 

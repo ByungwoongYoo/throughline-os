@@ -3702,3 +3702,17 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   opacity: 0.6;
 }
 .board-status { margin-top: auto; }
+
+/* The picker: what can still be put on the board. */
+.board-picker {
+  margin-bottom: 0.75rem; padding: 0.75rem; max-height: 16rem; overflow-y: auto;
+  border: 1px solid rgba(120,130,150,0.3); border-radius: 8px;
+}
+.board-picker ul { list-style: none; margin: 0; padding: 0; }
+.board-picker li + li { margin-top: 0.25rem; }
+.board-picker button {
+  display: flex; gap: 0.6rem; align-items: baseline; width: 100%;
+  padding: 0.4rem 0.5rem; border: 0; border-radius: 6px;
+  background: transparent; font: inherit; text-align: left; cursor: pointer;
+}
+.board-picker button:hover { background: rgba(120,130,150,0.12); }
