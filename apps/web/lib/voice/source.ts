@@ -139,3 +139,45 @@ export class ScriptedSpeechSource implements SpeechSource {
     words.forEach((word, i) => this.say(word, startAt + i * step, true));
   }
 }
+
+/**
+ * When a *typed* sentence should be considered to have been said.
+ *
+ * The typed path is not a stand-in for speech — it is the path that works today
+ * — so getting its timing wrong is getting the feature wrong. And it was wrong
+ * twice, in opposite directions.
+ *
+ * **Dating it from submission was wrong.** Draw a loop, take ten seconds to
+ * type, and every word landed ten seconds after the gesture, outside the
+ * backward window: somebody referring to the circle they had just drawn was told
+ * nothing was indicated.
+ *
+ * **Spreading it across the typing interval was also wrong**, and a test caught
+ * it. Typing "why are these different" over five seconds put *these* four and a
+ * third seconds after the gesture — still outside. The deeper problem is that
+ * the spread models something that cannot happen: speech words are spread out
+ * because a person gestures *while* speaking, and **a person cannot gesture
+ * while typing**, because both hands are busy. A typed sentence refers to
+ * whatever was true when they turned to the keyboard, and every word of it
+ * refers to the same moment.
+ *
+ * So a typed sentence is a short utterance dated from the first keystroke. The
+ * words keep an order, since the resolver reads each at its own timestamp, but
+ * they are close enough together to belong to one gesture — which is the only
+ * arrangement typing can actually mean.
+ *
+ * The two-gesture sentence — "compare this with this", one word per cluster — is
+ * genuinely unavailable by keyboard for the same reason, and is a thing speech
+ * will be able to do that typing cannot.
+ */
+export function typedTiming(firstKeystrokeAt: number, submittedAt: number,
+                            spreadMs = 700): { startAt: number; durationMs: number } {
+  const composed = submittedAt - firstKeystrokeAt;
+  // Pasted, submitted without typing, or a clock that appears to run backwards:
+  // it belongs to this moment. A negative duration would spread the words
+  // backwards and bind them to whatever was there first.
+  if (!Number.isFinite(composed) || composed <= 0) {
+    return { startAt: submittedAt, durationMs: 0 };
+  }
+  return { startAt: firstKeystrokeAt, durationMs: Math.min(composed, spreadMs) };
+}

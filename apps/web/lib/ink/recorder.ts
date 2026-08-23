@@ -57,8 +57,19 @@ export type Viewport = { width: number; height: number };
 export type RecorderResult = {
   /** The stroke being drawn right now, or null. Re-rendered every frame. */
   open: SpatialStroke | null;
-  /** True only when `finished` gained a stroke on this frame. */
+  /**
+   * True only when `finished` gained a stroke on this frame.
+   *
+   * Strictly that, and it used to mean two things. A pass of the eraser also set
+   * it, because both are "something happened worth recording" — so a wipe that
+   * took ink reported the *remaining* stroke to the host as though it had just
+   * been drawn, and the host resolved a selection from it and closed a timeline
+   * entry with its targets. The researcher ended up with a reference to a region
+   * they had never indicated, and nothing about it looked wrong.
+   */
   committed: boolean;
+  /** True on the frame a pass of the eraser finishes. Not a stroke. */
+  erased: boolean;
   /**
    * A finished lasso boundary (§180), which is never kept as a mark.
    *
@@ -472,7 +483,9 @@ export class InkRecorder {
       this.extend(this.open, result.at, frame.timestamp);
     }
 
-    if (this.tool === "eraser") committed = this.rub(result) || committed;
+    // Kept apart from `committed`: erasing is not drawing, and a host that
+    // cannot tell them apart will treat a wipe as a mark.
+    const erased = this.tool === "eraser" ? this.rub(result) : false;
 
     /*
      * A lasso is drawn like a stroke and kept like a question.
@@ -499,7 +512,7 @@ export class InkRecorder {
       ? [...result.events, ...this.pendingEvents]
       : result.events;
     this.pendingEvents = [];
-    return { open: this.open, committed, lasso, events };
+    return { open: this.open, committed, erased, lasso, events };
   }
 
   /**

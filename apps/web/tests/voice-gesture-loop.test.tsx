@@ -221,3 +221,77 @@ describe("a hand draws and a word finds it", () => {
       .toBe("Compare 2 observations with 1 observation?");
   });
 });
+
+describe("erasing must not leave a referent behind", () => {
+  /**
+   * A failure mode found by asking where the pieces meet rather than by using
+   * it. The layer opens a timeline entry whenever the machine reports pen-down —
+   * and the machine reports pen-down for the *eraser* too, because a pinch is a
+   * pinch. So a wipe opened a reference to a region that never existed.
+   *
+   * Two ways that goes wrong, both silent. If the wipe erased nothing the entry
+   * is never closed, and an open entry is deliberately never forgotten, so every
+   * word spoken for the rest of the session binds to it. If the wipe *did* erase
+   * something, `committed` was true — it was doing double duty for "a stroke was
+   * added" and "a rub was recorded" — so the host was handed a stroke nobody had
+   * just drawn and resolved a selection from it.
+   */
+  function erasing(targetsFor: () => string[] | null) {
+    const timeline = new ReferenceTimeline();
+    const ref = createRef<InkSurface>();
+    const strokes: string[] = [];
+    render(
+      <InkLayer ref={ref} armed timeline={timeline}
+                onStroke={(stroke: SpatialStroke, id: number | null) => {
+                  strokes.push(stroke.id);
+                  if (id === null) return;
+                  const targets = targetsFor();
+                  if (targets) timeline.complete(id, 9_999, { targets });
+                  else timeline.abandon(id);
+                }} />);
+    return { timeline, ref, strokes };
+  }
+
+  it("leaves nothing open when a wipe erases nothing", () => {
+    const { timeline, ref } = erasing(() => ["never"]);
+    ref.current!.setTool("eraser");
+    for (const _ of drawing(ref.current!, 1_000)) { /* wipe over nothing */ }
+
+    expect(timeline.active(2_000)).toEqual([]);
+    // And a sentence much later finds nothing rather than the ghost.
+    expect(timeline.resolve(50_000)).toBeNull();
+  });
+
+  it("does not report a stroke that was erased rather than drawn", () => {
+    const { ref, strokes } = erasing(() => ["never"]);
+    ref.current!.setTool("eraser");
+    for (const _ of drawing(ref.current!, 1_000)) { /* wipe over nothing */ }
+
+    expect(strokes).toEqual([]);
+  });
+
+  it("does not report a stroke when the wipe actually erased one", () => {
+    /**
+     * The dangerous half, and the one the empty-canvas case cannot reach.
+     * `committed` was doing double duty — "a stroke was added" and "a rub was
+     * recorded" — so a wipe that took something reported the *remaining* stroke
+     * to the host as though it had just been drawn, and the host resolved a
+     * selection from it and closed a timeline entry with its targets. A
+     * researcher would then have a reference to a region they never indicated.
+     */
+    const { ref, strokes, timeline } = erasing(() => ["never"]);
+
+    // Draw first, so there is ink to take.
+    for (const _ of drawing(ref.current!, 1_000)) { /* a mark */ }
+    const drawn = strokes.length;
+    expect(drawn).toBe(1);
+
+    ref.current!.setTool("eraser");
+    for (const _ of drawing(ref.current!, 20_000)) { /* over the same place */ }
+
+    // Nothing new reported: erasing is not drawing.
+    expect(strokes).toHaveLength(drawn);
+    // And no referent was opened and left by the wipe.
+    expect(timeline.active(30_000)).toEqual([]);
+  });
+});

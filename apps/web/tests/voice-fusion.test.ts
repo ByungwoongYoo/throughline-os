@@ -12,7 +12,7 @@ import { DEFAULT_WINDOW, ReferenceTimeline } from "@/lib/voice/timeline";
 import { isDeictic, explain, resolveUtterance } from "@/lib/voice/deixis";
 import { describeIntent, readIntent } from "@/lib/voice/intent";
 import {
-  NoSpeechSource, ScriptedSpeechSource, describeSource,
+  NoSpeechSource, ScriptedSpeechSource, describeSource, typedTiming,
 } from "@/lib/voice/source";
 import { now } from "@/lib/spatial/clock";
 
@@ -437,5 +437,100 @@ describe("one clock, because two is silent", () => {
     expect(second).toBeGreaterThanOrEqual(first);
     // Milliseconds since page load, not since 1970.
     expect(first).toBeLessThan(Date.now() / 1000);
+  });
+});
+
+describe("when a typed sentence counts as having been said", () => {
+  /**
+   * The typed path is not a stand-in for speech — it is the path that works
+   * today — so getting its timing wrong is getting the feature wrong.
+   *
+   * And it was wrong. Words were stamped relative to the moment the form was
+   * submitted, so drawing a loop and then taking ten seconds to type put every
+   * word ten seconds after the gesture, outside the backward window. Somebody
+   * referring to the circle they had just drawn was told nothing was indicated.
+   */
+  it("dates the sentence from when it started being written", () => {
+    // Speech does not have this problem because people speak while they
+    // gesture. The equivalent for typing is when they started writing.
+    const timing = typedTiming(10_000, 13_000);
+    expect(timing.startAt).toBe(10_000);
+  });
+
+  it("keeps a typed sentence short, because typing is not speaking", () => {
+    /**
+     * Spreading the words across the typing interval was the second wrong
+     * answer, and a test caught it: typing "why are these different" over five
+     * seconds put *these* four and a third seconds after the gesture, still
+     * outside the window.
+     *
+     * The deeper problem is that the spread models something that cannot
+     * happen. Speech words are spread out because a person gestures *while*
+     * speaking; a person cannot gesture while typing, because both hands are
+     * busy. Every word of a typed sentence refers to the same moment.
+     */
+    expect(typedTiming(10_000, 20_000).durationMs).toBeLessThanOrEqual(700);
+  });
+
+  it("lets a reference reach the gesture it was about", () => {
+    /**
+     * The whole point, end to end: circle something, take a few seconds to
+     * write the sentence, and "these" still finds it.
+     */
+    const timeline = new ReferenceTimeline();
+    timeline.record(10_000, "region", { targets: ["a", "b"] });
+
+    // Started typing at 11s, submitted at 16s — six seconds after the gesture,
+    // which is past the backward window if dated from submission.
+    const timing = typedTiming(11_000, 16_000);
+    const source = new ScriptedSpeechSource();
+    const words: Array<{ text: string; at: number }> = [];
+    source.start((e) => words.push({ text: e.text, at: e.at }));
+    source.utter("why are these different", timing.startAt, timing.durationMs);
+
+    const resolved = resolveUtterance({ words, final: true }, timeline);
+    expect(resolved.complete).toBe(true);
+  });
+
+  it("would have missed it dated from submission", () => {
+    // Stated as its own assertion, so the fix is shown to matter rather than
+    // assumed to.
+    const timeline = new ReferenceTimeline();
+    timeline.record(10_000, "region", { targets: ["a", "b"] });
+
+    const source = new ScriptedSpeechSource();
+    const words: Array<{ text: string; at: number }> = [];
+    source.start((e) => words.push({ text: e.text, at: e.at }));
+    source.utter("why are these different", 16_000 - 1000, 1000);
+
+    expect(resolveUtterance({ words, final: true }, timeline).complete)
+      .toBe(false);
+  });
+
+  it("keeps a sentence left half-written anchored to when it was begun", () => {
+    /**
+     * Dated from the first keystroke however long it took, because that is when
+     * the researcher was looking at what they had just done. If the gesture has
+     * since expired the reference refuses — which is the correct answer rather
+     * than a fallback, and better than silently re-dating the sentence to now
+     * and binding it to whatever happens to be recent.
+     */
+    const timing = typedTiming(1_000, 300_000);
+    expect(timing.startAt).toBe(1_000);
+    expect(timing.durationMs).toBeLessThanOrEqual(700);
+  });
+
+  it("handles a sentence pasted rather than typed", () => {
+    const timing = typedTiming(5_000, 5_000);
+    expect(timing.startAt).toBe(5_000);
+    expect(timing.durationMs).toBe(0);
+  });
+
+  it("handles a clock that appears to run backwards", () => {
+    // Never negative: a duration below zero would spread the words backwards
+    // through the timeline and bind them to whatever was there first.
+    const timing = typedTiming(9_000, 5_000);
+    expect(timing.durationMs).toBe(0);
+    expect(timing.startAt).toBe(5_000);
   });
 });

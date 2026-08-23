@@ -258,6 +258,10 @@ export const InkLayer = forwardRef<InkSurface, {
         referenceRef.current = null;
       }
 
+      // An erase changes the canvas without adding a stroke, so it needs the
+      // repaint that `committed` used to provide by accident.
+      if (result.erased) committedDirty.current = true;
+
       if (result.committed) {
         committedDirty.current = true;
         const strokes = recorder.strokes();

@@ -394,6 +394,15 @@ Nothing is run. What comes back is a proposal you would accept or decline,
 because a spoken sentence is ambiguous and has no natural moment to confirm it: a
 misheard word should cost you a decline, not an analysis.
 
+The sentence is dated from **when you started typing it**, not when you press
+the button. Draw a loop, take a few seconds to compose the sentence, and
+*these* still finds the loop — before this it did not, and you were told nothing
+was indicated about the circle you had just drawn.
+
+One thing typing cannot do that speech will: *compare this with this*, one word
+per cluster, gesturing between the two. Both your hands are on the keyboard, so
+every word of a typed sentence necessarily refers to the same moment.
+
 Worth trying: type the sentence **without** drawing anything first. It should
 refuse and tell you to circle something while you say the word — not quietly
 answer about whatever was last selected.

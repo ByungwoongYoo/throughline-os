@@ -50,7 +50,7 @@ import {
 import { now } from "@/lib/spatial/clock";
 import { resolveUtterance } from "@/lib/voice/deixis";
 import { describeIntent, readIntent } from "@/lib/voice/intent";
-import { ScriptedSpeechSource } from "@/lib/voice/source";
+import { ScriptedSpeechSource, typedTiming } from "@/lib/voice/source";
 import {
   DEFAULT_STABILISATION_LEVEL, StabilisationLevel,
 } from "@/lib/ink/stabilise";
@@ -207,6 +207,8 @@ export default function AirInkPage() {
   const activeLayer = layers.find((l) => l.id === activeLayerId)?.name ?? null;
   const [said, setSaid] = useState("");
   const [proposal, setProposal] = useState<string | null>(null);
+  /** When the current sentence began being written. See `typedTiming`. */
+  const typingStartedAt = useRef<number | null>(null);
   /** What undo and redo would do right now, read after anything changes. */
   /**
    * The current view, polled so the table can say when an annotation no longer
@@ -785,17 +787,36 @@ export default function AirInkPage() {
               const source = new ScriptedSpeechSource();
               const words: Array<{ text: string; at: number }> = [];
               source.start((e) => words.push({ text: e.text, at: e.at }));
-              // Spread over the last second, as speech would have arrived —
-              // on the *same clock the hand frames use*. `Date.now()` here put
-              // every word 55 years after every gesture, so nothing could ever
-              // bind and nothing looked wrong.
-              source.utter(said, now() - 1000, 1000);
+              /*
+               * Spread across the interval the sentence was *composed* in, on
+               * the same clock the hand frames use.
+               *
+               * Stamping relative to submit meant drawing a loop and taking ten
+               * seconds to type put every word outside the backward window, so
+               * somebody referring to the circle they had just drawn was told
+               * nothing was indicated. Speech does not have that problem because
+               * people speak while they gesture; the equivalent for typing is
+               * when they started writing.
+               */
+              const { startAt, durationMs } =
+                typedTiming(typingStartedAt.current ?? now(), now());
+              source.utter(said, startAt, durationMs);
+              typingStartedAt.current = null;
               const resolved = resolveUtterance({ words, final: true },
                                                 timelineRef.current);
               setProposal(describeIntent(readIntent(resolved)));
             }}
             style={{ display: "flex", gap: 8, maxWidth: 640, margin: "12px 0" }}>
-        <input value={said} onChange={(e) => setSaid(e.target.value)}
+        <input value={said}
+               onChange={(e) => {
+                 // The first keystroke of a sentence is when the researcher was
+                 // still looking at what they had just done.
+                 if (typingStartedAt.current === null) {
+                   typingStartedAt.current = now();
+                 }
+                 if (e.target.value === "") typingStartedAt.current = null;
+                 setSaid(e.target.value);
+               }}
                placeholder="why are these different"
                aria-label="Say something about what you indicated"
                style={{ flex: 1, padding: "7px 10px", fontSize: 14,
