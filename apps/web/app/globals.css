@@ -3588,3 +3588,44 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .gc-warn { border-left-color: var(--caution); }
 .gc-bad { border-left-color: var(--danger, #b3261e); }
 .gc-waiting { border-left-color: var(--line-strong); color: var(--ink-soft); }
+
+/* --- Literature sheet (§204, §205) --------------------------------------- */
+
+.reader-main { padding: 1.5rem 2rem 4rem; }
+/* The reader itself is a plain column; the page canvas sets its own width. */
+.reader { display: flex; flex-direction: column; }
+.reader-main h1 { font-size: 1.4rem; margin-bottom: 1rem; }
+
+.reader-bar {
+  display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center;
+  padding-bottom: 1rem; border-bottom: 1px solid rgba(120,130,150,0.25);
+}
+.reader-bar button, .reader-open {
+  padding: 0.35rem 0.7rem; border-radius: 6px; cursor: pointer;
+  border: 1px solid rgba(120,130,150,0.4); background: transparent;
+  font: inherit;
+}
+.reader-bar button:disabled { opacity: 0.45; cursor: default; }
+/* The selected tool has to be visible without colour alone (Rule 5). */
+.reader-bar button[aria-pressed="true"] {
+  border-color: rgba(20,67,184,0.9); box-shadow: inset 0 -2px 0 rgba(20,67,184,0.9);
+  font-weight: 600;
+}
+.reader-title { font-weight: 600; }
+.reader-pages { display: inline-flex; gap: 0.5rem; align-items: center; }
+.reader-tools { display: inline-flex; gap: 0.35rem; }
+
+.reader-note { margin: 1.25rem 0; opacity: 0.75; max-width: 34rem; }
+.reader-problem { margin: 1.25rem 0; color: rgb(150, 40, 40); max-width: 34rem; }
+
+.reader-page { position: relative; margin: 1.25rem 0; max-width: 100%; }
+.reader-canvas {
+  position: absolute; inset: 0; max-width: 100%;
+  box-shadow: 0 1px 12px rgba(0,0,0,0.14);
+}
+/* The ink sits above the page and is the only thing that takes the pointer. */
+.reader-ink { box-shadow: none; touch-action: none; cursor: crosshair; }
+
+.reader-board { margin-top: 2rem; }
+.reader-board h2 { font-size: 1.05rem; margin-bottom: 0.5rem; }
+.reader-board li { margin-bottom: 0.4rem; line-height: 1.45; }
