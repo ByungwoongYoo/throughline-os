@@ -162,6 +162,7 @@ export default function AirInkPage() {
   const [state, setState] = useState<InkState>("DISABLED");
   const [readings, setReadings] = useState<Reading[]>([]);
   const [level, setLevel] = useState<StabilisationLevel>(DEFAULT_STABILISATION_LEVEL);
+  const [tool, setTool] = useState<"pen" | "eraser">("pen");
   const [said, setSaid] = useState("");
   const [proposal, setProposal] = useState<string | null>(null);
   /** What undo and redo would do right now, read after anything changes. */
@@ -338,6 +339,34 @@ export default function AirInkPage() {
           Clear
         </button>
         <span style={{ color: "#555", fontSize: 14 }}>{EXPLAIN[state]}</span>
+      </div>
+
+      {/*
+        * The eraser is a mode, and that is §176 rather than a design
+        * preference: people wave their hands while they talk, so a wiping
+        * motion may only erase once the researcher has said they are erasing.
+        */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center",
+                    margin: "0 0 12px" }}>
+        <span style={{ fontSize: 14, color: "#333" }}>Tool</span>
+        {(["pen", "eraser"] as const).map((option) => (
+          <button key={option}
+                  onClick={() => { inkRef.current?.setTool(option); setTool(option); }}
+                  aria-pressed={tool === option}
+                  style={{ padding: "5px 11px", borderRadius: 6, fontSize: 13,
+                           border: "1px solid " + (tool === option ? "#1443B8" : "#bbb"),
+                           background: tool === option ? "#eaf0fc" : "transparent",
+                           color: tool === option ? "#1443B8" : "#444",
+                           cursor: "pointer" }}>
+            {option === "pen" ? "Pen" : "Eraser"}
+          </button>
+        ))}
+        <span style={{ color: "#555", fontSize: 13 }}>
+          {tool === "pen"
+            ? "Pinch and move to draw."
+            : "Pinch and move across a mark to rub it out. Erasing the middle of "
+              + "a line leaves two lines."}
+        </span>
       </div>
 
       {/*

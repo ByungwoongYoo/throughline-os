@@ -31,6 +31,15 @@ export type InkState =
   | "TRACKING_LOST";
 
 export type InkEvent =
+  /**
+   * The eraser has just met ink (§177).
+   *
+   * Emitted on the transition, not while crossing: a tick per frame over a long
+   * line is a buzz rather than a boundary, and the thing worth feeling is the
+   * moment of contact — which is what makes a virtual mark feel like a thing
+   * that was there.
+   */
+  | "erasedInk"
   | "penDown"
   | "penUp"
   | "strokeCancelled"

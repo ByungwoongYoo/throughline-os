@@ -35,6 +35,7 @@ import { InkState } from "@/lib/ink/machine";
 import { SpatialStroke, StrokePoint } from "@/lib/ink/stroke";
 import { StabilisationLevel } from "@/lib/ink/stabilise";
 import { ReferenceTimeline } from "@/lib/voice/timeline";
+import { deviceFeedback } from "@/lib/spatial/feedback";
 
 export type InkSurface = {
   /** Feed a tracked frame. Safe to call at tracker rate. */
@@ -42,6 +43,9 @@ export type InkSurface = {
   arm: () => void;
   disarm: () => void;
   clear: () => void;
+  /** Switch between the pen and the eraser (§176). */
+  setTool: (tool: "pen" | "eraser") => void;
+  tool: () => "pen" | "eraser";
   undo: () => void;
   redo: () => void;
   /** What undo and redo would do, so a control can say so before it is pressed. */
@@ -235,6 +239,11 @@ export const InkLayer = forwardRef<InkSurface, {
         timeline?.abandon(referenceRef.current);
         referenceRef.current = null;
       }
+      // §177: a tick at the moment the eraser meets ink, which is what makes a
+      // virtual mark feel like something that was there. On the transition
+      // only — a tick per frame along a long line is a buzz, not a boundary.
+      if (result.events.includes("erasedInk")) deviceFeedback.emit("hover");
+
       // State is published on change only. Pushing it per frame would re-render
       // the host's status line thirty times a second to write the same word.
       if (result.events.length) handlers.current.onState?.(recorder.state());
@@ -250,6 +259,8 @@ export const InkLayer = forwardRef<InkSurface, {
       committedDirty.current = true;
       liveDirty.current = true;
     },
+    setTool(tool) { recorderRef.current?.setTool(tool); },
+    tool() { return recorderRef.current?.currentTool() ?? "pen"; },
     undo() {
       recorderRef.current?.undo();
       committedDirty.current = true;

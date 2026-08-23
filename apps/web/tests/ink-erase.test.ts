@@ -306,3 +306,117 @@ describe("an erasure can be taken back", () => {
     expect(recorder.describeUndo()).toBe("Undo erasing part of a stroke");
   });
 });
+
+describe("erasing by hand, over a wipe", () => {
+  /**
+   * The eraser existed and could not be reached by a hand, which is the defect
+   * this project names most often: a feature that is built, tested, and wired
+   * to nothing.
+   */
+  function canvasWith(marks: number) {
+    const recorder = new InkRecorder({ now: () => 5000 });
+    recorder.setViewport({ width: 720, height: 520 });
+    recorder.arm();
+    let clock = 1000;
+    for (let m = 0; m < marks; m += 1) {
+      const y = 0.3 + m * 0.15;
+      const steps = [
+        { at: { x: 0.30, y }, pinch: 0.2 },
+        ...Array.from({ length: 8 }, (_, i) => ({ at: { x: 0.30 + i * 0.01, y },
+                                                  pinch: 0.02 })),
+        { at: { x: 0.38, y }, pinch: 0.2 },
+      ];
+      for (const step of steps) {
+        recorder.step({ timestamp: clock,
+                        hands: [hand(step.at, step.pinch)] } as HandFrame);
+        clock += 33;
+      }
+      clock += 500;
+    }
+    return { recorder, clock };
+  }
+
+  /** A pinched hand dragged across the canvas: a wipe. */
+  function wipe(recorder: InkRecorder, from: number, y: number, steps = 14) {
+    let clock = 20000;
+    const path = [
+      { at: { x: from, y }, pinch: 0.2 },
+      ...Array.from({ length: steps }, (_, i) => ({
+        at: { x: from + i * 0.02, y }, pinch: 0.02 })),
+      { at: { x: from + steps * 0.02, y }, pinch: 0.2 },
+    ];
+    for (const step of path) {
+      recorder.step({ timestamp: clock,
+                      hands: [hand(step.at, step.pinch)] } as HandFrame);
+      clock += 33;
+    }
+  }
+
+  it("takes ink away as the hand moves, not only on release", () => {
+    // A wipe whose effect arrives at pen-up gives the researcher nothing to aim
+    // with.
+    const { recorder } = canvasWith(1);
+    recorder.setTool("eraser");
+    const before = recorder.strokes().length;
+
+    wipe(recorder, 0.28, 0.3);
+
+    expect(recorder.strokes().length).toBeLessThan(before + 1);
+  });
+
+  it("leaves no mark of its own", () => {
+    const { recorder } = canvasWith(0);
+    recorder.setTool("eraser");
+    wipe(recorder, 0.28, 0.3);
+
+    expect(recorder.strokes()).toEqual([]);
+    expect(recorder.openStroke()).toBeNull();
+  });
+
+  it("is one entry in the history, however many frames it took", () => {
+    /**
+     * A wipe is one thing the researcher did. Recording a frame at a time would
+     * mean fourteen presses of undo to take back one movement of the hand.
+     */
+    const { recorder } = canvasWith(1);
+    recorder.setTool("eraser");
+    wipe(recorder, 0.28, 0.3);
+
+    expect(recorder.undo()).toBe(true);
+    expect(recorder.strokes()).toHaveLength(1);
+    // And that was the erasure, not the drawing: another undo removes the mark.
+    expect(recorder.describeUndo()).toBe("Undo drawing a stroke");
+  });
+
+  it("gives back the original strokes, not rebuilt ones", () => {
+    const { recorder } = canvasWith(1);
+    const original = recorder.strokes()[0];
+    recorder.setTool("eraser");
+    wipe(recorder, 0.28, 0.3);
+    recorder.undo();
+
+    expect(recorder.strokes()[0]).toBe(original);
+  });
+
+  it("records nothing when the wipe took nothing", () => {
+    // A pass over empty canvas in the history would make the first press of
+    // undo appear to do nothing.
+    const { recorder } = canvasWith(1);
+    recorder.setTool("eraser");
+    wipe(recorder, 0.05, 0.95);              // nowhere near the mark
+
+    expect(recorder.describeUndo()).toBe("Undo drawing a stroke");
+  });
+
+  it("draws normally again once the pen comes back", () => {
+    const { recorder } = canvasWith(1);
+    recorder.setTool("eraser");
+    wipe(recorder, 0.28, 0.3);
+    recorder.setTool("pen");
+
+    const before = recorder.strokes().length;
+    wipe(recorder, 0.5, 0.8);                // now a stroke, not a wipe
+
+    expect(recorder.strokes().length).toBe(before + 1);
+  });
+});

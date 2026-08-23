@@ -165,6 +165,24 @@ column. It says *yes* while the scene is where you drew it, and offers **no — 
 back to it** once you have moved. Pressing that returns the chart to exactly the
 orientation and zoom the annotation was made at.
 
+### Rubbing things out
+
+There is a **Tool** row: *Pen* and *Eraser*. Switch to the eraser, pinch, and
+move across a mark — the ink goes as your hand passes, not when you let go.
+
+**Erasing the middle of a line leaves two lines**, not one line gone and not a
+line with an invisible gap in it. Both halves keep the points your hand actually
+made; nothing is redrawn or smoothed on the way out.
+
+The eraser is a mode on purpose. People wave their hands while they talk, so a
+wiping motion only erases once you have said you are erasing — otherwise the most
+destructive thing on the canvas would also be the easiest to trigger by accident,
+and you would be looking at your hands rather than at the annotation that just
+vanished.
+
+A whole wipe is **one** press of undo, however many frames it took, and it hands
+back the original strokes rather than rebuilt ones.
+
 ### Undo covers clearing now
 
 *Clear* used to throw away every mark on the canvas permanently. It no longer

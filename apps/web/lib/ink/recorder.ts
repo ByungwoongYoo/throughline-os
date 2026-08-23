@@ -230,14 +230,27 @@ export class InkRecorder {
    */
   erase(path: ErasePath, radius = ERASER_RADIUS): boolean {
     if (this.tool !== "eraser") return false;
-    const result = eraseAlong(this.finished, path, radius, this.now);
+    const before = this.finished;
+    const result = eraseAlong(before, path, radius, this.now);
     if (!result.changed) return false;
-    this.past.did({ kind: "rub", before: result.affected,
-                    after: result.strokes.filter(
-                      (s) => !this.finished.includes(s)) });
+    this.past.did({ kind: "rub", before, after: result.strokes });
     this.finished = result.strokes;
     return true;
   }
+
+  /**
+   * The canvas as it was when the current wipe began, or null when not wiping.
+   *
+   * A pass of the eraser is one thing the researcher did, so it is one entry in
+   * the history however many frames it took — undoing a wipe a frame at a time
+   * would be unusable. The snapshot is what makes that possible.
+   */
+  private rubbedFrom: SpatialStroke[] | null = null;
+  private rubPath: Array<{ x: number; y: number }> = [];
+  /** Whether the eraser is currently over ink, for §177's contact event. */
+  private touchingInk = false;
+  /** Events this recorder raised itself, merged into the frame's. */
+  private pendingEvents: InkEvent[] = [];
 
   canUndo(): boolean { return this.past.canUndo(); }
   canRedo(): boolean { return this.past.canRedo(); }
@@ -292,6 +305,13 @@ export class InkRecorder {
     let committed = false;
 
     for (const event of result.events) {
+      if (event === "penDown" && this.tool === "eraser") {
+        // No stroke is begun: the eraser makes no mark. The canvas is
+        // remembered so the whole wipe becomes one entry in the history.
+        this.rubbedFrom = this.finished;
+        this.rubPath = [];
+        continue;
+      }
       if (event === "penDown") {
         // A fresh filter per stroke. Carrying state across would drag the first
         // few points of a new mark toward where the last one ended, which is
@@ -326,7 +346,63 @@ export class InkRecorder {
       this.extend(this.open, result.at, frame.timestamp);
     }
 
-    return { open: this.open, committed, events: result.events };
+    if (this.tool === "eraser") committed = this.rub(result) || committed;
+
+    const events = this.pendingEvents.length
+      ? [...result.events, ...this.pendingEvents]
+      : result.events;
+    this.pendingEvents = [];
+    return { open: this.open, committed, events };
+  }
+
+  /**
+   * One frame of a wipe.
+   *
+   * Applied continuously so the ink disappears under the hand rather than at
+   * pen-up — a wipe whose effect only arrives on release gives the researcher
+   * nothing to aim with. The history entry is still one per pass, written when
+   * the hand lifts.
+   */
+  private rub(result: { drawing: boolean; at: { x: number; y: number } | null;
+                        events: readonly InkEvent[] }): boolean {
+    if (result.drawing && result.at && this.rubbedFrom) {
+      this.rubPath.push(this.toViewport(this.stabiliser.push(result.at, 0)
+                                        ?? result.at));
+      const pass = eraseAlong(this.finished, this.rubPath,
+                              ERASER_RADIUS, this.now);
+      // Only when something was actually taken. `eraseAlong` builds a fresh
+      // array every call, so assigning unconditionally replaced the canvas with
+      // an equal-but-different one on every frame — and the identity check at
+      // pen-up then saw a change that had not happened, recording "erasing
+      // across 0 strokes" in the history for a wipe over empty space.
+      if (pass.changed) {
+        this.finished = pass.strokes;
+        // §177, on the transition only. `touching` is reset when the eraser
+        // leaves ink, so crossing a second mark is felt as a second contact.
+        if (!this.touchingInk) {
+          this.touchingInk = true;
+          this.pendingEvents.push("erasedInk");
+        }
+      } else {
+        this.touchingInk = false;
+      }
+      return false;
+    }
+
+    if ((result.events.includes("penUp")
+         || result.events.includes("strokeCancelled")) && this.rubbedFrom) {
+      const before = this.rubbedFrom;
+      this.rubbedFrom = null;
+      this.rubPath = [];
+      // Recorded only if the pass actually took something. A wipe over empty
+      // canvas in the history would make the first press of undo appear to do
+      // nothing.
+      if (before !== this.finished) {
+        this.past.did({ kind: "rub", before, after: this.finished });
+        return true;
+      }
+    }
+    return false;
   }
 
   private begin(): SpatialStroke {

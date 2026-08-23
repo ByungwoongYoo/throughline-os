@@ -43,8 +43,18 @@ export type InkOperation =
   | { kind: "draw"; stroke: SpatialStroke }
   | { kind: "erase"; stroke: SpatialStroke; index: number }
   /**
-   * A pass of the eraser, which may have split strokes as well as removed them
-   * (§178). Both sides are held: what was there, and what it became.
+   * One pass of the eraser, start to finish (§178).
+   *
+   * Holds the whole canvas either side rather than the strokes that changed.
+   * That is deliberately the blunt version: a pass can remove strokes, split
+   * one into two, and split another into three, and reversing that by splicing
+   * fragments back at remembered indices is arithmetic with several ways to be
+   * subtly wrong. Two lists of references cost almost nothing and are exactly
+   * reversible — and exactness is the property that matters, because an undo
+   * that *nearly* restores a figure is one nobody notices is wrong.
+   *
+   * One operation per pass, not per frame: a wipe is a single thing the
+   * researcher did, and undoing it a frame at a time would be unusable.
    */
   | { kind: "rub"; before: SpatialStroke[]; after: SpatialStroke[] }
   | { kind: "clear"; strokes: SpatialStroke[] };
@@ -140,10 +150,16 @@ function describe(operation: InkOperation | null, verb: string): string | null {
       return `${verb} drawing a stroke`;
     case "erase":
       return `${verb} removing a stroke`;
-    case "rub":
-      return operation.before.length === 1
+    case "rub": {
+      // What the pass actually did, counted from the difference rather than
+      // from the size of the canvas — "erasing across 12 strokes" when eleven
+      // were untouched would be a number that misdescribes the action.
+      const after = new Set(operation.after.map((s) => s.id));
+      const touched = operation.before.filter((s) => !after.has(s.id)).length;
+      return touched === 1
         ? `${verb} erasing part of a stroke`
-        : `${verb} erasing across ${operation.before.length} strokes`;
+        : `${verb} erasing across ${touched} strokes`;
+    }
     case "clear":
       // The count is the point. "Undo clear" is not a decision anybody can
       // make; "Undo clearing 12 strokes" is.
@@ -178,18 +194,11 @@ export function applyOperation(strokes: readonly SpatialStroke[],
       next.splice(Math.min(operation.index, next.length), 0, operation.stroke);
       return next;
     }
-    case "rub": {
-      // Swap one set of strokes for the other, in place, so an erased mark
-      // reappears where it was rather than on top of everything drawn since.
-      const gone = new Set((forward ? operation.before : operation.after)
-        .map((s) => s.id));
-      const arriving = forward ? operation.after : operation.before;
-      const next = strokes.filter((s) => !gone.has(s.id));
-      // Inserted at the position the first removed stroke held.
-      const at = strokes.findIndex((s) => gone.has(s.id));
-      next.splice(at < 0 ? next.length : at, 0, ...arriving);
-      return next;
-    }
+    case "rub":
+      // The canvas as it was, or as it became. The same objects in the same
+      // order, so an undone erasure is the figure that was there and not a
+      // near-miss of it.
+      return forward ? [...operation.after] : [...operation.before];
     case "clear":
       // The same objects, in the same order. Nothing is rebuilt.
       return forward ? [] : [...operation.strokes];
