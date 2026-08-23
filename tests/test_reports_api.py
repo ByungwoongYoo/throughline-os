@@ -431,3 +431,58 @@ class TestABrokenReportCanStillBeOpened:
         assert client.post(
             f"/api/artifacts/{workspace['artifact']}/render?fmt=docx"
         ).status_code == 400
+
+
+class TestDeletingAProjectThatHasReports:
+    """A project containing a cited report must still be deletable.
+
+    `block_citations.citation_id` was ON DELETE RESTRICT, which protects a
+    citation from being removed while a report depends on it — sensible on its
+    own, and wrong at this scale. Deleting a project cascades to its citations,
+    and the restrict then refuses the whole delete, so a researcher who drafts a
+    report can never remove the project again.
+
+    The protection belongs in the application, where a request to delete one
+    citation can be refused with a reason. A foreign key cannot tell the
+    difference between "remove this citation" and "remove everything, including
+    this citation", and only one of those should be stopped.
+    """
+
+    def test_a_project_with_a_drafted_report_can_be_deleted(
+            self, client, workspace, tested_connection):
+        artifact_id = client.post(
+            f"/api/projects/{workspace['project']}/artifacts/draft",
+            json={"connection_id": tested_connection}).json()["artifact_id"]
+        client.post(f"/api/artifacts/{artifact_id}/check-citations")
+
+        response = client.delete(f"/api/projects/{workspace['project']}")
+        assert response.status_code == 200, response.text
+
+        # Really gone, not merely reported as gone.
+        assert client.get(f"/api/artifacts/{artifact_id}").status_code == 404
+
+    def test_a_project_whose_report_embeds_a_figure_can_be_deleted(
+            self, client, workspace):
+        """The same bug, one table over.
+
+        `artifact_blocks.visual_id` was also ON DELETE RESTRICT, so a report
+        that embeds a figure — which is most reports worth writing — pinned its
+        project in place just as a citation did. Found by listing every
+        non-cascading foreign key rather than by waiting for it to be reported.
+        """
+        visual_id = new_id("vis")
+        with transaction() as cur:
+            cur.execute(
+                "INSERT INTO visuals(id, project_id, analysis_run_id, "
+                "spec_version, visual_type, spec, spec_hash, data, "
+                "recommendation, critique, created_by) "
+                "VALUES (%s, %s, %s, %s, %s, '{}'::jsonb, %s, '{}'::jsonb, "
+                "'{}'::jsonb, '{}'::jsonb, %s)",
+                (visual_id, workspace["project"], workspace["run"], "1",
+                 "scatter", "0" * 64, "researcher"))
+            communication.add_block(
+                cur, artifact_id=workspace["artifact"], sequence=2,
+                block_type="figure", template="", visual_id=visual_id)
+
+        response = client.delete(f"/api/projects/{workspace['project']}")
+        assert response.status_code == 200, response.text
