@@ -119,7 +119,10 @@ export const InkLayer = forwardRef<InkSurface, {
     const previous = recorderRef.current;
     previous.disarm();
     const next = new InkRecorder({ stabilisation, ...options });
-    for (const stroke of previous.strokes()) next.adopt(stroke);
+    // Everything, in one call: strokes and the undo history together. Moving
+    // only the strokes left the researcher unable to undo because they had
+    // adjusted a slider.
+    next.adoptFrom(previous);
     if (armed) next.arm();
     recorderRef.current = next;
     committedDirty.current = true;

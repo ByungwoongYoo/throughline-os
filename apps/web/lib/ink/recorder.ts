@@ -181,16 +181,23 @@ export class InkRecorder {
   }
 
   /**
-   * Take on a stroke drawn by a previous recorder.
+   * Take on everything a previous recorder held.
    *
    * For the one case where the recorder is replaced mid-session: changing the
-   * stabilisation level. The strokes already on the canvas were drawn under the
-   * old settings and are not re-interpreted — re-stabilising a finished mark
-   * would change what the researcher drew after the fact, which is the thing
-   * §174 forbids most directly.
+   * stabilisation level. One call rather than two, because the first version
+   * moved the strokes and left the history behind — so adjusting a setting
+   * silently destroyed the researcher's ability to undo, including recovering a
+   * clear, with nothing to indicate it had happened. Undo simply stopped being
+   * offered, and the obvious reading is that there was nothing to undo.
+   *
+   * The strokes themselves are carried unchanged and never re-interpreted:
+   * re-stabilising a finished mark would change what the researcher drew after
+   * the fact, which is what §174 forbids most directly. New settings apply to
+   * the next stroke, not to the ones already on the page.
    */
-  adopt(stroke: SpatialStroke): void {
-    this.finished.push(stroke);
+  adoptFrom(previous: InkRecorder): void {
+    this.finished = [...previous.finished];
+    this.past.adoptFrom(previous.past);
   }
 
   canUndo(): boolean { return this.past.canUndo(); }

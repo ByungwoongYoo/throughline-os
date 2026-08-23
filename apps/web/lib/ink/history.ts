@@ -113,6 +113,19 @@ export class InkHistory {
     this.done = [];
     this.undone = [];
   }
+
+  /**
+   * Take on another history wholesale.
+   *
+   * For the one case where the recorder is replaced mid-session — a change of
+   * stabilisation level. Both stacks move, because carrying only the undo stack
+   * would leave a researcher who had just undone something unable to redo it,
+   * for a reason they could not possibly connect to the slider they moved.
+   */
+  adoptFrom(other: InkHistory): void {
+    this.done = [...other.done];
+    this.undone = [...other.undone];
+  }
 }
 
 function describe(operation: InkOperation | null, verb: string): string | null {

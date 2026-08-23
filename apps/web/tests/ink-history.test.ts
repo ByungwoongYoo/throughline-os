@@ -235,3 +235,97 @@ describe("the stack behaves the way people expect", () => {
     expect(restored.map((s) => s.id)).toEqual(["a", "b", "c"]);
   });
 });
+
+describe("history survives a settings change", () => {
+  /**
+   * A bug found by reading the code rather than by using it, and the kind §42
+   * exists to prevent: changing the stabilisation level rebuilt the recorder,
+   * the new one started with an empty history, and the researcher's ability to
+   * recover a clear disappeared — because they had adjusted a slider.
+   *
+   * Nothing about that is visible. Undo simply stops being available, and the
+   * obvious reading is that there was nothing to undo.
+   */
+  it("carries the past across when a recorder is replaced", () => {
+    const { recorder, draw } = armed();
+    draw(0.4); draw(0.5);
+    recorder.clear();
+    expect(recorder.describeUndo()).toBe("Undo clearing 2 strokes");
+
+    // What the layer does when the stabilisation level changes.
+    const replacement = new InkRecorder({ stabilisation: "handwriting" });
+    replacement.setViewport({ width: 720, height: 520 });
+    replacement.adoptFrom(recorder);
+
+    expect(replacement.describeUndo()).toBe("Undo clearing 2 strokes");
+    expect(replacement.undo()).toBe(true);
+    expect(replacement.strokes()).toHaveLength(2);
+  });
+
+  it("carries the strokes as the same objects", () => {
+    const { recorder, draw } = armed();
+    draw(0.4);
+    const original = recorder.strokes()[0];
+
+    const replacement = new InkRecorder();
+    replacement.adoptFrom(recorder);
+
+    expect(replacement.strokes()[0]).toBe(original);
+  });
+
+  it("carries redo as well, so the change is invisible either way", () => {
+    const { recorder, draw } = armed();
+    draw(0.4); draw(0.5);
+    recorder.undo();
+
+    const replacement = new InkRecorder();
+    replacement.adoptFrom(recorder);
+
+    expect(replacement.canRedo()).toBe(true);
+    expect(replacement.redo()).toBe(true);
+    expect(replacement.strokes()).toHaveLength(2);
+  });
+});
+
+describe("what a page must do to stay consistent with the history", () => {
+  /**
+   * Both bugs this covers lived in the page rather than in the history, which
+   * is where they usually live: the history was right and what was drawn from
+   * it was not.
+   *
+   * Expressed against the recorder because that is the contract a page has to
+   * follow — render the strokes that exist, and do not throw away what
+   * describes the ones that do not.
+   */
+  it("makes an undone clear observable as strokes returning", () => {
+    const { recorder, draw } = armed();
+    draw(0.4); draw(0.5); draw(0.6);
+    const ids = recorder.strokes().map((s) => s.id);
+
+    recorder.clear();
+    expect(recorder.strokes().map((s) => s.id)).toEqual([]);
+
+    recorder.undo();
+    // A page that emptied its own list on clear, and did not repopulate it
+    // here, would show three marks on the canvas and none in the table.
+    expect(recorder.strokes().map((s) => s.id)).toEqual(ids);
+  });
+
+  it("brings a stroke back on redo, so hiding beats discarding", () => {
+    /**
+     * The correction to the first fix. Filtering a page's rows down to the
+     * strokes that exist follows an undo correctly and then loses on redo: the
+     * stroke returns and its row does not, because the row was thrown away
+     * rather than hidden.
+     */
+    const { recorder, draw } = armed();
+    draw(0.4); draw(0.5);
+    const second = recorder.strokes()[1].id;
+
+    recorder.undo();
+    expect(recorder.strokes().map((s) => s.id)).not.toContain(second);
+
+    recorder.redo();
+    expect(recorder.strokes().map((s) => s.id)).toContain(second);
+  });
+});

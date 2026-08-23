@@ -106,6 +106,8 @@ const EXPLAIN: Record<InkState, string> = {
  * what the loop caught and leaves selecting it to them.
  */
 type Reading = {
+  /** Which stroke this describes, so the table can follow undo and redo. */
+  strokeId: string;
   points: number;
   closed: boolean;
   /** Path length in pixels, which is the honest unit for a screen-space stroke. */
@@ -139,6 +141,26 @@ export default function AirInkPage() {
   const setPending = useCallback(() => {
     setPendingState(inkRef.current?.pending() ?? { undo: null, redo: null });
   }, []);
+
+  /**
+   * Which strokes are on the canvas right now.
+   *
+   * Kept apart from the readings themselves, and that separation is the fix:
+   * the first version *filtered* the readings to the strokes that existed,
+   * which follows an undo correctly and then loses on redo — the stroke comes
+   * back and its row does not, because the row was discarded rather than
+   * hidden. Readings are never thrown away; the table renders the ones whose
+   * stroke is currently present.
+   *
+   * The underlying disagreement was worse: strokes returned from an undone
+   * clear while the table stayed empty, so the canvas showed three marks and
+   * the reading showed none.
+   */
+  const [present, setPresent] = useState<Set<string>>(new Set());
+  const syncPresent = useCallback(() => {
+    setPresent(new Set((inkRef.current?.strokes() ?? []).map((s) => s.id)));
+    setPending();
+  }, [setPending]);
   /**
    * What the hand has indicated, on the same clock the words arrive on.
    *
@@ -180,6 +202,7 @@ export default function AirInkPage() {
       }
     }
     setReadings((previous) => [{
+      strokeId: stroke.id,
       points: observed.length,
       closed: isClosed(observed),
       length: Math.round(strokeLength(observed)),
@@ -195,8 +218,11 @@ export default function AirInkPage() {
       })) : null,
       // Newest first, and only the last few: this is a live reading, not a log.
     }, ...previous].slice(0, 6));
-    setPending();
-  }, [setPending]);
+    syncPresent();
+  }, [syncPresent]);
+
+  /** The rows to draw: readings whose stroke is still on the canvas. */
+  const visible = readings.filter((r) => present.has(r.strokeId));
 
   useEffect(() => {
     const timer = setInterval(
@@ -232,7 +258,7 @@ export default function AirInkPage() {
           * minutes of drawing; "Undo clearing 12 strokes" is. That matters most
           * for the one action here that destroys work.
           */}
-        <button onClick={() => { inkRef.current?.undo(); setPending(); }}
+        <button onClick={() => { inkRef.current?.undo(); syncPresent(); }}
                 disabled={!pending.undo}
                 style={{ padding: "8px 14px", borderRadius: 6,
                          border: "1px solid #999", background: "transparent",
@@ -240,7 +266,7 @@ export default function AirInkPage() {
                          opacity: pending.undo ? 1 : 0.45 }}>
           {pending.undo ?? "Undo"}
         </button>
-        <button onClick={() => { inkRef.current?.redo(); setPending(); }}
+        <button onClick={() => { inkRef.current?.redo(); syncPresent(); }}
                 disabled={!pending.redo}
                 style={{ padding: "8px 14px", borderRadius: 6,
                          border: "1px solid #999", background: "transparent",
@@ -248,7 +274,7 @@ export default function AirInkPage() {
                          opacity: pending.redo ? 1 : 0.45 }}>
           {pending.redo ?? "Redo"}
         </button>
-        <button onClick={() => { inkRef.current?.clear(); setReadings([]); setPending(); }}
+        <button onClick={() => { inkRef.current?.clear(); syncPresent(); }}
                 style={{ padding: "8px 14px", borderRadius: 6,
                          border: "1px solid #999", background: "transparent",
                          cursor: "pointer" }}>
@@ -330,7 +356,7 @@ export default function AirInkPage() {
         worth answering before anything acts on it — a selection that silently
         happened is one you have to notice.
       </p>
-      {readings.length === 0
+      {visible.length === 0
         ? <p style={{ color: "#888" }}>Nothing drawn yet.</p>
         : (
           <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 14 }}>
@@ -345,7 +371,7 @@ export default function AirInkPage() {
               </tr>
             </thead>
             <tbody>
-              {readings.map((reading, i) => (
+              {visible.map((reading, i) => (
                 <tr key={i} style={{ borderBottom: "1px solid #f0f0f0" }}>
                   <td style={{ padding: "6px 8px" }}>{reading.points}</td>
                   <td style={{ padding: "6px 8px" }}>{reading.length}px</td>
