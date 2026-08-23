@@ -8,8 +8,27 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { MIN_CONFIDENCE, describeShape, recognise } from "@/lib/ink/shapes";
+import {
+  MIN_CONFIDENCE, cornersOf, describeShape, recognise,
+} from "@/lib/ink/shapes";
 import { StrokePoint } from "@/lib/ink/stroke";
+import { InkRecorder } from "@/lib/ink/recorder";
+import { Hand, HandFrame } from "@/lib/spatial/types";
+
+function hand(at: { x: number; y: number }, pinch: number): Hand {
+  const span = 0.1;
+  return {
+    handedness: "right", confidence: 0.95,
+    wrist: { x: at.x, y: at.y + span * 2 },
+    indexBase: { x: at.x, y: at.y + span },
+    thumbTip: { x: at.x - pinch / 2, y: at.y },
+    indexTip: { x: at.x + pinch / 2, y: at.y },
+    middleTip: { x: at.x, y: at.y + span * 1.7 },
+    ringTip: { x: at.x, y: at.y + span * 1.8 },
+    pinkyTip: { x: at.x, y: at.y + span * 1.9 },
+    palmCenter: { x: at.x, y: at.y },
+  };
+}
 
 function points(raw: Array<{ x: number; y: number }>): StrokePoint[] {
   return raw.map((p, i) => ({ ...p, timestamp: 1000 + i * 33, confidence: 0.9 }));
@@ -171,5 +190,295 @@ describe("the threshold is doing work", () => {
     });
     expect(recognise(points(lumpy))).toBeNull();
     expect(recognise(points(lumpy), 0.1)).not.toBeNull();
+  });
+});
+
+describe("the shapes a researcher actually draws", () => {
+  it("reads a triangle as a three-sided shape", () => {
+    const triangle = [
+      ...Array.from({ length: 14 }, (_, i) => ({ x: 100 + i * 14, y: 300 })),
+      ...Array.from({ length: 14 }, (_, i) => ({ x: 296 - i * 7, y: 300 - i * 12 })),
+      ...Array.from({ length: 14 }, (_, i) => ({ x: 198 - i * 7, y: 132 + i * 12 })),
+    ];
+    const shape = recognise(wobble(triangle, 2));
+    expect(shape?.kind).toBe("polygon");
+    expect(shape!.description).toContain("3-sided");
+  });
+
+  it("keeps the shape of the region rather than regularising it", () => {
+    /**
+     * A researcher sketching a region draws the shape of the region. Snapping it
+     * to a regular polygon would move the annotation off what it surrounds,
+     * which is §174's concern in a different costume.
+     */
+    /*
+     * A five-sided region with sides of obviously different lengths.
+     *
+     * Deliberately not a wonky quadrilateral: four near-right corners is a
+     * rectangle, `asRectangle` claims it, and the test would then be measuring
+     * that preference rather than the thing it is about.
+     */
+    const wonky = [
+      ...Array.from({ length: 12 }, (_, i) => ({ x: 100 + i * 20, y: 300 })),
+      ...Array.from({ length: 8 }, (_, i) => ({ x: 340 + i * 6, y: 300 - i * 18 })),
+      ...Array.from({ length: 10 }, (_, i) => ({ x: 388 - i * 14, y: 156 - i * 9 })),
+      ...Array.from({ length: 6 }, (_, i) => ({ x: 248 - i * 22, y: 66 + i * 5 })),
+      ...Array.from({ length: 12 }, (_, i) => ({ x: 116 - i * 2, y: 96 + i * 17 })),
+    ];
+    const shape = recognise(wobble(wonky, 2));
+    expect(shape?.kind).toBe("polygon");
+
+    // The corners are where the mark turned, not on a regular figure.
+    const sides = shape!.points.slice(0, -1).map((p, i, all) => {
+      const next = all[(i + 1) % all.length];
+      return Math.hypot(next.x - p.x, next.y - p.y);
+    });
+    expect(Math.max(...sides) / Math.min(...sides)).toBeGreaterThan(1.2);
+  });
+
+  it("reads an arrow as an arrow", () => {
+    const arrow = [
+      ...Array.from({ length: 24 }, (_, i) => ({ x: 100 + i * 12, y: 200 })),
+      // A barb turned back from the tip.
+      ...Array.from({ length: 7 }, (_, i) => ({ x: 376 - i * 8, y: 200 - i * 6 })),
+    ];
+    expect(recognise(wobble(arrow, 1.5))?.kind).toBe("arrow");
+  });
+
+  it("does not call a line with a stopping flick an arrow", () => {
+    /**
+     * A hand that stops moving leaves a small hook. Offering an arrow every time
+     * somebody drew a line would be the recognise-everything failure again, in
+     * the one shape where it changes what the annotation means.
+     */
+    const flicked = [
+      ...Array.from({ length: 26 }, (_, i) => ({ x: 100 + i * 12, y: 200 })),
+      ...Array.from({ length: 3 }, (_, i) => ({ x: 410 - i * 2, y: 200 - i * 2 })),
+    ];
+    expect(recognise(wobble(flicked, 1))?.kind).not.toBe("arrow");
+  });
+
+  it("reads a bracket as a bracket", () => {
+    const bracket = [
+      ...Array.from({ length: 8 }, (_, i) => ({ x: 200 - i * 10, y: 100 })),
+      ...Array.from({ length: 16 }, (_, i) => ({ x: 130, y: 100 + i * 12 })),
+      ...Array.from({ length: 8 }, (_, i) => ({ x: 130 + i * 10, y: 292 })),
+    ];
+    expect(recognise(wobble(bracket, 1.5))?.kind).toBe("bracket");
+  });
+
+  it("does not call a zigzag a bracket", () => {
+    // Both ends must leave the spine on the same side. Without that test, any
+    // mark that changed direction twice would be offered as a bracket.
+    const zigzag = [
+      ...Array.from({ length: 8 }, (_, i) => ({ x: 200 - i * 10, y: 100 })),
+      ...Array.from({ length: 16 }, (_, i) => ({ x: 130, y: 100 + i * 12 })),
+      ...Array.from({ length: 8 }, (_, i) => ({ x: 130 - i * 10, y: 292 })),
+    ];
+    expect(recognise(wobble(zigzag, 1.5))?.kind).not.toBe("bracket");
+  });
+
+  it("draws an arrow with two barbs, which is what people mean by one", () => {
+    const arrow = [
+      ...Array.from({ length: 24 }, (_, i) => ({ x: 100 + i * 12, y: 200 })),
+      ...Array.from({ length: 7 }, (_, i) => ({ x: 376 - i * 8, y: 200 - i * 6 })),
+    ];
+    const shape = recognise(wobble(arrow, 1.5))!;
+    // Shaft, tip, barb, back to tip, other barb.
+    expect(shape.points).toHaveLength(5);
+  });
+});
+
+describe("finding where a mark turns", () => {
+  it("finds no corner along a line somebody drew straight", () => {
+    /**
+     * Measured over a window rather than between adjacent points. Consecutive
+     * samples from a hand are a couple of pixels apart and their angle is almost
+     * entirely tremor, so a per-point turn finds a corner every few samples.
+     */
+    expect(cornersOf(wobble(straight(30), 2))).toEqual([]);
+  });
+
+  it("finds one corner where a mark turns once", () => {
+    const bent = [
+      ...Array.from({ length: 14 }, (_, i) => ({ x: 100 + i * 14, y: 200 })),
+      ...Array.from({ length: 14 }, (_, i) => ({ x: 296, y: 200 + i * 14 })),
+    ];
+    expect(cornersOf(wobble(bent, 1.5))).toHaveLength(1);
+  });
+
+  it("finds no corner anywhere on a smooth closed loop", () => {
+    /**
+     * A circle has no corners, and that is the property that shows the cyclic
+     * walk is genuine rather than incidental.
+     *
+     * Counting corners on a square cannot tell the two apart: clamping the
+     * indices at the ends fabricates a turn at the final point — comparing a
+     * real heading against a zero-length step — so a square comes back with
+     * four either way, one of them an artefact. On a smooth loop the artefact
+     * has nothing to hide behind, and clamping invents a corner where the mark
+     * plainly has none.
+     */
+    const loop = Array.from({ length: 48 }, (_, i) => {
+      const t = (i / 48) * Math.PI * 2;
+      return { x: 300 + Math.cos(t) * 120, y: 300 + Math.sin(t) * 120 };
+    });
+    expect(cornersOf(loop)).toEqual([]);
+  });
+
+  it("finds the corner sitting on the seam of a closed mark", () => {
+    /**
+     * The case that made a triangle read as a circle. A closed mark ends where
+     * it began, and the corner at that join has no neighbours on one side — so
+     * a walk that stops `window` points from each end never sees it. Every
+     * closed polygon has a corner at its seam roughly a third of the time, so
+     * this was not an edge case.
+     *
+     * Pinned as its own property because the triangle happens to pass without
+     * it: clamping the indices instead of wrapping fabricates a turn at index 0,
+     * which is the right answer for the wrong reason.
+     */
+    const side = (from: { x: number; y: number }, to: { x: number; y: number }) =>
+      Array.from({ length: 10 }, (_, i) => ({
+        x: from.x + ((to.x - from.x) * i) / 10,
+        y: from.y + ((to.y - from.y) * i) / 10,
+      }));
+
+    // A square whose stroke *starts at a corner*, so one corner is on the seam.
+    const atCorner = [
+      ...side({ x: 100, y: 100 }, { x: 300, y: 100 }),
+      ...side({ x: 300, y: 100 }, { x: 300, y: 300 }),
+      ...side({ x: 300, y: 300 }, { x: 100, y: 300 }),
+      ...side({ x: 100, y: 300 }, { x: 100, y: 100 }),
+    ];
+    expect(cornersOf(wobble(atCorner, 1))).toHaveLength(4);
+
+    // And the same square drawn from the middle of an edge, where every corner
+    // is safely inside the walk. Both must agree.
+    const midEdge = [
+      ...side({ x: 200, y: 100 }, { x: 300, y: 100 }),
+      ...side({ x: 300, y: 100 }, { x: 300, y: 300 }),
+      ...side({ x: 300, y: 300 }, { x: 100, y: 300 }),
+      ...side({ x: 100, y: 300 }, { x: 100, y: 100 }),
+      ...side({ x: 100, y: 100 }, { x: 200, y: 100 }),
+    ];
+    expect(cornersOf(wobble(midEdge, 1))).toHaveLength(4);
+  });
+
+  it("treats a rounded corner as one corner, not a run of them", () => {
+    // A real corner is rounded by the hand and by smoothing, and shows up as a
+    // run of turning rather than a spike.
+    const rounded = [
+      ...Array.from({ length: 14 }, (_, i) => ({ x: 100 + i * 14, y: 200 })),
+      ...Array.from({ length: 6 }, (_, i) => {
+        const t = (i / 6) * (Math.PI / 2);
+        return { x: 296 + Math.sin(t) * 20, y: 200 + 20 - Math.cos(t) * 20 };
+      }),
+      ...Array.from({ length: 14 }, (_, i) => ({ x: 316, y: 220 + i * 14 })),
+    ];
+    expect(cornersOf(wobble(rounded, 1))).toHaveLength(1);
+  });
+});
+
+describe("accepting an offer, and being able to take it back", () => {
+  /**
+   * §181 offers; §197 makes it a question; §174 requires that saying yes still
+   * keeps what the hand did. All three meet here.
+   */
+  function drawnCircle() {
+    const recorder = new InkRecorder({ now: () => 5000 });
+    recorder.setViewport({ width: 720, height: 520 });
+    recorder.arm();
+    let clock = 1000;
+    /*
+     * A circle *on screen*, which is not a circle in camera space.
+     *
+     * The canvas is 720x520, so a normalised offset maps to (dx*720, dy*520) —
+     * and the first version of this fixture drew an equal-radius loop in
+     * normalised units, which lands as a visibly squashed ellipse. The
+     * recogniser correctly said "ellipse" and the test blamed it. Compensating
+     * for the aspect ratio is what makes "circle" the right expectation.
+     */
+    const radius = 90;
+    const loop = Array.from({ length: 30 }, (_, i) => {
+      const t = (i / 29) * Math.PI * 2;
+      return { x: 0.5 + (Math.cos(t) * radius) / 720,
+               y: 0.5 + (Math.sin(t) * radius) / 520 };
+    });
+    const steps = [{ at: loop[0], pinch: 0.2 },
+                   ...loop.map((at) => ({ at, pinch: 0.02 })),
+                   { at: loop[0], pinch: 0.2 }];
+    for (const step of steps) {
+      recorder.step({ timestamp: clock,
+                      hands: [hand(step.at, step.pinch)] } as HandFrame);
+      clock += 33;
+    }
+    return recorder;
+  }
+
+  it("reads a finished stroke, after it is finished", () => {
+    const recorder = drawnCircle();
+    const stroke = recorder.strokes()[0];
+    expect(recorder.shapeOf(stroke.id)).not.toBeNull();
+  });
+
+  it("does not touch the record when the offer is accepted", () => {
+    /**
+     * The whole of §174, and the reason a tidy is safe to offer at all. The
+     * drawn copy changes; what the hand did does not.
+     */
+    const recorder = drawnCircle();
+    const stroke = recorder.strokes()[0];
+    const drawn = stroke.originalPoints;
+
+    recorder.tidy(stroke.id, recorder.shapeOf(stroke.id)!);
+
+    const after = recorder.strokes()[0];
+    expect(after.originalPoints).toBe(drawn);
+    expect(after.points).not.toBe(drawn);
+  });
+
+  it("records that the shape was accepted rather than drawn", () => {
+    // So a figure can distinguish a circle somebody drew from one they agreed to.
+    const recorder = drawnCircle();
+    const stroke = recorder.strokes()[0];
+    recorder.tidy(stroke.id, recorder.shapeOf(stroke.id)!);
+
+    expect(recorder.strokes()[0].interpretation?.kind).toBe("circle");
+  });
+
+  it("can be taken back, giving the original stroke object", () => {
+    const recorder = drawnCircle();
+    const stroke = recorder.strokes()[0];
+    recorder.tidy(stroke.id, recorder.shapeOf(stroke.id)!);
+
+    expect(recorder.describeUndo()).toBe("Undo tidying into circle");
+    expect(recorder.undo()).toBe(true);
+    expect(recorder.strokes()[0]).toBe(stroke);
+  });
+
+  it("keeps the mark where it was in the drawing order", () => {
+    // A tidied mark that jumped on top would paint over things drawn after it.
+    const recorder = drawnCircle();
+    const first = recorder.strokes()[0].id;
+    // A second mark, drawn later.
+    let clock = 9000;
+    for (const step of [{ x: 0.8, y: 0.8, p: 0.2 }, { x: 0.8, y: 0.8, p: 0.02 },
+                        { x: 0.82, y: 0.8, p: 0.02 }, { x: 0.84, y: 0.8, p: 0.02 },
+                        { x: 0.84, y: 0.8, p: 0.2 }]) {
+      recorder.step({ timestamp: clock,
+                      hands: [hand({ x: step.x, y: step.y }, step.p)] } as HandFrame);
+      clock += 33;
+    }
+
+    recorder.tidy(first, recorder.shapeOf(first)!);
+    expect(recorder.strokes()[0].interpretation?.kind).toBe("circle");
+    expect(recorder.strokes()).toHaveLength(2);
+  });
+
+  it("refuses to tidy a stroke that is not there", () => {
+    const recorder = drawnCircle();
+    const shape = recorder.shapeOf(recorder.strokes()[0].id)!;
+    expect(recorder.tidy("nonexistent", shape)).toBe(false);
   });
 });

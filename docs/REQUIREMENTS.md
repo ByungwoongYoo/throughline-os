@@ -30,8 +30,8 @@ and looked at the code. The test requires the count never to grow.
 
 | Status | Sections |
 |---|---|
-| built | 48 |
-| partial | 20 |
+| built | 49 |
+| partial | 19 |
 | not-built | 18 |
 | unreviewed | 150 |
 | **total** | **236** |
@@ -227,7 +227,7 @@ revisited — an edited specification is exactly when requirements go missing.
 | §178 | PARTIAL STROKE ERASING | built | apps/web/lib/ink/erase.ts | apps/web/tests/ink-erase.test.ts | Erasing the middle of a stroke leaves two strokes. Each fragment is a subsequence of the points the hand made — never resampled or refitted — and carries `derivedFrom`, so a mark that was once one and is now two can still say what it was. |
 | §179 | UNDO MUST BE INSTANT | built | apps/web/lib/ink/history.ts | apps/web/tests/ink-history.test.ts | Synchronous and local: no network, no await, nothing that can fail. An undo that might not work is not an undo. |
 | §180 | LASSO TOOL | unreviewed |  |  |  |
-| §181 | SHAPE TOOL | partial | apps/web/lib/ink/shapes.ts | apps/web/tests/ink-shapes.test.ts | Line, circle, ellipse and rectangle, recognised after the stroke finishes and never while it is being drawn. A mark that fits nothing is reported as fitting nothing. Arrow, polygon and bracket are not recognised, and nothing is applied yet — the offer has no control. |
+| §181 | SHAPE TOOL | built | apps/web/lib/ink/shapes.ts | apps/web/tests/ink-shapes.test.ts | Line, circle, ellipse, rectangle, polygon, arrow and bracket, read after the stroke finishes and never during it, offered rather than applied, and reversible when accepted. A mark that fits nothing is reported as fitting nothing. |
 | §182 | STRAIGHTEDGE MODE | not-built |  |  |  |
 | §183 | SPATIAL RULER | not-built |  |  |  |
 | §184 | HAND-DRAWN MEASUREMENTS A | not-built |  |  |  |

@@ -35,6 +35,7 @@ import { describeSelection, selectWithinStroke } from "@/lib/ink/select";
 import { describeContext, selectionContext } from "@/lib/ink/context";
 import { ReferenceTimeline } from "@/lib/voice/timeline";
 import { ScreenPoint, ViewState, sameView } from "@/lib/spatial/commands";
+import { Shape } from "@/lib/ink/shapes";
 import { now } from "@/lib/spatial/clock";
 import { resolveUtterance } from "@/lib/voice/deixis";
 import { describeIntent, readIntent } from "@/lib/voice/intent";
@@ -144,6 +145,10 @@ type Reading = {
   context: string | null;
   /** Where the scene was when this was drawn, for noticing it has moved. */
   viewState?: ViewState;
+  /** What it looks like, if it looks like anything (§181). */
+  shape: Shape | null;
+  /** Whether the offer has been accepted, so it is not offered twice. */
+  tidied: boolean;
 };
 
 export default function AirInkPage() {
@@ -267,6 +272,10 @@ export default function AirInkPage() {
       // §197 is the reason it is only shown — an interpretation that changes
       // what a researcher is analysing gets confirmed, not applied.
       viewState: stroke.viewState,
+      // Read once, after the stroke is finished — never while it is being
+      // drawn (§181) — and offered rather than applied (§197).
+      shape: inkRef.current?.shapeOf(stroke.id) ?? null,
+      tidied: false,
       context: selection ? describeContext(selectionContext(selection, {
         visualization: "a synthetic cloud in three lobes",
         xLabel: "x", yLabel: "y", zLabel: "z",
@@ -484,6 +493,7 @@ export default function AirInkPage() {
                 <th style={{ padding: "6px 8px" }}>Reading</th>
                 <th style={{ padding: "6px 8px" }}>As a question</th>
                 <th style={{ padding: "6px 8px" }}>Still the same view?</th>
+                <th style={{ padding: "6px 8px" }}>Shape</th>
               </tr>
             </thead>
             <tbody>
@@ -514,6 +524,29 @@ export default function AirInkPage() {
                                      textDecoration: "underline",
                                      cursor: "pointer" }}>
                             no — go back to it
+                          </button>
+                        )}
+                  </td>
+                  <td style={{ padding: "6px 8px" }}>
+                    {reading.tidied
+                      ? <span style={{ color: "#777" }}>tidied</span>
+                      : !reading.shape
+                        ? <span style={{ color: "#777" }}>as drawn</span>
+                        : (
+                          <button
+                            onClick={() => {
+                              inkRef.current?.tidy(reading.strokeId, reading.shape!);
+                              setReadings((rows) => rows.map((r) =>
+                                r.strokeId === reading.strokeId
+                                  ? { ...r, tidied: true } : r));
+                              setPending();
+                            }}
+                            style={{ font: "inherit", fontSize: 13,
+                                     color: "#1443B8", background: "none",
+                                     border: "none", padding: 0,
+                                     textDecoration: "underline",
+                                     cursor: "pointer" }}>
+                            tidy into {reading.shape.kind}
                           </button>
                         )}
                   </td>

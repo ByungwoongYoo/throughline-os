@@ -57,6 +57,8 @@ export type InkOperation =
    * researcher did, and undoing it a frame at a time would be unusable.
    */
   | { kind: "rub"; before: SpatialStroke[]; after: SpatialStroke[] }
+  /** A shape offer the researcher accepted (§181). Reversible like anything. */
+  | { kind: "tidy"; before: SpatialStroke; after: SpatialStroke }
   | { kind: "clear"; strokes: SpatialStroke[] };
 
 export type HistoryLimits = {
@@ -160,6 +162,9 @@ function describe(operation: InkOperation | null, verb: string): string | null {
         ? `${verb} erasing part of a stroke`
         : `${verb} erasing across ${touched} strokes`;
     }
+    case "tidy":
+      return `${verb} tidying into ${operation.after.interpretation?.kind
+                                     ?? "a shape"}`;
     case "clear":
       // The count is the point. "Undo clear" is not a decision anybody can
       // make; "Undo clearing 12 strokes" is.
@@ -199,6 +204,13 @@ export function applyOperation(strokes: readonly SpatialStroke[],
       // order, so an undone erasure is the figure that was there and not a
       // near-miss of it.
       return forward ? [...operation.after] : [...operation.before];
+    case "tidy": {
+      const from = forward ? operation.before : operation.after;
+      const to = forward ? operation.after : operation.before;
+      // Swapped in place, so a tidied mark stays where it was in the drawing
+      // order rather than jumping on top of everything drawn since.
+      return strokes.map((s) => (s.id === from.id ? to : s));
+    }
     case "clear":
       // The same objects, in the same order. Nothing is rebuilt.
       return forward ? [] : [...operation.strokes];

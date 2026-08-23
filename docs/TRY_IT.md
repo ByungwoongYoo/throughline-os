@@ -165,6 +165,22 @@ column. It says *yes* while the scene is where you drew it, and offers **no — 
 back to it** once you have moved. Pressing that returns the chart to exactly the
 orientation and zoom the annotation was made at.
 
+### Tidying a shape
+
+Draw a circle, a box, a line, an arrow, a bracket or a region. If the mark looks
+like one of those, the strokes table offers **tidy into ...** and you can take it
+or leave it.
+
+Two things are deliberate. It reads the mark **after** you finish, never while
+you are still drawing — a shape that morphs under your hand as you aim at it is
+worse than a wobbly one. And **what you drew is kept**: tidying changes the drawn
+copy, never the record, so the annotation can always say what your hand actually
+did. Undo takes it back.
+
+If it says *as drawn*, it means the mark did not clearly look like anything. That
+is the intended answer for a deliberately irregular boundary — a system that
+offered you a neat ellipse there would have misread what you meant.
+
 ### Rubbing things out
 
 There is a **Tool** row: *Pen* and *Eraser*. Switch to the eraser, pinch, and

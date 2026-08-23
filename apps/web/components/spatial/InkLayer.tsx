@@ -34,6 +34,7 @@ import { InkRecorder, RecorderOptions } from "@/lib/ink/recorder";
 import { InkState } from "@/lib/ink/machine";
 import { SpatialStroke, StrokePoint } from "@/lib/ink/stroke";
 import { StabilisationLevel } from "@/lib/ink/stabilise";
+import { Shape } from "@/lib/ink/shapes";
 import { ReferenceTimeline } from "@/lib/voice/timeline";
 import { deviceFeedback } from "@/lib/spatial/feedback";
 
@@ -43,6 +44,10 @@ export type InkSurface = {
   arm: () => void;
   disarm: () => void;
   clear: () => void;
+  /** What a finished stroke looks like, if it looks like anything (§181). */
+  shapeOf: (strokeId: string) => Shape | null;
+  /** Accept an offered shape. Keeps what was drawn (§174). */
+  tidy: (strokeId: string, shape: Shape) => void;
   /** Switch between the pen and the eraser (§176). */
   setTool: (tool: "pen" | "eraser") => void;
   tool: () => "pen" | "eraser";
@@ -258,6 +263,11 @@ export const InkLayer = forwardRef<InkSurface, {
       recorderRef.current?.clear();
       committedDirty.current = true;
       liveDirty.current = true;
+    },
+    shapeOf(strokeId) { return recorderRef.current?.shapeOf(strokeId) ?? null; },
+    tidy(strokeId, shape) {
+      recorderRef.current?.tidy(strokeId, shape);
+      committedDirty.current = true;
     },
     setTool(tool) { recorderRef.current?.setTool(tool); },
     tool() { return recorderRef.current?.currentTool() ?? "pen"; },

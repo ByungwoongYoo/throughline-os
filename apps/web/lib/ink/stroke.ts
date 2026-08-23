@@ -96,6 +96,15 @@ export type SpatialStroke = {
    */
   derivedFrom?: string;
   /**
+   * The shape this was tidied into, if the researcher accepted one (§181).
+   *
+   * Recorded rather than implied, so a figure can always distinguish a circle
+   * somebody drew from a circle the system offered and they agreed to.
+   * `originalPoints` is untouched either way — the tidy changes `points`, which
+   * is the drawn copy, and never the record.
+   */
+  interpretation?: { kind: string; confidence: number };
+  /**
    * How the chart was being looked at when this was drawn (§143).
    *
    * Present for screen-space ink over a rotatable scene, which is the case with

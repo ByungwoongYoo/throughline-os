@@ -45,6 +45,7 @@ import { DEFAULT_INK_SETTINGS, InkEvent, InkSettings, InkStateMachine } from "./
 import { DEFAULT_PREDICT, PredictSettings, predictAhead } from "./predict";
 import { InkHistory, applyOperation } from "./history";
 import { ERASER_RADIUS, ErasePath, eraseAlong } from "./erase";
+import { Shape, recognise } from "./shapes";
 
 export type Viewport = { width: number; height: number };
 
@@ -251,6 +252,45 @@ export class InkRecorder {
   private touchingInk = false;
   /** Events this recorder raised itself, merged into the frame's. */
   private pendingEvents: InkEvent[] = [];
+
+  /**
+   * What a finished stroke looks like, if it looks like anything (§181).
+   *
+   * Read after the fact and never applied here: §197 makes an interpretation
+   * that changes what a researcher drew a question rather than a side effect.
+   */
+  shapeOf(strokeId: string): Shape | null {
+    const stroke = this.finished.find((s) => s.id === strokeId);
+    return stroke ? recognise(stroke.originalPoints) : null;
+  }
+
+  /**
+   * Accept an offered shape.
+   *
+   * Replaces the *drawn* copy and never `originalPoints`, so the mark can always
+   * say what the hand actually did — which is the whole of §174 and the reason
+   * a tidy is safe to offer at all. Reversible, like everything else.
+   */
+  tidy(strokeId: string, shape: Shape): boolean {
+    const index = this.finished.findIndex((s) => s.id === strokeId);
+    if (index < 0) return false;
+    const before = this.finished[index];
+    const after: SpatialStroke = {
+      ...before,
+      points: shape.points.map((p, i) => ({
+        x: p.x, y: p.y,
+        // The times the hand was there are not the times of a fitted curve, so
+        // the drawn copy takes the stroke's span rather than pretending.
+        timestamp: before.originalPoints[
+          Math.min(i, before.originalPoints.length - 1)]?.timestamp ?? 0,
+        confidence: 1,
+      })),
+      interpretation: { kind: shape.kind, confidence: shape.confidence },
+    };
+    this.finished = this.finished.map((s) => (s.id === strokeId ? after : s));
+    this.past.did({ kind: "tidy", before, after });
+    return true;
+  }
 
   canUndo(): boolean { return this.past.canUndo(); }
   canRedo(): boolean { return this.past.canRedo(); }

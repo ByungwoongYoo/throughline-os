@@ -32,7 +32,8 @@
 
 import { StrokePoint } from "./stroke";
 
-export type ShapeKind = "line" | "circle" | "ellipse" | "rectangle" | "polygon";
+export type ShapeKind =
+  | "line" | "circle" | "ellipse" | "rectangle" | "polygon" | "arrow" | "bracket";
 
 export type Shape = {
   kind: ShapeKind;
@@ -218,6 +219,206 @@ function asRectangle(points: readonly Point[]): Shape | null {
   };
 }
 
+/**
+ * Where a mark turns a corner.
+ *
+ * Measured over a window rather than between adjacent points: consecutive
+ * samples from a hand are a couple of pixels apart and their angle is almost
+ * entirely tremor, so a per-point turn finds a corner every few samples along a
+ * line somebody drew straight. The window is a fraction of the mark's own
+ * length, which keeps it working on a small annotation and a large one.
+ *
+ * Neighbouring detections are merged, because a real corner is rounded by the
+ * hand and by the smoothing and shows up as a run of turning rather than a
+ * spike.
+ */
+export function cornersOf(points: readonly Point[],
+                          minimumTurn = Math.PI / 5,
+                          closed = isClosedEnough(points)): number[] {
+  const window = Math.max(2, Math.round(points.length / 12));
+  if (points.length < window * 2 + 1) return [];
+
+  /*
+   * A closed mark is walked cyclically, and that is not a refinement.
+   *
+   * Without it the corner at the *seam* — where the stroke ends where it began —
+   * is invisible, because the first and last window of points have no
+   * neighbours to measure against. A hand-drawn triangle came back with two
+   * corners and was offered as a circle: the shape was right, the corner count
+   * was one short, and the score collapsed. Every closed polygon has a corner at
+   * its seam roughly a third of the time, so this was not an edge case.
+   */
+  const n = points.length;
+  const at = (i: number) => points[closed ? ((i % n) + n) % n : i];
+  const from = closed ? 0 : window;
+  const to = closed ? n : n - window;
+
+  const turns: Array<{ index: number; turn: number }> = [];
+  for (let i = from; i < to; i += 1) {
+    const before = at(i - window), after = at(i + window);
+    const here = at(i);
+    const a = Math.atan2(here.y - before.y, here.x - before.x);
+    const b = Math.atan2(after.y - here.y, after.x - here.x);
+    let turn = Math.abs(b - a);
+    if (turn > Math.PI) turn = Math.PI * 2 - turn;
+    if (turn >= minimumTurn) turns.push({ index: i, turn });
+  }
+
+  // One corner per run of turning: keep the sharpest of each cluster.
+  const corners: number[] = [];
+  let cluster: Array<{ index: number; turn: number }> = [];
+  for (const entry of turns) {
+    if (cluster.length && entry.index - cluster[cluster.length - 1].index > window) {
+      corners.push(cluster.reduce((a, b) => (a.turn >= b.turn ? a : b)).index);
+      cluster = [];
+    }
+    cluster.push(entry);
+  }
+  if (cluster.length) {
+    corners.push(cluster.reduce((a, b) => (a.turn >= b.turn ? a : b)).index);
+  }
+
+  // The clustering wraps too, for the same reason the walk does: a corner
+  // sitting on the seam is detected once just after index 0 and again just
+  // before the end, and counting it twice turns a triangle into a quadrilateral.
+  if (closed && corners.length > 1) {
+    const first = corners[0], last = corners[corners.length - 1];
+    if (n - last + first <= window) corners.pop();
+  }
+  return corners;
+}
+
+/** Distance from a point to the segment ab, not to the infinite line. */
+function distanceToSegment(p: Point, a: Point, b: Point): number {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lengthSquared;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+}
+
+/** How far the mark strays from the outline through its own corners. */
+function residualsToPath(points: readonly Point[], path: readonly Point[]) {
+  return points.map((p) => {
+    let best = Infinity;
+    for (let i = 1; i < path.length; i += 1) {
+      best = Math.min(best, distanceToSegment(p, path[i - 1], path[i]));
+    }
+    return best;
+  });
+}
+
+/**
+ * A closed mark with corners: a triangle, a pentagon, anything up to an octagon.
+ *
+ * Scored against the outline through its own corners rather than against a
+ * regular polygon — a researcher sketching a region draws the shape of the
+ * region, and regularising it would move the annotation off what it surrounds.
+ */
+function asPolygon(points: readonly Point[]): Shape | null {
+  if (!isClosedEnough(points)) return null;
+  const corners = cornersOf(points);
+  if (corners.length < 3 || corners.length > 8) return null;
+
+  /*
+   * Four near-right corners is a rectangle, and `asRectangle` says so.
+   *
+   * A rectangle *is* a quadrilateral, so this scored well and won — leaving the
+   * researcher told they had drawn "a 4-sided shape". True, and useless: the
+   * more specific name is the informative one, and it is the one that carries a
+   * rotation and a pair of side lengths with it.
+   */
+  if (corners.length === 4) {
+    const right = corners.every((index, k) => {
+      const before = points[corners[(k + 3) % 4]];
+      const here = points[index];
+      const after = points[corners[(k + 1) % 4]];
+      const a = Math.atan2(here.y - before.y, here.x - before.x);
+      const b = Math.atan2(after.y - here.y, after.x - here.x);
+      let turn = Math.abs(b - a);
+      if (turn > Math.PI) turn = Math.PI * 2 - turn;
+      return Math.abs(turn - Math.PI / 2) < 0.45;
+    });
+    if (right) return null;
+  }
+
+  const outline = [...corners.map((i) => points[i])];
+  outline.push(outline[0]);
+  const confidence = scoreFrom(residualsToPath(points, outline), extentOf(points));
+  return {
+    kind: "polygon", confidence, points: outline,
+    description: `a ${corners.length}-sided shape`,
+  };
+}
+
+/**
+ * A bracket: two corners, an open mark, with both ends turning the same way.
+ *
+ * The same-way test is what separates a bracket from a zigzag. Without it, any
+ * mark that changed direction twice would be offered as one.
+ */
+function asBracket(points: readonly Point[]): Shape | null {
+  if (isClosedEnough(points)) return null;
+  const corners = cornersOf(points, Math.PI / 4);
+  if (corners.length !== 2) return null;
+
+  const path = [points[0], points[corners[0]], points[corners[1]],
+                points[points.length - 1]];
+  // Both ends must leave the spine on the same side, or it is a zigzag.
+  const spine = { x: path[2].x - path[1].x, y: path[2].y - path[1].y };
+  const side = (p: Point) =>
+    Math.sign((p.x - path[1].x) * spine.y - (p.y - path[1].y) * spine.x);
+  if (side(path[0]) === 0 || side(path[0]) !== side(path[3])) return null;
+
+  return {
+    kind: "bracket", confidence: scoreFrom(residualsToPath(points, path),
+                                           extentOf(points)),
+    points: path, description: "a bracket",
+  };
+}
+
+/**
+ * An arrow: a long shaft with a short barb turned back at the end.
+ *
+ * Defined by the proportion rather than by the angle alone, because a line with
+ * a slight hook at the end — which is what a hand does when it stops — would
+ * otherwise be offered as an arrow every time.
+ */
+function asArrow(points: readonly Point[]): Shape | null {
+  if (isClosedEnough(points)) return null;
+  const corners = cornersOf(points, Math.PI / 3);
+  if (corners.length !== 1) return null;
+
+  const corner = corners[0];
+  const tip = points[corner];
+  const shaft = Math.hypot(tip.x - points[0].x, tip.y - points[0].y);
+  const barb = Math.hypot(points[points.length - 1].x - tip.x,
+                          points[points.length - 1].y - tip.y);
+  // A barb is a fraction of the shaft. Anything longer is a bent line, and
+  // anything shorter is the flick a hand makes when it stops.
+  if (shaft <= 0 || barb / shaft > 0.45 || barb / shaft < 0.08) return null;
+
+  const path = [points[0], tip, points[points.length - 1]];
+  return {
+    kind: "arrow", confidence: scoreFrom(residualsToPath(points, path),
+                                         extentOf(points)),
+    points: arrowOutline(points[0], tip, barb),
+    description: "an arrow",
+  };
+}
+
+/** A shaft with two symmetrical barbs, which is what people mean by an arrow. */
+function arrowOutline(from: Point, tip: Point, barb: number): Point[] {
+  const angle = Math.atan2(tip.y - from.y, tip.x - from.x);
+  const spread = Math.PI / 7;
+  const at = (turn: number) => ({
+    x: tip.x - Math.cos(angle + turn) * barb,
+    y: tip.y - Math.sin(angle + turn) * barb,
+  });
+  return [from, tip, at(spread), tip, at(-spread)];
+}
+
 function ring(count: number, at: (t: number) => Point): Point[] {
   return Array.from({ length: count + 1 },
                     (_, i) => at((i / count) * Math.PI * 2));
@@ -240,7 +441,8 @@ export function recognise(points: readonly StrokePoint[],
   if (extentOf(plain) <= 0) return null;
 
   const candidates = [asLine(plain), asCircle(plain), asEllipse(plain),
-                      asRectangle(plain)]
+                      asRectangle(plain), asPolygon(plain), asArrow(plain),
+                      asBracket(plain)]
     .filter((s): s is Shape => s !== null);
   if (candidates.length === 0) return null;
 
