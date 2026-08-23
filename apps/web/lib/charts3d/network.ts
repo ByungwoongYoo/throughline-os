@@ -42,7 +42,7 @@ export type GraphEdge = {
 
 export type Graph = { nodes: GraphNode[]; edges: GraphEdge[] };
 
-/** A node with somewhere to be. Unit cube, centred on the origin. */
+/** A node with somewhere to be. The unit cube -1..1, as `unitScale` means it. */
 export type Placed = GraphNode & { x: number; y: number; z: number };
 
 export type Layout = {
@@ -226,7 +226,7 @@ function normalise(nodes: Placed[]): Placed[] {
     for (const node of nodes) {
       // A degenerate axis becomes the centre rather than NaN. One node, or a
       // perfectly flat graph, would otherwise render nowhere at all.
-      node[axis] = span > 1e-9 ? ((node[axis] - min) / span) - 0.5 : 0;
+      node[axis] = span > 1e-9 ? (((node[axis] - min) / span) * 2) - 1 : 0;
     }
   }
   return nodes;
@@ -261,9 +261,10 @@ export function layoutLayered(graph: Graph,
     // become a line of overlapping discs when seen from the front.
     row.forEach((node, i) => {
       const placed = known.get(node.id)!;
-      placed.y = depths.length > 1 ? (layer / (depths.length - 1)) - 0.5 : 0;
-      placed.x = row.length > 1 ? (i / (row.length - 1)) - 0.5 : 0;
-      placed.z = row.length > 1 ? ((i % 3) - 1) * 0.12 : 0;
+      placed.y = depths.length > 1
+        ? ((layer / (depths.length - 1)) * 2) - 1 : 0;
+      placed.x = row.length > 1 ? ((i / (row.length - 1)) * 2) - 1 : 0;
+      placed.z = row.length > 1 ? ((i % 3) - 1) * 0.24 : 0;
     });
   });
 

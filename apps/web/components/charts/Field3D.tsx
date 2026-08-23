@@ -34,6 +34,7 @@ import { ScreenPoint, TargetRef, VisualizationController } from "@/lib/spatial/c
 import {
   Camera, DEFAULT_CAMERA, resetCamera, rotateCamera, toCanvas, zoomCamera,
 } from "@/lib/charts/scene3d";
+import { isZoomWheel, wheelZoomFactor } from "@/lib/charts/wheel";
 import {
   DEFAULT_FIELD, Field, FieldSettings, Glyph, Sample, describeField,
   prepareField,
@@ -210,7 +211,13 @@ export function Field3D({
         }}
         onPointerUp={() => { dragging.current = null; }}
         onWheel={(event) => {
-          zoomCamera(cameraRef.current, Math.pow(0.999, event.deltaY));
+          // A plain wheel scrolls the page; ctrl or ⌘ zooms. Without the gate
+          // a reader scrolling past three stacked charts never reaches the
+          // bottom of the page. Zoom is also on the controller, so the gesture
+          // layer and the keyboard reach it without a wheel at all.
+          if (!isZoomWheel(event)) return;
+          event.preventDefault();
+          zoomCamera(cameraRef.current, wheelZoomFactor(event.deltaY));
           dirtyRef.current = true;
         }}
       />

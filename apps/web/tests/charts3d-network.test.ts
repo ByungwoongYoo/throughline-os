@@ -54,8 +54,8 @@ describe("it fills the space it is given", () => {
     // the same thing in a network as in a scatter.
     for (const node of layoutGraph(chain(20)).nodes) {
       for (const axis of [node.x, node.y, node.z]) {
-        expect(axis).toBeGreaterThanOrEqual(-0.5001);
-        expect(axis).toBeLessThanOrEqual(0.5001);
+        expect(axis).toBeGreaterThanOrEqual(-1.0001);
+        expect(axis).toBeLessThanOrEqual(1.0001);
       }
     }
   });
@@ -71,7 +71,7 @@ describe("it fills the space it is given", () => {
       const values = nodes.map(pick);
       return Math.max(...values) - Math.min(...values);
     };
-    expect(spread((n) => n.z)).toBeGreaterThan(0.5);
+    expect(spread((n) => n.z)).toBeGreaterThan(1);
   });
 
   it("puts a single node in the middle rather than nowhere", () => {
@@ -129,7 +129,7 @@ describe("it fills the space it is given", () => {
     const sd = Math.sqrt(
       zs.reduce((a, z) => a + (z - mean) ** 2, 0) / zs.length);
 
-    expect(sd).toBeGreaterThan(0.13);
+    expect(sd).toBeGreaterThan(0.26);
   });
 
 });

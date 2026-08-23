@@ -41,6 +41,7 @@ import {
   toCanvas, unitScale, zoomCamera,
 } from "@/lib/charts/scene3d";
 import { ScreenPoint, TargetRef, VisualizationController } from "@/lib/spatial/commands";
+import { isZoomWheel } from "@/lib/charts/wheel";
 import { interpolateYlGnBu } from "d3-scale-chromatic";
 import { ChartTable } from "./ChartTable";
 
@@ -421,6 +422,11 @@ export function Surface({
           onSelect?.(target);
         }}
         onWheel={(event) => {
+          // The same gate as every other chart: a plain wheel belongs to the
+          // page. One page can stack several of these, and two different wheel
+          // behaviours among them would be worse than either.
+          if (!isZoomWheel(event)) return;
+          event.preventDefault();
           zoomCamera(cameraRef.current, event.deltaY < 0 ? 1.08 : 1 / 1.08);
           dirtyRef.current = true;
         }}

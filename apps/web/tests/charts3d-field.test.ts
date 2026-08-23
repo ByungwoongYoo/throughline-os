@@ -92,7 +92,7 @@ describe("a field too dense to draw", () => {
     const field = prepareField(lattice(12), { maxGlyphs: 200, reach: 0.9 });
     const xs = field.glyphs.map((g) => g.x);
     // Spanning the full cube, not a slab at one end of it.
-    expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(0.9);
+    expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(1.8);
     /*
      * And *populating* it: a span alone cannot tell the two apart, because
      * positions used to be normalised over the survivors, so a corner was
@@ -118,7 +118,7 @@ describe("a field too dense to draw", () => {
     expect(field.dropped).toBeGreaterThan(0);
     const furthest = Math.max(...field.glyphs.map((g) => g.x));
     // Short of the cube's edge, because the sample at the edge is not here.
-    expect(furthest).toBeLessThan(0.49);
+    expect(furthest).toBeLessThan(0.99);
   });
 
   it("keeps everything when there is room", () => {
@@ -196,7 +196,7 @@ describe("an arrow does not reach into its neighbour", () => {
      */
     for (const n of [3, 5, 8]) {
       const field = prepareField(lattice(n));
-      const spacing = 1 / Math.cbrt(field.glyphs.length);
+      const spacing = 2 / Math.cbrt(field.glyphs.length);
       const longest = Math.max(
         ...field.glyphs.map((g) => Math.hypot(g.hx - g.x, g.hy - g.y, g.hz - g.z)));
       expect(longest).toBeLessThanOrEqual(spacing);

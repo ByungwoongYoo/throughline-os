@@ -10,7 +10,8 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_VOLUME, Grid, defaultWindow, describeVolume, gridFromFunction,
+  DEFAULT_VOLUME, Grid, MIN_VISIBLE_ALPHA, defaultWindow, describeVolume,
+  gridFromFunction,
   prepareVolume, valueAt,
 } from "@/lib/charts3d/voxels";
 
@@ -238,8 +239,8 @@ describe("where the voxels land", () => {
     const volume = prepareVolume(uniform(5));
     for (const splat of volume.splats) {
       for (const axis of [splat.x, splat.y, splat.z]) {
-        expect(axis).toBeGreaterThanOrEqual(-0.5);
-        expect(axis).toBeLessThanOrEqual(0.5);
+        expect(axis).toBeGreaterThanOrEqual(-1);
+        expect(axis).toBeLessThanOrEqual(1);
       }
     }
   });
@@ -258,7 +259,7 @@ describe("where the voxels land", () => {
     const grid = cube(3, () => 1);
     const volume = prepareVolume(grid);
     const corner = volume.splats.find(
-      (s) => s.x === -0.5 && s.y === -0.5 && s.z === -0.5);
+      (s) => s.x === -1 && s.y === -1 && s.z === -1);
     expect(corner).toBeDefined();
   });
 
@@ -310,5 +311,61 @@ describe("the settings are a decision, not a magic number", () => {
 
   it("draws enough splats to be a volume rather than a cloud", () => {
     expect(DEFAULT_VOLUME.maxSplats).toBeGreaterThan(10000);
+  });
+
+  it("stays inside a frame budget while the reader is dragging", () => {
+    /*
+     * Measured in a browser rather than reasoned about: projecting and sorting
+     * costs 13.4ms at 60,000 splats and 4.1ms at 25,000, and drawing them a
+     * further 13ms and 5.6ms. Sixty thousand is a 26ms frame — under 40 per
+     * second, visibly behind the hand — and rotation is not a flourish here
+     * but the only thing that makes a volume legible, so the frame the reader
+     * drags is the one that must not stutter.
+     */
+    expect(DEFAULT_VOLUME.maxSplats).toBeLessThanOrEqual(30000);
+  });
+});
+
+describe("a voxel counted as drawn can be seen", () => {
+  it("does not emit a splat too faint for a pixel to show", () => {
+    /*
+     * A canvas has eight bits of alpha. Below one part in 255 a splat is drawn,
+     * costs a frame, changes nothing, and — worst — is *counted*, so the
+     * caption reports thousands of voxels over a blank canvas and the reader
+     * believes the number rather than their eyes.
+     *
+     * This was found on the page rather than here: a density volume in a mostly
+     * empty box reported 3,207 voxels drawn and rendered nothing at all.
+     */
+    const sparse = gridFromFunction((x, y, z) => {
+      const r = Math.sqrt(x * x + y * y + z * z);
+      return 100 * Math.exp(-(r * r) / 0.02);
+    }, 20, { min: -1, max: 1 });
+
+    const volume = prepareVolume(sparse);
+    for (const splat of volume.splats) {
+      expect(splat.alpha).toBeGreaterThanOrEqual(MIN_VISIBLE_ALPHA);
+    }
+  });
+
+  it("counts the invisible ones as hidden, so the caption stays true", () => {
+    const sparse = gridFromFunction((x, y, z) => {
+      const r = Math.sqrt(x * x + y * y + z * z);
+      return 100 * Math.exp(-(r * r) / 0.02);
+    }, 20, { min: -1, max: 1 });
+
+    const volume = prepareVolume(sparse);
+    expect(volume.faint).toBeGreaterThan(0);
+    // Every voxel is accounted for exactly once, which is what lets the
+    // caption's numbers be read as a description of the whole grid.
+    expect(volume.splats.length + volume.hidden + volume.faint + volume.strided
+           + volume.missing).toBe(volume.total);
+    expect(describeVolume(volume)).toContain("narrow it");
+  });
+
+  it("still draws a volume whose values fill its window", () => {
+    // The threshold must not empty an ordinary volume.
+    const volume = prepareVolume(uniform(6, 10));
+    expect(volume.splats.length).toBe(216);
   });
 });

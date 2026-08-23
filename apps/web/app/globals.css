@@ -3716,3 +3716,18 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   background: transparent; font: inherit; text-align: left; cursor: pointer;
 }
 .board-picker button:hover { background: rgba(120,130,150,0.12); }
+
+/* The spatial-chart gallery (§9). Deliberately plain: the charts are the
+   content, and a page that competed with them would be answering a question
+   nobody asked about the frame rather than about the data. */
+.c3d-page { max-width: 880px; margin: 0 auto; padding: 32px 20px 64px; }
+.c3d-page h1 { font-size: 22px; color: var(--ink-strong); margin-bottom: 8px; }
+.c3d-page h2 { font-size: 15px; color: var(--ink-strong); margin: 28px 0 10px; }
+.c3d-page > header p { font-size: 14px; color: var(--ink-soft); margin-bottom: 10px; }
+.c3d-page section { margin-bottom: 32px; }
+.c3d-page .chart-caption { font-size: 12px; color: var(--ink-faint); }
+.c3d-page .chart-controls { display: flex; gap: 16px; margin-top: 8px; }
+.c3d-page .chart-controls label {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--ink-soft);
+}

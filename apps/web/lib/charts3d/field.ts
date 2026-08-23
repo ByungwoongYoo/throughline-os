@@ -37,7 +37,7 @@ export type Sample = {
   u: number; v: number; w: number;
 };
 
-/** A sample ready to draw: unit cube, with length and colour resolved. */
+/** A sample ready to draw: the unit cube -1..1, length and colour resolved. */
 export type Glyph = {
   /** Where the tail sits, in the unit cube. */
   x: number; y: number; z: number;
@@ -129,7 +129,7 @@ export function prepareField(samples: Sample[],
     const { min, span } = spans[axis];
     // A flat axis becomes the centre rather than NaN: a field sampled on a
     // plane is an ordinary case, not an error.
-    return span > 1e-12 ? ((value - min) / span) - 0.5 : 0;
+    return span > 1e-12 ? (((value - min) / span) * 2) - 1 : 0;
   };
 
   const magnitudes = kept.map((s) => Math.hypot(s.u, s.v, s.w));
@@ -154,7 +154,9 @@ export function prepareField(samples: Sample[],
    * scatter of points has no spacing to read off, and the cube root of the
    * count is the spacing a regular lattice of that size would have had.
    */
-  const spacing = 1 / Math.max(1, Math.cbrt(kept.length));
+  // The cube is two units across, matching `unitScale`, so the gap between
+  // neighbours in a lattice of this size is two over its cube root.
+  const spacing = 2 / Math.max(1, Math.cbrt(kept.length));
   const longest = spacing * settings.reach;
 
   let clamped = 0;

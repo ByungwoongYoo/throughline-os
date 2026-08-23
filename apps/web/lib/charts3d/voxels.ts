@@ -64,16 +64,39 @@ export type VolumeSettings = {
    * Low, because a volume is a stack of hundreds of these and they accumulate.
    */
   opacity: number;
-  /** The most splats to draw. Above this the grid is strided down. */
+  /**
+   * The most splats to draw. Above this the grid is strided down.
+   *
+   * A frame budget, and the number is measured rather than chosen. Every
+   * splat is projected, depth-sorted and drawn on every frame the camera
+   * moves, so the cost is linear in this and paid while the reader is
+   * dragging — the one moment lag is least tolerable, because rotation is how
+   * a volume becomes legible at all.
+   */
   maxSplats: number;
 };
 
+/**
+ * The least opacity a canvas can actually show: one part in 255.
+ *
+ * Below this the arithmetic still produces a number and the pixel still
+ * receives nothing.
+ */
+export const MIN_VISIBLE_ALPHA = 1 / 255;
+
 export const DEFAULT_VOLUME: VolumeSettings = {
   opacity: 0.06,
-  maxSplats: 60000,
+  /*
+   * Measured in a browser, not guessed: projecting and sorting takes 13.4ms at
+   * 60,000 splats and 4.1ms at 25,000, and drawing them costs a further 13ms
+   * and 5.6ms. Sixty thousand is a 26ms frame — under 40 per second, visibly
+   * behind the hand. Twenty-five thousand is about 10ms, which leaves room for
+   * everything else on the page.
+   */
+  maxSplats: 25000,
 };
 
-/** One voxel ready to draw: unit cube, with its opacity already resolved. */
+/** One voxel ready to draw: the unit cube -1..1, opacity already resolved. */
 export type Splat = {
   x: number; y: number; z: number;
   /** The measured value, before windowing. */
@@ -96,6 +119,16 @@ export type Volume = {
   strided: number;
   /** How many fell below the window and are not drawn at all. */
   hidden: number;
+  /**
+   * How many sit inside the window but too faint for a pixel to show.
+   *
+   * Counted apart from `hidden` because the remedy is the opposite one:
+   * something below the window needs the window widened or lowered to reach
+   * it, and something merely too faint needs it *narrowed*, which raises where
+   * every remaining value sits on the ramp. One count could only carry advice
+   * that is wrong half the time.
+   */
+  faint: number;
   /** How many held no measurement. */
   missing: number;
   /** The stride used, for the caption and for opacity correction. */
@@ -115,7 +148,8 @@ export function prepareVolume(grid: Grid,
   const total = grid.nx * grid.ny * grid.nz;
   const empty: Volume = {
     splats: [], window: { level: 0, window: 1 }, range: { min: 0, max: 0 },
-    total, strided: 0, hidden: 0, missing: 0, stride: 1, units: grid.units,
+    total, strided: 0, hidden: 0, faint: 0, missing: 0, stride: 1,
+    units: grid.units,
   };
   if (total <= 0 || grid.values.length < total) {
     // A grid whose values do not fill its shape is refused rather than read
@@ -174,13 +208,14 @@ export function prepareVolume(grid: Grid,
   const place = (index: number, extent: number) =>
     // A single-sample axis sits at the centre rather than dividing by zero: a
     // volume one slice thick is an ordinary case.
-    extent > 0 ? index / extent - 0.5 : 0;
+    extent > 0 ? (index / extent) * 2 - 1 : 0;
 
   const lo = window.level - window.window / 2;
   const width = window.window > 0 ? window.window : 1;
 
   const splats: Splat[] = [];
   let hidden = 0;
+  let faint = 0;
   let strided = 0;
 
   for (let k = 0; k < grid.nz; k += 1) {
@@ -199,6 +234,23 @@ export function prepareVolume(grid: Grid,
         if (level <= 0) { hidden += 1; continue; }
 
         const clamped = Math.min(1, level);
+        const alpha = alphaFull * clamped;
+        /*
+         * An alpha below one part in 255 cannot change a single pixel — the
+         * canvas has eight bits to say it with. Keeping such a voxel is worse
+         * than useless: it is drawn, it costs a frame, it is invisible, and it
+         * is *counted*, so the caption reports thousands of voxels drawn over
+         * a blank canvas. That combination is the one thing a volume must not
+         * do, because a reader believes the number over the emptiness.
+         *
+         * This bites hardest exactly where volumes usually live: a box that is
+         * mostly empty space. The percentile window then sits with its lower
+         * edge inside the emptiness, and almost every voxel lands a hair above
+         * it. Counted as hidden, the caption says so and tells the reader to
+         * widen the window, which is the true situation.
+         */
+        if (alpha < MIN_VISIBLE_ALPHA) { faint += 1; continue; }
+
         splats.push({
           x: place(i, span.x), y: place(j, span.y), z: place(k, span.z),
           value,
@@ -206,14 +258,14 @@ export function prepareVolume(grid: Grid,
           // Opacity ramps across the window rather than switching on at its
           // edge: a hard edge draws a contour that is an artefact of the
           // window setting and reads as a boundary in the data.
-          alpha: alphaFull * clamped,
+          alpha,
         });
       }
     }
   }
 
   return { splats, window, range: { min, max }, total, strided, hidden,
-           missing, stride, units: grid.units };
+           faint, missing, stride, units: grid.units };
 }
 
 /**
@@ -323,6 +375,10 @@ export function describeVolume(volume: Volume): string {
   if (volume.splats.length === 0 && volume.missing === volume.total) {
     return "No measurements in this volume.";
   }
+  if (volume.splats.length === 0 && volume.faint > 0) {
+    return `Nothing is visible: ${volume.faint.toLocaleString()} voxels sit `
+         + "inside the window but too faint to show. Narrow the window.";
+  }
   if (volume.splats.length === 0) {
     return "Nothing is inside the window; every voxel is below it.";
   }
@@ -338,7 +394,13 @@ export function describeVolume(volume: Volume): string {
 
   if (volume.hidden > 0) {
     text += ` ${volume.hidden.toLocaleString()} fall below the window and are`
-          + " not drawn — widen it to see them.";
+          + " not drawn — widen it, or lower the level, to reach them.";
+  }
+  if (volume.faint > 0) {
+    // The opposite remedy, and worth stating: these are inside the window but
+    // so near its lower edge that a pixel cannot show them at all.
+    text += ` ${volume.faint.toLocaleString()} are inside the window but too`
+          + " faint to show — narrow it to bring them up.";
   }
   if (volume.stride > 1) {
     text += ` Sampled every ${volume.stride}${ordinal(volume.stride)} voxel in`

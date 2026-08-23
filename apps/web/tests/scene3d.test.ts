@@ -173,3 +173,18 @@ describe("unitScale", () => {
     expect(s(4)).toBe(0);
   });
 });
+
+describe("scaling a dataset large enough to be real", () => {
+  it("does not overflow the stack on a hundred thousand points", () => {
+    /*
+     * `Math.min(...values)` passes one argument per element and dies somewhere
+     * past a hundred thousand — a size an embedding space or a single-cell
+     * dataset reaches easily. The failure is a RangeError raised inside a min,
+     * which reads as anything except a limit on how much data a chart takes.
+     */
+    const many = Array.from({ length: 200000 }, (_, i) => i);
+    const scale = unitScale(many);
+    expect(scale(0)).toBeCloseTo(-1, 9);
+    expect(scale(199999)).toBeCloseTo(1, 9);
+  });
+});

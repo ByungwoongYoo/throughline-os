@@ -206,13 +206,17 @@ describe("the controller the seam talks to", () => {
      * cannot see and did not point at.
      */
     /*
-     * Six cubed rather than four. At four the array order and the depth order
-     * happen to agree at every pixel on the canvas, so a renderer taking the
-     * *last* voxel within range instead of the nearest passes — measured, not
-     * guessed: 1291 points have two or more voxels under them and none of them
-     * disagree. At six, 416 do.
+     * Ten cubed, and the size is measured rather than guessed.
+     *
+     * Whether the array order and the depth order ever disagree on screen
+     * depends on how densely the projected voxels overlap, so a grid that is
+     * too small lets a renderer taking the *last* voxel within range pass. At
+     * 6³ there are 4484 points with two or more voxels under them and *none*
+     * disagree; at 8³ only two do; at 10³, 425 do. Sweeping for the first hit
+     * and checking it happened to be nearest tests nothing at all — mutation
+     * testing caught exactly that, twice, at two different grid sizes.
      */
-    const grid = gradient(6);
+    const grid = gradient(10);
     const ref = createRef<VisualizationController>();
     render(<VoxelVolume grid={grid} controllerRef={ref} width={400}
                         height={300} />);

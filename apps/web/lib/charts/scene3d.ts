@@ -183,8 +183,19 @@ export function toCanvas(p: { x: number; y: number; z: number }, camera: Camera,
  * reader that sentence, and they say it.
  */
 export function unitScale(values: number[]): (value: number) => number {
-  const lo = Math.min(...values);
-  const hi = Math.max(...values);
+  /*
+   * Swept, never `Math.min(...values)`.
+   *
+   * Spreading an array into a call passes one argument per element, and past
+   * roughly a hundred thousand that overflows the stack. An embedding space or
+   * a single-cell dataset reaches that easily, and the failure is a RangeError
+   * from inside a min — nowhere near anything that reads as a size limit.
+   */
+  let lo = Infinity, hi = -Infinity;
+  for (const value of values) {
+    if (value < lo) lo = value;
+    if (value > hi) hi = value;
+  }
   const span = hi - lo;
   // A constant axis collapses to the centre rather than dividing by zero, which
   // would put every point at NaN and draw nothing at all.
