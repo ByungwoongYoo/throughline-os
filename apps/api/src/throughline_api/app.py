@@ -21,7 +21,7 @@ from throughline_domain import (
     analysis, auth, claim_test, compare, consistency, critic, discovery,
     embeddings, events, example, extraction, findings, graph_projection, graphs,
     harmonize, images, journal, lineage, notebook, objects, observability,
-    embedding_space, haptics, patterns, reconcile, retrieval, selection, speech,
+    embedding_space, excerpts, haptics, marks, patterns, reconcile, retrieval, selection, speech,
     specification, storage, synthesis, validation, visuals, vocabulary,
     workflow,
 )
@@ -1181,6 +1181,43 @@ def synthesis_key_points(project_id: str, payload: SynthesisRequest,
             raise HTTPException(400, str(exc)) from exc
 
 
+class MarkRequest(BaseModel):
+    """A mark drawn on a paper (§204).
+
+    `points` are in PDF user space, not screen pixels — see
+    `throughline_domain.marks`, which refuses anything else, because a path in
+    pixels is meaningful only at the zoom it was drawn at.
+    """
+
+    source_id: str
+    page: int
+    kind: str
+    points: list[dict[str, float]]
+    body: str | None = None
+
+
+class ExcerptRequest(BaseModel):
+    """A piece of a paper to keep (§205).
+
+    `region` is in PDF user space, not screen pixels — see
+    `throughline_domain.excerpts`, which refuses anything else that would make
+    the record unpointable at a different zoom.
+    """
+
+    source_id: str
+    page: int
+    region: dict[str, float]
+    citation: str
+    context: str | None = None
+    title: str | None = None
+
+
+class PaperPdfRequest(BaseModel):
+    """A paper to download. Validated further in the connector — see there."""
+
+    url: str
+
+
 class LiteratureSearch(BaseModel):
     query: str = Field(min_length=2, max_length=400)
     sources: list[str] = Field(default_factory=list, max_length=8)
@@ -1296,6 +1333,118 @@ def search_dataset_repositories(
                                limit=payload.limit, mailto=contact)
     except Exception as exc:  # noqa: BLE001 — a search failure is not a crash
         raise HTTPException(502, f"The search could not be completed ({exc}).")
+
+
+@app.post("/api/literature/pdf")
+def fetch_paper_pdf(payload: PaperPdfRequest,
+                    user: dict = Depends(current_user)) -> Response:
+    """The PDF behind a search result, fetched by this server.
+
+    Server-side rather than from the browser because arXiv, Crossref and the
+    rest send no CORS headers, so the page cannot read a response it is
+    otherwise allowed to request.
+
+    That makes this a URL supplied by a client and fetched from the server, so
+    the destination is resolved and checked before every hop — see
+    `throughline_connectors.papers`, where the reasoning and the redirect
+    handling live. Behind authentication for the same reason: an unauthenticated
+    fetcher is a fetcher for anybody who can reach the port.
+    """
+    from throughline_connectors.papers import PaperFetchError, fetch_pdf
+
+    try:
+        data = fetch_pdf(payload.url)
+    except PaperFetchError as exc:
+        # 400 rather than 502: a refused address and a paywalled paper are both
+        # things the researcher can act on, and neither is this server failing.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return Response(
+        content=data,
+        media_type="application/pdf",
+        # Never inline: the bytes go to PDF.js with scripting off, and letting
+        # the browser render an untrusted PDF in this origin would undo that.
+        headers={"Content-Disposition": "attachment"},
+    )
+
+
+@app.post("/api/projects/{project_id}/marks", status_code=201)
+def keep_mark(project_id: str, payload: MarkRequest,
+              user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Keep something drawn on a paper (§204).
+
+    Marks were previously held only in the browser, so closing a paper erased
+    everything written on it — an annotation that does not survive being closed
+    is a demonstration of one.
+    """
+    with transaction() as cur:
+        try:
+            return marks.record(
+                cur, project_id=project_id, source_id=payload.source_id,
+                page=payload.page, kind=payload.kind, points=payload.points,
+                body=payload.body, actor=user["id"])
+        except marks.MarkError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/sources/{source_id}/marks")
+def list_marks(source_id: str,
+               user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Everything drawn on this paper, oldest first, so it redraws as written."""
+    with transaction() as cur:
+        return {"marks": marks.for_source(cur, source_id=source_id)}
+
+
+@app.delete("/api/projects/{project_id}/marks/{mark_id}")
+def rub_out_mark(project_id: str, mark_id: str,
+                 user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Rub out a mark.
+
+    Scoped by project as well as id: an identifier is not an authorisation, and
+    a mark id kept from another workspace should delete nothing.
+    """
+    with transaction() as cur:
+        removed = marks.remove(cur, mark_id=mark_id, project_id=project_id)
+    if not removed:
+        raise HTTPException(404, "There is no such mark on this project.")
+    return {"removed": mark_id}
+
+
+@app.post("/api/projects/{project_id}/excerpts", status_code=201)
+def keep_excerpt(project_id: str, payload: ExcerptRequest,
+                 user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Put a circled piece of a paper on the board (§205).
+
+    The five things §205 names — source paper, page, bounding region, citation,
+    original context — are all required here rather than filled in with
+    defaults. An excerpt that could not say where it came from would sit on the
+    board looking exactly like one that could.
+    """
+    with transaction() as cur:
+        try:
+            return excerpts.record(
+                cur,
+                project_id=project_id,
+                source_id=payload.source_id,
+                page=payload.page,
+                region=payload.region,
+                citation=payload.citation,
+                context=payload.context,
+                title=payload.title,
+                actor=user["id"],
+            )
+        except excerpts.ExcerptError as exc:
+            # 400: an incomplete excerpt is something the researcher can fix,
+            # and every refusal names the missing thing.
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/projects/{project_id}/excerpts")
+def list_excerpts(project_id: str,
+                  user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Everything taken from papers in this project, newest first."""
+    with transaction() as cur:
+        return {"excerpts": excerpts.for_project(cur, project_id=project_id)}
 
 
 @app.post("/api/projects/{project_id}/literature/import", status_code=201)
