@@ -278,15 +278,33 @@ PROMPTS: dict[str, Prompt] = {
 #: researcher configures their own machine. Their choice has to survive a
 #: restart, so it is persisted by the caller and re-applied at startup — this
 #: module deliberately holds no database connection.
-_override: dict[str, str | None] = {"provider": None, "model": None}
+#:
+#: `api_key` is here for the same reason and with one extra rule: it is never
+#: reported by `selection()` and never appears in a capability. A credential
+#: that can be read back out of the process is one that ends up in a log line,
+#: a debug endpoint or a screenshot eventually.
+_override: dict[str, str | None] = {"provider": None, "model": None,
+                                    "api_key": None}
 
 
-def configure(*, provider: str | None = None, model: str | None = None) -> None:
-    """Point the system at a different model, effective immediately."""
+def configure(*, provider: str | None = None, model: str | None = None,
+              api_key: str | None = None) -> None:
+    """
+    Point the system at a different model, effective immediately.
+
+    `api_key` is only meaningful for a hosted provider. Passing it does not
+    select one — a key on the shelf is not a decision to send data off the
+    machine, and conflating the two would let saving a credential silently
+    change where unpublished research goes.
+    """
     if provider is not None:
         _override["provider"] = provider
     if model is not None:
         _override["model"] = model
+    if api_key is not None:
+        # An empty string clears it: that is how a caller says "the key was
+        # removed" without a second function that could be forgotten.
+        _override["api_key"] = api_key or None
     _cached.cache_clear()
 
 
@@ -320,7 +338,8 @@ def _build() -> ModelProvider:
         provider: ModelProvider = OllamaProvider(model=_override["model"])
     elif configured == "anthropic":
         from .anthropic_provider import AnthropicProvider
-        provider = AnthropicProvider(model=_override["model"])
+        provider = AnthropicProvider(model=_override["model"],
+                                     api_key=_override["api_key"])
     else:
         return NullProvider()
     # A provider that cannot answer is worse than none: it turns "this

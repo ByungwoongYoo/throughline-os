@@ -3731,3 +3731,27 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   display: flex; align-items: center; gap: 6px;
   font-size: 12px; color: var(--ink-soft);
 }
+
+/* The hosted model. Set apart from the local list on purpose: it is the one
+   choice on this screen with a consequence outside the machine, and a row that
+   looked like the others would invite it to be clicked like the others. */
+.set-hosted {
+  margin-top: 24px; padding: 16px;
+  border: 1px solid var(--line); border-radius: var(--r-card);
+  background: var(--panel);
+}
+.set-hosted h3 {
+  font-size: 13px; font-weight: 600; margin: 0 0 8px;
+  color: var(--ink-strong);
+}
+.set-hosted .set-model { width: 100%; margin-top: 12px; }
+.set-key { display: flex; align-items: flex-end; gap: 8px; margin-top: 12px; }
+.set-key label {
+  display: flex; flex-direction: column; gap: 4px; flex: 1;
+  font-size: 12px; color: var(--ink-faint);
+}
+.set-key input {
+  padding: 7px 9px; font-size: 13px;
+  border: 1px solid var(--line); border-radius: var(--r-input);
+  background: var(--bg); color: var(--ink);
+}

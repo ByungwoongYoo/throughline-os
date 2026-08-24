@@ -30,6 +30,7 @@ from throughline_domain import (
 from throughline_visual.prepare import prepare as visual_prepare
 from throughline_visual.renderers import publication as publication_render
 from throughline_visual.spec import ResearchVisualSpec
+from throughline_domain import secrets as domain_secrets
 from throughline_domain import settings as domain_settings
 from throughline_domain.db import connection, jsonb, transaction
 from throughline_domain.ids import new_id
@@ -2200,11 +2201,36 @@ def available_models(user: dict = Depends(current_user)) -> dict[str, Any]:
     with transaction() as cur:
         saved = domain_settings.get(cur, domain_settings.MODEL)
         changes = domain_settings.history(cur, domain_settings.MODEL, limit=10)
+        key_hint = domain_secrets.hint(cur, domain_secrets.ANTHROPIC_API_KEY)
+
+    from throughline_model.anthropic_provider import DEFAULT_MODEL as HOSTED_MODEL
 
     return {
         "installed": installed,
         "selection": throughline_model.selection(),
         "saved": saved,
+        # The hosted option, described rather than hidden. `key_hint` is the
+        # last four characters and never the key: enough for a researcher to
+        # tell which credential is saved, useless to anyone reading the screen.
+        #
+        # `billed` is here because the single most likely misunderstanding is
+        # that this uses a Claude subscription. It does not — there is no way
+        # for a third-party application to spend one — and a researcher who
+        # learns that from a bill rather than from this line has been misled by
+        # the interface that was supposed to be the trustworthy part.
+        "hosted": {
+            "provider": "anthropic",
+            "model": HOSTED_MODEL,
+            "key_saved": key_hint is not None,
+            "key_hint": key_hint,
+            "local": False,
+            "billed": "Billed per token to an Anthropic API account. This is "
+                      "not a Claude subscription; a subscription cannot be "
+                      "used here.",
+            "warning": "Text from your papers and datasets is sent to "
+                       "Anthropic. Do not select this for data you are not "
+                       "permitted to send off this machine.",
+        },
         "active": {"name": capability.name, "model": capability.model,
                    "usable": capability.text, "local": capability.local,
                    "structured": capability.structured, "note": capability.note},
@@ -2243,8 +2269,37 @@ def choose_model(payload: ModelChoice,
                 f"with `ollama pull {payload.model}`, or choose one of: "
                 + ", ".join(sorted(names))))
 
+    if payload.provider == "anthropic":
+        import os
+
+        with transaction() as cur:
+            key = domain_secrets.get_secret(cur, domain_secrets.ANTHROPIC_API_KEY)
+        if not key and not os.environ.get("ANTHROPIC_API_KEY"):
+            raise HTTPException(400, (
+                "No API key is saved for the hosted model. Add one first. It "
+                "is billed per token to an Anthropic API account — a Claude "
+                "subscription cannot be used here."))
+        if key:
+            throughline_model.configure(api_key=key)
+
+    previous = throughline_model.selection()
     throughline_model.configure(provider=payload.provider, model=payload.model)
     capability = throughline_model.provider(refresh=True).capability()
+
+    # The same rule the Ollama branch above applies, and for the same reason:
+    # a provider that cannot answer turns "this feature needs a model" into a
+    # runtime error at the moment of use. A key that is present but rejected,
+    # or an account with no credit, both land here — so the check is whether
+    # the thing actually works, not whether it was configured.
+    if not capability.text:
+        throughline_model.configure(provider=previous["provider"] or "ollama",
+                                    model=previous["model"])
+        throughline_model.provider(refresh=True)
+        raise HTTPException(400, (
+            capability.note
+            or f"{payload.provider} is configured but did not answer, so the "
+               "selection was left where it was."))
+
     with transaction() as cur:
         domain_settings.set_value(
             cur, domain_settings.MODEL,
@@ -2254,6 +2309,82 @@ def choose_model(payload: ModelChoice,
     return {"selection": throughline_model.selection(),
             "active": {"name": capability.name, "model": capability.model,
                        "usable": capability.text, "note": capability.note}}
+
+
+class ModelKey(BaseModel):
+    """
+    A credential for the hosted model.
+
+    Write-only by construction: there is no response model that carries it back
+    and no endpoint that returns it. The interface confirms a key is saved by
+    showing its last four characters, which the researcher can match against
+    their console without the value being recoverable from the screen.
+    """
+    api_key: str
+
+
+@app.put("/api/system/model-key")
+def save_model_key(payload: ModelKey,
+                   user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Save the hosted model's API key. Does not select the hosted model.
+
+    Saving a credential and deciding to send unpublished research off the
+    machine are two different decisions, and collapsing them would make the
+    second one happen as a side effect of the first. The key sits unused until
+    the researcher selects the hosted provider deliberately.
+
+    Not written to `setting_history`: that table keeps every previous value
+    forever, so a key stored through it would outlive its own revocation.
+    """
+    import throughline_model
+
+    key = payload.api_key.strip()
+    if not key:
+        raise HTTPException(400, "That is empty. Remove the key instead.")
+
+    with transaction() as cur:
+        domain_secrets.set_secret(cur, domain_secrets.ANTHROPIC_API_KEY, key,
+                                  changed_by=user["id"])
+    throughline_model.configure(api_key=key)
+
+    # Deliberately returns the hint rather than the key, and says plainly that
+    # nothing has changed about where data goes.
+    with transaction() as cur:
+        hint = domain_secrets.hint(cur, domain_secrets.ANTHROPIC_API_KEY)
+    return {"key_saved": True, "key_hint": hint,
+            "note": "Saved. Nothing is sent anywhere until you select the "
+                    "hosted model."}
+
+
+@app.delete("/api/system/model-key")
+def clear_model_key(user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Remove the key, and stop using the hosted model if it was selected.
+
+    Leaving the selection pointing at a provider whose credential has just been
+    removed would produce exactly the fake capability the rest of this endpoint
+    refuses: configured, displayed as active, failing at the moment of use.
+    """
+    import throughline_model
+
+    with transaction() as cur:
+        removed = domain_secrets.clear_secret(cur, domain_secrets.ANTHROPIC_API_KEY)
+    throughline_model.configure(api_key="")
+
+    reverted = False
+    if (throughline_model.selection()["provider"] or "") == "anthropic":
+        throughline_model.configure(provider="ollama", model=None)
+        throughline_model.provider(refresh=True)
+        with transaction() as cur:
+            domain_settings.set_value(
+                cur, domain_settings.MODEL,
+                {"provider": "ollama", "model": None}, changed_by=user["id"])
+        reverted = True
+
+    return {"key_saved": False, "removed": removed, "reverted_to_local": reverted,
+            "note": "Removed." + (" The system is back on the local model."
+                                  if reverted else "")}
 
 
 @app.get("/api/health")
