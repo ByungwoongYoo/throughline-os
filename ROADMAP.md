@@ -189,6 +189,89 @@ categories currently declared `not_implemented`.
 
 ---
 
+## Distribution — before any of the waves below matter
+
+No wave number, because it does not queue behind the others: everything below is
+worth nothing to a researcher who cannot install the thing. Today the documented
+path asks for **Python 3.12 exactly** — pgserver publishes no wheel past cp312 —
+and lands about 1.9 GB. That is a developer setup wearing a README, and it is
+the reason the only two people who have ever run this are the two who wrote it.
+
+**The account.** A local account already exists and stays primary: it scopes
+projects and signs the audit trail, and the app must remain fully usable having
+never reached a server. A Throughline account is a separate, optional link made
+in Settings, and it unlocks features rather than granting entry. The test that
+keeps this honest is one question — *can a researcher run this on an air-gapped
+machine, indefinitely, after first install?* If the answer ever becomes no, the
+local-first claim is marketing and the differentiator is gone.
+
+Two consequences follow immediately. The gate screen currently reads "Nothing is
+uploaded anywhere", which stops being true the moment an account exists; it has
+to become precise about what leaves and what does not. And accounts mean a server
+runs permanently, which is a larger commitment than the code that talks to it.
+
+**Feature gates are built now and left open.** Everything is available during the
+build-and-test period, and gating flips server-side per account rather than in a
+release, so the switch needs no ship and grandfathering stays possible. New
+features route through `/api/system/capabilities` from the first commit even
+while every answer is `available` — that endpoint already distinguishes "we
+cannot read Parquet" from "Parquet needs one pip install", which is exactly the
+distinction a gate needs. Retrofitting that seam later means touching every call
+site; keeping it costs nothing.
+
+The gate belongs on the edges, never on the door: a researcher must always be
+able to open work they already made. Local-first largely guarantees that — the
+database is on their machine — but an entitlement check in front of opening a
+project would undo it.
+
+**Delivery is one bootstrap with several front doors.** The real logic is written
+once: detect an existing install, otherwise fetch a relocatable CPython, build
+the venv, install the base, then launch. `manage.py` already answers the
+detection half with `_venv_has_pip()`. Around it sit a `curl | sh` line and
+double-clickable wrappers per platform.
+
+Both, deliberately. The terminal line carries **no security warning at all**,
+because the quarantine flag that triggers Gatekeeper and SmartScreen is set by
+the downloading browser, not by the operating system — `curl` does not set it.
+That is why Homebrew, rustup and uv all ship this way, and it means the free path
+is the one where the user asks for the software by name. Double-clicking is what
+costs money: an unsigned wrapper is a one-time warning a person you invited can
+be told to expect, and signing removes it for about $100-500 a year. Buy that the
+first time the link goes to somebody nobody has spoken to, and not before.
+
+**Base install plus feature packs.** The extras already exist and are already
+honest about their absence — `parquet`, `formats`, `graph`, `digitise`, the
+embedding model. pyarrow alone is 156 MB and most researchers never hand it a
+.parquet. The base should carry what every researcher needs; everything else
+installs on demand from the same capabilities screen that reports it missing.
+
+**Updates are a button, never automatic.** The database holds the user's only
+copy of their research, so an update that carries a migration backs up first,
+applies forward-only, and leaves the previous version working if it fails.
+
+It points at `main` during the build period and at tags afterwards. Tags rather
+than a release pipeline: `git tag beta-4` is ten seconds and buys the thing that
+matters, which is a version with a name. A research tool whose user cannot say
+which version produced a result has a hole in its own argument about provenance —
+`main` on Tuesday and `main` on Thursday are different software wearing one name.
+
+**Telemetry is deferred, and the local half is not.** Extending `audit_log`
+coverage is worth doing on its own terms: a tool that can show a researcher what
+they actually did, and when, is answering a question a methods section asks. It
+also happens to be the expensive half of any future telemetry, done as a side
+effect.
+
+Uploading waits. At the scale of people we can telephone, a conversation
+outperforms a dashboard — event data says what someone clicked and never says
+why they stopped. When it does arrive it sends feature names and counts, never
+research: an allowlisted vocabulary of event names and integers, no free-text
+fields at all, because free text is how a filename or a column name reaches a
+server by accident rather than by decision. And the payload is inspectable before
+it is sent. For a product whose pitch is that nothing leaves the machine, being
+able to show somebody the literal bytes is worth more than a privacy policy.
+
+---
+
 ## Wave 3 — adoption unlocks
 
 Three integrations the brief singles out, chosen over the long tail:
