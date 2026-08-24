@@ -431,6 +431,69 @@ def _other_suites() -> list[str]:
     return [pid for pid in result.stdout.split() if pid not in mine]
 
 
+def _container_check() -> int:
+    """Build the image and prove the API answers inside it.
+
+    The same two commands as CI's `container` job. This is the check least
+    likely to be run by hand and the one with the best catch record: both
+    Dockerfiles in this repository's history were confidently wrong in ways only
+    an actual build revealed. A Dockerfile that is written but never built is
+    not evidence of anything.
+
+    Skipped, loudly, when the daemon is not up. A silent skip would let this
+    report success while doing nothing, which is the failure mode the whole
+    preflight exists to prevent.
+    """
+    if not shutil.which("docker"):
+        print("! No docker on PATH — skipping the image build. CI still runs it.")
+        return 0
+    if subprocess.run(["docker", "info"], capture_output=True).returncode != 0:
+        print("! The docker daemon is not running — skipping the image build.")
+        print("  Start it with:  sudo service docker start")
+        print("  CI still runs this, and it is the check that catches Dockerfile")
+        print("  errors nothing else can.")
+        return 0
+
+    print("\n── the image builds")
+    if subprocess.run(["docker", "build", "-t", "throughline-os:preflight", "."],
+                      cwd=ROOT).returncode != 0:
+        print("\nFAILED: the image did not build.", file=sys.stderr)
+        return 1
+
+    print("\n── the API answers inside the image")
+    subprocess.run(["docker", "rm", "-f", "throughline-preflight"],
+                   capture_output=True)
+    started = subprocess.run(
+        ["docker", "run", "-d", "--name", "throughline-preflight",
+         "-p", "8080:8080", "throughline-os:preflight"], capture_output=True)
+    if started.returncode != 0:
+        print("\nFAILED: the container did not start.", file=sys.stderr)
+        print(started.stderr.decode()[:400], file=sys.stderr)
+        return 1
+
+    import urllib.request
+    try:
+        for _ in range(60):
+            try:
+                with urllib.request.urlopen(
+                        "http://127.0.0.1:8080/api/health", timeout=3) as answer:
+                    if answer.status == 200:
+                        print("healthy")
+                        return 0
+            except Exception:
+                pass
+            time.sleep(5)
+        print("\nFAILED: the API never became healthy.", file=sys.stderr)
+        logs = subprocess.run(["docker", "logs", "throughline-preflight"],
+                              capture_output=True)
+        print(logs.stdout.decode()[-2000:], file=sys.stderr)
+        print(logs.stderr.decode()[-2000:], file=sys.stderr)
+        return 1
+    finally:
+        subprocess.run(["docker", "rm", "-f", "throughline-preflight"],
+                       capture_output=True)
+
+
 def preflight(full: bool) -> int:
     """
     Everything CI will check, before anyone else can see it fail.
@@ -512,8 +575,18 @@ def preflight(full: bool) -> int:
                   "public.", file=sys.stderr)
             return result.returncode
 
+    if full:
+        # Last, because it is the slowest and everything above is a faster way
+        # to learn the same bad news.
+        code = _container_check()
+        if code != 0:
+            return code
+
     print("\nAll checks passed." if full else
           "\nFast checks passed. Run with --full before pushing.")
+    if full:
+        print("Not covered here: macOS and Windows. Those need a dispatched run —")
+        print("  gh workflow run ci.yml --ref <branch>")
     return 0
 
 
