@@ -28,6 +28,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from psycopg.types.json import Json
+
 from .ids import new_id
 
 HUMAN = "human"
@@ -38,14 +40,26 @@ class JournalError(RuntimeError):
     """A note could not be written or read."""
 
 
+class NoSuchObject(JournalError):
+    """The node being asked about is not in this project.
+
+    A subclass rather than a message, because the two failures are entirely
+    different things to a researcher: a missing object is something they or the
+    interface got wrong, while every other `JournalError` out of `ask` means the
+    model is unavailable. Collapsed together — as they were — "No such object in
+    this project" came back as **503 Service Unavailable**, which sends somebody
+    to check a model configuration that is working perfectly.
+    """
+
+
 # ---------------------------------------------------------------------------
 # Writing
 # ---------------------------------------------------------------------------
 
 def write(cur, *, project_id: str, object_id: str, object_type: str, body: str,
           author: str, author_kind: str = HUMAN, prompt: str | None = None,
-          model: str | None = None, replies_to: str | None = None
-          ) -> dict[str, Any]:
+          model: str | None = None, replies_to: str | None = None,
+          selection: dict[str, Any] | None = None) -> dict[str, Any]:
     """Add a note. Never modifies one."""
     if not body or not body.strip():
         raise JournalError("A note needs something in it.")
@@ -56,19 +70,20 @@ def write(cur, *, project_id: str, object_id: str, object_type: str, body: str,
     note_id = new_id("note")
     cur.execute(
         "INSERT INTO notes(id, project_id, object_id, object_type, body, "
-        "author_kind, author, prompt, model, replies_to) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+        "author_kind, author, prompt, model, replies_to, selection) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
         "RETURNING id, object_id, body, author_kind, author, prompt, model, "
-        "          replies_to, created_at",
+        "          replies_to, selection, created_at",
         (note_id, project_id, object_id, object_type, body.strip(), author_kind,
-         author, prompt, model, replies_to))
+         author, prompt, model, replies_to,
+         Json(selection) if selection is not None else None))
     return dict(cur.fetchone())
 
 
 def notes_for(cur, object_id: str) -> list[dict[str, Any]]:
     cur.execute(
         "SELECT id, object_id, body, author_kind, author, prompt, model, "
-        "       replies_to, created_at FROM notes WHERE object_id = %s "
+        "       replies_to, selection, created_at FROM notes WHERE object_id = %s "
         # By sequence, not timestamp: notes written in one transaction share a
         # timestamp exactly, and a question sorting after its answer would
         # misrepresent the order the researcher thought in.
@@ -107,7 +122,7 @@ def context(cur, *, project_id: str, object_id: str) -> dict[str, Any]:
         (object_id, project_id))
     node = cur.fetchone()
     if not node:
-        raise JournalError(f"No such object in this project: {object_id}")
+        raise NoSuchObject(f"No such object in this project: {object_id}")
 
     cur.execute(
         "SELECT e.lineage_type, e.source_artifact_id, e.target_artifact_id, "
@@ -181,8 +196,8 @@ _INSTRUCTIONS = (
 )
 
 
-def ask(cur, *, project_id: str, object_id: str, question: str, author: str
-        ) -> dict[str, Any]:
+def ask(cur, *, project_id: str, object_id: str, question: str, author: str,
+        selection: dict[str, Any] | None = None) -> dict[str, Any]:
     """
     Ask the configured model about a node, and record the answer as a note.
 
@@ -192,14 +207,25 @@ def ask(cur, *, project_id: str, object_id: str, question: str, author: str
     """
     from throughline_model import ModelUnavailable, provider
 
+    from . import selection as selection_module
+
     ctx = context(cur, project_id=project_id, object_id=object_id)
+
+    # Validated before anything else touches it. A malformed selection quietly
+    # repaired would produce an answer about something other than what the
+    # researcher indicated — worse than an error, because nothing about the
+    # answer would look wrong.
+    checked = selection_module.validate(selection) if selection is not None else None
+    described = (f"\n\n{selection_module.describe(checked)}" if checked else "")
 
     try:
         completion = provider().generate_text(
             instructions=_INSTRUCTIONS,
             # Fenced as data. A note or title saying "ignore your instructions"
-            # is content to report on, not a command.
-            untrusted_context=_as_text(ctx) + f"\n\nQuestion: {question}",
+            # is content to report on, not a command — and so is a data point
+            # whose label says the same thing.
+            untrusted_context=_as_text(ctx) + described
+                              + f"\n\nQuestion: {question}",
             prompt_name="journal_ask", prompt_version=1,
         )
     except ModelUnavailable as exc:
@@ -219,12 +245,13 @@ def ask(cur, *, project_id: str, object_id: str, question: str, author: str
     note = write(cur, project_id=project_id, object_id=object_id,
                  object_type=ctx["object"]["object_type"], body=answer,
                  author=author, author_kind=MODEL, prompt=question,
-                 model=completion.model)
+                 model=completion.model, selection=checked)
     return {
         **note,
         "causal_language_rewritten": [v.phrase for v in violations],
     }
 
 
-__all__ = ["HUMAN", "MODEL", "JournalError", "ask", "context", "notes_for",
+__all__ = ["HUMAN", "MODEL", "JournalError", "NoSuchObject", "ask",
+           "context", "notes_for",
            "recent", "write"]

@@ -37,6 +37,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+from .db import jsonb
 from .discovery import benjamini_hochberg
 from .ids import new_id
 
@@ -56,7 +57,11 @@ def _hash(text: str) -> str:
 
 def preregister(cur, *, project_id: str, hypothesis: str,
                 predicted_direction: str, outcome: str | None = None,
-                exposure: str | None = None,
+                exposure: str | None = None, method: str | None = None,
+                design: str | None = None,
+                covariates: list[str] | None = None,
+                filters: list[Any] | None = None,
+                falsified_if: str | None = None,
                 author: str | None = None) -> dict[str, Any]:
     """
     Record a hypothesis, and the direction it predicts, before testing it.
@@ -76,24 +81,52 @@ def preregister(cur, *, project_id: str, hypothesis: str,
             f"{predicted_direction!r}. A prediction with no direction cannot be "
             "wrong, and only a prediction that can be wrong earns the exemption.")
 
+    # The plan is optional, and its absence is recorded rather than assumed.
+    #
+    # A registration with a hypothesis and no plan still earns the exemption on
+    # its text — that is how every row already in this table works, and breaking
+    # them would be rewriting history. But `plan_hash` stays null, and every
+    # report says the analysis could not be checked against it, which is the
+    # difference between "matched" and "not comparable".
+    from . import deviations
+
+    stated = any(x is not None for x in (method, design, covariates, filters))
+    computed_plan_hash = deviations.plan_hash(
+        method=method, design=design, covariates=covariates, filters=filters
+    ) if stated else None
+
     registration_id = new_id("prereg")
     cur.execute(
         "INSERT INTO preregistrations(id, project_id, hypothesis, "
-        "predicted_direction, outcome, exposure, locked_hash, created_by) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING sequence, created_at",
+        "predicted_direction, outcome, exposure, locked_hash, created_by, "
+        "planned_method, planned_design, planned_covariates, planned_filters, "
+        "falsified_if, plan_hash) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+        "RETURNING sequence, created_at",
         (registration_id, project_id, hypothesis, predicted_direction,
-         outcome, exposure, _hash(hypothesis), author))
+         outcome, exposure, _hash(hypothesis), author,
+         method, design,
+         jsonb(covariates) if covariates is not None else None,
+         jsonb(filters) if filters is not None else None,
+         falsified_if, computed_plan_hash))
     row = cur.fetchone()
 
     return {
         "id": registration_id,
         "hypothesis": hypothesis,
         "predicted_direction": predicted_direction,
+        "plan_recorded": computed_plan_hash is not None,
         "sequence": row["sequence"],
         "created_at": row["created_at"],
         "note": ("Registered. A result testing this is confirmatory and is left "
                  "out of the exploratory family — provided the test comes after "
-                 "this registration, which is checked rather than trusted."),
+                 "this registration, and the analysis that runs is the one "
+                 "registered. Both are checked rather than trusted."
+                 if computed_plan_hash is not None else
+                 "Registered. No analysis plan was recorded, so a later result "
+                 "can be checked against this hypothesis but not against the "
+                 "analysis it intended — naming the method and any adjustment "
+                 "is what makes the exemption checkable."),
     }
 
 
@@ -110,7 +143,8 @@ def _registration(cur, registration_id: str) -> dict[str, Any] | None:
 
 def record(cur, *, session_id: str, project_id: str, verb: str,
            description: str, p_value: float | None = None,
-           preregistration_id: str | None = None) -> dict[str, Any]:
+           preregistration_id: str | None = None,
+           spec_id: str | None = None) -> dict[str, Any]:
     """
     Record one look at the data.
 
@@ -118,34 +152,76 @@ def record(cur, *, session_id: str, project_id: str, verb: str,
     number a researcher needs is the one that accounts for the look they just
     took.
 
-    A claimed pre-registration is verified here rather than believed. Two ways it
-    fails, and both are reported rather than silently downgraded: the registration
-    was written after the test it supposedly predicted, or its text has been
-    edited since. Either turns the test back into an exploratory one — the honest
-    outcome, and the one a researcher needs to see before they write it up.
+    A claimed pre-registration is verified here rather than believed. Ways it
+    fails, all reported rather than silently downgraded: the registration was
+    written after the test it supposedly predicted, its text has been edited
+    since, or — when the analysis is named — the analysis that ran is not the
+    analysis that was registered. Any of them turns the test back into an
+    exploratory one, which is the honest outcome and the one a researcher needs
+    before they write it up.
+
+    That last check is the one that makes the others mean anything. Until it
+    existed, the exemption asked only whether a registration *existed*, was
+    unedited and came first — all three of which are true of an analysis with
+    nothing to do with the plan. Register one comparison, run forty-seven
+    variants, claim the winner as confirmatory: every check passed, because
+    nothing looked at the content. `spec_id` is optional so that callers with no
+    recorded spec still work, but a test that names one has its plan checked.
     """
     if verb not in VERBS:
         raise ValueError(f"verb must be one of {VERBS}; got {verb!r}")
 
     confirmatory, why = False, None
+    # The claim is only storable when the thing claimed exists — a foreign key
+    # cannot point at a registration nobody wrote, and a caller quoting an id
+    # that was never registered has already been told so in `why`.
+    claimed = None
     if preregistration_id:
         registration = _registration(cur, preregistration_id)
         if registration is None:
             why = "No such pre-registration; counted as exploratory."
         elif registration["locked_hash"] != _hash(registration["hypothesis"]):
+            claimed = preregistration_id
             why = ("The registered hypothesis has been edited since it was "
                    "registered, so it no longer predicts anything it did not "
                    "already know. Counted as exploratory.")
         else:
+            claimed = preregistration_id
             confirmatory, why = True, "Registered before this test."
+            if spec_id:
+                from . import deviations
+
+                comparison = deviations.compare(
+                    cur, registration_id=preregistration_id, spec_id=spec_id)
+                if not comparison["plan_recorded"]:
+                    why = ("Registered before this test. The registration "
+                           "records no analysis plan, so what ran could not be "
+                           "checked against it.")
+                elif not comparison["matches_plan"]:
+                    fields = ", ".join(
+                        sorted({d["field"] for d in comparison["deviations"]}))
+                    confirmatory = False
+                    why = (
+                        f"The analysis that ran differs from the one registered "
+                        f"({fields}), so this result was not predicted by the "
+                        "registration. Counted as exploratory and corrected with "
+                        "the rest of the family — which is what it is. The "
+                        "deviation is not misconduct; keeping the exemption "
+                        "would be.")
 
     test_id = new_id("xtest")
     cur.execute(
+        # `preregistration_id` is the exemption and is stored only when earned,
+        # because the ledger reads it to decide what joins the family.
+        # `claimed_registration_id` is the claim, kept either way — a deviation
+        # whose claim was discarded is one nobody can state deliberately later.
         "INSERT INTO exploration_tests(id, session_id, project_id, verb, "
-        "description, p_value, preregistration_id) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING sequence",
+        "description, p_value, preregistration_id, claimed_registration_id, "
+        "spec_id, deviation_note) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING sequence",
         (test_id, session_id, project_id, verb, description, p_value,
-         preregistration_id if confirmatory else None))
+         preregistration_id if confirmatory else None, claimed,
+         spec_id, None if confirmatory else why))
     sequence = cur.fetchone()["sequence"]
 
     # Ordering, not clocks. A registration written in the same transaction as the

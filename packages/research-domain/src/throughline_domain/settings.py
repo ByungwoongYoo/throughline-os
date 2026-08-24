@@ -61,7 +61,17 @@ def apply_model_choice(cur) -> dict[str, Any] | None:
     """
     import throughline_model
 
+    from . import secrets
+
     choice = get(cur, MODEL)
+    # The key is re-applied even with no saved choice, so that an installation
+    # configured to a hosted provider by environment variable still finds the
+    # credential the researcher saved in the interface. Without this the two
+    # halves of the configuration would live in different places and only work
+    # together by luck.
+    key = secrets.get_secret(cur, secrets.ANTHROPIC_API_KEY)
+    if key:
+        throughline_model.configure(api_key=key)
     if not choice:
         return None
     throughline_model.configure(provider=choice.get("provider"),

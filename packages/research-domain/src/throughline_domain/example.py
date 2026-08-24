@@ -119,7 +119,7 @@ PAPER_PAGES: tuple[str, ...] = (
 
 def build_paper_pdf(path: Path) -> Path:
     """Write the paper as a real PDF, so ingestion parses it like any other."""
-    import fitz  # PyMuPDF, a dependency of throughline-ingestion.
+    import fitz  # PyMuPDF, declared by this package rather than borrowed.
 
     document = fitz.open()
     for text in PAPER_PAGES:

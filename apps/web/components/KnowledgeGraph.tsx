@@ -386,6 +386,15 @@ export function KnowledgeGraph({
 
     context.restore();
     frameRef.current = requestAnimationFrame(draw);
+    // `themeTick` is in this list on purpose, and eslint is right that the body
+    // never reads it. It is here so a palette change rebuilds `draw`, which
+    // restarts the frame loop below and marks the canvas dirty. The theme
+    // listener already sets `dirtyRef`, so this is a second path to the same
+    // repaint rather than the only one — kept because a canvas is the one
+    // element on the page that will happily paint yesterday's colours for ever
+    // if the repaint is missed, and because nothing in the suite covers the
+    // theme path, so removing it would be an unverified change to working code.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodes, edges, nodeIndex, adjacency, selectedId, focused, edgeEmphasis,
       themeTick]);
 

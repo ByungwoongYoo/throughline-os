@@ -1,3 +1,12 @@
 node_modules/
 .next/
 next-env.d.ts
+
+# Vendored at install time by scripts/vendor-hand-model.mjs, not committed.
+# 7.5MB of model and 21MB of WASM would sit in every clone's history forever,
+# and both are reproducible from a pinned hash and a pinned package version.
+/public/mediapipe/
+# Vendored from pdfjs-dist at install time by scripts/vendor-pdf-worker.mjs.
+# Generated, 1.3MB, and must match the installed library version — so it is
+# rebuilt on install rather than committed, exactly like the hand model above.
+/public/pdfjs/

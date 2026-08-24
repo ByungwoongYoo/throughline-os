@@ -253,7 +253,7 @@ export function Binned({
             {yLabel}{yUnit ? ` (${yUnit})` : ""}
           </text>
 
-          <Legend peak={peak} colour={colour} countScale={countScale}
+          <Legend peak={peak} countScale={countScale}
                   height={plotHeight} x={plotWidth + 16} />
         </g>
       </svg>
@@ -291,9 +291,20 @@ export function Binned({
   );
 }
 
-function Legend({ peak, colour, countScale, height, x }: {
+/**
+ * The colour bar.
+ *
+ * It takes no `colour` function, and that is deliberate rather than an
+ * oversight: the bar is painted in *ramp space* — thirty-two equal bands walking
+ * the ramp from end to end — while the tick labels are placed through the same
+ * `transform` the cells use. So a value's label sits at exactly the ramp
+ * position its cell is painted with, under any of the three scales, and the bar
+ * shows the transform itself rather than a linear gradient that would
+ * misdescribe the mapping. Passing the cells' `colour` closure in and ignoring
+ * it read as a legend that had forgotten to use its own palette.
+ */
+function Legend({ peak, countScale, height, x }: {
   peak: number;
-  colour: (n: number) => string;
   countScale: CountScale;
   height: number;
   x: number;

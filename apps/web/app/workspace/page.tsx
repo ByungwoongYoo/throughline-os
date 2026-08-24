@@ -17,12 +17,14 @@ import { ReportDetail, Reports } from "@/components/reports";
 import { GraphView } from "@/components/graphview";
 import { Figures } from "@/components/figures";
 import { Gallery } from "@/components/gallery";
+import { EmbeddingSpace } from "@/components/embeddingspace";
 import { ProjectMenu } from "@/components/ProjectMenu";
 import { AccountMenu, SignedInUser } from "@/components/AccountMenu";
 import { IconPlus, IconSpark } from "@/components/icons";
 import { DataSearch } from "@/components/datasearch";
 import { Compare } from "@/components/compare";
 import { Patterns } from "@/components/patterns";
+import { Board } from "@/components/board/Board";
 import { Literature } from "@/components/literature";
 import { Notebook } from "@/components/notebook";
 import { Settings } from "@/components/settings";
@@ -31,6 +33,7 @@ import { ExportedDocuments } from "@/components/exports";
 import { Contradictions } from "@/components/contradictions";
 import { Challenges } from "@/components/challenges";
 import { ExplorationLedger } from "@/components/ledger";
+import { Deviations } from "@/components/deviations";
 import { Harvest } from "@/components/harvest";
 import { LibraryNote } from "@/components/librarynote";
 import { ForkLineage } from "@/components/forklineage";
@@ -363,6 +366,15 @@ function Workspace({ user }: { user: SignedInUser }) {
           <Inspector selection={selection} capabilities={capabilities.data} map={map.data} />
         }
       >
+        {section === "board" && (
+          /*
+           * The central operating surface (§4). Cards are the project's own
+           * research objects — an analysis, a figure, an excerpt — so arranging
+           * the board arranges the work rather than a set of shortcuts to it.
+           */
+          <Board projectId={project.id} />
+        )}
+
         {section === "overview" && (
           <>
             <Overview project={project} map={map.data} onGo={goSection} />
@@ -424,6 +436,12 @@ function Workspace({ user }: { user: SignedInUser }) {
                   reader who should see how many were tested to produce it.
                 */}
                 <ExplorationLedger projectId={project.id} sessionId={sessionId()} />
+                {/*
+                  Beneath the ledger, because they answer two halves of one
+                  question. The ledger says how much looking was done; this says
+                  how much of it was the looking that was planned.
+                */}
+                <Deviations projectId={project.id} />
               </>
         )}
         {section === "findings" && (
@@ -506,6 +524,7 @@ function Workspace({ user }: { user: SignedInUser }) {
         {section === "graph" && (
           <GraphView projectId={project.id} onSelect={select("object")} />
         )}
+        {section === "embedding" && <EmbeddingSpace projectId={project.id} />}
         {section === "gallery" && <Gallery />}
         {section === "datasearch" && <DataSearch />}
 

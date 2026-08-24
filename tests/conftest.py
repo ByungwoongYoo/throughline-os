@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+import time
 from pathlib import Path
 
 import pytest
@@ -13,10 +14,38 @@ _TEST_HOME = Path(tempfile.gettempdir()) / "throughline-os-tests"
 os.environ.setdefault("THROUGHLINE_HOME", str(_TEST_HOME))
 
 
+def _discard_a_half_initialised_cluster() -> None:
+    """Recover from a `pgdata` that macOS emptied out from under us.
+
+    The test database lives in the OS temp directory, which macOS purges
+    periodically — and it does not purge it atomically. What survives is the data
+    *subdirectories* (`base`, `global`, `pg_wal`) with every top-level file gone,
+    including `PG_VERSION` and the configuration. No server can start from that,
+    and `initdb` refuses to touch it because the directory is not empty.
+
+    Left alone this presents as a thousand identical errors whose traceback ends
+    inside `initdb`, which says nothing about the actual cause and cost an
+    afternoon the first time. A directory with no `PG_VERSION` is not a database
+    by PostgreSQL's own definition, so it is moved aside rather than deleted —
+    reversible, and it keeps the evidence if the cause was ever something else.
+    """
+    pgdata = _TEST_HOME / "pgdata"
+    if not pgdata.exists() or (pgdata / "PG_VERSION").exists():
+        return
+    ruined = pgdata.with_name(f"pgdata.unusable-{int(time.time())}")
+    pgdata.rename(ruined)
+    print(
+        f"\nThe test database at {pgdata} had no PG_VERSION — the temp directory "
+        f"was purged mid-flight. Moved it to {ruined.name} and starting fresh; "
+        f"nothing of yours was in it.",
+    )
+
+
 @pytest.fixture(scope="session", autouse=True)
 def database() -> None:
     from throughline_domain.migrate import migrate
 
+    _discard_a_half_initialised_cluster()
     migrate()
     yield
     from throughline_domain.db import shutdown

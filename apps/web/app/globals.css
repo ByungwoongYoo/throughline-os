@@ -1377,6 +1377,98 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   margin-bottom: 10px;
 }
 
+/*
+ * The row of controls under a 3D figure.
+ *
+ * These charts can be rotated and zoomed into a state the reader cannot read,
+ * and until now the only way out was the Home key, which nothing announced. A
+ * visible control is the recovery path for a pointer user, and the discoverable
+ * one for everybody else.
+ */
+/*
+ * The four-step introduction (§97).
+ *
+ * Beside the controls rather than over the figure: it must never be a gate, and
+ * anything that covers what somebody is trying to use is a gate in practice
+ * whatever it says about itself.
+ */
+.spatial-teaching {
+  margin: 10px 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  max-width: 60ch;
+}
+
+.spatial-teaching-step {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--ink-strong);
+}
+
+.spatial-teaching-step span {
+  color: var(--ink-soft);
+}
+
+.spatial-teaching-bar {
+  height: 3px;
+  background: var(--line);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.spatial-teaching-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.spatial-teaching-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.spatial-teaching-actions button {
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink-soft);
+  background: none;
+  border: none;
+  padding: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.chart-controls {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.chart-control {
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 3px 9px;
+  cursor: pointer;
+}
+
+.chart-control:hover {
+  color: var(--ink-strong);
+  border-color: var(--ink-soft);
+}
+
+.chart-control:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .chart-caption {
   font-size: 12px;
   line-height: 18px;
@@ -3313,6 +3405,355 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   max-width: 60ch;
 }
 
+
+/* --- spatial interaction (experimental) ------------------------------------ */
+/* The camera is an offer, not a feature the figure depends on. Everything here
+   is styled to read as secondary to the chart above it: a researcher who never
+   looks at this panel loses nothing, which is the point of Rule 5. */
+.spatial-offer { margin-top: 10px; }
+.spatial-note {
+  font-size: 12px; color: var(--ink-faint); margin-top: 4px;
+}
+.spatial-panel {
+  margin-top: 12px; padding: 12px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+}
+.spatial-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+/* A text button, for the choices that should not compete with the primary one. */
+.spatial-quiet {
+  background: none; border: none; padding: 0;
+  font: inherit; font-size: 13px; color: var(--accent);
+  text-decoration: underline; cursor: pointer;
+}
+.spatial-quiet:hover { color: var(--ink-strong); }
+.spatial-explain { font-size: 13px; color: var(--ink); }
+.spatial-explain ul { margin: 8px 0 12px; padding-left: 18px; }
+.spatial-explain li { margin-bottom: 4px; color: var(--ink-soft); }
+.spatial-live { display: block; }
+.spatial-state {
+  font-size: 13px; color: var(--ink); margin-bottom: 8px;
+}
+.spatial-device {
+  display: flex; gap: 8px; align-items: center;
+  font-size: 12px; color: var(--ink-soft); margin-top: 10px;
+}
+/* A refusal is a decision, not an error: it is legible, not alarming. */
+.spatial-failure {
+  font-size: 13px; color: var(--ink);
+  border-left: 2px solid var(--caution); padding-left: 10px; margin-top: 10px;
+}
+
+/* --- spatial: calibration and camera preview ------------------------------- */
+.spatial-preview {
+  display: block; border-radius: var(--r-card);
+  border: 1px solid var(--line); background: var(--gate-page);
+  margin-bottom: 10px;
+}
+.spatial-calibrate { margin-top: 10px; }
+/* A bar rather than a number: the researcher is holding a pose, and reading a
+   percentage while doing that is work they should not have to do. */
+.spatial-progress {
+  height: 4px; background: var(--line); border-radius: 2px;
+  overflow: hidden; margin-bottom: 10px;
+}
+.spatial-progress span {
+  display: block; height: 100%; background: var(--accent);
+  transition: width var(--quick) var(--ease-out-quad);
+}
+.spatial-toggles { margin-top: 10px; font-size: 12px; color: var(--ink-soft); }
+.spatial-toggles label {
+  display: flex; gap: 6px; align-items: center; cursor: pointer;
+}
+
+/* --- spatial: sensitivity --------------------------------------------------- */
+/* Behind a disclosure, per §29: two numbers most researchers never touch should
+   not compete with the controls they use every session. */
+.spatial-advanced { margin-top: 10px; font-size: 12px; color: var(--ink-soft); }
+.spatial-advanced summary { cursor: pointer; color: var(--accent); }
+.spatial-slider {
+  display: grid; grid-template-columns: 60px 1fr 32px;
+  gap: 8px; align-items: center; margin-top: 8px;
+}
+.spatial-slider span { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* --- embedding space ------------------------------------------------------- */
+.es-panel { margin-top: 24px; }
+/* The variance line sits above the chart on purpose: read underneath, it is a
+   correction to an impression already formed rather than a frame for it. */
+.es-variance {
+  font-size: 13px; color: var(--ink-soft); margin-bottom: 12px;
+  border-left: 2px solid var(--line-strong); padding-left: 10px;
+}
+.es-loading { font-size: 13px; color: var(--ink-faint); }
+.es-unavailable {
+  font-size: 13px; color: var(--ink);
+  border-left: 2px solid var(--caution); padding-left: 10px;
+}
+.es-selected {
+  margin-top: 12px; padding: 12px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+}
+.es-selected-label { font-size: 13px; color: var(--ink-strong); margin-bottom: 8px; }
+.es-ask { display: block; font-size: 12px; color: var(--ink-soft); margin-bottom: 8px; }
+.es-ask input {
+  display: block; width: 100%; margin-top: 4px; padding: 6px 8px;
+  font: inherit; font-size: 13px;
+  border: 1px solid var(--line); border-radius: var(--r-control);
+  background: var(--paper); color: var(--ink);
+}
+.es-answer {
+  margin-top: 12px; padding: 12px; font-size: 13px; color: var(--ink);
+  border-left: 2px solid var(--accent); background: var(--panel);
+}
+.es-attribution { font-size: 12px; color: var(--ink-faint); margin-bottom: 6px; }
+/* How far a selection reaches. A setting rather than a second gesture — §9. */
+.es-radius {
+  display: grid; grid-template-columns: 100px 1fr 90px;
+  gap: 8px; align-items: center;
+  font-size: 12px; color: var(--ink-soft); margin-top: 12px;
+}
+.es-radius span { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* --- gesture check -------------------------------------------------------- */
+/* A diagnostics page, styled to be read rather than admired. */
+.gc-page { max-width: 820px; margin: 0 auto; padding: 32px 20px 64px; }
+.gc-page h1 { font-size: 22px; color: var(--ink-strong); margin-bottom: 8px; }
+.gc-page h2 {
+  font-size: 15px; color: var(--ink-strong); margin: 28px 0 10px;
+}
+.gc-lede { font-size: 14px; color: var(--ink-soft); margin-bottom: 20px; }
+.gc-note { font-size: 12px; color: var(--ink-faint); margin-top: 10px; }
+.gc-numbers dl {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px; margin: 0;
+}
+.gc-numbers dl > div {
+  padding: 10px 12px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: var(--r-card);
+}
+.gc-numbers dt { font-size: 11px; color: var(--ink-faint); }
+.gc-numbers dd {
+  margin: 4px 0 0; font-size: 20px; color: var(--ink-strong);
+  font-variant-numeric: tabular-nums;
+}
+.gc-checks ol { margin: 0; padding-left: 20px; }
+.gc-checks li { margin-bottom: 12px; font-size: 13px; color: var(--ink); }
+.gc-checks li strong { display: block; color: var(--ink-strong); }
+.gc-checks li span { color: var(--ink-soft); }
+/* The tracker's own error, when it has one. Legible, not alarming. */
+.gc-error {
+  font-size: 12px; color: var(--ink); margin-top: 10px;
+  border-left: 2px solid var(--caution); padding-left: 10px;
+  font-family: var(--mono, monospace); word-break: break-word;
+}
+/* The pinch, against the threshold it has to cross. Watched while pinching, so
+   it is a bar rather than a number: a decimal changing thirty times a second is
+   not something anybody can read. */
+.gc-gauge { margin: 12px 0; }
+.gc-gauge-track {
+  position: relative; height: 10px; background: var(--line);
+  border-radius: 5px; overflow: hidden;
+}
+.gc-gauge-fill {
+  display: block; height: 100%; background: var(--accent);
+  transition: width var(--instant, 80ms) linear;
+}
+.gc-gauge-mark {
+  position: absolute; top: -3px; width: 2px; height: 16px;
+  background: var(--danger, #b3261e);
+}
+.gc-closed { font-size: 13px; color: var(--positive, var(--accent)); margin-top: 8px; }
+.gc-open { font-size: 13px; color: var(--ink-faint); margin-top: 8px; }
+/* The visual channel: a brief lift at the moment a gesture lands. Always
+   present, because it is the only feedback every machine can give. */
+.spatial-pulse {
+  color: var(--accent);
+  transform: translateX(2px);
+  transition: none;
+}
+.spatial-state {
+  transition: color var(--standard) var(--ease-out-quad),
+              transform var(--standard) var(--ease-out-quad);
+}
+/* One sentence saying what is wrong. Placed above the chart because somebody
+   whose gestures are not working is not reading past it. */
+.gc-verdict {
+  font-size: 14px; padding: 10px 12px; margin-bottom: 16px;
+  border-left: 3px solid var(--line-strong); border-radius: var(--r-control);
+  background: var(--panel); color: var(--ink);
+}
+.gc-good { border-left-color: var(--positive, var(--accent)); }
+.gc-warn { border-left-color: var(--caution); }
+.gc-bad { border-left-color: var(--danger, #b3261e); }
+.gc-waiting { border-left-color: var(--line-strong); color: var(--ink-soft); }
+
+/* --- Literature sheet (§204, §205) --------------------------------------- */
+
+.reader-main { padding: 1.5rem 2rem 4rem; }
+/* The reader itself is a plain column; the page canvas sets its own width. */
+.reader { display: flex; flex-direction: column; }
+.reader-main h1 { font-size: 1.4rem; margin-bottom: 1rem; }
+
+.reader-bar {
+  display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center;
+  padding-bottom: 1rem; border-bottom: 1px solid rgba(120,130,150,0.25);
+}
+.reader-bar button, .reader-open {
+  padding: 0.35rem 0.7rem; border-radius: 6px; cursor: pointer;
+  border: 1px solid rgba(120,130,150,0.4); background: transparent;
+  font: inherit;
+}
+.reader-bar button:disabled { opacity: 0.45; cursor: default; }
+/* The selected tool has to be visible without colour alone (Rule 5). */
+.reader-bar button[aria-pressed="true"] {
+  border-color: rgba(20,67,184,0.9); box-shadow: inset 0 -2px 0 rgba(20,67,184,0.9);
+  font-weight: 600;
+}
+.reader-title { font-weight: 600; }
+.reader-pages { display: inline-flex; gap: 0.5rem; align-items: center; }
+.reader-tools { display: inline-flex; gap: 0.35rem; }
+
+.reader-note { margin: 1.25rem 0; opacity: 0.75; max-width: 34rem; }
+.reader-problem { margin: 1.25rem 0; color: rgb(150, 40, 40); max-width: 34rem; }
+
+.reader-page { position: relative; margin: 1.25rem 0; max-width: 100%; }
+.reader-canvas {
+  position: absolute; inset: 0; max-width: 100%;
+  box-shadow: 0 1px 12px rgba(0,0,0,0.14);
+}
+/* The ink sits above the page and is the only thing that takes the pointer. */
+.reader-ink { box-shadow: none; touch-action: none; cursor: crosshair; }
+
+.reader-board { margin-top: 2rem; }
+.reader-board h2 { font-size: 1.05rem; margin-bottom: 0.5rem; }
+.reader-board li { margin-bottom: 0.4rem; line-height: 1.45; }
+
+/* --- Reading a paper found by the search (§204, §205) -------------------- */
+
+.lit-reading-bar {
+  display: flex; gap: 0.75rem; align-items: baseline; flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+.lit-reading-title { font-weight: 600; }
+
+/* The board. Every entry carries a citation, so it is a list of sourced
+   things rather than a gallery of pictures. */
+.lit-board { margin: 2rem 0 1rem; }
+.lit-board h2 { font-size: 1.05rem; margin-bottom: 0.5rem; }
+.lit-board li { margin-bottom: 0.4rem; line-height: 1.45; }
+
+/* A margin note being written (§204). Positioned from its page anchor. */
+.reader-note-input {
+  z-index: 3; min-width: 16rem; padding: 0.3rem 0.5rem;
+  font: inherit; font-size: 0.9rem;
+  border: 1px solid rgba(90,105,135,0.7); border-radius: 5px;
+  background: rgba(255,255,250,0.97);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.16);
+}
+
+/* --- The workboard (§4, §109) -------------------------------------------- */
+
+.board-wrap { display: flex; flex-direction: column; height: 100%; min-height: 30rem; }
+
+.board-bar {
+  display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;
+  padding-bottom: 0.75rem;
+}
+.board-bar button {
+  padding: 0.3rem 0.65rem; border-radius: 6px; font: inherit; cursor: pointer;
+  border: 1px solid rgba(120,130,150,0.4); background: transparent;
+}
+.board-bar button:disabled { opacity: 0.45; cursor: default; }
+.board-zoom, .board-count { font-size: 0.85rem; opacity: 0.7; }
+.board-problem { color: rgb(150,40,40); margin: 0 0 0.5rem; }
+
+.board-surface {
+  position: relative; flex: 1; overflow: hidden;
+  border: 1px solid rgba(120,130,150,0.25); border-radius: 8px;
+  /* The plane is dragged, so the browser's own panning must not also claim
+     the gesture — otherwise a drag scrolls the page on a trackpad. */
+  touch-action: none;
+  cursor: grab;
+  /* A faint grid, so panning an empty area is visibly motion rather than
+     nothing happening. */
+  background-image:
+    linear-gradient(rgba(120,130,150,0.10) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(120,130,150,0.10) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+.board-surface:active { cursor: grabbing; }
+
+.board-plane { position: absolute; inset: 0; will-change: transform; }
+
+.board-card {
+  position: absolute; box-sizing: border-box;
+  padding: 0.7rem 0.85rem; border-radius: 8px; cursor: grab;
+  border: 1px solid rgba(120,130,150,0.45);
+  background: var(--paper, #fff);
+  box-shadow: 0 1px 6px rgba(0,0,0,0.10);
+  display: flex; flex-direction: column; gap: 0.3rem; overflow: hidden;
+}
+.board-card:active { cursor: grabbing; }
+.board-card h3 { font-size: 0.95rem; line-height: 1.3; margin: 0; }
+.board-kind, .board-status {
+  font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase;
+  opacity: 0.6;
+}
+.board-status { margin-top: auto; }
+
+/* The picker: what can still be put on the board. */
+.board-picker {
+  margin-bottom: 0.75rem; padding: 0.75rem; max-height: 16rem; overflow-y: auto;
+  border: 1px solid rgba(120,130,150,0.3); border-radius: 8px;
+}
+.board-picker ul { list-style: none; margin: 0; padding: 0; }
+.board-picker li + li { margin-top: 0.25rem; }
+.board-picker button {
+  display: flex; gap: 0.6rem; align-items: baseline; width: 100%;
+  padding: 0.4rem 0.5rem; border: 0; border-radius: 6px;
+  background: transparent; font: inherit; text-align: left; cursor: pointer;
+}
+.board-picker button:hover { background: rgba(120,130,150,0.12); }
+
+/* The spatial-chart gallery (§9). Deliberately plain: the charts are the
+   content, and a page that competed with them would be answering a question
+   nobody asked about the frame rather than about the data. */
+.c3d-page { max-width: 880px; margin: 0 auto; padding: 32px 20px 64px; }
+.c3d-page h1 { font-size: 22px; color: var(--ink-strong); margin-bottom: 8px; }
+.c3d-page h2 { font-size: 15px; color: var(--ink-strong); margin: 28px 0 10px; }
+.c3d-page > header p { font-size: 14px; color: var(--ink-soft); margin-bottom: 10px; }
+.c3d-page section { margin-bottom: 32px; }
+.c3d-page .chart-caption { font-size: 12px; color: var(--ink-faint); }
+.c3d-page .chart-controls { display: flex; gap: 16px; margin-top: 8px; }
+.c3d-page .chart-controls label {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--ink-soft);
+}
+
+/* The hosted model. Set apart from the local list on purpose: it is the one
+   choice on this screen with a consequence outside the machine, and a row that
+   looked like the others would invite it to be clicked like the others. */
+.set-hosted {
+  margin-top: 24px; padding: 16px;
+  border: 1px solid var(--line); border-radius: var(--r-card);
+  background: var(--panel);
+}
+.set-hosted h3 {
+  font-size: 13px; font-weight: 600; margin: 0 0 8px;
+  color: var(--ink-strong);
+}
+.set-hosted .set-model { width: 100%; margin-top: 12px; }
+.set-key { display: flex; align-items: flex-end; gap: 8px; margin-top: 12px; }
+.set-key label {
+  display: flex; flex-direction: column; gap: 4px; flex: 1;
+  font-size: 12px; color: var(--ink-faint);
+}
+.set-key input {
+  padding: 7px 9px; font-size: 13px;
+  border: 1px solid var(--line); border-radius: var(--r-control);
+  background: var(--bg); color: var(--ink);
 /* --- chart interaction (T011) --------------------------------------------- */
 
 /*

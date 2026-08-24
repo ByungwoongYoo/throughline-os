@@ -14,7 +14,31 @@
 # It runs as a non-root user with a writable home. The analysis sandbox spawns
 # subprocesses, and a container running everything as root would mean an
 # analysis escape is a host escape.
+#
+# The runtime stage is pinned to linux/amd64, and that is not an oversight.
+# `pgserver` — the embedded PostgreSQL this image is built around — publishes
+# wheels for macOS arm64 but, on Linux, for x86_64 only. There is no aarch64
+# wheel in any release and no sdist to fall back on, so on an ARM host the build
+# does not degrade, it fails outright: "No matching distribution found for
+# pgserver".
+#
+# CI cannot see this. It runs on ubuntu-latest, which is amd64, so the job is
+# green and would stay green forever. The people it breaks are the ones most
+# likely to try `docker compose up`: Docker Desktop on an Apple Silicon Mac
+# defaults to linux/arm64, so a researcher on an M-series laptop following the
+# documented container route hits a wall the test suite says nothing about.
+#
+# Pinning trades speed for existing at all. On an ARM host this runs under
+# emulation and is slower — noticeably so during install — but a slow container
+# that works beats a fast one that cannot be built. The native path for Apple
+# Silicon is `scripts/bootstrap.sh`, which uses the macOS arm64 wheel and is
+# what the README recommends first.
+#
+# Remove the pin when pgserver ships linux-aarch64 wheels, not before;
+# `tests/test_packaging.py` fails if it disappears without that.
 
+# Native on purpose: this stage emits JavaScript and CSS, which are the same
+# bytes on any architecture, so there is nothing to gain from emulating it.
 FROM node:22-slim AS web
 WORKDIR /build
 COPY apps/web/package*.json ./
@@ -32,7 +56,7 @@ RUN mkdir -p public
 RUN npm run build
 
 
-FROM python:3.12-slim AS runtime
+FROM --platform=linux/amd64 python:3.12-slim AS runtime
 
 # Build tools for the scientific stack, removed in the same layer so they do not
 # ship. Nothing here is needed at runtime.

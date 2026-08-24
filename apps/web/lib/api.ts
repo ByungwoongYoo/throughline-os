@@ -33,8 +33,46 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
+/**
+ * A response that is bytes rather than JSON.
+ *
+ * Separate from `request` because that one parses every body as JSON, which is
+ * right for the whole API except the two endpoints that carry a file. The error
+ * path is deliberately identical: a failure still arrives as JSON with a
+ * `detail`, and §104's rule that the server's own words reach the researcher
+ * applies just as much when the success case was a PDF.
+ */
+async function requestBytes(path: string, init?: RequestInit): Promise<Uint8Array> {
+  const response = await fetch(path, {
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
+    ...init,
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    let detail = `Request failed (${response.status})`;
+    try {
+      const payload = text ? JSON.parse(text) : null;
+      detail = payload?.detail ?? payload?.message ?? detail;
+    } catch {
+      // A non-JSON error body is still better than a status code alone.
+      if (text) detail = text;
+    }
+    throw new ApiError(response.status, String(detail));
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path),
+  /** POST that returns a file. See `requestBytes`. */
+  postForBytes: (path: string, body?: unknown) =>
+    requestBytes(path, {
+      method: "POST",
+      body: body === undefined ? undefined : JSON.stringify(body),
+    }),
   put: <T>(path: string, body: unknown) =>
     request<T>(path, { method: "PUT", body: JSON.stringify(body) }),
   post: <T>(path: string, body?: unknown) =>
@@ -119,6 +157,15 @@ export type Connection = {
   evidence_quality: string;
   rank_score: number;
   analysis_run_id: string | null;
+  /**
+   * The addressable object for the run that produced this, or null.
+   *
+   * What "where did this come from" starts from. Deliberately not the
+   * connection's own `object_id` — nothing sets that column, while every
+   * analysis run gets an ANALYSIS object, so this is the anchor the provenance
+   * chain can actually walk.
+   */
+  analysis_object_id?: string | null;
   /** Null when the connection did not come from a discovery run. */
   dataset_version_id: string | null;
 };

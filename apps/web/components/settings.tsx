@@ -11,9 +11,18 @@
  * Three things are stated rather than implied.
  *
  * **What the model is and is not used for.** It reads papers and writes prose.
- * It never produces a number, a verdict, or a correction — those are executed
- * code and stay identical whichever model is selected. Someone choosing a
- * smaller model needs to know they are trading fluency, not rigour.
+ * It never *authors* a number or a verdict: statistics come from the sandbox,
+ * comparability from `compare.py`'s deterministic checks, and every extracted
+ * sentence is verified verbatim against the paper before it is stored, so an
+ * altered quote becomes no answer rather than a wrong one.
+ *
+ * But "identical whichever you choose" was too strong, and this screen used to
+ * say it. What a smaller model changes is *coverage*: which sentences it
+ * manages to locate at all. A field it fails to find is simply absent — no
+ * error, no gap marker — and a real 7B model once returned nothing from a
+ * paper that stated seven of the nine fields. The trade is recall, not rigour,
+ * and a reader deciding between models needs the distinction stated rather
+ * than reassured away.
  *
  * **Whether inference is local.** That is a privacy fact, not a performance
  * one: it decides whether unpublished research leaves the machine (§98).
@@ -42,7 +51,19 @@ type Change = {
   changed_at: string;
 };
 
+type Hosted = {
+  provider: string;
+  model: string;
+  key_saved: boolean;
+  /** The last four characters. Never the key. */
+  key_hint: string | null;
+  local: boolean;
+  billed: string;
+  warning: string;
+};
+
 type Models = {
+  hosted?: Hosted;
   installed: Installed[];
   selection: { provider: string; model: string | null; source: string };
   active: {
@@ -197,6 +218,9 @@ export function Settings() {
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
+  const [keyInput, setKeyInput] = useState("");
+  const [keyBusy, setKeyBusy] = useState(false);
+  const [keyNote, setKeyNote] = useState<string | null>(null);
 
   function load() {
     setLoading(true);
@@ -227,6 +251,61 @@ export function Settings() {
     }
   }
 
+  /**
+   * Move to the hosted model — the one action here that changes where data
+   * goes, so it is confirmed rather than toggled.
+   *
+   * The server refuses if the key is missing or does not work, and reverts to
+   * the previous selection rather than leaving the system pointed at a model
+   * it cannot reach.
+   */
+  async function chooseHosted() {
+    if (!models?.hosted) return;
+    const agreed = window.confirm(
+      `${models.hosted.warning}\n\n${models.hosted.billed}\n\n`
+      + "Select the hosted model?");
+    if (!agreed) return;
+
+    setSaving(models.hosted.model);
+    setError(null);
+    try {
+      await api.put("/api/system/models",
+                    { provider: models.hosted.provider,
+                      model: models.hosted.model });
+      load();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  async function saveKey() {
+    setKeyBusy(true);
+    setError(null);
+    setKeyNote(null);
+    try {
+      const result = await api.put<{ note: string }>(
+        "/api/system/model-key", { api_key: keyInput });
+      // Cleared from the field as soon as it is stored: a credential sitting
+      // in a form is one a screenshot or a password manager can still pick up.
+      setKeyInput("");
+      setKeyNote(result.note);
+      load();
+    } catch (err) { setError(err); } finally { setKeyBusy(false); }
+  }
+
+  async function removeKey() {
+    setKeyBusy(true);
+    setError(null);
+    setKeyNote(null);
+    try {
+      const result = await api.del<{ note: string }>("/api/system/model-key");
+      setKeyNote(result.note);
+      load();
+    } catch (err) { setError(err); } finally { setKeyBusy(false); }
+  }
+
   if (loading && !models) return <Loading rows={4} label="Asking what this machine has" />;
 
   return (
@@ -236,10 +315,18 @@ export function Settings() {
       <section className="set-section">
         <h2>Model</h2>
         <p className="lede">
-          Throughline runs against whichever model you point it at, on your own
-          machine. The model reads papers and writes prose — it never produces a
-          number, a verdict or a correction. Those are executed code and are
-          identical whichever you choose.
+          Throughline runs against whichever model you point it at. The model
+          reads papers and writes prose — it never writes a number or a
+          verdict. Statistics come from executed code, comparability from
+          deterministic checks, and every sentence it quotes is verified
+          against the paper before it is kept, so an altered quote is discarded
+          rather than shown.
+        </p>
+        <p className="lede">
+          What does change with the model is how much it finds. A smaller one
+          locates fewer of the sentences in a paper, and a field it misses is
+          simply absent rather than flagged — so the trade is coverage, not
+          correctness. Each extraction records the model that produced it.
         </p>
 
         {error ? <Failure error={error} /> : null}
@@ -314,6 +401,85 @@ export function Settings() {
 
         {models?.active.note && (
           <p className="set-note">{models.active.note}</p>
+        )}
+
+        {/*
+          * The hosted option, stated rather than hidden.
+          *
+          * It was already built and reachable only through an environment
+          * variable, which meant the one choice with a privacy consequence was
+          * the one choice the interface would not discuss.
+          *
+          * Two things are said before anything else, because both are things a
+          * researcher would otherwise discover too late: that text leaves the
+          * machine, and that this is API billing rather than a Claude
+          * subscription — there is no way for an application to spend one, and
+          * learning that from an invoice would be the interface's fault.
+          */}
+        {models?.hosted && (
+          <div className="set-hosted">
+            <h3>Hosted model</h3>
+            <p className="set-sub">{models.hosted.warning}</p>
+            <p className="set-sub">{models.hosted.billed}</p>
+
+            <div className="set-key">
+              <label>
+                API key
+                <input
+                  type="password"
+                  aria-label="Anthropic API key"
+                  autoComplete="off"
+                  placeholder={models.hosted.key_saved
+                    ? `saved ${models.hosted.key_hint ?? ""}`
+                    : "not set"}
+                  value={keyInput}
+                  onChange={(event) => setKeyInput(event.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                className="btn"
+                disabled={keyBusy || keyInput.trim().length === 0}
+                onClick={() => void saveKey()}
+              >
+                {models.hosted.key_saved ? "Replace key" : "Save key"}
+              </button>
+              {models.hosted.key_saved && (
+                <button
+                  type="button"
+                  className="btn btn-danger"
+                  disabled={keyBusy}
+                  onClick={() => void removeKey()}
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+
+            {keyNote && <p className="set-note">{keyNote}</p>}
+
+            <button
+              type="button"
+              className="set-model"
+              data-active={models.selection.provider === models.hosted.provider}
+              disabled={saving !== null || !models.hosted.key_saved}
+              onClick={() => void chooseHosted()}
+            >
+              <span className="set-model-name">{models.hosted.model}</span>
+              <span className="set-model-meta numeric">
+                Anthropic · sends data off this machine
+              </span>
+              {models.selection.provider === models.hosted.provider
+                && <span className="set-active">in use</span>}
+            </button>
+
+            {!models.hosted.key_saved && (
+              <p className="set-note">
+                Add a key to make this selectable. Saving one sends nothing —
+                the local model stays in use until you choose otherwise.
+              </p>
+            )}
+          </div>
         )}
       </section>
 

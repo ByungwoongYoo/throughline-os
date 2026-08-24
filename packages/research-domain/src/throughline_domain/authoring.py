@@ -62,7 +62,12 @@ def draft_from_connection(
             "produced."
         )
 
-    cur.execute("SELECT project_id, research_question FROM projects WHERE id = %s",
+    # `research_question` only. This selected a `project_id` column that
+    # `projects` does not have — its key is `id` — so every call raised
+    # UndefinedColumn before reaching the assembly below. Nothing caught it
+    # because nothing called this function: the modules underneath were well
+    # tested and the entry point to all of them had no test at all.
+    cur.execute("SELECT research_question FROM projects WHERE id = %s",
                 (project_id,))
     project = cur.fetchone()
 

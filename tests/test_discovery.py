@@ -335,3 +335,92 @@ def test_unadjusted_association_does_not_pass_validation(signal_project):
     with connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT lifecycle_status FROM connections WHERE id = %s", (target["id"],))
         assert cur.fetchone()["lifecycle_status"] == "exploratory"
+
+
+# ---------------------------------------------------------------------------
+# Multiple-testing correction, checked against an independent implementation
+# ---------------------------------------------------------------------------
+#
+# A q-value is quoted. It decides which findings a researcher ever sees, and a
+# wrong one is invisible in both directions: too large and a real association is
+# silently withheld, too small and a spurious one is presented as surviving
+# correction. Neither looks like a failure from the outside, so the arithmetic is
+# pinned against statsmodels rather than against a number this project computed.
+
+
+def _reference(p_values):
+    from statsmodels.stats.multitest import multipletests
+    return list(multipletests(p_values, method="fdr_bh")[1])
+
+
+def test_q_values_match_an_independent_implementation():
+    p_values = [0.001, 0.008, 0.039, 0.041, 0.042, 0.06, 0.074, 0.205, 0.212,
+                0.216, 0.222, 0.251, 0.269, 0.275, 0.34, 0.341, 0.384, 0.569,
+                0.594, 0.696, 0.762, 0.94, 0.942, 0.975, 0.986]
+    ours = [row["q_value"] for row in discovery.benjamini_hochberg(p_values)]
+    for mine, theirs in zip(ours, _reference(p_values)):
+        assert mine == pytest.approx(theirs, rel=1e-12)
+
+
+def test_tied_p_values_receive_the_same_q_value():
+    # Ties are common when a screen re-tests the same variable pair under two
+    # framings. Giving them different q-values would make the ordering of the
+    # input decide which one survives.
+    p_values = [0.02, 0.02, 0.02, 0.5, 0.5]
+    q_values = [row["q_value"] for row in discovery.benjamini_hochberg(p_values)]
+    assert q_values[0] == q_values[1] == q_values[2]
+    assert q_values[3] == q_values[4]
+    for mine, theirs in zip(q_values, _reference(p_values)):
+        assert mine == pytest.approx(theirs, rel=1e-12)
+
+
+def test_q_values_never_decrease_with_p():
+    p_values = [0.04, 0.001, 0.6, 0.039, 0.9, 0.0005, 0.31]
+    rows = sorted(discovery.benjamini_hochberg(p_values),
+                  key=lambda row: row["p_value"])
+    q_values = [row["q_value"] for row in rows]
+    assert q_values == sorted(q_values)
+
+
+def test_untested_candidates_do_not_enlarge_the_family():
+    """The defect this test exists for.
+
+    The worker corrects across every *completed* run, and a run can complete
+    without producing a p-value — a descriptive method, or a result that simply
+    lacks the key. Counting those in `m` inflated every q-value in the sweep,
+    which withholds real findings and never once looks like an error.
+    """
+    tested = [0.001, 0.01, 0.02, 0.04]
+    padded = [0.001, None, 0.01, None, 0.02, None, 0.04, None]
+
+    clean = [row["q_value"] for row in discovery.benjamini_hochberg(tested)]
+    mixed = [row["q_value"] for row in discovery.benjamini_hochberg(padded)
+             if row["q_value"] is not None]
+
+    assert mixed == pytest.approx(clean, rel=1e-12)
+    assert clean == pytest.approx(_reference(tested), rel=1e-12)
+
+
+def test_a_candidate_without_a_p_value_survives_nothing_and_says_so():
+    rows = discovery.benjamini_hochberg([0.001, None])
+    assert rows[1]["q_value"] is None
+    assert rows[1]["survives"] is False
+    assert rows[0]["survives"] is True
+
+
+def test_a_non_finite_p_value_is_treated_as_missing():
+    # A NaN sorts unpredictably, poisons the monotonicity walk for everything
+    # after it, and then fails `q <= fdr` quietly.
+    rows = discovery.benjamini_hochberg([0.001, float("nan"), 0.01, 0.02, 0.04])
+    assert rows[1]["q_value"] is None
+    survivors = [row["q_value"] for row in rows if row["q_value"] is not None]
+    assert survivors == pytest.approx(
+        [row["q_value"] for row in discovery.benjamini_hochberg([0.001, 0.01, 0.02, 0.04])],
+        rel=1e-12)
+
+
+def test_an_empty_or_wholly_untested_family_is_not_an_error():
+    assert discovery.benjamini_hochberg([]) == []
+    rows = discovery.benjamini_hochberg([None, None])
+    assert [row["q_value"] for row in rows] == [None, None]
+    assert not any(row["survives"] for row in rows)

@@ -216,3 +216,57 @@ def test_rate_limiting_is_off_under_pytest_by_default(monkeypatch):
 
     monkeypatch.setenv("THROUGHLINE_RATE_LIMIT", "on")
     assert security.rate_limiting_enabled() is True
+
+
+# ---------------------------------------------------------------------------
+# The script policy actually tightens
+# ---------------------------------------------------------------------------
+
+class _Response:
+    """Just enough of a Response for the header pass to write into."""
+
+    def __init__(self) -> None:
+        self.headers: dict[str, str] = {}
+
+
+def _csp(monkeypatch, deployment: str) -> str:
+    monkeypatch.setenv("THROUGHLINE_DEPLOYMENT", deployment)
+    response = _Response()
+    security._apply_headers(response)  # noqa: SLF001 - the header pass itself
+    return response.headers["Content-Security-Policy"]
+
+
+def test_a_deployment_does_not_allow_inline_or_eval_scripts(monkeypatch):
+    """The check that was silently never engaging.
+
+    This was gated on NODE_ENV, which the API process never sets — it is a
+    Python process, and the Next.js process that does set it has its own
+    environment. The comparison was always `None != "production"`, so every
+    deployment shipped 'unsafe-inline' and 'unsafe-eval' while the comment
+    beside it said the policy tightened automatically.
+
+    A security control that never engages is worse than an absent one, because
+    nobody goes looking for it.
+    """
+    policy = _csp(monkeypatch, "production")
+    assert "script-src 'self';" in policy
+    assert "unsafe-inline" not in policy.split("style-src")[0]
+    assert "unsafe-eval" not in policy
+
+
+def test_a_local_install_still_allows_what_the_dev_build_needs(monkeypatch):
+    # Next's development build genuinely requires both, so refusing them
+    # locally would break the product for everyone running it the normal way.
+    policy = _csp(monkeypatch, "local")
+    assert "'unsafe-inline' 'unsafe-eval'" in policy
+
+
+def test_node_env_no_longer_decides_anything(monkeypatch):
+    """Setting NODE_ENV must not loosen a deployment's policy.
+
+    Kept because the obvious "fix" for a future report of a broken dev build is
+    to reinstate the old variable, which would restore the bug in a form that
+    looks deliberate.
+    """
+    monkeypatch.setenv("NODE_ENV", "development")
+    assert "unsafe-eval" not in _csp(monkeypatch, "production")

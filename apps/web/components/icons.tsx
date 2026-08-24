@@ -110,6 +110,23 @@ export const IconSettings = (p: IconProps) => (
     <path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1Z" /></Svg>
 );
 
+/**
+ * A hand, for the two pages that need a camera to be any use.
+ *
+ * Its own glyph rather than a borrowed one: those pages ask something about
+ * this machine — whether it can see your hands — which no other icon in this
+ * set says. The gear beside them means settings, and reusing it would put two
+ * different questions behind the same picture.
+ */
+export const IconHand = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12" />
+    <path d="M11 12V4.5a1.5 1.5 0 0 1 3 0V12" />
+    <path d="M14 12V6.5a1.5 1.5 0 0 1 3 0V13" />
+    <path d="M17 13v-1.5a1.5 1.5 0 0 1 3 0V16a5 5 0 0 1-5 5h-2a6 6 0 0 1-6-6v-2l-1.6-1.6a1.5 1.5 0 0 1 2.1-2.1L8 10.5" />
+  </Svg>
+);
+
 /* --- actions and state --------------------------------------------------- */
 
 export const IconPlus = (p: IconProps) => (

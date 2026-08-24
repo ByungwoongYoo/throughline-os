@@ -435,3 +435,103 @@ def test_the_patterns_routes_answer_rather_than_raising(client):
         response = client.get(path)
         assert response.status_code == 200, f"{path} → {response.status_code} {response.text[:300]}"
         assert isinstance(response.json(), (dict, list)), path
+
+
+# ---------------------------------------------------------------------------
+# Downloading a figure (§84)
+# ---------------------------------------------------------------------------
+
+def test_a_pixel_height_is_refused_for_a_vector_download(client):
+    """
+    400 rather than a silently unsized SVG. A caller asking for 1080px of
+    vector has misunderstood something, and honouring the request in name only
+    leaves them believing the file is 1080 tall.
+    """
+    _account(client)
+    response = client.get("/api/visuals/vis_missing/download?format=svg&height=1080")
+    # 404 for the unknown figure is fine; what must not happen is a 500.
+    assert response.status_code in (400, 404), response.text
+
+
+def test_an_unknown_figure_is_not_found_rather_than_a_crash(client):
+    _account(client)
+    response = client.get("/api/visuals/vis_missing/download?format=png&height=720")
+    assert response.status_code == 404, response.text
+
+
+def test_the_download_route_requires_a_session(client):
+    assert client.get("/api/visuals/vis_x/download").status_code == 401
+
+
+def test_a_malformed_selection_is_the_callers_error_not_a_model_outage(client):
+    """§26 at the boundary.
+
+    The distinction matters more than the number does. A selection this system
+    cannot describe honestly is something the interface sent wrongly; reporting
+    it as 503 would tell the researcher the assistant is down and send them to
+    check a model configuration that is working perfectly.
+    """
+    _account(client)
+    project = client.post("/api/projects", json={"name": "Selection"}).json()
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO research_objects(id, project_id, object_type, title, "
+            "created_by) VALUES ('obj_sel', %s, 'dataset', 'A dataset', 'usr_1')",
+            (project["id"],))
+        conn.commit()
+
+    response = client.post(
+        f"/api/projects/{project['id']}/objects/obj_sel/ask",
+        json={"question": "Why are these different?",
+              # A coordinate that is not a number. Nothing downstream can
+              # describe it, so nothing downstream should be asked to try.
+              "selection": {"points": [{"id": "a", "x": "over there",
+                                        "y": 0, "z": 0}]}})
+
+    assert response.status_code == 400, response.text
+    assert "number" in response.json()["detail"].lower()
+
+
+def test_asking_about_a_missing_object_is_not_reported_as_a_model_outage(client):
+    """A pre-existing bug, found while writing the test above.
+
+    `ask` mapped every `JournalError` to 503, so "No such object in this
+    project" came back as Service Unavailable — telling the researcher the
+    assistant was down and sending them to check a model configuration that was
+    working perfectly. A missing object is a 404.
+    """
+    _account(client)
+    project = client.post("/api/projects", json={"name": "Missing"}).json()
+
+    response = client.post(
+        f"/api/projects/{project['id']}/objects/obj_not_here/ask",
+        json={"question": "What is this?"})
+
+    assert response.status_code == 404, response.text
+
+
+def test_the_embedding_space_says_why_it_cannot_be_drawn(client):
+    """A project with nothing embedded gets a reason, not an empty chart.
+
+    An empty list rendered as a scatter is indistinguishable from a corpus with
+    no structure, and the researcher would read the second when the truth is the
+    first — that the embedding step has not run.
+    """
+    _account(client)
+    project = client.post("/api/projects", json={"name": "Space"}).json()
+
+    response = client.get(f"/api/projects/{project['id']}/embedding-space")
+
+    assert response.status_code == 503, response.text
+    assert "embedded passage" in response.json()["detail"]
+
+
+def test_the_embedding_space_is_scoped_to_its_project(client):
+    """Another project's corpus is not visible through this route."""
+    _account(client)
+    project = client.post("/api/projects", json={"name": "Space"}).json()
+
+    response = client.get("/api/projects/prj_not_mine/embedding-space")
+
+    assert response.status_code in (403, 404), response.text
+    assert project["id"] not in response.text

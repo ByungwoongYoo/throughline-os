@@ -32,6 +32,22 @@ system's own record legible to the person using it:
 - **Export staleness** compares the hash recorded when a document was exported
   against what the analyses say now, and keeps "you edited this" apart from "the
   numbers moved underneath it". Only the second is alarming.
+- **Pre-registration that is actually checked.** A registration can state the
+  analysis it intends — method, design, covariates, exclusions — and the system
+  compares that with what was really run. This closes a loophole in the ledger
+  above: the exemption from multiple-comparison correction used to ask only
+  whether a registration existed, was unedited and came first, all of which can
+  be true of an analysis with nothing to do with the plan. It is now earned by
+  matching, and a deviating test rejoins the family it belongs to.
+
+  Three rules keep it usable. A plan that says nothing about covariates cannot
+  be deviated from on covariates — unstated is reported as unregistered, not as
+  a violation. A harmonised rename is not a change. And nothing calls a
+  deviation misconduct: deviating is usually right, and the point is to state it
+  deliberately rather than have a reviewer find it. The *Deviations from the
+  registered plan* section is generated from the record with every reason left
+  blank, because the system knows what changed and only the researcher knows
+  why.
 
 What is missing is the spatial canvas, most of the integration surface, and the
 video engine. `ROADMAP.md` is the live document: it records what exists, what
@@ -43,9 +59,14 @@ the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **848 backend tests and 161 web tests**, with 7 backend
+The current suite is **1252 backend tests and 1117 web tests**, with 6 backend
 skips, each carrying a reason CI's allowlist recognises — a skip with an
 unrecognised reason fails the build, so the suite cannot quietly shrink.
+
+Those numbers are checked by `tests/test_readme_claims.py`, which collects the
+suite and compares. They were wrong before it existed — the file said 848 and
+161 long after both had moved — and a document that claims a number nothing
+verifies is the same defect this project spends its time hunting elsewhere.
 
 A recurring class of defect here is worth naming, because most of the last
 wave's work was it: **a column written by one part of the system and read by
@@ -99,6 +120,8 @@ one is the usual way two people end up doing the same work twice:
 | `TASKS.md` | Who is doing what **right now**. Where it disagrees with the roadmap, this one is current. |
 | `CONTRIBUTING.md` | The workflow two people share without colliding. |
 | `PLAN.md` | The original specification the section numbers (§55, §102) refer to. |
+| `docs/MASTER_BUILD_PROMPT.md` | The immersive-spatial specification, verbatim, with its hash pinned. Committed rather than remembered: 236 sections do not survive being carried in anybody's head. |
+| `docs/REQUIREMENTS.md` | What exists against each of those 236 sections. `unreviewed` means no claim has been made yet, and the count may only fall. |
 | `CLAUDE.md` | Instructions for Claude sessions working in this repository. |
 
 Planned and not present: the Scientific Motion Grammar and the deterministic 4K
@@ -203,11 +226,47 @@ New API surface goes in its **own router module** mounted with one line in
 architectural one: `app.py` is the file two branches always both touch, and the
 last wave merged with zero conflicts because nothing new was added to it.
 
+## Is this installation healthy?
+
+```bash
+python scripts/manage.py doctor
+```
+
+One pass over the Python version, the virtualenv, Node, the hand-tracking model
+and its hash, both ports, the database and its migrations, and whether this
+machine has haptic hardware. Every failing check names the command that fixes
+it, and a port held by an already-running Throughline is reported as *already
+serving* rather than as a failure.
+
+## Trying it by hand
+
+`docs/TRY_IT.md` is a walkthrough for testing the product yourself — starting
+the stack, what to look at, how to exercise the gesture controls, and what each
+startup failure means. It is written to be followed with nobody to ask, and
+`tests/test_try_it_guide.py` checks its claims against the code so it cannot
+quietly go stale.
+
 ## Container
 
 The image ships the embedded PostgreSQL rather than expecting an external one,
 because that is what the product is: a workspace someone installs, not a service
 someone operates.
+
+**The container is x86-64 only, and that is a hard limit rather than a default.**
+The embedded PostgreSQL (`pgserver`) publishes no Linux ARM build — no aarch64
+wheel in any release, and no source distribution to fall back on — so the image
+is pinned to `linux/amd64`. On an ARM host it therefore runs under emulation,
+and `pgvector`, which is compiled C using SIMD instructions, crashes the server
+as it loads. PostgreSQL itself is fine under emulation; the extension is not.
+
+So **on an Apple Silicon Mac, use `scripts/bootstrap.sh` rather than the
+container.** It is the supported route there and considerably faster besides.
+Running the image anyway is not dangerous — it refuses at startup with an
+explanation instead of failing halfway through a migration — but it will not
+run.
+
+This is invisible to CI, which is why it is written down here: the docker job
+runs on `ubuntu-latest`, which is amd64, so it passes and would keep passing.
 
 There is no published image; build it first.
 

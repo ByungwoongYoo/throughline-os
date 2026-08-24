@@ -15,17 +15,22 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Cookie, Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from throughline_domain import (
     analysis, auth, claim_test, compare, consistency, critic, discovery,
-    embeddings, example, extraction, findings, graph_projection, graphs,
+    embeddings, events, example, extraction, findings, graph_projection, graphs,
     harmonize, images, journal, lineage, notebook, objects, observability,
-    patterns, reconcile, retrieval, specification, storage, synthesis,
-    validation, visuals, vocabulary, workflow,
+    authoring, board, citations, communication, embedding_space, excerpts, haptics,
+    marks,
+    patterns, reconcile, render_artifact, retrieval, selection, speech,
+    specification, storage, synthesis, validation, visuals, vocabulary,
+    workflow,
 )
 from throughline_visual.prepare import prepare as visual_prepare
+from throughline_visual.renderers import publication as publication_render
 from throughline_visual.spec import ResearchVisualSpec
+from throughline_domain import secrets as domain_secrets
 from throughline_domain import settings as domain_settings
 from throughline_domain.db import connection, jsonb, transaction
 from throughline_domain.ids import new_id
@@ -157,6 +162,39 @@ def scoped_project(project_id: str, user: dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 # System
 # ---------------------------------------------------------------------------
+
+
+@app.post("/api/speech/transcribe")
+async def transcribe_speech(request: Request) -> dict[str, Any]:
+    """Turn recorded audio into timed words, without it leaving the machine.
+
+    The body is raw 16 kHz mono float32 — not a container — because the browser
+    already has a complete audio decoder and Whisper's usual path would otherwise
+    shell out to ffmpeg, which is one more thing a researcher has to install
+    before speech works at all.
+
+    **Word times are relative to the clip and never absolute.** This process has
+    no idea what the browser's monotonic clock reads, and inventing an absolute
+    time would put speech and gesture on different clocks — which this codebase
+    shipped once, silently, and will not again. The caller knows when it started
+    recording and does the addition.
+
+    Not authenticated, like the rest of the local surface: the API binds to
+    localhost and the whole product is one researcher on one machine.
+    """
+    raw = await request.body()
+    try:
+        return speech.transcribe(raw)
+    except speech.SpeechError as exc:
+        # 400 rather than 500: audio this system will not transcribe is a
+        # request problem with a sentence a person can act on, not a fault.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover - defensive
+        # A model that fails to load or infer must not take the API down; the
+        # researcher's hand is still drawing and everything else still works.
+        raise HTTPException(
+            status_code=503,
+            detail=f"Local transcription is unavailable: {exc}") from exc
 
 
 @app.get("/health")
@@ -458,7 +496,31 @@ def delete_project(project_id: str,
         candidates = [(r["content_hash"], r["storage_key"])
                       for r in cur.fetchall()]
 
+        # Counted before the cascade, because afterwards there is nothing left
+        # to count. The audit log recorded creation and not destruction, which
+        # for a research record is the wrong way round: a corpus can be erased —
+        # sources, analyses, findings, figures, notes — and the log that exists
+        # to make the work legible said nothing at all. "Deleted a project" is
+        # not a record either; what was in it is.
+        destroyed: dict[str, int] = {}
+        for table in ("sources", "datasets", "analysis_runs", "connections",
+                      "findings", "visuals", "communication_artifacts",
+                      "notes", "preregistrations", "exploration_tests"):
+            cur.execute(f"SELECT count(*) AS n FROM {table} WHERE project_id = %s",
+                        (project_id,))
+            count = int(cur.fetchone()["n"])
+            if count:
+                destroyed[table] = count
+
         cur.execute("DELETE FROM projects WHERE id = %s", (project_id,))
+
+        events.audit(
+            cur, project_id=None, actor=user["id"], action="delete",
+            object_type="project", object_id=project_id,
+            # `project_id` is null on purpose: the row it would reference no
+            # longer exists, and an audit entry that cascades away with the
+            # thing it records is not an audit entry.
+            detail={"name": project["name"], "destroyed": destroyed})
 
         # Which of those blobs are now referenced by nothing at all.
         orphans: list[str] = []
@@ -753,6 +815,12 @@ class NoteBody(BaseModel):
 
 class Question(BaseModel):
     question: str
+    #: What the researcher pointed at, when the question is about a selection
+    #: in a visualization (§26). Validated in `throughline_domain.selection`
+    #: rather than here: the rules are about scientific honesty — statistics
+    #: recomputed rather than trusted, no wording that implies a grouping was
+    #: fitted — and they belong beside the code that renders it for a model.
+    selection: dict[str, Any] | None = None
 
 
 @app.get("/api/projects/{project_id}/objects/{object_id}/journal")
@@ -812,8 +880,71 @@ def ask_about_object(project_id: str, object_id: str, payload: Question,
     with transaction() as cur:
         try:
             return journal.ask(cur, project_id=project_id, object_id=object_id,
-                               question=payload.question, author=user["id"])
+                               question=payload.question, author=user["id"],
+                               selection=payload.selection)
+        except journal.NoSuchObject as exc:
+            # 404, not 503. Reporting a missing object as a service outage sent
+            # researchers to check a model configuration that was working.
+            raise HTTPException(404, str(exc)) from exc
+        except selection.SelectionError as exc:
+            # 400, not 503: a selection this system cannot describe honestly is
+            # the caller's to fix, and reporting it as a model outage would send
+            # the researcher looking in entirely the wrong place.
+            raise HTTPException(400, str(exc)) from exc
         except journal.JournalError as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+
+class HapticTap(BaseModel):
+    pattern: str = "generic"
+
+
+@app.get("/api/haptics")
+def haptic_capability() -> dict[str, Any]:
+    """What haptic feedback this machine can produce, and where it is felt.
+
+    Unauthenticated, deliberately. It is a property of the hardware rather than
+    of anybody's research: it reads no project, returns no data about anyone,
+    and the gesture-check page has to work before a researcher has an account —
+    testing tracking on a colleague's laptop must not require making them one.
+    """
+    return haptics.capability()
+
+
+@app.post("/api/haptics/tap")
+def haptic_tap(payload: HapticTap) -> dict[str, Any]:
+    """Perform one tap on the trackpad.
+
+    A JSON body rather than an empty POST, and that is a security decision
+    rather than a style one: a request carrying `application/json` is not a
+    "simple" request, so a browser must preflight it, and no cross-origin
+    preflight is permitted here. Without that, any page in any tab could POST to
+    this port and buzz somebody's trackpad.
+
+    Returns whether it fired. A machine with no actuator answers 200 with
+    `performed: false` — the caller asked a reasonable question and the answer is
+    no, which is not a server error.
+    """
+    return {"performed": haptics.tap(payload.pattern)}
+
+
+@app.get("/api/projects/{project_id}/embedding-space")
+def embedding_space_view(project_id: str, limit: int = Query(
+                             embedding_space.MAX_POINTS, ge=4, le=5000),
+                         user: dict = Depends(current_user)) -> dict[str, Any]:
+    """This project's passages projected into three dimensions.
+
+    503 rather than 200-with-an-empty-list when it cannot be done. A chart drawn
+    from nothing is indistinguishable from a chart of a corpus with no
+    structure, and the researcher would read the second when the truth is the
+    first. The reason travels with the status so the interface can say which of
+    the several quite different causes it was.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        try:
+            return embedding_space.project(cur, project_id, limit=limit)
+        except embedding_space.EmbeddingSpaceUnavailable as exc:
             raise HTTPException(503, str(exc)) from exc
 
 
@@ -1053,6 +1184,66 @@ def synthesis_key_points(project_id: str, payload: SynthesisRequest,
             raise HTTPException(400, str(exc)) from exc
 
 
+class DraftRequest(BaseModel):
+    """Which tested connection to assemble a report from (§74)."""
+
+    connection_id: str
+    artifact_type: str = "report"
+    audience: str = "researcher"
+
+
+class PlacementRequest(BaseModel):
+    """Where an object sits on the workboard (§4).
+
+    Coordinates are world units, not pixels — a board arranged on a laptop
+    opens on a monitor with everything in the same relation.
+    """
+
+    object_id: str
+    x: float
+    y: float
+    width: float
+    height: float
+    z: int | None = None
+
+
+class MarkRequest(BaseModel):
+    """A mark drawn on a paper (§204).
+
+    `points` are in PDF user space, not screen pixels — see
+    `throughline_domain.marks`, which refuses anything else, because a path in
+    pixels is meaningful only at the zoom it was drawn at.
+    """
+
+    source_id: str
+    page: int
+    kind: str
+    points: list[dict[str, float]]
+    body: str | None = None
+
+
+class ExcerptRequest(BaseModel):
+    """A piece of a paper to keep (§205).
+
+    `region` is in PDF user space, not screen pixels — see
+    `throughline_domain.excerpts`, which refuses anything else that would make
+    the record unpointable at a different zoom.
+    """
+
+    source_id: str
+    page: int
+    region: dict[str, float]
+    citation: str
+    context: str | None = None
+    title: str | None = None
+
+
+class PaperPdfRequest(BaseModel):
+    """A paper to download. Validated further in the connector — see there."""
+
+    url: str
+
+
 class LiteratureSearch(BaseModel):
     query: str = Field(min_length=2, max_length=400)
     sources: list[str] = Field(default_factory=list, max_length=8)
@@ -1168,6 +1359,355 @@ def search_dataset_repositories(
                                limit=payload.limit, mailto=contact)
     except Exception as exc:  # noqa: BLE001 — a search failure is not a crash
         raise HTTPException(502, f"The search could not be completed ({exc}).")
+
+
+@app.post("/api/literature/pdf")
+def fetch_paper_pdf(payload: PaperPdfRequest,
+                    user: dict = Depends(current_user)) -> Response:
+    """The PDF behind a search result, fetched by this server.
+
+    Server-side rather than from the browser because arXiv, Crossref and the
+    rest send no CORS headers, so the page cannot read a response it is
+    otherwise allowed to request.
+
+    That makes this a URL supplied by a client and fetched from the server, so
+    the destination is resolved and checked before every hop — see
+    `throughline_connectors.papers`, where the reasoning and the redirect
+    handling live. Behind authentication for the same reason: an unauthenticated
+    fetcher is a fetcher for anybody who can reach the port.
+    """
+    from throughline_connectors.papers import PaperFetchError, fetch_pdf
+
+    try:
+        data = fetch_pdf(payload.url)
+    except PaperFetchError as exc:
+        # 400 rather than 502: a refused address and a paywalled paper are both
+        # things the researcher can act on, and neither is this server failing.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return Response(
+        content=data,
+        media_type="application/pdf",
+        # Never inline: the bytes go to PDF.js with scripting off, and letting
+        # the browser render an untrusted PDF in this origin would undo that.
+        headers={"Content-Disposition": "attachment"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Reports and presentations (§74, §75)
+#
+# These five routes were the whole gap between a finished analysis and a
+# document. Everything below this line already existed and was tested —
+# `authoring` assembles a report from a tested connection, `communication`
+# resolves every displayed value back to the run it came from, and
+# `render_artifact` produces real .docx and .pptx bytes — and none of it was
+# reachable, because the API never imported any of it. The Reports screen
+# called these paths and received 404s.
+# ---------------------------------------------------------------------------
+
+@app.get("/api/projects/{project_id}/artifacts")
+def list_artifacts(project_id: str,
+                   user: dict = Depends(current_user)) -> list[dict[str, Any]]:
+    """Every report and presentation in this project, newest first."""
+    with transaction() as cur:
+        cur.execute(
+            """
+            SELECT a.id, a.artifact_type, a.title, a.status, a.version,
+                   a.created_at,
+                   (SELECT COUNT(*) FROM artifact_blocks b
+                     WHERE b.artifact_id = a.id) AS block_count,
+                   (SELECT COUNT(*) FROM artifact_renders r
+                     WHERE r.artifact_id = a.id) AS render_count
+              FROM communication_artifacts a
+             WHERE a.project_id = %s
+          ORDER BY a.created_at DESC
+            """,
+            (project_id,))
+        return [dict(row) for row in cur.fetchall()]
+
+
+@app.post("/api/projects/{project_id}/artifacts/draft", status_code=201)
+def draft_artifact(project_id: str, payload: DraftRequest,
+                   user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Assemble a report from a tested connection (§74).
+
+    Nothing here is written by a model. The narrative is built from the
+    connection, its validation report and the runs behind them, so every
+    sentence in the result is traceable to something that was computed.
+    """
+    with transaction() as cur:
+        try:
+            artifact_id = authoring.draft_from_connection(
+                cur, project_id=project_id, connection_id=payload.connection_id,
+                artifact_type=payload.artifact_type, audience=payload.audience)
+        except (authoring.AuthoringError, communication.CommunicationError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+    return {"artifact_id": artifact_id}
+
+
+@app.post("/api/artifacts/{artifact_id}/presentation", status_code=201)
+def draft_presentation(artifact_id: str,
+                       user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Re-cut an existing report as a talk (§75).
+
+    A presentation is the same evidence at a different length, so it is derived
+    from the report rather than assembled again — which is what keeps the slides
+    and the paper referencing the same runs.
+    """
+    with transaction() as cur:
+        cur.execute("SELECT project_id FROM communication_artifacts WHERE id = %s",
+                    (artifact_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "There is no such report.")
+        try:
+            new_id = authoring.draft_presentation_from_report(
+                cur, project_id=row["project_id"], report_id=artifact_id)
+        except (authoring.AuthoringError, communication.CommunicationError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+    return {"artifact_id": new_id}
+
+
+@app.get("/api/artifacts/{artifact_id}")
+def get_artifact(artifact_id: str,
+                 user: dict = Depends(current_user)) -> dict[str, Any]:
+    """An artifact, its resolved blocks, its integrity and its renders.
+
+    Integrity travels with the document rather than behind a separate call: a
+    reader deciding whether to export needs to know what will be refused, and a
+    screen that has to ask twice tends to show one of the two.
+    """
+    with transaction() as cur:
+        try:
+            artifact = communication.load_artifact(cur, artifact_id, resolve=True)
+        except communication.UnresolvedReference:
+            """A reference that no longer resolves is the case a researcher
+            most needs to *see*.
+
+            Answering 404 — which this did first — says the report does not
+            exist, when in fact it exists and one of its numbers has lost the
+            run behind it. That is unfixable from the interface: the document
+            cannot be opened to find out which block is at fault.
+
+            So the blocks are returned unresolved and `integrity` below names
+            the problem. Rendering still refuses; only reading is allowed."""
+            artifact = communication.load_artifact(cur, artifact_id, resolve=False)
+        except communication.CommunicationError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        artifact["integrity"] = communication.check_integrity(cur, artifact_id)
+        cur.execute(
+            "SELECT id, fmt, storage_key, byte_size, resolved_hash, "
+            "artifact_version, created_at FROM artifact_renders "
+            "WHERE artifact_id = %s ORDER BY created_at DESC", (artifact_id,))
+        artifact["renders"] = [dict(row) for row in cur.fetchall()]
+        return artifact
+
+
+@app.post("/api/artifacts/{artifact_id}/render")
+def render_artifact_to_file(artifact_id: str, fmt: str = Query("markdown"),
+                            user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Produce the document (§75).
+
+    Refused, with the specific problems, when a value no longer traces to the
+    run it came from — "3 blocks reference an analysis run that no longer
+    exists" is actionable in a way that "export failed" is not, and a document
+    that quietly published a stale number is the failure this product exists to
+    prevent.
+    """
+    with transaction() as cur:
+        try:
+            return render_artifact.render(cur, artifact_id=artifact_id, fmt=fmt)
+        except render_artifact.RenderError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except communication.CommunicationError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+
+@app.post("/api/artifacts/{artifact_id}/check-citations")
+def check_artifact_citations(artifact_id: str,
+                             user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Check every citation in this artifact still says what it is quoted for."""
+    with transaction() as cur:
+        # Through the link table: a citation belongs to the project and is
+        # attached to blocks, so it can support more than one sentence.
+        cur.execute(
+            "SELECT c.id, b.template FROM artifact_blocks b "
+            "JOIN block_citations bc ON bc.block_id = b.id "
+            "JOIN citations c ON c.id = bc.citation_id "
+            "WHERE b.artifact_id = %s",
+            (artifact_id,))
+        rows = list(cur.fetchall())
+        checked = []
+        for row in rows:
+            try:
+                checked.append(citations.check_entailment(
+                    cur, row["id"], row["template"] or ""))
+            except Exception as exc:  # noqa: BLE001 - reported, never fatal
+                # One unresolvable citation must not stop the others being
+                # checked; the researcher needs the whole picture.
+                checked.append({"citation_id": row["id"], "error": str(exc)})
+    return {"checked": len(checked), "citations": checked}
+
+
+@app.get("/api/projects/{project_id}/citations/verify")
+def verify_citations(project_id: str,
+                     user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Which citations in this project still resolve (§73)."""
+    with transaction() as cur:
+        return citations.verify_project(cur, project_id)
+
+
+# ---------------------------------------------------------------------------
+# The workboard (§4, §109)
+#
+# §109 puts this at Phase 0, before gesture and before Air Ink, and it was never
+# built — so the objects a project accumulates have existed in a list and never
+# in a place. A placement is a view over an object rather than an object: taking
+# something off the board removes its position and nothing else.
+# ---------------------------------------------------------------------------
+
+@app.get("/api/projects/{project_id}/board")
+def read_board(project_id: str,
+               user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Everything on this project's board, bottom to top."""
+    with transaction() as cur:
+        return {"placements": board.for_project(cur, project_id=project_id)}
+
+
+@app.get("/api/projects/{project_id}/board/available")
+def board_available(project_id: str,
+                    user: dict = Depends(current_user)) -> dict[str, Any]:
+    """What this project has that is not on the board yet."""
+    with transaction() as cur:
+        return {"objects": board.available(cur, project_id=project_id)}
+
+
+@app.put("/api/projects/{project_id}/board")
+def place_on_board(project_id: str, payload: PlacementRequest,
+                   user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Put an object on the board, or move one already there.
+
+    PUT rather than POST because it is idempotent by design: a drag emits a
+    position repeatedly, and the same object at the same place is the same
+    board however many times it is said.
+    """
+    with transaction() as cur:
+        try:
+            return board.place(
+                cur, project_id=project_id, object_id=payload.object_id,
+                x=payload.x, y=payload.y, width=payload.width,
+                height=payload.height, z=payload.z, actor=user["id"])
+        except board.BoardError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/projects/{project_id}/board/{object_id}/front")
+def raise_on_board(project_id: str, object_id: str,
+                   user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Bring a card above everything else."""
+    with transaction() as cur:
+        try:
+            return {"z": board.bring_to_front(
+                cur, project_id=project_id, object_id=object_id)}
+        except board.BoardError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+
+@app.delete("/api/projects/{project_id}/board/{object_id}")
+def take_off_board(project_id: str, object_id: str,
+                   user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Take something off the board.
+
+    The object itself is untouched — this removes a position, not a piece of
+    research. Answering 404 for something that was never placed matters: "it is
+    off the board now" and "it was never on it" are different answers to
+    somebody who believes they just removed something.
+    """
+    with transaction() as cur:
+        removed = board.remove(cur, project_id=project_id, object_id=object_id)
+    if not removed:
+        raise HTTPException(404, "That object is not on this board.")
+    return {"removed": object_id}
+
+
+@app.post("/api/projects/{project_id}/marks", status_code=201)
+def keep_mark(project_id: str, payload: MarkRequest,
+              user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Keep something drawn on a paper (§204).
+
+    Marks were previously held only in the browser, so closing a paper erased
+    everything written on it — an annotation that does not survive being closed
+    is a demonstration of one.
+    """
+    with transaction() as cur:
+        try:
+            return marks.record(
+                cur, project_id=project_id, source_id=payload.source_id,
+                page=payload.page, kind=payload.kind, points=payload.points,
+                body=payload.body, actor=user["id"])
+        except marks.MarkError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/sources/{source_id}/marks")
+def list_marks(source_id: str,
+               user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Everything drawn on this paper, oldest first, so it redraws as written."""
+    with transaction() as cur:
+        return {"marks": marks.for_source(cur, source_id=source_id)}
+
+
+@app.delete("/api/projects/{project_id}/marks/{mark_id}")
+def rub_out_mark(project_id: str, mark_id: str,
+                 user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Rub out a mark.
+
+    Scoped by project as well as id: an identifier is not an authorisation, and
+    a mark id kept from another workspace should delete nothing.
+    """
+    with transaction() as cur:
+        removed = marks.remove(cur, mark_id=mark_id, project_id=project_id)
+    if not removed:
+        raise HTTPException(404, "There is no such mark on this project.")
+    return {"removed": mark_id}
+
+
+@app.post("/api/projects/{project_id}/excerpts", status_code=201)
+def keep_excerpt(project_id: str, payload: ExcerptRequest,
+                 user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Put a circled piece of a paper on the board (§205).
+
+    The five things §205 names — source paper, page, bounding region, citation,
+    original context — are all required here rather than filled in with
+    defaults. An excerpt that could not say where it came from would sit on the
+    board looking exactly like one that could.
+    """
+    with transaction() as cur:
+        try:
+            return excerpts.record(
+                cur,
+                project_id=project_id,
+                source_id=payload.source_id,
+                page=payload.page,
+                region=payload.region,
+                citation=payload.citation,
+                context=payload.context,
+                title=payload.title,
+                actor=user["id"],
+            )
+        except excerpts.ExcerptError as exc:
+            # 400: an incomplete excerpt is something the researcher can fix,
+            # and every refusal names the missing thing.
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/projects/{project_id}/excerpts")
+def list_excerpts(project_id: str,
+                  user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Everything taken from papers in this project, newest first."""
+    with transaction() as cur:
+        return {"excerpts": excerpts.for_project(cur, project_id=project_id)}
 
 
 @app.post("/api/projects/{project_id}/literature/import", status_code=201)
@@ -1661,11 +2201,36 @@ def available_models(user: dict = Depends(current_user)) -> dict[str, Any]:
     with transaction() as cur:
         saved = domain_settings.get(cur, domain_settings.MODEL)
         changes = domain_settings.history(cur, domain_settings.MODEL, limit=10)
+        key_hint = domain_secrets.hint(cur, domain_secrets.ANTHROPIC_API_KEY)
+
+    from throughline_model.anthropic_provider import DEFAULT_MODEL as HOSTED_MODEL
 
     return {
         "installed": installed,
         "selection": throughline_model.selection(),
         "saved": saved,
+        # The hosted option, described rather than hidden. `key_hint` is the
+        # last four characters and never the key: enough for a researcher to
+        # tell which credential is saved, useless to anyone reading the screen.
+        #
+        # `billed` is here because the single most likely misunderstanding is
+        # that this uses a Claude subscription. It does not — there is no way
+        # for a third-party application to spend one — and a researcher who
+        # learns that from a bill rather than from this line has been misled by
+        # the interface that was supposed to be the trustworthy part.
+        "hosted": {
+            "provider": "anthropic",
+            "model": HOSTED_MODEL,
+            "key_saved": key_hint is not None,
+            "key_hint": key_hint,
+            "local": False,
+            "billed": "Billed per token to an Anthropic API account. This is "
+                      "not a Claude subscription; a subscription cannot be "
+                      "used here.",
+            "warning": "Text from your papers and datasets is sent to "
+                       "Anthropic. Do not select this for data you are not "
+                       "permitted to send off this machine.",
+        },
         "active": {"name": capability.name, "model": capability.model,
                    "usable": capability.text, "local": capability.local,
                    "structured": capability.structured, "note": capability.note},
@@ -1704,8 +2269,37 @@ def choose_model(payload: ModelChoice,
                 f"with `ollama pull {payload.model}`, or choose one of: "
                 + ", ".join(sorted(names))))
 
+    if payload.provider == "anthropic":
+        import os
+
+        with transaction() as cur:
+            key = domain_secrets.get_secret(cur, domain_secrets.ANTHROPIC_API_KEY)
+        if not key and not os.environ.get("ANTHROPIC_API_KEY"):
+            raise HTTPException(400, (
+                "No API key is saved for the hosted model. Add one first. It "
+                "is billed per token to an Anthropic API account — a Claude "
+                "subscription cannot be used here."))
+        if key:
+            throughline_model.configure(api_key=key)
+
+    previous = throughline_model.selection()
     throughline_model.configure(provider=payload.provider, model=payload.model)
     capability = throughline_model.provider(refresh=True).capability()
+
+    # The same rule the Ollama branch above applies, and for the same reason:
+    # a provider that cannot answer turns "this feature needs a model" into a
+    # runtime error at the moment of use. A key that is present but rejected,
+    # or an account with no credit, both land here — so the check is whether
+    # the thing actually works, not whether it was configured.
+    if not capability.text:
+        throughline_model.configure(provider=previous["provider"] or "ollama",
+                                    model=previous["model"])
+        throughline_model.provider(refresh=True)
+        raise HTTPException(400, (
+            capability.note
+            or f"{payload.provider} is configured but did not answer, so the "
+               "selection was left where it was."))
+
     with transaction() as cur:
         domain_settings.set_value(
             cur, domain_settings.MODEL,
@@ -1715,6 +2309,82 @@ def choose_model(payload: ModelChoice,
     return {"selection": throughline_model.selection(),
             "active": {"name": capability.name, "model": capability.model,
                        "usable": capability.text, "note": capability.note}}
+
+
+class ModelKey(BaseModel):
+    """
+    A credential for the hosted model.
+
+    Write-only by construction: there is no response model that carries it back
+    and no endpoint that returns it. The interface confirms a key is saved by
+    showing its last four characters, which the researcher can match against
+    their console without the value being recoverable from the screen.
+    """
+    api_key: str
+
+
+@app.put("/api/system/model-key")
+def save_model_key(payload: ModelKey,
+                   user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Save the hosted model's API key. Does not select the hosted model.
+
+    Saving a credential and deciding to send unpublished research off the
+    machine are two different decisions, and collapsing them would make the
+    second one happen as a side effect of the first. The key sits unused until
+    the researcher selects the hosted provider deliberately.
+
+    Not written to `setting_history`: that table keeps every previous value
+    forever, so a key stored through it would outlive its own revocation.
+    """
+    import throughline_model
+
+    key = payload.api_key.strip()
+    if not key:
+        raise HTTPException(400, "That is empty. Remove the key instead.")
+
+    with transaction() as cur:
+        domain_secrets.set_secret(cur, domain_secrets.ANTHROPIC_API_KEY, key,
+                                  changed_by=user["id"])
+    throughline_model.configure(api_key=key)
+
+    # Deliberately returns the hint rather than the key, and says plainly that
+    # nothing has changed about where data goes.
+    with transaction() as cur:
+        hint = domain_secrets.hint(cur, domain_secrets.ANTHROPIC_API_KEY)
+    return {"key_saved": True, "key_hint": hint,
+            "note": "Saved. Nothing is sent anywhere until you select the "
+                    "hosted model."}
+
+
+@app.delete("/api/system/model-key")
+def clear_model_key(user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Remove the key, and stop using the hosted model if it was selected.
+
+    Leaving the selection pointing at a provider whose credential has just been
+    removed would produce exactly the fake capability the rest of this endpoint
+    refuses: configured, displayed as active, failing at the moment of use.
+    """
+    import throughline_model
+
+    with transaction() as cur:
+        removed = domain_secrets.clear_secret(cur, domain_secrets.ANTHROPIC_API_KEY)
+    throughline_model.configure(api_key="")
+
+    reverted = False
+    if (throughline_model.selection()["provider"] or "") == "anthropic":
+        throughline_model.configure(provider="ollama", model=None)
+        throughline_model.provider(refresh=True)
+        with transaction() as cur:
+            domain_settings.set_value(
+                cur, domain_settings.MODEL,
+                {"provider": "ollama", "model": None}, changed_by=user["id"])
+        reverted = True
+
+    return {"key_saved": False, "removed": removed, "reverted_to_local": reverted,
+            "note": "Removed." + (" The system is back on the local model."
+                                  if reverted else "")}
 
 
 @app.get("/api/health")
@@ -2617,8 +3287,19 @@ def get_visual(visual_id: str, user: dict = Depends(current_user)) -> dict[str, 
 
 @app.post("/api/visuals/{visual_id}/render")
 def render_visual(visual_id: str, format: str = Query("svg"),
+                  height: int | None = Query(None, ge=120, le=8000),
                   user: dict = Depends(current_user)) -> dict[str, Any]:
-    """/one spec, rendered by whichever backend was asked for."""
+    """
+    One spec, rendered by whichever backend was asked for.
+
+    `height` is an exact pixel height for a raster export; the width follows
+    from the figure's own proportions rather than from a 16:9 video frame. It is
+    refused for a vector format rather than ignored — an SVG has no pixel size,
+    and pretending to honour one leaves the caller believing something false.
+
+    The response carries a `warning` when the chosen format will damage the
+    figure, so the interface can say so *before* the download rather than after.
+    """
     with transaction() as cur:
         try:
             row = visuals.load_visual(cur, visual_id)
@@ -2626,10 +3307,73 @@ def render_visual(visual_id: str, format: str = Query("svg"),
             raise HTTPException(404, str(exc)) from exc
         scoped_project(row["project_id"], user)
         try:
-            return visuals.render_visual(cur, visual_id=visual_id, fmt=format)
+            return visuals.render_visual(cur, visual_id=visual_id, fmt=format,
+                                         height_px=height)
         except visuals.VisualError as exc:
             # A figure that failed the critic is refused, not quietly drawn.
             raise HTTPException(409, str(exc)) from exc
+        except publication_render.RenderError as exc:
+            # An unsupported format, or a pixel height asked of a vector one.
+            raise HTTPException(400, str(exc)) from exc
+
+
+#: Content types for the formats a figure may be downloaded in. Kept beside the
+#: route rather than guessed from the extension, because a wrong type makes a
+#: browser download a file it could have displayed — or worse, display one it
+#: should have downloaded.
+FIGURE_MEDIA_TYPES = {
+    "svg": "image/svg+xml", "pdf": "application/pdf", "eps": "application/postscript",
+    "png": "image/png", "tiff": "image/tiff", "jpeg": "image/jpeg",
+    "jpg": "image/jpeg", "webp": "image/webp",
+}
+
+
+@app.get("/api/visuals/{visual_id}/download")
+def download_visual(visual_id: str, format: str = Query("png"),
+                    height: int | None = Query(None, ge=120, le=8000),
+                    user: dict = Depends(current_user)) -> FileResponse:
+    """
+    The rendered file itself, as a download.
+
+    Renders on demand when that size has not been made yet, rather than
+    returning 404 and asking the caller to POST first — a download link that
+    works only after a separate request is a link that fails the first time
+    somebody clicks it.
+
+    The filename carries the figure id and the size, so a folder of downloads is
+    still legible a month later. That matters more here than it sounds: this is
+    the point where a figure leaves the system, and a file called `chart.png` is
+    one nobody can trace back.
+    """
+    with transaction() as cur:
+        try:
+            row = visuals.load_visual(cur, visual_id)
+        except visuals.VisualError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        scoped_project(row["project_id"], user)
+        try:
+            rendered = visuals.render_visual(cur, visual_id=visual_id,
+                                             fmt=format, height_px=height)
+        except visuals.VisualError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except publication_render.RenderError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    key = rendered.get("storage_key")
+    if not key:
+        raise HTTPException(
+            400, f"{format} is a web specification rather than a file. Ask for "
+                 "svg, pdf, png, tiff, jpeg or webp to download one.")
+
+    path = storage.storage_root() / key
+    if not path.exists():
+        raise HTTPException(500, "The figure was recorded but its file is missing.")
+
+    size = "" if height is None else f"-{height}px"
+    return FileResponse(
+        path,
+        media_type=FIGURE_MEDIA_TYPES.get(format.lower(), "application/octet-stream"),
+        filename=f"{visual_id}{size}.{format.lower()}")
 
 
 @app.patch("/api/visuals/{visual_id}")

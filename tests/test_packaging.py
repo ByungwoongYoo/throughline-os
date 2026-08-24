@@ -140,6 +140,45 @@ def test_the_data_directory_is_a_volume():
     assert "THROUGHLINE_HOME=/data" in dockerfile
 
 
+def test_the_runtime_stage_is_pinned_to_an_architecture_pgserver_supports():
+    """
+    The embedded PostgreSQL has no Linux ARM wheel, so an unpinned image cannot
+    be built on an ARM host at all.
+
+    `pgserver` publishes macOS arm64 wheels but, on Linux, x86_64 only — no
+    aarch64 wheel in any release and no sdist to fall back on. The build does
+    not degrade on ARM, it fails: "No matching distribution found for pgserver".
+
+    **CI cannot catch this**, which is the reason for a test rather than a
+    comment. The docker job runs on ubuntu-latest, which is amd64, so it is
+    green and would stay green forever while the container route was broken for
+    the people most likely to take it: Docker Desktop on Apple Silicon requests
+    linux/arm64 by default, so a researcher on an M-series Mac following the
+    documented `docker compose up` hits a wall nothing in the suite mentions.
+
+    Found by building the image on an arm64 daemon, not by reading anything.
+
+    Delete this test when pgserver ships linux-aarch64 wheels — and delete it
+    *then*, not to make a build pass.
+    """
+    dockerfile = (ROOT / "Dockerfile").read_text()
+
+    runtime = [
+        line for line in dockerfile.splitlines()
+        if line.startswith("FROM") and "AS runtime" in line
+    ]
+    assert runtime, "no runtime stage in the Dockerfile"
+    assert "--platform=linux/amd64" in runtime[0], (
+        "The runtime stage is unpinned. On an ARM host the image cannot be "
+        "built, because pgserver has no linux-aarch64 wheel."
+    )
+
+    # Stated in compose too: otherwise `docker compose` on Apple Silicon asks
+    # for arm64 for the service and the mismatch appears at run time instead.
+    compose = (ROOT / "compose.yaml").read_text()
+    assert "platform: linux/amd64" in compose
+
+
 def test_the_container_does_not_run_as_root():
     dockerfile = (ROOT / "Dockerfile").read_text()
     user_lines = [l for l in dockerfile.splitlines() if l.startswith("USER ")]

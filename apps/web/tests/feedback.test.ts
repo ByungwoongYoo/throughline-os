@@ -1,0 +1,320 @@
+/**
+ * Making a gesture feel like it landed, without claiming hardware that is absent.
+ *
+ * The temptation here is a `vibrate()` call and a feature called "haptics". On a
+ * laptop that is a no-op wearing a label: `navigator.vibrate` is Android-only,
+ * Safari does not implement it, and Force Touch is reachable from native code
+ * and not from a page. So most of these tests are about what the layer refuses
+ * to promise.
+ */
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  DEFAULT_FEEDBACK, Feedback, askNativeCapability, availableChannels,
+  forgetNativeCapability, momentFor,
+} from "@/lib/spatial/feedback";
+
+// The capability is memoised, deliberately — hardware does not change while a
+// tab is open. Each test has to start from nothing, and the memo is precisely
+// what stops that happening on its own.
+beforeEach(() => { forgetNativeCapability(); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+describe("what this machine can do", () => {
+  it("reports vibration only where the browser has it", () => {
+    vi.stubGlobal("navigator", {});
+    expect(availableChannels().vibration).toBe(false);
+
+    vi.stubGlobal("navigator", { vibrate: () => true });
+    expect(availableChannels().vibration).toBe(true);
+  });
+
+  it("promises no native actuator before the machine has answered", () => {
+    /** A capability claimed before it is known is a claim, not a capability. */
+    expect(availableChannels().native.available).toBe(false);
+  });
+
+  it("treats an API that cannot answer as a machine with no haptics", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("offline"); }));
+
+    expect(await askNativeCapability()).toEqual(
+      { available: false, feltWhere: null });
+  });
+
+  it("carries where a tap can be felt, not only that one exists", async () => {
+    /**
+     * The field that stops the interface making a promise the hardware breaks.
+     * The actuator is in the trackpad, so a hand held in the air feels nothing —
+     * and a researcher who expected to feel a mid-air pinch would reasonably
+     * conclude the feature was broken.
+     */
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ available: true, felt_where: "the trackpad — …" }),
+    })));
+
+    const native = await askNativeCapability();
+
+    expect(native.available).toBe(true);
+    expect(native.feltWhere).toContain("trackpad");
+  });
+});
+
+describe("marking a moment", () => {
+  it("never throws when there is nothing to mark it with", () => {
+    vi.stubGlobal("navigator", {});
+    vi.stubGlobal("window", {});
+
+    expect(() => new Feedback().emit("grabStart")).not.toThrow();
+  });
+
+  it("survives a browser that throws from vibrate", () => {
+    /** Some engines throw when the page has never been interacted with. */
+    vi.stubGlobal("navigator", {
+      vibrate: () => { throw new Error("not allowed"); },
+    });
+
+    expect(() => new Feedback().emit("select")).not.toThrow();
+  });
+
+  it("says nothing when touch feedback is switched off", () => {
+    const vibrate = vi.fn();
+    vi.stubGlobal("navigator", { vibrate });
+
+    new Feedback({ vibrate: false }).emit("grabStart");
+
+    expect(vibrate).not.toHaveBeenCalled();
+  });
+
+  it("keeps every pattern short", () => {
+    /**
+     * A research tool is used for hours. Anything long enough to be described as
+     * a buzz is intolerable by the fourth time, and the point is to mark a
+     * boundary rather than announce one.
+     */
+    const durations: number[] = [];
+    vi.stubGlobal("navigator", {
+      vibrate: (pattern: number[]) => { durations.push(...pattern); },
+    });
+
+    const feedback = new Feedback();
+    for (const moment of
+         ["grabStart", "grabEnd", "select", "zoomStart", "trackingLost"] as const) {
+      feedback.emit(moment);
+    }
+
+    expect(Math.max(...durations)).toBeLessThanOrEqual(30);
+  });
+
+  it("asks the machine for a real tap only once it knows there is one", () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({}) }));
+    vi.stubGlobal("navigator", {});
+    vi.stubGlobal("fetch", fetchMock);
+
+    const feedback = new Feedback();
+    feedback.emit("grabStart");
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    feedback.useNative(true);
+    feedback.emit("grabStart");
+    expect(fetchMock).toHaveBeenCalledWith("/api/haptics/tap",
+                                           expect.objectContaining({ method: "POST" }));
+  });
+
+  it("sends the tap as JSON, which is what stops another page firing it", () => {
+    /**
+     * A request carrying `application/json` is not a "simple" request, so a
+     * browser must preflight it and no cross-origin preflight is permitted.
+     * Without that, any page in any tab could POST to this port and buzz
+     * somebody's trackpad.
+     */
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({}) }));
+    vi.stubGlobal("navigator", {});
+    vi.stubGlobal("fetch", fetchMock);
+
+    const feedback = new Feedback();
+    feedback.useNative(true);
+    feedback.emit("select");
+
+    const [, request] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect((request.headers as Record<string, string>)["Content-Type"])
+      .toBe("application/json");
+  });
+
+  it("does not wait for the tap", async () => {
+    /**
+     * Awaiting a round trip — even a local one — on the frame a gesture engages
+     * would put the confirmation behind the thing it confirms, and a tap that
+     * arrives late feels like a tap for something else.
+     */
+    let settle: (() => void) | null = null;
+    vi.stubGlobal("navigator", {});
+    vi.stubGlobal("fetch", vi.fn(() => new Promise((resolve) => {
+      settle = () => resolve({ ok: true, json: async () => ({}) });
+    })));
+
+    const feedback = new Feedback();
+    feedback.useNative(true);
+
+    // Returns while the request is still outstanding.
+    expect(() => feedback.emit("grabStart")).not.toThrow();
+    expect(settle).not.toBeNull();
+  });
+});
+
+describe("which moments are marked at all", () => {
+  it("marks the boundaries and ignores the rest", () => {
+    /**
+     * Marking every event would make the feedback continuous, and continuous
+     * feedback is indistinguishable from none.
+     */
+    expect(momentFor("gesture_grab_started")).toBe("grabStart");
+    expect(momentFor("gesture_selection_completed")).toBe("select");
+    expect(momentFor("tracking_lost")).toBe("trackingLost");
+
+    expect(momentFor("tracking_recovered")).toBeNull();
+    expect(momentFor("gesture_cancelled")).toBeNull();
+    expect(momentFor("something_new")).toBeNull();
+  });
+});
+
+describe("defaults", () => {
+  it("leaves sound off", () => {
+    /**
+     * A research tool that clicks in a shared office is one somebody mutes on
+     * the first afternoon — and then they have no feedback at all.
+     */
+    expect(DEFAULT_FEEDBACK.sound).toBe(false);
+    expect(DEFAULT_FEEDBACK.vibrate).toBe(true);
+  });
+});
+
+describe("the detent, which is the one a laptop can actually deliver", () => {
+  it("does not rattle when a pointer sweeps a dense cloud", () => {
+    /**
+     * Sweeping across a scatter crosses dozens of points a second. Unlimited,
+     * that is not a detent — it is a buzz, which is the exact sensation this is
+     * meant to avoid, and on the native channel it is also dozens of requests a
+     * second.
+     */
+    const taps: unknown[] = [];
+    vi.stubGlobal("navigator", { vibrate: (p: number[]) => taps.push(p) });
+
+    const feedback = new Feedback();
+    for (let i = 0; i < 50; i += 1) feedback.emit("hover");
+
+    expect(taps.length).toBe(1);
+  });
+
+  it("still marks a deliberate selection every time", () => {
+    /**
+     * The limit applies to the detent, not to the moments a researcher caused
+     * on purpose. Swallowing a selection confirmation would be worse than
+     * swallowing a hover.
+     */
+    const taps: unknown[] = [];
+    vi.stubGlobal("navigator", { vibrate: (p: number[]) => taps.push(p) });
+
+    const feedback = new Feedback();
+    for (let i = 0; i < 5; i += 1) feedback.emit("select");
+
+    expect(taps.length).toBe(5);
+  });
+
+  it("is the lightest pattern there is", () => {
+    /** It fires most often, and is meant to be noticed rather than announced. */
+    const durations: number[][] = [];
+    vi.stubGlobal("navigator", { vibrate: (p: number[]) => durations.push(p) });
+
+    const feedback = new Feedback();
+    feedback.emit("hover");
+    feedback.emit("select");
+
+    expect(Math.max(...durations[0])).toBeLessThan(Math.max(...durations[1]));
+  });
+
+  it("uses the soft native pattern, not the snap", () => {
+    /**
+     * Apple's `alignment` is the snap — it exists for a dragged object landing
+     * on a guide. Using it for merely passing over a point would make every
+     * point feel like a commitment.
+     */
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({}) }));
+    vi.stubGlobal("navigator", {});
+    vi.stubGlobal("fetch", fetchMock);
+
+    const feedback = new Feedback();
+    feedback.useNative(true);
+    feedback.emit("hover");
+
+    const [, request] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(request.body)).pattern).toBe("generic");
+  });
+});
+
+
+describe("asking the machine only once", () => {
+  it("shares one request between everything that wants feedback", async () => {
+    /**
+     * Three requests were going out for one immutable fact — the page, the
+     * panel, and React's development double-invocation — and every new place
+     * that wanted a tap would have added another. The promise is cached rather
+     * than the result, so components mounting together share a request instead
+     * of racing several.
+     */
+    const fetchMock = vi.fn(async () => ({
+      ok: true, json: async () => ({ available: true, felt_where: "trackpad" }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const [first, second] = await Promise.all(
+      [askNativeCapability(), askNativeCapability()]);
+    await askNativeCapability();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(first).toEqual(second);
+  });
+});
+
+describe("vibration is not asked for before the browser allows it", () => {
+  /**
+   * Chrome refuses `vibrate` until the document has had a user activation, and
+   * it refuses by logging an error and returning false rather than by throwing —
+   * so the `try`/`catch` around the call caught nothing and the console filled
+   * with one error per detent.
+   *
+   * That is worse than untidy. The diagnostic story for hand tracking is that a
+   * researcher opens the console and reports what they see, and a page crying
+   * wolf several times a second makes a real error impossible to find. Gesture
+   * detents trip it in particular, because a hand hovers marks long before
+   * anything gets clicked.
+   */
+  function withActivation(hasBeenActive: boolean | undefined) {
+    const calls: unknown[] = [];
+    vi.stubGlobal("navigator", {
+      vibrate: (pattern: unknown) => { calls.push(pattern); return true; },
+      ...(hasBeenActive === undefined ? {} : { userActivation: { hasBeenActive } }),
+    });
+    return calls;
+  }
+
+  it("stays quiet until the page has been interacted with", () => {
+    const calls = withActivation(false);
+    new Feedback({ vibrate: true, sound: false }).emit("hover");
+    expect(calls).toEqual([]);
+  });
+
+  it("vibrates once the page has been interacted with", () => {
+    const calls = withActivation(true);
+    new Feedback({ vibrate: true, sound: false }).emit("select");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("still tries where the browser does not report activation at all", () => {
+    // Absence of the property is not a refusal: the engines that lack it never
+    // gated on activation in the first place.
+    const calls = withActivation(undefined);
+    new Feedback({ vibrate: true, sound: false }).emit("select");
+    expect(calls).toHaveLength(1);
+  });
+});
