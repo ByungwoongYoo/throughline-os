@@ -39,6 +39,7 @@ import { extent } from "d3-array";
 import { scaleLinear } from "d3-scale";
 import { categorical } from "@/lib/tokens";
 import { ChartTable } from "./ChartTable";
+import { ChartTooltip, readable, useChartHover } from "./interaction";
 
 export type Projected = {
   /** Stable identity. Object constancy depends on it. */
@@ -80,6 +81,8 @@ export function Projection({
   height?: number;
   onSelect?: (id: string) => void;
 }) {
+  const hoverUI = useChartHover();
+  const hit = points.find((q) => q.id === hoverUI.hovered) ?? null;
   const clipId = useId();
   const [focus, setFocus] = useState<string | null>(null);
   const inner = { w: width - M.left - M.right, h: height - M.top - M.bottom };
@@ -164,6 +167,8 @@ export function Projection({
                 // node and moves, rather than being removed and re-added.
                 <circle
                   key={p.id}
+                {...hoverUI.markProps(p.id)}
+                style={{ opacity: hoverUI.emphasis(p.id) }}
                   className="projection-point"
                   cx={xScale(p.x)} cy={yScale(p.y)}
                   r={p.id === focus ? 7 : 4}
@@ -242,7 +247,11 @@ export function Projection({
         )}
       </figcaption>
 
+      <ChartTooltip pointer={hoverUI.pointer} title={hit?.label} rows={hit ? [{ label: "x", value: readable(hit.x) }, { label: "y", value: readable(hit.y) }] : []} />
+
       <ChartTable
+        highlightId={hoverUI.hovered}
+        onHighlight={hoverUI.setHovered}
         columns={tableColumns}
         rows={tableRows}
         label={title ?? `${points.length} items placed by ${method.toUpperCase()}`}

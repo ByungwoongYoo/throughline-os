@@ -43,6 +43,10 @@ export type ChartTableProps = {
   maxRows?: number;
   /** Total behind the figure, when the chart aggregated before it got here. */
   totalRows?: number;
+  /** Row id currently emphasised in the chart, so the table can match it. */
+  highlightId?: string | null;
+  /** Called as the pointer moves over a row, so the chart can match it back. */
+  onHighlight?: (id: string | null) => void;
 };
 
 const DEFAULT_MAX_ROWS = 200;
@@ -60,6 +64,7 @@ function cell(value: string | number | null | undefined): string {
 
 export function ChartTable({
   columns, rows, label, note, maxRows = DEFAULT_MAX_ROWS, totalRows,
+  highlightId = null, onHighlight,
 }: ChartTableProps) {
   const captionId = useId();
   const total = totalRows ?? rows.length;
@@ -95,8 +100,18 @@ export function ChartTable({
           </tr>
         </thead>
         <tbody>
-          {shown.map((row, index) => (
-            <tr key={String(row.id ?? index)}>
+          {shown.map((row, index) => {
+            const id = String(row.id ?? index);
+            // The table and the figure share one highlight, in both
+            // directions: hovering a mark lights its row, and hovering a row
+            // lights its mark. That is what turns the table from an appendix
+            // into an index of the picture beside it.
+            const lit = highlightId !== null && highlightId === id;
+            return (
+            <tr key={id}
+                className={lit ? "is-highlighted" : undefined}
+                onMouseEnter={onHighlight ? () => onHighlight(id) : undefined}
+                onMouseLeave={onHighlight ? () => onHighlight(null) : undefined}>
               {columns.map((column, columnIndex) => {
                 const text = cell(row[column.key]);
                 // The first column names the row, so it is a header for it —
@@ -113,7 +128,8 @@ export function ChartTable({
                 );
               })}
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
       {truncated && (

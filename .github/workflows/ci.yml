@@ -14,9 +14,31 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
-  pull_request:
+  # Manual only. Nothing here runs on a push or a pull request.
+  #
+  # This repository is private, so Actions minutes are metered and the
+  # multipliers are steep: Linux 1x, Windows 2x, macOS 10x. A full run billed
+  # ~82 minutes, 66 of them macOS. Twenty-nine runs in a week exhausted the
+  # monthly allowance and every job stopped mid-work. With two people both
+  # pushing often, automatic runs cost more than they return: the same commit
+  # gets verified five times on its way to being merged once.
+  #
+  # So this runs when somebody decides it should:
+  #
+  #     gh workflow run ci.yml --ref <branch>
+  #
+  # or the "Run workflow" button on the Actions tab.
+  #
+  # **What this gives up, stated plainly.** The header above says every defect
+  # this project shipped was invisible because nothing ever ran it anywhere but
+  # the machine it was written on. That is still true, and this file was the
+  # answer to it. Making it manual moves the guarantee from the tooling to a
+  # habit — and habits lapse in a way triggers do not.
+  #
+  # The habit that replaces it: run this before merging anything to `main`, and
+  # before publishing. A branch that has never been dispatched has been tested
+  # on exactly one machine, whatever its tests say locally.
+  workflow_dispatch:
 
 concurrency:
   # A superseded run tells you about code nobody is looking at any more.
@@ -35,6 +57,9 @@ jobs:
         # 3.12 exactly, for the reason bootstrap.sh states — the packages need
         # >= 3.12 and pgserver publishes no wheel past cp312.
         python: ["3.12"]
+        # Both platforms, because a manual run is asked for deliberately and
+        # is the only cross-platform check there now is. macOS bills at 10x, so
+        # a dispatch costs ~82 minutes — worth knowing before firing several.
         os: [ubuntu-latest, macos-latest]
 
     steps:

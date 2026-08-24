@@ -31,6 +31,7 @@ import { useId, useMemo } from "react";
 import { sankey, sankeyLinkHorizontal, sankeyJustify } from "d3-sankey";
 import { categorical } from "@/lib/tokens";
 import { ChartTable } from "./ChartTable";
+import { ChartTooltip, readable, useChartHover } from "./interaction";
 
 export type FlowNode = {
   /** Stable identity. Object constancy depends on it. */
@@ -122,6 +123,8 @@ export function Ribbon({
    */
   attritionIsExpected?: boolean;
 }) {
+  const hoverUI = useChartHover();
+  const hit = nodes.find((n) => n.id === hoverUI.hovered) ?? null;
   const clipId = useId();
   const cycle = useMemo(() => findCycle(nodes, links), [nodes, links]);
   const leaks = useMemo(() => imbalances(nodes, links), [nodes, links]);
@@ -231,7 +234,8 @@ export function Ribbon({
           ))}
 
           {laid.nodes.map((n) => (
-            <g key={n.id} className="ribbon-node">
+            <g key={n.id} className="ribbon-node"
+                {...hoverUI.markProps(n.id)} style={{ opacity: hoverUI.emphasis(n.id) }}>
               <rect x={n.x0} y={n.y0} width={n.x1 - n.x0}
                     height={Math.max(1, n.y1 - n.y0)}
                     fill={categorical[n.index % categorical.length]} rx={1} />
@@ -276,7 +280,11 @@ export function Ribbon({
         )}
       </figcaption>
 
+      <ChartTooltip pointer={hoverUI.pointer} title={hit?.label} rows={hit ? [{ label: "id", value: hit.id }] : []} />
+
       <ChartTable
+        highlightId={hoverUI.hovered}
+        onHighlight={hoverUI.setHovered}
         columns={tableColumns}
         rows={tableRows}
         label={title ?? `${unitLabel} flowing between stages`}

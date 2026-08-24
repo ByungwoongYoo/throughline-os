@@ -28,6 +28,7 @@ import { scaleLinear } from "d3-scale";
 import { area as d3area, curveBasis } from "d3-shape";
 import { categorical } from "@/lib/tokens";
 import { ChartTable } from "./ChartTable";
+import { ChartTooltip, readable, useChartHover } from "./interaction";
 
 export type DensityCurve = {
   /** Stable identity, so a re-render moves the path rather than redrawing it. */
@@ -66,6 +67,8 @@ export function Density({
   width?: number;
   height?: number;
 }) {
+  const hover = useChartHover();
+  const hoveredCurve = curves.find((c) => c.id === hover.hovered) ?? null;
   const clipId = useId();
   const inner = { w: width - M.left - M.right, h: height - M.top - M.bottom };
 
@@ -137,7 +140,9 @@ export function Density({
               return (
                 // Keyed by curve id, so a bandwidth change morphs the path
                 // instead of destroying and recreating it.
-                <g key={curve.id}>
+                <g key={curve.id}
+                   style={{ opacity: hover.emphasis(curve.id) }}
+                   {...hover.markProps(curve.id)}>
                   <path className="chart-density" d={shape(points) ?? undefined}
                         style={{ fill: colour, stroke: colour }} />
                   {/* The median, so the eye has an anchor the smoother cannot move. */}
@@ -194,7 +199,14 @@ export function Density({
       {bandwidthNote && <p className="chart-caption">{bandwidthNote}</p>}
       {caption && <figcaption className="chart-caption">{caption}</figcaption>}
 
+      <ChartTooltip pointer={hover.pointer} title={hoveredCurve?.label}
+        rows={hoveredCurve ? [
+          { label: "observations", value: readable(hoveredCurve.n) },
+        ] : []} />
+
       <ChartTable
+        highlightId={hover.hovered}
+        onHighlight={hover.setHovered}
         columns={tableColumns}
         rows={tableRows}
         label={title ?? `Distribution of ${xLabel}`}

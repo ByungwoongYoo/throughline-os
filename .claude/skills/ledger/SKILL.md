@@ -65,6 +65,31 @@ Bad: `done, tested`
 
 Leave the row in **Active**. Only a verifier moves it.
 
+### Say where the evidence came from
+
+CI does not run on push or on a pull request here — the only trigger is
+`workflow_dispatch`. So a green tick is never simply waiting, and **no failing
+check does not mean it passed**: it almost always means nothing ran.
+
+Write which machine produced the result, because the two are not the same claim:
+
+- `898 Python, 223 web pass locally — not dispatched` — honest and useful
+- `tests pass` — hides that macOS, Windows and the Docker build never saw it
+
+**Dispatch before writing `done` on anything platform-shaped** — a new
+dependency, a `Dockerfile` change, a renamed path, sandbox code, a committed
+binary fixture — and before anything merges to `main`:
+
+```bash
+gh workflow run ci.yml --ref <branch>
+```
+
+A run bills ~82 minutes against a metered private-repo allowance, of which 66
+are macOS at its 10x multiplier. Firing one per push is what exhausted the
+allowance and stopped every job mid-week, so dispatch deliberately: local tests
+are the fast loop, a dispatch is the cross-platform check before something
+lands.
+
 ## Verifying somebody else's task
 
 This is a real task, not a formality, and it is the one that makes the ledger
@@ -97,6 +122,14 @@ them, but only if you keep to it.
 
 - **Never renumber an ID.** Commits, branches and notes point at them. IDs are
   allocated once and are never reused, even after a row is deleted.
+- **Re-read the file immediately before allocating one.** Two sessions that each
+  take "the next free ID" from their own copy will take the *same* one, and git
+  merges both rows without complaint because they are different lines. This has
+  already happened once: two different findings were both filed as D010 and
+  D011, and neither author saw a conflict. So: `git pull --rebase`, then read
+  the highest existing ID, then write. If your branch has been open for a while,
+  pull again before you push — and if somebody else has taken your number in the
+  meantime, **renumber yours**, because theirs is the one already on `main`.
 - **Append new rows at the bottom of a section.** Inserting in the middle
   rewrites lines other sessions are editing.
 - **Change only the rows you own.** Editing a row somebody else is holding
@@ -105,6 +138,11 @@ them, but only if you keep to it.
 - **Never reformat the tables.** Re-aligning column padding rewrites every
   line in the table and conflicts with every other pending edit. Ugly and
   mergeable beats tidy and conflicted.
+- **Never write a control character into a row.** A single NUL byte makes git
+  and grep treat the whole file as binary, and `grep` then returns *nothing*
+  rather than failing — so every text search of the shared ledger silently comes
+  back empty. This has also already happened, in the row describing NUL bytes in
+  two source files. If you are quoting a control character, name it.
 - Push ledger changes on their own commit where you can. A status change mixed
   into a large code commit is hard to rebase.
 

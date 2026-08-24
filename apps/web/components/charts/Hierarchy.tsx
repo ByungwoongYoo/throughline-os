@@ -28,6 +28,7 @@ import { useId, useMemo } from "react";
 import { hierarchy, treemap, partition, cluster, HierarchyNode } from "d3-hierarchy";
 import { categorical } from "@/lib/tokens";
 import { ChartTable } from "./ChartTable";
+import { ChartTooltip, readable, useChartHover } from "./interaction";
 
 export type TreeNode = {
   /** Stable identity. Object constancy depends on it. */
@@ -117,6 +118,8 @@ export function Hierarchy({
   width?: number;
   height?: number;
 }) {
+  const hoverUI = useChartHover();
+  const hit = leavesOf(root).find((n) => n.id === hoverUI.hovered) ?? null;
   const clipId = useId();
   const inner = { w: width - M.left - M.right, h: height - M.top - M.bottom };
 
@@ -240,7 +243,8 @@ export function Hierarchy({
               return (
                 // Keyed by id: React moves the node rather than replacing it,
                 // so a tile that still exists after a filter animates there.
-                <g key={d.data.id} className="tree-tile">
+                <g key={d.data.id} className="tree-tile"
+                {...hoverUI.markProps(d.data.id)} style={{ opacity: hoverUI.emphasis(d.data.id) }}>
                   <rect
                     x={box.x} y={box.y}
                     width={Math.max(0, box.w)} height={Math.max(0, box.h)}
@@ -278,7 +282,11 @@ export function Hierarchy({
             + "eye. For ranking these precisely, use a bar chart."}
       </figcaption>
 
+      <ChartTooltip pointer={hoverUI.pointer} title={hit?.label} rows={hit ? [{ label: valueLabel, value: readable(hit.value) }] : []} />
+
       <ChartTable
+        highlightId={hoverUI.hovered}
+        onHighlight={hoverUI.setHovered}
         columns={tableColumns}
         rows={tableRows}
         label={title ?? `${valueLabel} for each item in the hierarchy`}
