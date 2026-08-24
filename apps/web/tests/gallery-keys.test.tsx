@@ -45,8 +45,21 @@ beforeEach(() => {
 
 afterEach(() => { console.error = original; cleanup(); vi.restoreAllMocks(); });
 
+/**
+ * Rendering the whole gallery means rendering all thirteen primitives at once,
+ * which is inherently the slowest test here — 2.1s of a 5s default budget on a
+ * quiet machine even before the interaction work, and 2.6s after it. That is
+ * fine in isolation and tips over the moment anything else is competing for the
+ * CPU, which is precisely when `preflight --full` runs it.
+ *
+ * So the budget is explicit. A test that goes red because the machine was busy
+ * teaches people to re-run rather than to look, and the next real failure gets
+ * re-run too.
+ */
+const GALLERY_TIMEOUT_MS = 60_000;
+
 describe("chart primitives", () => {
-  it("gives every rendered child a unique key", async () => {
+  it("gives every rendered child a unique key", { timeout: GALLERY_TIMEOUT_MS }, async () => {
     const { container } = render(<Gallery />);
 
     // The world topology is imported lazily, and the map is the part most
