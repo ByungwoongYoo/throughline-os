@@ -137,7 +137,8 @@ def test_start_installs_first_when_there_is_no_virtualenv(monkeypatch):
     monkeypatch.setattr(manage, "_venv_version", lambda *a, **k: None)
     order = []
     monkeypatch.setattr(manage, "bootstrap", lambda: order.append("bootstrap") or 0)
-    monkeypatch.setattr(manage, "dev", lambda *a: order.append("dev") or 0)
+    monkeypatch.setattr(manage, "dev",
+                        lambda *a, **k: order.append("dev") or 0)
     assert manage.start(8080, 3000) == 0
     assert order == ["bootstrap", "dev"]
 
@@ -147,11 +148,22 @@ def test_start_does_not_reinstall_a_working_one(monkeypatch):
     monkeypatch.setattr(manage, "_venv_has_pip", lambda *a, **k: True)
     monkeypatch.setattr(manage, "_venv_version", lambda *a, **k: manage.REQUIRED_PYTHON)
     order = []
+    passed = {}
     monkeypatch.setattr(manage, "bootstrap",
                         lambda: order.append("bootstrap") or 0)
-    monkeypatch.setattr(manage, "dev", lambda *a: order.append("dev") or 0)
+
+    def fake_dev(*a, **k):
+        order.append("dev")
+        passed.update(k)
+        return 0
+
+    monkeypatch.setattr(manage, "dev", fake_dev)
     assert manage.start(8080, 3000) == 0
     assert order == ["dev"]
+    # Asserted behaviourally rather than by reading the source: a double-click
+    # that starts a server the researcher cannot see has, as far as they can
+    # tell, done nothing at all.
+    assert passed.get("open_browser") is True
 
 
 def test_start_rebuilds_a_virtualenv_from_the_wrong_interpreter(monkeypatch):
@@ -161,7 +173,8 @@ def test_start_rebuilds_a_virtualenv_from_the_wrong_interpreter(monkeypatch):
     monkeypatch.setattr(manage, "_venv_version", lambda *a, **k: (3, 11))
     order = []
     monkeypatch.setattr(manage, "bootstrap", lambda: order.append("bootstrap") or 0)
-    monkeypatch.setattr(manage, "dev", lambda *a: order.append("dev") or 0)
+    monkeypatch.setattr(manage, "dev",
+                        lambda *a, **k: order.append("dev") or 0)
     assert manage.start(8080, 3000) == 0
     assert order == ["bootstrap", "dev"]
 
@@ -172,7 +185,7 @@ def test_start_does_not_launch_after_a_failed_install(monkeypatch, capsys):
     monkeypatch.setattr(manage, "_venv_version", lambda *a, **k: None)
     monkeypatch.setattr(manage, "bootstrap", lambda: 1)
 
-    def refuse(*_a):
+    def refuse(*_a, **_k):
         raise AssertionError("started the stack after setup failed")
 
     monkeypatch.setattr(manage, "dev", refuse)

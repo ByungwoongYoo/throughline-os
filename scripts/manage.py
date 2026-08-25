@@ -21,6 +21,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import threading
+import urllib.request
+import webbrowser
 import re
 import shutil
 import signal
@@ -292,7 +295,7 @@ def start(api_port: int, web_port: int) -> int:
     `bootstrap` knows how to do that, this only has to ask the question.
     """
     if _venv_has_pip() and _venv_version() == REQUIRED_PYTHON:
-        return dev(api_port, web_port)
+        return dev(api_port, web_port, open_browser=True)
 
     print("First run — setting this up before starting it.")
     print("It downloads a few hundred megabytes and takes a few minutes.")
@@ -304,7 +307,7 @@ def start(api_port: int, web_port: int) -> int:
               file=sys.stderr)
         return code
     print("\nSetup finished. Starting…\n", flush=True)
-    return dev(api_port, web_port)
+    return dev(api_port, web_port, open_browser=True)
 
 
 def _venv_json(python: Path, expression: str) -> dict | None:
@@ -718,7 +721,62 @@ def _hand_tracking_ready() -> bool:
             / "hand_landmarker.task").exists()
 
 
-def dev(api_port: int, web_port: int) -> int:
+def _exported_interface() -> bool:
+    """Whether this installation has an interface the API can serve itself."""
+    return (ROOT / "apps" / "web" / "out" / "index.html").is_file()
+
+
+def _open_when_ready(url: str, *, timeout: int = 90) -> None:
+    """Open a browser once the address actually answers, in the background.
+
+    **Waiting is the whole feature.** The port is listening well before the app
+    responds — `next dev` compiles on the first request, and the API boots
+    PostgreSQL and applies migrations before it serves anything. A browser
+    opened the instant a socket accepts shows a connection error or a blank
+    page, and the researcher concludes it is broken. So this polls for a real
+    answer and only then opens.
+
+    In a thread, because the caller has children to supervise and must not stop
+    doing that to wait for a web server.
+
+    **Not from `dev`.** A developer restarts that twenty times an hour and does
+    not want twenty tabs. It is `start` — what the double-click launchers call —
+    that has a person in front of it who has never opened a terminal, and for
+    whom a running server they cannot see is indistinguishable from nothing
+    happening at all.
+    """
+    if os.environ.get("THROUGHLINE_NO_BROWSER"):
+        return
+
+    def wait_then_open() -> None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                with urllib.request.urlopen(url, timeout=3) as response:
+                    if response.status < 500:
+                        break
+            except Exception:
+                pass
+            time.sleep(1)
+        else:
+            # Say so rather than opening something that is not there. The
+            # address is already on screen; a person can still use it.
+            print(f"\n  (Not opening a browser: {url} did not answer within "
+                  f"{timeout}s.)", flush=True)
+            return
+        try:
+            webbrowser.open(url)
+        except Exception:
+            # A machine with no browser is a normal way to run this, not a
+            # failure worth a traceback over.
+            pass
+
+    threading.Thread(target=wait_then_open, daemon=True,
+                     name="open-browser").start()
+
+
+def dev(api_port: int, web_port: int, *,
+        open_browser: bool = False) -> int:
     _stop_on_termination()
     python = venv_python()
     if not python.exists():
@@ -790,11 +848,31 @@ def dev(api_port: int, web_port: int) -> int:
                 [node_exe(node, "npm"), "run", "dev", "--",
                  "--port", str(web_port)],
                 cwd=str(ROOT / "apps" / "web"), env=environment))
+            if open_browser:
+                # `next dev`'s port, not the API's: in development the browser
+                # loads pages from the Next server and its rewrites proxy /api
+                # back, which is what keeps the session cookie same-origin.
+                _open_when_ready(f"http://localhost:{web_port}")
+        elif _exported_interface():
+            # Since T072 the API serves the exported interface itself, so "no
+            # Node" stopped meaning "no interface". This branch used to say the
+            # interface was unavailable on exactly the installation where it is
+            # available — §123 in reverse, claiming an absence that is not
+            # there, which is as wrong as claiming a capability that is not.
+            address = f"http://localhost:{api_port}"
+            print(f"\n  Throughline      {address}", flush=True)
+            print("  Served by the API itself — no Node process is involved.\n",
+                  flush=True)
+            if open_browser:
+                _open_when_ready(address)
         else:
             # §123 — say plainly that the interface is unavailable rather than
             # pretending.
             print(f"\n  API              http://127.0.0.1:{api_port}", flush=True)
-            print("  Web interface    unavailable — Node 20+ is not installed.\n", flush=True)
+            print("  Web interface    unavailable — no interface is built here,",
+                  flush=True)
+            print("  and Node is not installed to build one. Either:", flush=True)
+            print("    python scripts/manage.py build-interface", flush=True)
 
         # Exit as soon as any child does: a dead worker with a live API looks like
         # a working stack that silently never finishes anything.

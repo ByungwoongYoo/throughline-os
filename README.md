@@ -59,7 +59,7 @@ the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **1419 backend tests and 1297 web tests**, with 13 backend
+The current suite is **1424 backend tests and 1297 web tests**, with 13 backend
 skips. Nine carry a reason CI's allowlist recognises — a skip with an
 unrecognised reason fails the build, so the suite cannot quietly shrink. The
 other four are the speech tests, whose reason (`openai-whisper is not
@@ -281,6 +281,13 @@ operating system.
 
 **The window stays open while it installs.** A first run pulls several hundred
 megabytes, and behind a hidden window that is indistinguishable from a freeze.
+
+**And it opens a browser when the app answers** — not when the port starts
+listening, which is several seconds earlier and shows a connection error. A
+launcher that starts a server the researcher cannot see has not started
+anything, as far as they can tell. `manage.py dev` deliberately does *not* do
+this: a developer restarts it twenty times an hour. `THROUGHLINE_NO_BROWSER=1`
+declines it.
 
 **Settings shows the door for the machine it is running on**, under *Starting
 Throughline* — including the security warning to expect, and on Linux a button

@@ -131,3 +131,107 @@ def test_installed_is_a_file_check(monkeypatch, tmp_path):
     assert launchers.desktop_entry_installed() is False
     launchers.install_desktop_entry()
     assert launchers.desktop_entry_installed() is True
+
+
+# --- opening it, which is what a double-click is for ------------------------
+
+import sys as _sys  # noqa: E402
+from pathlib import Path as _Path  # noqa: E402
+
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[1] / "scripts"))
+import manage  # noqa: E402
+
+
+def test_only_start_opens_a_browser():
+    """A developer restarts `dev` twenty times an hour and does not want twenty
+    tabs. `start` is the one with a person in front of it who has never opened a
+    terminal, and for whom a server they cannot see looks like nothing happened.
+    """
+    source = (_Path(manage.__file__)).read_text()
+    body = source[source.index("def start("):source.index("def desktop_entry(")]
+    assert body.count("open_browser=True") == 2, (
+        "start() should open a browser on both its paths — already installed, "
+        "and after a first-run setup")
+
+    signature = source[source.index("def dev("):source.index("def dev(") + 120]
+    assert "open_browser: bool = False" in signature, (
+        "dev() must default to not opening one")
+
+
+def test_it_waits_for_a_real_answer_before_opening(monkeypatch):
+    """The port listens well before the app responds — `next dev` compiles on
+    the first request, and the API boots PostgreSQL first. Opening the instant a
+    socket accepts shows a connection error, and the researcher concludes it is
+    broken."""
+    attempts = []
+    opened = []
+
+    class Answer:
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, *_): return False
+
+    def flaky(url, timeout=None):
+        attempts.append(url)
+        if len(attempts) < 3:
+            raise OSError("connection refused")
+        return Answer()
+
+    monkeypatch.setattr(manage.urllib.request, "urlopen", flaky)
+    monkeypatch.setattr(manage.webbrowser, "open", lambda url: opened.append(url))
+    monkeypatch.setattr(manage.time, "sleep", lambda _s: None)
+    monkeypatch.delenv("THROUGHLINE_NO_BROWSER", raising=False)
+    monkeypatch.setattr(manage.threading, "Thread",
+                        lambda target, **k: type(
+                            "T", (), {"start": staticmethod(target)})())
+
+    manage._open_when_ready("http://localhost:8080")
+
+    assert len(attempts) == 3, attempts
+    assert opened == ["http://localhost:8080"]
+
+
+def test_a_headless_machine_can_decline(monkeypatch):
+    monkeypatch.setenv("THROUGHLINE_NO_BROWSER", "1")
+
+    def refuse(*_a, **_k):
+        raise AssertionError("started a browser despite THROUGHLINE_NO_BROWSER")
+
+    monkeypatch.setattr(manage.threading, "Thread", refuse)
+    manage._open_when_ready("http://localhost:8080")
+
+
+def test_it_gives_up_rather_than_opening_something_that_never_answered(
+        monkeypatch, capsys):
+    """The address is already on screen; opening a dead one teaches nothing."""
+    opened = []
+    monkeypatch.setattr(manage.urllib.request, "urlopen",
+                        lambda *a, **k: (_ for _ in ()).throw(OSError("no")))
+    monkeypatch.setattr(manage.webbrowser, "open", lambda url: opened.append(url))
+    monkeypatch.setattr(manage.time, "sleep", lambda _s: None)
+    monkeypatch.delenv("THROUGHLINE_NO_BROWSER", raising=False)
+    monkeypatch.setattr(manage.threading, "Thread",
+                        lambda target, **k: type(
+                            "T", (), {"start": staticmethod(target)})())
+
+    manage._open_when_ready("http://localhost:8080", timeout=0)
+
+    assert opened == []
+    assert "did not answer" in capsys.readouterr().out
+
+
+def test_an_installed_copy_is_not_told_its_interface_is_missing():
+    """Since T072 the API serves the exported interface itself, so "no Node"
+    stopped meaning "no interface". This branch used to claim it was unavailable
+    on exactly the installation where it is available — §123 in reverse."""
+    source = (_Path(manage.__file__)).read_text()
+    assert "_exported_interface()" in source
+    body = source[source.index("elif _exported_interface():"):]
+    body = body[:body.index("        else:")]
+    # Only what is printed. The comment above it explains the history and says
+    # "unavailable" for that reason, which an assertion over raw source
+    # mistakes for the bug it is describing.
+    printed = [l for l in body.splitlines()
+               if "print(" in l or (l.strip().startswith('"') and "flush" not in l)]
+    assert any("Served by the API itself" in l for l in printed), printed
+    assert not any("unavailable" in l for l in printed), printed
