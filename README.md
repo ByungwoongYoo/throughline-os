@@ -59,7 +59,7 @@ the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **1408 backend tests and 1286 web tests**, with 13 backend
+The current suite is **1419 backend tests and 1297 web tests**, with 13 backend
 skips. Nine carry a reason CI's allowlist recognises — a skip with an
 unrecognised reason fails the build, so the suite cannot quietly shrink. The
 other four are the speech tests, whose reason (`openai-whisper is not
@@ -281,6 +281,12 @@ operating system.
 
 **The window stays open while it installs.** A first run pulls several hundred
 megabytes, and behind a hidden window that is indistinguishable from a freeze.
+
+**Settings shows the door for the machine it is running on**, under *Starting
+Throughline* — including the security warning to expect, and on Linux a button
+that adds the menu entry. This section is a reference; the app is where somebody
+who has never opened a terminal will actually find it, which is the whole point
+of the launchers existing.
 
 Linux gets a `.desktop` entry rather than an `.AppImage`: an AppImage is a
 squashfs image built by `appimagetool` around a bundled runtime, which is a

@@ -502,6 +502,136 @@ export function VersionPanel() {
   );
 }
 
+type Launcher = {
+  platform: string;
+  supported: boolean;
+  note?: string;
+  file?: string;
+  path?: string;
+  present?: boolean;
+  how?: string;
+  warning?: string | null;
+  needs_desktop_entry?: boolean;
+  desktop_entry_installed?: boolean | null;
+  command?: string;
+};
+
+/**
+ * How to start Throughline without a terminal.
+ *
+ * `launchers/` has held one double-click door per platform since T071, and the
+ * only place that said so was the README — which is exactly the wrong place,
+ * because T071 exists for somebody who has never opened a terminal and that
+ * person is not reading a markdown file in a repository. A capability nothing
+ * links to is the same defect as a button that does nothing.
+ *
+ * **Only this machine's door is shown.** A macOS `.command` offered on Windows
+ * is noise, and making the reader work out which of three applies is work the
+ * software has already done.
+ *
+ * **The security warning comes before the click, not after.** These are
+ * unsigned, so the first double-click raises Gatekeeper or SmartScreen. A
+ * researcher who meets that unprepared concludes they have downloaded something
+ * dangerous and stops — which is the right instinct, and the reason to spend a
+ * sentence on it in advance.
+ */
+export function StartingPanel() {
+  const [launcher, setLauncher] = useState<Launcher | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [added, setAdded] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
+
+  useEffect(() => {
+    api.get<Launcher>("/api/system/launchers")
+      .then(setLauncher)
+      .catch(setError);
+  }, []);
+
+  async function addToMenu() {
+    setAdding(true);
+    setError(null);
+    try {
+      const result = await api.post<{ installed: boolean; note: string }>(
+        "/api/system/launchers/desktop-entry");
+      setAdded(result.note);
+      if (result.installed) {
+        setLauncher((c) => (c ? { ...c, desktop_entry_installed: true } : c));
+      }
+    } catch (err) {
+      setError(err);
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  if (!launcher) return null;
+
+  return (
+    <section className="set-section">
+      <h2>Starting Throughline</h2>
+
+      {!launcher.supported && (
+        <p className="set-sub">{launcher.note}</p>
+      )}
+
+      {launcher.supported && (
+        <>
+          <p className="set-sub">{launcher.how}</p>
+
+          <dl className="set-facts">
+            <div>
+              <dt>Launcher</dt>
+              <dd>
+                {launcher.present
+                  ? <code>{launcher.file}</code>
+                  /* Said rather than hidden: pointing somebody at a file that
+                     is not on their disk costs more trust than saying nothing. */
+                  : `${launcher.file} — not in this installation`}
+              </dd>
+            </div>
+            <div>
+              <dt>Or from a terminal</dt>
+              <dd><code>{launcher.command}</code></dd>
+            </div>
+          </dl>
+
+          {launcher.warning && (
+            <p className="set-note">{launcher.warning}</p>
+          )}
+
+          {launcher.needs_desktop_entry && launcher.present && (
+            <>
+              <p className="set-note">
+                Most Linux desktops will not run a double-clicked script, so the
+                thing that actually responds to a click is a menu entry.
+                {launcher.desktop_entry_installed
+                  ? " One is installed."
+                  : " There is not one yet."}
+              </p>
+              <div className="set-pack-actions">
+                <button type="button" onClick={addToMenu} disabled={adding}>
+                  {adding ? "Adding…"
+                    : launcher.desktop_entry_installed
+                      ? "Add it again"
+                      : "Add to applications menu"}
+                </button>
+              </div>
+            </>
+          )}
+
+          {added && <p className="set-note" role="status">{added}</p>}
+        </>
+      )}
+
+      {error != null && (
+        <p className="set-error" role="alert">
+          {error instanceof Error ? error.message : "Could not read the launchers."}
+        </p>
+      )}
+    </section>
+  );
+}
+
 export function Settings() {
   const [models, setModels] = useState<Models | null>(null);
   const [projection, setProjection] = useState<Projection | null>(null);
@@ -816,6 +946,8 @@ export function Settings() {
           <p className="set-note">{projection.note}</p>
         </section>
       )}
+
+      <StartingPanel />
 
       <VersionPanel />
 

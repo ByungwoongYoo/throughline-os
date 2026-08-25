@@ -514,56 +514,36 @@ def build_interface() -> int:
 
 
 def desktop_entry() -> int:
-    """Put Throughline in the Linux applications menu, pointing at this checkout.
+    """Put Throughline in the Linux applications menu.
 
-    The Linux half of T071 asked for an `.AppImage`, and that is the one door on
-    the list that cannot be a script in this repository: an AppImage is a
-    squashfs image built by `appimagetool` around a bundled runtime — a build
-    artifact produced by a pipeline, not twenty lines somebody can read. What the
-    request actually wants is *a thing you double-click*, and on Linux that is a
-    `.desktop` entry; a double-clicked shell script has not run by default in
-    GNOME for years. Recorded as D033 so the substitution is visible rather than
-    quietly made.
+    The file is written by `throughline_domain.launchers`, not here. The
+    Settings screen needs the same thing, and two implementations of one
+    `.desktop` file would drift — which is the defect this repository has
+    shipped more than once. This is the terminal way to ask for it; the button
+    is the other way, and they write the same bytes.
 
-    Written rather than committed because it has to carry an **absolute path**,
-    which is not known until somebody clones this somewhere. That is also why it
-    is an explicit command and not a side effect of `bootstrap`: writing into a
-    user's applications menu is a thing to ask for, not to discover.
+    The Linux half of T071 asked for an `.AppImage`, and that is the one door
+    on its list that cannot be a script here: an AppImage is a squashfs image
+    built by `appimagetool` around a bundled runtime. What the request wants is
+    *a thing you double-click*, and on Linux that is a `.desktop` entry.
+    Recorded as D033 so the substitution is visible.
     """
-    if sys.platform != "linux":
-        print("Desktop entries are a Linux thing. On macOS double-click "
-              "launchers/Throughline.command; on Windows, Throughline.bat.",
-              file=sys.stderr)
+    python = venv_python()
+    if not python.exists():
+        print("No virtualenv. Run bootstrap first.", file=sys.stderr)
         return 1
 
-    launcher = ROOT / "launchers" / "throughline.sh"
-    if not launcher.exists():
-        print(f"No launcher at {launcher}.", file=sys.stderr)
+    result = _venv_json(
+        python, "from throughline_domain import launchers;"
+                " print(json.dumps(launchers.install_desktop_entry()))")
+    if result is None:
+        print("Could not write the desktop entry.", file=sys.stderr)
         return 1
-
-    directory = Path.home() / ".local" / "share" / "applications"
-    directory.mkdir(parents=True, exist_ok=True)
-    target = directory / "throughline.desktop"
-
-    # Terminal=true is the point of the whole exercise: a first run installs
-    # several hundred megabytes, and behind a hidden window that is
-    # indistinguishable from a freeze.
-    target.write_text(
-        "[Desktop Entry]\n"
-        "Type=Application\n"
-        "Name=Throughline\n"
-        "Comment=A research workspace that keeps its provenance\n"
-        # Quoted per the Desktop Entry spec: an unquoted Exec is split on
-        # spaces, so a clone under "~/My Research/" becomes two arguments and
-        # the entry launches nothing, silently.
-        f'Exec="{launcher}"\n'
-        f"Path={ROOT}\n"
-        "Terminal=true\n"
-        "Categories=Science;Education;\n")
-    target.chmod(0o755)
-    print(f"Written {target}")
-    print("It points at this checkout, so moving the folder means running this "
-          "again.")
+    if not result.get("installed"):
+        print(result.get("note", "Not installed."), file=sys.stderr)
+        return 1
+    print(f"Written {result['path']}")
+    print(result["note"])
     return 0
 
 

@@ -24,6 +24,7 @@ from throughline_domain import (
     authoring, board, citations, communication, embedding_space, excerpts, extras,
     haptics,
     marks,
+    launchers as domain_launchers,
     updates as domain_updates,
     patterns, reconcile, render_artifact, retrieval, selection, speech,
     specification, storage, synthesis, validation, visuals, vocabulary,
@@ -2494,6 +2495,36 @@ def _model_selection() -> dict[str, Any]:
                               "endpoint is polled and probing would cost a "
                               "round trip." if configured else None),
     }
+
+
+@app.get("/api/system/launchers")
+def system_launchers() -> dict[str, Any]:
+    """The double-click door for *this* machine, and whether it is really there.
+
+    T071 built one launcher per platform for somebody who has never opened a
+    terminal — and then said so only in the README, which that person will never
+    read. A capability nothing links to is the same defect as a button that does
+    nothing: present in the repository, absent from the product.
+
+    Only this platform's door is reported. A macOS `.command` offered on Windows
+    is noise, and making the reader work out which of three applies is work the
+    software has already done.
+    """
+    return domain_launchers.available()
+
+
+@app.post("/api/system/launchers/desktop-entry", status_code=200)
+def install_desktop_entry() -> dict[str, Any]:
+    """Add Throughline to the Linux applications menu.
+
+    A POST because it writes a file into the researcher's home directory —
+    a small thing, but a thing they should ask for rather than have happen.
+
+    The bytes are written by `throughline_domain.launchers`, which
+    `manage.py desktop-entry` also calls, so the button and the command cannot
+    disagree about what a `.desktop` file should contain.
+    """
+    return domain_launchers.install_desktop_entry()
 
 
 @app.get("/api/system/version")

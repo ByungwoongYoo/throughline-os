@@ -183,48 +183,27 @@ def test_start_does_not_launch_after_a_failed_install(monkeypatch, capsys):
 # --- the Linux menu entry ---------------------------------------------------
 
 
-def test_the_desktop_entry_keeps_the_terminal_visible(monkeypatch, tmp_path):
-    """The whole reason it exists. A first run installs several hundred
-    megabytes; behind a hidden window that is indistinguishable from a freeze."""
-    monkeypatch.setattr(manage.sys, "platform", "linux")
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: tmp_path))
+def test_manage_delegates_the_desktop_entry_rather_than_writing_its_own():
+    """The `.desktop` file has one author, and it is not this script.
 
-    assert manage.desktop_entry() == 0
-    written = tmp_path / ".local/share/applications/throughline.desktop"
-    body = written.read_text()
-    assert "Terminal=true" in body
-    assert body.startswith("[Desktop Entry]")
-    assert "Type=Application" in body
+    Settings needs to write the same entry, and two implementations of one file
+    drift — which is the defect this repository has shipped more than once, most
+    recently as three copies of an install order. `manage.py desktop-entry` now
+    calls `throughline_domain.launchers.install_desktop_entry` through the
+    virtualenv, so the button and the command write identical bytes by
+    construction rather than by review.
 
+    The contents are tested where they are produced, in
+    `tests/test_launcher_reporting.py`. What is worth guarding *here* is that
+    this file has not quietly grown a second copy back.
+    """
+    source = (ROOT / "scripts" / "manage.py").read_text()
+    body = source[source.index("def desktop_entry("):]
+    body = body[:body.index("\ndef ")]
 
-def test_the_desktop_entry_points_at_an_absolute_path(monkeypatch, tmp_path):
-    """A menu entry is launched from nowhere in particular; a relative Exec
-    silently resolves against whatever the session's cwd happens to be."""
-    monkeypatch.setattr(manage.sys, "platform", "linux")
-    monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: tmp_path))
-    manage.desktop_entry()
-    body = (tmp_path / ".local/share/applications/throughline.desktop").read_text()
-    exec_line = [l for l in body.splitlines() if l.startswith("Exec=")][0]
-    target = pathlib.Path(exec_line[len("Exec="):].strip('"'))
-    assert target.is_absolute()
-    assert target.exists()
-
-
-def test_the_desktop_entry_is_refused_off_linux(monkeypatch, capsys):
-    """And names the door that platform actually has."""
-    monkeypatch.setattr(manage.sys, "platform", "darwin")
-    assert manage.desktop_entry() == 1
-    assert "Throughline.command" in capsys.readouterr().err
-
-
-def test_the_desktop_entry_survives_a_path_with_a_space(monkeypatch, tmp_path):
-    """An unquoted Exec is split on spaces, so a clone under "~/My Research/"
-    becomes two arguments and the menu entry launches nothing — silently, which
-    is the part that makes it expensive to diagnose."""
-    monkeypatch.setattr(manage.sys, "platform", "linux")
-    monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: tmp_path))
-    manage.desktop_entry()
-    body = (tmp_path / ".local/share/applications/throughline.desktop").read_text()
-    exec_line = [l for l in body.splitlines() if l.startswith("Exec=")][0]
-    assert exec_line.startswith('Exec="') and exec_line.endswith('"'), exec_line
+    assert "launchers.install_desktop_entry" in body, (
+        "manage.py no longer delegates; a second implementation of the "
+        "desktop entry has come back")
+    for written in ("[Desktop Entry]", "Terminal=true", "Categories="):
+        assert written not in body, (
+            f"manage.py is writing {written!r} itself again")
