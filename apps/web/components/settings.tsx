@@ -366,6 +366,142 @@ export function FeaturePacks() {
   );
 }
 
+type Version = {
+  version: string | null;
+  source: "release" | "checkout" | "unknown";
+  commit: string | null;
+  modified: boolean;
+  note: string;
+};
+
+type UpdateCheck = {
+  checked: boolean;
+  reason?: string;
+  channel?: string;
+  following?: string;
+  behind?: number;
+  ahead?: number;
+  update_available?: boolean;
+  how?: string | null;
+};
+
+/**
+ * Which version this is, and whether there is a newer one.
+ *
+ * Two things this screen is careful about.
+ *
+ * **It never checks on its own.** T073's first line is "never automatic", and
+ * an effect that checked on mount would quietly make it automatic — every visit
+ * to Settings becoming a network request, and eventually a habit nobody
+ * remembers agreeing to. The version itself is shown immediately because that
+ * costs nothing; asking GitHub happens when somebody asks.
+ *
+ * **It distinguishes "up to date" from "I could not ask".** Those look
+ * identical on a screen and only one of them means what it says. A researcher
+ * on a train who is told they are up to date has been told something false.
+ *
+ * The command is shown rather than an Update button, and that is not timidity:
+ * applying an update replaces the code the API process is running from, so it
+ * cannot be done from inside that process. A button that appeared to do it
+ * would have to lie about when it had finished.
+ */
+export function VersionPanel() {
+  const [version, setVersion] = useState<Version | null>(null);
+  const [check, setCheck] = useState<UpdateCheck | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  useEffect(() => {
+    api.get<Version>("/api/system/version").then(setVersion).catch(setError);
+  }, []);
+
+  async function checkNow() {
+    setChecking(true);
+    setError(null);
+    setCheck(null);
+    try {
+      setCheck(await api.post<UpdateCheck>("/api/system/version/check"));
+    } catch (err) {
+      setError(err);
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  if (!version) return null;
+
+  return (
+    <section className="set-section">
+      <h2>Version</h2>
+      <p className="set-sub">
+        Which version produced a result is part of that result. `main` on Tuesday
+        and `main` on Thursday are different software wearing one name.
+      </p>
+
+      <dl className="set-facts">
+        <div>
+          <dt>Running</dt>
+          <dd>{version.version ?? "unknown"}</dd>
+        </div>
+        <div>
+          <dt>Established from</dt>
+          <dd>
+            {version.source === "release" ? "a stamped release"
+              : version.source === "checkout" ? "the git checkout"
+              : "nothing — this installation cannot say"}
+          </dd>
+        </div>
+        {version.modified && (
+          <div>
+            <dt>Modified</dt>
+            <dd>uncommitted changes are present</dd>
+          </div>
+        )}
+      </dl>
+      <p className="set-note">{version.note}</p>
+
+      <div className="set-pack-actions">
+        <button type="button" onClick={checkNow} disabled={checking}>
+          {checking ? "Checking…" : "Check for updates"}
+        </button>
+      </div>
+
+      {check && !check.checked && (
+        /* Not "up to date". Saying so would be inventing an answer. */
+        <p className="set-note" role="status">
+          Could not check: {check.reason}
+        </p>
+      )}
+
+      {check?.checked && !check.update_available && (
+        <p className="set-note" role="status">
+          Up to date with {check.following} ({check.channel}).
+          {check.ahead ? ` This checkout is ${check.ahead} commit(s) ahead of it.` : ""}
+        </p>
+      )}
+
+      {check?.checked && check.update_available && (
+        <>
+          <p className="set-note" role="status">
+            {check.behind} update(s) available on {check.channel}. Updating backs
+            up your database first and puts the previous version back if anything
+            fails.
+          </p>
+          <div className="set-pack-actions">
+            <code>{check.how}</code>
+          </div>
+        </>
+      )}
+
+      {error != null && (
+        <p className="set-error" role="alert">
+          {error instanceof Error ? error.message : "Could not read the version."}
+        </p>
+      )}
+    </section>
+  );
+}
+
 export function Settings() {
   const [models, setModels] = useState<Models | null>(null);
   const [projection, setProjection] = useState<Projection | null>(null);
@@ -680,6 +816,8 @@ export function Settings() {
           <p className="set-note">{projection.note}</p>
         </section>
       )}
+
+      <VersionPanel />
 
       <FeaturePacks />
 

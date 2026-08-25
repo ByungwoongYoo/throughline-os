@@ -59,7 +59,7 @@ the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **1390 backend tests and 1276 web tests**, with 13 backend
+The current suite is **1404 backend tests and 1282 web tests**, with 13 backend
 skips. Nine carry a reason CI's allowlist recognises — a skip with an
 unrecognised reason fails the build, so the suite cannot quietly shrink. The
 other four are the speech tests, whose reason (`openai-whisper is not
@@ -322,6 +322,43 @@ New API surface goes in its **own router module** mounted with one line in
 `app.py`, rather than as more routes inside it. This is a merge decision, not an
 architectural one: `app.py` is the file two branches always both touch, and the
 last wave merged with zero conflicts because nothing new was added to it.
+
+## Updating
+
+```bash
+python scripts/manage.py update --check
+python scripts/manage.py update
+```
+
+Never automatic, and never from inside the running app — applying an update
+replaces the code the API process is executing, so it cannot swap itself out
+from underneath a request. Settings has a **Check for updates** button; it
+checks and then names this command.
+
+The order matters more than the mechanism, because the database is your only
+copy of your research:
+
+1. **Refuses on a dirty checkout.** Updating fast-forwards the working tree, and
+   uncommitted work is what this must not silently discard.
+2. **Backs up before anything changes** — database and object store in one
+   archive, since either without the other is useless.
+3. **Fast-forward only.** A merge could conflict, and a half-updated checkout is
+   worse than an old one.
+4. Reinstalls, rebuilds the interface, migrates — in that order, because a
+   migration may need code that arrived in the update.
+5. **Puts the previous version back if any of that fails**, and tells you where
+   the backup is. It does *not* restore the database for you: that is
+   destructive and would discard anything done since the backup, which is your
+   decision rather than the updater's.
+
+An installation follows `main` until somebody tags a release, and follows tags
+after that — one mechanism, not two.
+
+**A version this installation cannot state is a hole in its own provenance.**
+`main` on Tuesday and `main` on Thursday are different software wearing one
+name, so the version is reported along with *where that answer came from*: a
+stamped release, a git checkout, or nothing. A modified checkout says so, since
+it names something nobody else can obtain.
 
 ## Is this installation healthy?
 

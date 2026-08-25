@@ -24,6 +24,7 @@ from throughline_domain import (
     authoring, board, citations, communication, embedding_space, excerpts, extras,
     haptics,
     marks,
+    updates as domain_updates,
     patterns, reconcile, render_artifact, retrieval, selection, speech,
     specification, storage, synthesis, validation, visuals, vocabulary,
     workflow,
@@ -2493,6 +2494,36 @@ def _model_selection() -> dict[str, Any]:
                               "endpoint is polled and probing would cost a "
                               "round trip." if configured else None),
     }
+
+
+@app.get("/api/system/version")
+def system_version() -> dict[str, Any]:
+    """What this installation is. No network, so the page costs nothing to open.
+
+    Separate from the check on purpose. "What am I?" must be answerable offline,
+    instantly, and identically on a train; "is there anything newer?" cannot be
+    any of those, and folding them together would make opening Settings depend
+    on reaching GitHub.
+    """
+    from throughline_domain import version
+
+    return version.current()
+
+
+@app.post("/api/system/version/check", status_code=200)
+def check_for_updates() -> dict[str, Any]:
+    """Ask the remote whether anything newer exists — only when asked.
+
+    A POST rather than a GET because it reaches the network and writes
+    remote-tracking refs; it is an action a person takes, not a fact to be
+    polled. **Never automatic** is T073's first line, and an endpoint the
+    interface could poll on a timer is how that quietly stops being true.
+
+    Failing to reach the remote is reported as `checked: false` with a reason,
+    never as being up to date — those look identical on a screen and only one
+    of them is what it says.
+    """
+    return domain_updates.check()
 
 
 @app.get("/api/system/packs/{name}")

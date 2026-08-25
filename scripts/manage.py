@@ -19,6 +19,7 @@ virtualenv to install anything into.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -304,6 +305,157 @@ def start(api_port: int, web_port: int) -> int:
         return code
     print("\nSetup finished. Starting…\n", flush=True)
     return dev(api_port, web_port)
+
+
+def _venv_json(python: Path, expression: str) -> dict | None:
+    """Ask the installed packages a question and get structured data back.
+
+    Through the virtualenv's interpreter, because that is where the product is
+    installed — `manage.py` itself is standard-library only and cannot import
+    any of it.
+    """
+    code = f"import json; {expression}"
+    result = subprocess.run([str(python), "-c", code], capture_output=True,
+                            text=True, cwd=str(ROOT))
+    if result.returncode != 0:
+        return None
+    try:
+        return json.loads(result.stdout)
+    except (ValueError, TypeError):
+        return None
+
+
+def update(check_only: bool) -> int:
+    """Update this installation, backing up first and reverting on failure.
+
+    **Never automatic, and this is the only thing that applies one.** An update
+    replaces the code the API process is executing, so it cannot be done from
+    inside that process — a running server cannot swap itself out from
+    underneath a request. The button in Settings checks and then names this
+    command; it does not run it.
+
+    The order is the whole design, and it is chosen around one fact: **the
+    database is the researcher's only copy of their research.**
+
+    1. Refuse on a dirty checkout. Updating fast-forwards the working tree, and
+       uncommitted work is exactly the thing this must not silently discard.
+    2. Back up before anything. `backup.sh` writes the database and the object
+       store into one archive, because either without the other is useless.
+    3. Fast-forward only. A merge or a rebase here could conflict, and a
+       half-updated checkout is a worse place to be than an old one.
+    4. Reinstall, rebuild, migrate — in that order, because a migration may
+       depend on code that arrived in this update.
+    5. On any failure after the code moved, put the code back and reinstall from
+       it, so the previous version runs again.
+
+    What it deliberately does **not** do is restore the database automatically.
+    Migrations are forward-only by construction and each runs in its own
+    transaction, so a failure leaves the schema at the last one that succeeded
+    rather than half-applied — and old code generally tolerates a newer schema.
+    Restoring is destructive and would throw away anything done since the backup,
+    which is a decision that belongs to the researcher. The command is printed
+    instead.
+    """
+    python = venv_python()
+    if not python.exists():
+        print("No virtualenv. Run bootstrap first.", file=sys.stderr)
+        return 1
+
+    state = _venv_json(
+        python, "from throughline_domain import updates;"
+                " print(json.dumps(updates.check()))")
+    if state is None:
+        print("Could not check for updates.", file=sys.stderr)
+        return 1
+
+    here = state["current"]
+    print(f"This installation: {here['version'] or 'unknown'} "
+          f"({here['source']})")
+
+    if not state.get("checked"):
+        print(f"\n{state['reason']}", file=sys.stderr)
+        # Not an error when only checking: "I could not ask" is a legitimate
+        # answer to a question, and exiting non-zero would make a button red.
+        return 0 if check_only else 1
+
+    print(f"Following: {state['following']} ({state['channel']})")
+    if state.get("ahead"):
+        print(f"  {state['ahead']} local commit(s) not on {state['channel']} — "
+              f"this checkout is ahead as well as behind.")
+
+    if not state["update_available"]:
+        print("\nUp to date.")
+        return 0
+
+    print(f"\n{state['behind']} update(s) available on {state['channel']}.")
+    if check_only:
+        print("Apply with:  python scripts/manage.py update")
+        return 0
+
+    dirty = _git("status", "--porcelain", check=False).strip()
+    if dirty:
+        print("\nThis checkout has uncommitted changes:", file=sys.stderr)
+        for line in dirty.splitlines()[:10]:
+            print(f"  {line}", file=sys.stderr)
+        print("\nUpdating fast-forwards the working tree, which would discard "
+              "them.\nCommit or stash them first.", file=sys.stderr)
+        return 1
+
+    before = _git("rev-parse", "HEAD").strip()
+    print(f"\nBacking up before anything changes (current: {before[:9]})…")
+    backup = subprocess.run([str(ROOT / "scripts" / "backup.sh")], cwd=str(ROOT))
+    if backup.returncode != 0:
+        print("\nThe backup failed, so nothing was updated. The database is "
+              "the only copy of your research and an update that cannot be "
+              "walked back is not one worth applying.", file=sys.stderr)
+        return backup.returncode
+
+    target = (f"refs/tags/{state['channel']}"
+              if state["following"] == "a release tag" else "origin/main")
+    print(f"\nUpdating to {state['channel']}…")
+    moved = subprocess.run(["git", "-C", str(ROOT), "merge", "--ff-only", target])
+    if moved.returncode != 0:
+        print("\nCould not fast-forward. Nothing was changed.", file=sys.stderr)
+        return moved.returncode
+
+    def put_it_back(why: str) -> int:
+        print(f"\n{why}", file=sys.stderr)
+        print(f"Putting the code back to {before[:9]} …", file=sys.stderr)
+        subprocess.run(["git", "-C", str(ROOT), "reset", "--hard", before],
+                       capture_output=True)
+        subprocess.run([str(python), "-m", "pip", "install", "-q", "-e",
+                        str(ROOT / "apps" / "api")], capture_output=True)
+        print("The previous version is in place again.", file=sys.stderr)
+        print("\nYour backup is in ~/throughline-backups. If the database "
+              "needs restoring too:", file=sys.stderr)
+        print("  ./scripts/restore.sh <archive.tar> --force", file=sys.stderr)
+        return 1
+
+    print("\nReinstalling packages…")
+    for package in PACKAGES:
+        result = subprocess.run([str(python), "-m", "pip", "install", "-q", "-e",
+                                 str(ROOT / package)])
+        if result.returncode != 0:
+            return put_it_back(f"Installing {package} failed.")
+
+    if (ROOT / "apps" / "web" / "out").exists() or _node_on_path():
+        print("\nRebuilding the interface…")
+        if build_interface() != 0:
+            return put_it_back("The interface did not rebuild.")
+
+    print("\nApplying migrations…")
+    migrated = subprocess.run(
+        [str(python), "-c",
+         "from throughline_domain.migrate import migrate;"
+         " print('applied:', migrate() or 'nothing new')"], cwd=str(ROOT))
+    if migrated.returncode != 0:
+        return put_it_back("A migration failed.")
+
+    after = _venv_json(python, "from throughline_domain import version;"
+                               " print(json.dumps(version.current()))")
+    print(f"\nUpdated to {after['version'] if after else 'a new version'}.")
+    print("Restart Throughline for it to take effect.")
+    return 0
 
 
 def build_interface() -> int:
@@ -1316,6 +1468,10 @@ def main() -> int:
     run.add_argument("--web-port", type=int, default=int(os.environ.get("WEB_PORT", 3000)))
     sub.add_parser("build-interface",
                    help="export the web interface for the API to serve")
+    up = sub.add_parser("update",
+                        help="update this installation, backing up first")
+    up.add_argument("--check", action="store_true",
+                    help="only say whether an update is available")
     sub.add_parser("desktop-entry",
                    help="add Throughline to the Linux applications menu")
     sub.add_parser("sync", help="fetch, and show what everyone else is working on")
@@ -1340,6 +1496,8 @@ def main() -> int:
         return start(args.api_port, args.web_port)
     if args.command == "build-interface":
         return build_interface()
+    if args.command == "update":
+        return update(args.check)
     if args.command == "desktop-entry":
         return desktop_entry()
     return dev(args.api_port, args.web_port)
