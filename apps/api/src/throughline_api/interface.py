@@ -54,7 +54,41 @@ from fastapi.responses import FileResponse, Response
 #: the API serving that directory's contents, which are not an exported site.
 #: Building releases into `out/` keeps the two apart by name rather than by
 #: everybody remembering.
-_DEFAULT = Path(__file__).resolve().parents[4] / "apps" / "web" / "out"
+_RELATIVE = Path("apps") / "web" / "out"
+
+
+def _candidates() -> list[Path]:
+    """Where the bundle might be, best guess first.
+
+    This was a single path anchored to this module's own location — four
+    `parents` up, which is the repository root **when the package is a source
+    checkout**. Installed properly it is not: in the container the module sits
+    in `/usr/local/lib/python3.12/site-packages/throughline_api/` and four
+    parents up is `/usr/local`, so the API looked for the interface in
+    `/usr/local/apps/web/out` and served 503 while the files sat in
+    `/app/apps/web/out`.
+
+    Nothing local caught it. Every test either set the override or ran from the
+    source tree, and both make the wrong anchor look right — the defect only
+    exists once the package is installed somewhere other than where it was
+    written. `T013` says the container job has the best catch record in the
+    repository, and this is why. Recorded as D044.
+
+    So: the working directory first, because that is what actually holds the
+    application in the container (`WORKDIR /app`, files at `/app/apps/web/out`)
+    and is the repository root under `serve.sh` and `dev.sh`, both of which
+    `cd` there before starting anything. The source-relative guess stays as a
+    fallback for an editable install invoked from elsewhere.
+    """
+    override = os.environ.get("THROUGHLINE_INTERFACE_DIR")
+    if override:
+        return [Path(override).expanduser().resolve()]
+
+    found = [(Path.cwd() / _RELATIVE).resolve()]
+    here = Path(__file__).resolve()
+    if len(here.parents) > 4:
+        found.append((here.parents[4] / _RELATIVE).resolve())
+    return found
 
 #: Immutable because the filename contains a hash of the contents. Anything
 #: under here that changes gets a different name, so a year is safe and a
@@ -68,9 +102,17 @@ _NEVER = "no-cache"
 
 
 def bundle_root() -> Path:
-    """The directory holding the exported interface."""
-    override = os.environ.get("THROUGHLINE_INTERFACE_DIR")
-    return Path(override).expanduser().resolve() if override else _DEFAULT
+    """The directory holding the exported interface.
+
+    The first candidate that actually contains one. Falling back to the first
+    candidate when none do keeps the error message pointing somewhere a person
+    can act on rather than at nothing.
+    """
+    candidates = _candidates()
+    for candidate in candidates:
+        if (candidate / "index.html").is_file():
+            return candidate
+    return candidates[0]
 
 
 def installed() -> bool:

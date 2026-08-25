@@ -197,3 +197,71 @@ def test_the_default_is_out_and_not_dot_next(monkeypatch):
     root = interface.bundle_root()
     assert root.name == "out", root
     assert ".next" not in root.as_posix()
+
+
+# --- finding the bundle when the package is installed, not checked out -------
+
+
+def test_the_bundle_is_found_beside_the_application_not_beside_the_module(
+        tmp_path, monkeypatch):
+    """The defect a container build found and nothing local did.
+
+    The location was anchored to this module's own file — four parents up,
+    which is the repository root only while the package is a source checkout.
+    Installed, it is not: in the image the module sits in site-packages and four
+    parents up is `/usr/local`, so the API looked in `/usr/local/apps/web/out`
+    and answered 503 while the interface sat in `/app/apps/web/out`.
+
+    Every earlier test here either set the override or ran from the source tree,
+    and both make the wrong anchor look right. This one does neither: the files
+    are somewhere the module has no relationship to.
+    """
+    monkeypatch.delenv("THROUGHLINE_INTERFACE_DIR", raising=False)
+    app_dir = tmp_path / "app"
+    (app_dir / "apps" / "web" / "out").mkdir(parents=True)
+    (app_dir / "apps" / "web" / "out" / "index.html").write_text("<html></html>")
+    monkeypatch.chdir(app_dir)
+
+    assert interface.bundle_root() == (app_dir / "apps" / "web" / "out").resolve()
+    assert interface.installed() is True
+
+
+def test_an_explicit_location_still_wins(tmp_path, monkeypatch):
+    """The override is how a packager puts it somewhere neither guess covers."""
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "index.html").write_text("<html></html>")
+    monkeypatch.setenv("THROUGHLINE_INTERFACE_DIR", str(elsewhere))
+    monkeypatch.chdir(tmp_path)
+    assert interface.bundle_root() == elsewhere.resolve()
+
+
+def test_it_falls_back_to_the_source_tree_when_the_cwd_has_none(tmp_path,
+                                                                monkeypatch):
+    """An editable install invoked from somewhere else still finds its bundle.
+
+    Written the other way round first — asserting nothing was found — and it
+    failed, correctly: this checkout has a real `apps/web/out`, so the
+    source-relative fallback found it. The test was wrong about the code rather
+    than the other way round, which is worth leaving a note about, because the
+    fallback existing *is* the property worth pinning.
+    """
+    monkeypatch.delenv("THROUGHLINE_INTERFACE_DIR", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    candidates = interface._candidates()
+    assert len(candidates) == 2, candidates
+    assert candidates[0] == (tmp_path / "apps" / "web" / "out").resolve()
+    # The second is anchored to this module, wherever it happens to live.
+    assert candidates[1].name == "out"
+    assert interface.bundle_root().name == "out"
+
+
+def test_head_is_answered_as_well_as_get(client):
+    """The Node server this replaced answered HEAD, so GET-only would be a quiet
+    regression — health checks, proxies and link checkers all use it, and a 405
+    from a page that loads fine in a browser is nobody's first guess."""
+    response = client.head("/")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache"
+    assert response.content == b"", "HEAD must carry no body"

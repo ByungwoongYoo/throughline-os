@@ -3779,9 +3779,15 @@ app.include_router(interpretation_router)
 from .interface import response_for  # noqa: E402
 
 
-@app.get("/{path:path}", include_in_schema=False)
+@app.api_route("/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)
 def interface_files(path: str) -> Response:
     """Serve the exported interface, so the browser has one origin.
+
+    **HEAD as well as GET.** The Node server this replaced answered it, so
+    GET-only would be a quiet regression: health checks, proxies and link
+    checkers all use HEAD, and a 405 from the page that loads fine in a browser
+    is the kind of difference nobody looks for. Starlette drops the body for a
+    HEAD itself, so the handler is the same one.
 
     `include_in_schema=False` because a catch-all in the OpenAPI document is
     noise: it matches everything and documents nothing, and `/docs` is a surface
