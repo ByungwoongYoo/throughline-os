@@ -329,6 +329,55 @@ project already labels both Phase 8 and unbuilt. Leave them there.
 
 ---
 
+## Specialist libraries — adopted and declined
+
+An audit (2026-08-25) of eighteen candidate libraries against what the code
+actually needs, recorded so the next session does not re-litigate it. The full
+per-library evidence lives in the session that wrote T076–T080; the verdicts
+and their reasons are here.
+
+**Adopted, as per need — T076–T080.** Four libraries have their absence already
+advertised inside this repository: the charts-3d registry marks the entire
+Chemistry, Volume and Medical families `needs-library` and names "Mol*, vtk.js"
+in its own doc comment, and Wave 4 above names deck.gl maps as half of the
+chosen path (the 3D embedding space half is built — T025–T027). So molstar,
+vtk.js, niivue and deck.gl come in — behind a lazy seam (T076) that is the web
+analog of the feature packs: dynamically imported chunks served from the app's
+own build, base bundle unchanged, air-gap intact.
+
+**Declined because the code already decided otherwise.** These are not gaps;
+they are recorded choices, two of them measured:
+
+- **xyflow** — `Board.tsx` rejects canvas/node libraries for real DOM cards on
+  accessibility grounds, in its own opening comment.
+- **tiptap** — `notebook.tsx`: "A plain textarea on purpose: a rich editor
+  would fight the fact that the source of truth is markdown text."
+- **glide-data-grid** — `ChartTable.tsx` is a deliberately capped accessible
+  HTML table; no large-grid surface exists.
+- **sigma.js / cytoscape.js / graphology** — D005 measured the hand-rolled
+  graph renderer fine at realistic scale ("a ceiling nobody has hit, not a bug
+  being lived with"). Revisit only if real project graphs reach thousands of
+  nodes; ADR 0001 already names Sigma.js as the direction for that day.
+- **web-llm** — Wave 2 requires a *frontier* model for interpretation precisely
+  because a small model writes fluent, confident, subtly wrong prose there. An
+  in-browser small LLM is the failure mode, not a feature.
+
+**Declined because no seam exists yet, with the revisit condition named:**
+
+- **@modelcontextprotocol/sdk** — nothing in the repo speaks a tool protocol;
+  the connector registry and `ModelProvider` ABC are where MCP would mount if
+  external agents ever become a requirement — and the server is Python, so the
+  Python MCP SDK would be the fit, not the TypeScript one.
+- **pyodide** — `executor.py`'s `require_full_isolation()` names the unmet
+  need: sandboxing model-authored code beyond an OS process. A WASM runtime is
+  a candidate answer, but that is an architecture decision, not an install.
+- **cornerstone3D / itk-wasm** — DICOM viewing and processing, gated on
+  ingestion reading DICOM at all, which nothing asks for today.
+- **onnxruntime** — embeddings are model2vec on the server; no client
+  inference path exists.
+- **mathlive / @cortex-js/compute-engine** — no math-input or symbolic surface
+  anywhere in the product.
+
 ## Threaded throughout
 
 Frontend tests for `Shell.tsx`, `app/workspace/page.tsx`, `KnowledgeGraph.tsx`
