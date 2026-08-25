@@ -21,7 +21,8 @@ from throughline_domain import (
     analysis, auth, claim_test, compare, consistency, critic, discovery,
     embeddings, events, example, extraction, findings, graph_projection, graphs,
     harmonize, images, journal, lineage, notebook, objects, observability,
-    authoring, board, citations, communication, embedding_space, excerpts, haptics,
+    authoring, board, citations, communication, embedding_space, excerpts, extras,
+    haptics,
     marks,
     patterns, reconcile, render_artifact, retrieval, selection, speech,
     specification, storage, synthesis, validation, visuals, vocabulary,
@@ -2429,13 +2430,114 @@ def capabilities() -> dict[str, Any]:
             # every run and surfaced here rather than glossed over.
             "isolation": sandbox_policy_report(),
         },
-        "llm": {"configured": False, "note": "No model provider is configured yet."},
+        # Asked of the registry rather than asserted. This said `False`
+        # unconditionally, so a researcher who had configured a provider was
+        # told none was configured — a displayed claim contradicting the
+        # system's own state, which is the defect class this product exists to
+        # catch. Recorded as D035.
+        #
+        # `selection()` and not `provider()`: the first reads the override and
+        # the environment and costs nothing, the second probes the backend over
+        # the network on its first call. The interface polls this endpoint, so
+        # what it reports is what is *configured*; whether that backend answers
+        # is a different question and a slower one.
+        "llm": _model_selection(),
         # What this installation can open, asked of the layer that reads them
         # rather than from a list kept here. Optional formats report the extra
         # that turns them on, so "we cannot read Parquet" and "Parquet needs one
         # pip install" are distinguishable — they need different responses.
         "formats": _dataset_formats(),
+        # Every optional capability, not only the ones that happen to be file
+        # formats. Before this, four of them — the graph driver, local
+        # transcription, figure digitising and the hosted model client — were
+        # undiscoverable except by trying them and reading an error. D032.
+        "packs": extras.availability(),
+        # `settings.tsx` has read this key since the panel was written, and
+        # nothing ever returned it — so `projection` was always undefined and
+        # the whole Neo4j status panel behind `{projection && …}` has never
+        # rendered once. Both halves existed and complete: `capability()`
+        # already returns exactly the shape the `Projection` type declares.
+        # A read with no writer, which is D011 and D013's defect class again.
+        # Recorded as D036.
+        #
+        # Cheap in the common case: `configured()` is false without the Neo4j
+        # environment, and returns before any connection is attempted.
+        "graph_projection": graph_projection.capability(),
     }
+
+
+def _model_selection() -> dict[str, Any]:
+    """What model provider is selected, and where the choice came from."""
+    from throughline_model.registry import selection
+
+    chosen = selection()
+    configured = (chosen["provider"] or "").lower() not in ("", "none", "off",
+                                                            "disabled")
+    return {
+        # "A provider is selected", which is not the same as "it answers".
+        # `ollama` is the default, so this is true on a machine that has never
+        # installed it — and reporting `reachable` would mean a network probe on
+        # an endpoint the interface polls. So reachability is reported as
+        # explicitly unknown rather than implied by `configured`, because an
+        # unchecked claim rendered as a fact is the thing this product exists to
+        # prevent. `registry.provider()` is what answers it, once, when a
+        # feature actually needs a model.
+        "configured": configured,
+        "provider": chosen["provider"] if configured else None,
+        "model": chosen["model"],
+        "source": chosen["source"],
+        "reachable": None,
+        "note": (None if configured
+                 else "No model provider is configured yet."),
+        "reachability_note": ("Selected, but not contacted from here — this "
+                              "endpoint is polled and probing would cost a "
+                              "round trip." if configured else None),
+    }
+
+
+@app.get("/api/system/packs/{name}")
+def pack_state(name: str) -> dict[str, Any]:
+    """One pack: whether it is here, and how an install of it is going."""
+    if name not in extras.BY_NAME:
+        raise HTTPException(status_code=404, detail=f"No feature pack {name!r}.")
+    state = dict(extras.availability()[name])
+    progress = extras.install_status(name)
+    state["install_state"] = progress.state if progress else None
+    state["install_detail"] = progress.detail if progress else None
+    return state
+
+
+@app.post("/api/system/packs/{name}/install", status_code=202)
+def install_pack(name: str) -> dict[str, Any]:
+    """Turn a capability on, from the screen that reported it missing.
+
+    **202 and not 200.** Some of these are gigabytes — `speech` pulls in torch —
+    and a request that waits for pip to finish times out long before it does,
+    telling the researcher the install failed while it is still running. So this
+    starts the work and hands back somewhere to watch it.
+
+    **The name is a lookup, never a command.** `extras.BY_NAME` is an allowlist
+    of nine literals; anything else is a 404 that never reaches pip. This is the
+    one endpoint in the product that could otherwise turn a path parameter into
+    package installation, which is the whole machine rather than one record —
+    the same reasoning `connector-sdk/papers.py` applies to a URL it is asked to
+    fetch.
+
+    Not authenticated, like the rest of the local surface: the API binds to
+    localhost and the product is one researcher on one machine. That is the
+    reason this is acceptable and also the reason the allowlist is not optional,
+    because "localhost only" is exactly what a page in the researcher's own
+    browser already satisfies.
+    """
+    if name not in extras.BY_NAME:
+        raise HTTPException(status_code=404, detail=f"No feature pack {name!r}.")
+    if extras.installed(extras.BY_NAME[name]):
+        return {"pack": name, "install_state": "installed",
+                "install_detail": "Already here; nothing to do."}
+    record = extras.install_in_background(name)
+    return {"pack": name, "install_state": record.state,
+            "install_detail": record.detail,
+            "watch": f"/api/system/packs/{name}"}
 
 
 def _dataset_formats() -> dict[str, Any]:

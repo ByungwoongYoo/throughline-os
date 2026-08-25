@@ -59,7 +59,7 @@ the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **1341 backend tests and 1269 web tests**, with 13 backend
+The current suite is **1365 backend tests and 1276 web tests**, with 13 backend
 skips. Nine carry a reason CI's allowlist recognises — a skip with an
 unrecognised reason fails the build, so the suite cannot quietly shrink. The
 other four are the speech tests, whose reason (`openai-whisper is not
@@ -192,6 +192,25 @@ the Node download for a deliberately headless install.
 
 PostgreSQL is **not** a prerequisite — `pgserver` bundles a real PostgreSQL with
 pgvector as a Python wheel and runs it against a local data directory.
+
+### Feature packs
+
+The base install carries what every researcher needs. Nine further capabilities
+are optional, reported by `/api/system/capabilities`, and installable from
+Settings — or by hand, since the screen shows the command next to the button:
+
+```bash
+pip install 'throughline-domain[speech]'
+```
+
+Each one states what is **withheld** without it rather than only what it adds,
+and its approximate size. That matters most for `speech`, which pulls in torch
+and is gigabytes where everything else on the list is tens of megabytes.
+
+None of them is needed to open your work, run an analysis, or read a paper. A
+capability that is off is reported as *"needs the X extra"* and never as
+unavailable-and-unexplained — the same rule `datasets.py` has always applied to
+file formats, now applied to all of them.
 
 Linux, macOS and Windows. The analysis sandbox was POSIX-only until it grew a
 Windows backend built on Job Objects; see `services/scientific-runtime`.
