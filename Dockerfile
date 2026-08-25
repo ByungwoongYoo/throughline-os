@@ -53,7 +53,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # the runtime stage if the last file in `public/` is ever removed.
 RUN mkdir -p public
 
-RUN npm run build
+# Exported to `out/`, not `.next`: the runtime stage serves these files
+# directly and never runs a Node process.
+RUN NEXT_DIST_DIR=out npm run build
 
 
 FROM --platform=linux/amd64 python:3.12-slim AS runtime
@@ -91,11 +93,11 @@ RUN pip install --no-cache-dir --upgrade pip \
 
 # Node for the web interface. Without it the API still runs and §123 makes the
 # interface report itself unavailable rather than pretending.
-COPY --from=web /build/.next ./apps/web/.next
-COPY --from=web /build/public ./apps/web/public
-COPY --from=web /build/package.json ./apps/web/package.json
-COPY --from=web /build/node_modules ./apps/web/node_modules
-COPY --from=node:22-slim /usr/local/bin/node /usr/local/bin/node
+# The exported interface, and nothing else. This used to copy node_modules and
+# the node binary as well, because the interface was a `next start` process; it
+# is now a folder of files the API serves, so the image carries neither a second
+# language runtime nor its dependency tree.
+COPY --from=web /build/out ./apps/web/out
 
 COPY scripts ./scripts
 RUN chmod +x scripts/*.sh && chown -R throughline:throughline /app
@@ -116,7 +118,8 @@ ENV THROUGHLINE_HOME=/data \
 # Research lives here. Losing it with the container is not an acceptable default.
 VOLUME ["/data"]
 
-EXPOSE 8080 3000
+# One port. The interface and the API share an origin by construction.
+EXPOSE 8080
 
 # Readiness, not liveness: the endpoint returns 200 while degraded on purpose,
 # because a workspace with no model still does everything deterministic and

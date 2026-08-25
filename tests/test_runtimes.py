@@ -383,35 +383,43 @@ def test_no_node_anywhere_is_none(monkeypatch):
     assert manage._node_on_path() is None
 
 
-def test_an_adequate_node_is_not_downloaded_again(monkeypatch, tmp_path):
-    """200 MB to duplicate a working tool is not a kindness."""
-    existing = str(tmp_path / "node")
-    monkeypatch.delenv("THROUGHLINE_SKIP_NODE", raising=False)
-    monkeypatch.setattr(manage, "_node_on_path", lambda: existing)
-    monkeypatch.setattr(manage, "_node_major", lambda _binary: 22)
+def test_an_already_built_interface_needs_no_node_at_all(monkeypatch, tmp_path):
+    """The case a release should arrive in.
+
+    The interface is now exported files rather than a Node process, so an
+    install that already has them is a Python install — nothing should fetch a
+    204 MB runtime to serve a folder.
+    """
+    monkeypatch.setattr(manage, "ROOT", tmp_path)
+    built = tmp_path / "apps" / "web" / "out"
+    built.mkdir(parents=True)
+    (built / "index.html").write_text("<html></html>")
 
     def refuse(*_a, **_k):
-        raise AssertionError("downloaded a Node that was already here")
+        raise AssertionError("fetched Node for an interface that already exists")
 
     monkeypatch.setattr(manage.runtimes, "ensure", refuse)
-    assert manage._ensure_node_for_the_interface(log=lambda *_: None) == existing
+    assert manage._ensure_interface(log=lambda *_: None) is True
 
 
-def test_the_node_fetch_can_be_declined(monkeypatch):
+def test_building_the_interface_can_be_declined(monkeypatch, tmp_path):
+    monkeypatch.setattr(manage, "ROOT", tmp_path)
     monkeypatch.setenv("THROUGHLINE_SKIP_NODE", "1")
 
     def refuse(*_a, **_k):
         raise AssertionError("fetched Node despite THROUGHLINE_SKIP_NODE")
 
     monkeypatch.setattr(manage.runtimes, "ensure", refuse)
-    assert manage._ensure_node_for_the_interface(log=lambda *_: None) is None
+    assert manage._ensure_interface(log=lambda *_: None) is False
 
 
-def test_a_failed_node_fetch_does_not_fail_the_bootstrap(monkeypatch):
+def test_a_failed_interface_build_does_not_fail_the_bootstrap(monkeypatch,
+                                                              tmp_path):
     """It runs after the database migration. Raising here would throw away a
-    completed migration over an optional download, and the API is genuinely
-    usable headless — `serve.sh` already says so when Node is missing.
+    completed migration over an interface the API reports the absence of anyway,
+    with the command that fixes it.
     """
+    monkeypatch.setattr(manage, "ROOT", tmp_path)
     monkeypatch.delenv("THROUGHLINE_SKIP_NODE", raising=False)
     monkeypatch.setattr(manage, "_node_on_path", lambda: None)
 
@@ -419,7 +427,7 @@ def test_a_failed_node_fetch_does_not_fail_the_bootstrap(monkeypatch):
         raise manage.runtimes.RuntimeError_("no network")
 
     monkeypatch.setattr(manage.runtimes, "ensure", fail)
-    assert manage._ensure_node_for_the_interface(log=lambda *_: None) is None
+    assert manage._ensure_interface(log=lambda *_: None) is False
 
 
 def test_the_managed_node_is_a_candidate(monkeypatch, tmp_path):

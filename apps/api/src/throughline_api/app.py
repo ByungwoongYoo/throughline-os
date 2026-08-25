@@ -3762,3 +3762,29 @@ async def unhandled(request: Request, exc: Exception) -> JSONResponse:
 from .interpretation import router as interpretation_router  # noqa: E402
 
 app.include_router(interpretation_router)
+
+
+# ---------------------------------------------------------------------------
+# The interface
+# ---------------------------------------------------------------------------
+#
+# Last in the file, and that placement is the whole mechanism. FastAPI matches
+# routes in registration order, so a catch-all declared here is reached only by
+# requests that no real route claimed — `/api/...`, `/health` and the router
+# above are all matched by their own handlers first. Declared any earlier and it
+# would shadow them, which fails as an API endpoint mysteriously returning HTML.
+#
+# `interpretation_router` is included above this for the same ordering reason.
+
+from .interface import response_for  # noqa: E402
+
+
+@app.get("/{path:path}", include_in_schema=False)
+def interface_files(path: str) -> Response:
+    """Serve the exported interface, so the browser has one origin.
+
+    `include_in_schema=False` because a catch-all in the OpenAPI document is
+    noise: it matches everything and documents nothing, and `/docs` is a surface
+    a researcher reads.
+    """
+    return response_for(path)

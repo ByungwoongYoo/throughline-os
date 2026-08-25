@@ -204,47 +204,71 @@ def bootstrap() -> int:
                     "from throughline_domain.migrate import migrate;"
                     " print('applied:', migrate() or 'nothing new')"], check=True)
 
-    _ensure_node_for_the_interface()
+    _ensure_interface()
     print("\nReady. Start the stack with:  python scripts/manage.py dev")
     return 0
 
 
-def _ensure_node_for_the_interface(log=print) -> str | None:
-    """Make sure something on this machine can run the interface.
+def _ensure_interface(log=print) -> bool:
+    """Make sure there is an interface for the API to serve.
 
-    Node is a *runtime* dependency here, not just a build one: `serve.sh` starts
-    `next start`, and without it the API and the worker come up and the researcher
-    gets a warning line instead of a product. Shipping Python and not Node would
-    have produced an install that starts and cannot be used, which is a worse
-    outcome than the one this task set out to fix.
+    Node used to be a *runtime* dependency: `serve.sh` started `next start`, and
+    without it the researcher got a warning line instead of a product — so
+    bootstrap fetched a 204 MB runtime onto every machine. The interface is now
+    an exported folder of files the API serves itself, which changes what this
+    function is for. Node is needed to **build** that folder and for nothing
+    else.
 
-    Three deliberate choices. **Skipped when an adequate node is already here** —
-    a 200 MB download to duplicate a working tool is not a kindness. **Not
-    fatal**: the API is genuinely useful headless, `serve.sh` already degrades
-    honestly, and a failed optional download should not throw away a
-    just-completed database migration. **Opt-out via THROUGHLINE_SKIP_NODE**,
-    for the container, which installs Node its own way, and for anyone
-    deliberately running headless.
+    Hence the order. **An already-built interface needs no Node at all**, which
+    is the case a release should arrive in: ship the exported files and the
+    install is a Python install. Only a source checkout has to build one, and
+    only then is a runtime fetched.
+
+    Not fatal when it cannot be done. The API and worker are genuinely useful
+    headless, `serve.sh` says so, and the interface itself answers 503 naming
+    the command that fixes it rather than showing a blank page.
     """
+    if (ROOT / "apps" / "web" / "out" / "index.html").is_file():
+        log("  Interface already built — nothing to do.")
+        return True
+
     if os.environ.get("THROUGHLINE_SKIP_NODE"):
-        log("  skipping Node (THROUGHLINE_SKIP_NODE is set) — API only.")
-        return None
+        log("  Skipping the interface (THROUGHLINE_SKIP_NODE is set) — API only.")
+        return False
 
-    existing = _node_on_path()
-    if existing is not None:
-        major = _node_major(existing)
-        if major is not None and major >= NODE_MINIMUM:
-            log(f"  Node {major} already here ({existing}) — not fetching one.")
-            return existing
+    node = _node_on_path()
+    major = _node_major(node) if node else None
+    if node is None or major is None or major < NODE_MINIMUM:
+        try:
+            node = str(runtimes.ensure("node", log=log))
+        except runtimes.RuntimeError_ as error:
+            log(f"\n  No interface built — Node {NODE_MINIMUM}+ is needed to "
+                f"build one and could not be fetched: {error}")
+            log("  The API and worker will run. Build it later with:")
+            log("    python scripts/manage.py build-interface")
+            return False
 
-    try:
-        node = runtimes.ensure("node", log=log)
-    except runtimes.RuntimeError_ as error:
-        log(f"\n  Could not fetch Node: {error}")
-        log("  The API and worker will run; the web interface will not.")
-        return None
-    log(f"  Node ready at {node}")
-    return str(node)
+    web = ROOT / "apps" / "web"
+    environment = dict(os.environ)
+    environment["PATH"] = str(Path(node).parent) + os.pathsep + environment.get("PATH", "")
+
+    if not (web / "node_modules").is_dir():
+        # Said out loud because it is the largest single download in the whole
+        # install and it is *temporary*: these are build dependencies, and a
+        # release that ships the exported files needs none of them.
+        log("  Installing the interface's build dependencies (a few hundred MB,")
+        log("  needed only to build it — a release ships it already built)…")
+        result = subprocess.run([node_exe(node, "npm"), "ci", "--no-audit",
+                                 "--no-fund"], cwd=str(web), env=environment)
+        if result.returncode != 0:
+            log("  Could not install them; the interface will not be available.")
+            return False
+
+    log("  Building the interface…")
+    if build_interface() != 0:
+        log("  The interface did not build. The API and worker still run.")
+        return False
+    return True
 
 
 def start(api_port: int, web_port: int) -> int:
@@ -280,6 +304,61 @@ def start(api_port: int, web_port: int) -> int:
         return code
     print("\nSetup finished. Starting…\n", flush=True)
     return dev(api_port, web_port)
+
+
+def build_interface() -> int:
+    """Export the interface to `apps/web/out`, where the API serves it from.
+
+    One command, because the destination matters and is not the default. A
+    static export is written to whatever `distDir` says, and `distDir` defaults
+    to `.next` — which is also where `next dev` keeps its working files. Building
+    into `.next` would leave the API serving a dev server's scratch space rather
+    than an exported site, and the symptom is a blank page rather than an error.
+
+    **Node is needed here and nowhere else.** This is the one step that requires
+    it, and it is a step somebody runs before shipping rather than something a
+    researcher's machine has to do — which is the whole reason a second language
+    runtime no longer has to be fetched, checksummed and updated on every
+    install.
+    """
+    node = _node_on_path()
+    if node is None:
+        print("Building the interface needs Node 20+, which is not installed.\n"
+              "  This is a build step, not something an installed copy does —\n"
+              "  a release ships the exported files and needs no Node at all.",
+              file=sys.stderr)
+        return 1
+    major = _node_major(node)
+    if major is not None and major < NODE_MINIMUM:
+        print(f"Node {major} is too old to build the interface; "
+              f"{NODE_MINIMUM}+ is required.", file=sys.stderr)
+        return 1
+
+    web = ROOT / "apps" / "web"
+    environment = dict(os.environ)
+    environment["PATH"] = str(Path(node).parent) + os.pathsep + environment.get("PATH", "")
+    environment["NEXT_DIST_DIR"] = "out"
+    environment["NEXT_TELEMETRY_DISABLED"] = "1"
+
+    print("Exporting the interface to apps/web/out …", flush=True)
+    result = subprocess.run([node_exe(node, "npm"), "run", "build"],
+                            cwd=str(web), env=environment)
+    if result.returncode != 0:
+        return result.returncode
+
+    # Checked rather than trusted. `npm run build` exits 0 having compiled and
+    # then failed to export more than once in this codebase's short history, and
+    # an empty `out/` is served as a 503 much later — by which point the person
+    # reading it is debugging the API rather than the build.
+    index = web / "out" / "index.html"
+    if not index.is_file():
+        print(f"\nThe build reported success but {index} is not there.",
+              file=sys.stderr)
+        return 1
+    size = sum(f.stat().st_size for f in (web / "out").rglob("*") if f.is_file())
+    print(f"\nInterface exported: {size / 1_000_000:.0f} MB in apps/web/out")
+    print("The API serves it; nothing needs Node to run it.")
+    return 0
 
 
 def desktop_entry() -> int:
@@ -1235,6 +1314,8 @@ def main() -> int:
     run = sub.add_parser("dev", help="run the API, a worker and the web interface")
     run.add_argument("--api-port", type=int, default=int(os.environ.get("PORT", 8080)))
     run.add_argument("--web-port", type=int, default=int(os.environ.get("WEB_PORT", 3000)))
+    sub.add_parser("build-interface",
+                   help="export the web interface for the API to serve")
     sub.add_parser("desktop-entry",
                    help="add Throughline to the Linux applications menu")
     sub.add_parser("sync", help="fetch, and show what everyone else is working on")
@@ -1257,6 +1338,8 @@ def main() -> int:
         return preflight(args.full)
     if args.command == "start":
         return start(args.api_port, args.web_port)
+    if args.command == "build-interface":
+        return build_interface()
     if args.command == "desktop-entry":
         return desktop_entry()
     return dev(args.api_port, args.web_port)

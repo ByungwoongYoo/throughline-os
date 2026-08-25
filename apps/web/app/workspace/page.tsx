@@ -20,7 +20,6 @@ import { Gallery } from "@/components/gallery";
 import { EmbeddingSpace } from "@/components/embeddingspace";
 import { ProjectMenu } from "@/components/ProjectMenu";
 import { AccountMenu, SignedInUser } from "@/components/AccountMenu";
-import { IconPlus, IconSpark } from "@/components/icons";
 import { FirstProject, NewProject } from "@/components/FirstProject";
 import { DataSearch } from "@/components/datasearch";
 import { Compare } from "@/components/compare";

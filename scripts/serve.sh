@@ -9,7 +9,6 @@ set -euo pipefail
 cd -P -- "${BASH_SOURCE[0]%/*}/.."
 
 PORT="${PORT:-8080}"
-WEB_PORT="${WEB_PORT:-3000}"
 
 # Checks then migrations, in one process — see throughline_domain/preflight.py.
 # The check runs first because migration 0001 is where an ARM host fails, and
@@ -28,12 +27,17 @@ API=$!
 # while ingestion silently stops.
 trap 'kill "$WORKER" "$API" 2>/dev/null || true' EXIT INT TERM
 
-if command -v node >/dev/null 2>&1 && [ -d apps/web/.next ]; then
-  (cd apps/web && THROUGHLINE_API="http://127.0.0.1:${PORT}" \
-     node node_modules/next/dist/bin/next start --port "${WEB_PORT}") &
-  WEB=$!
-  wait -n "$WORKER" "$API" "$WEB"
-else
-  echo '{"level":"warn","message":"web interface unavailable — Node is missing"}'
-  wait -n "$WORKER" "$API"
+# The interface is served by the API, from one port, and there is no third
+# process. It used to be `next start` on port 3000 with the Next server proxying
+# /api back here, because the session cookie is SameSite=strict and a
+# cross-origin call drops it silently. Serving the exported files from the API
+# makes that same-origin by construction instead of by configuration — and it
+# removes Node from the running product entirely.
+if [ ! -f apps/web/out/index.html ]; then
+  # Not fatal: the API and worker are genuinely useful headless, and saying so
+  # beats a blank page. The image builds this in, so seeing it means something
+  # went wrong in the build rather than on this machine.
+  echo '{"level":"warn","message":"no interface built — API only. Run: python scripts/manage.py build-interface"}'
 fi
+
+wait -n "$WORKER" "$API"

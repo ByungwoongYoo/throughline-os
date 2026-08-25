@@ -59,7 +59,7 @@ the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **1365 backend tests and 1276 web tests**, with 13 backend
+The current suite is **1386 backend tests and 1276 web tests**, with 13 backend
 skips. Nine carry a reason CI's allowlist recognises — a skip with an
 unrecognised reason fails the build, so the suite cannot quietly shrink. The
 other four are the speech tests, whose reason (`openai-whisper is not
@@ -181,14 +181,36 @@ What it fetches, and why it cannot just use yours:
   `python-build-standalone`, verified against a checksum committed to this
   repository, and the bootstrap re-executes itself under it. If your machine
   already has 3.12, that one is used and nothing is downloaded.
-- **Node 20+**, because `serve.sh` runs `next start` — the interface is a Node
-  process at runtime, not only at build time. Fetched the same way, and skipped
-  when the machine already has one new enough. The API and workers run without
-  it; `serve.sh` says so plainly rather than appearing to start.
+- **Node 20+ — but only to *build* the interface, never to run it.** The
+  interface is exported to a folder of HTML, CSS and JavaScript that the API
+  serves itself, so a copy that already has it built needs no Node at all. A
+  source checkout builds one during bootstrap and fetches Node to do it; that
+  is the only reason it is ever downloaded, and it is not needed again.
 
 Both land in `~/.throughline-os/runtimes`, versioned, so an update can be walked
 back. `THROUGHLINE_RUNTIME_DIR` moves them; `THROUGHLINE_SKIP_NODE=1` declines
 the Node download for a deliberately headless install.
+
+### One process, one port
+
+The API serves the interface as well as answering it, on **port 8080**. There is
+no second server.
+
+That is not tidiness. The session cookie is `httpOnly` and `SameSite=strict`, so
+a cross-origin request drops it *silently* — no error, just a researcher who
+appears logged out. Serving both from one process makes same-origin true by
+construction rather than by a proxy rule somebody has to keep correct.
+
+`next dev` still runs on port 3000 during development, with its own proxy, so
+hot reload is unaffected. Only the shipped product changed.
+
+```bash
+python scripts/manage.py build-interface
+```
+
+Exports the interface to `apps/web/out`, which is what the API serves. If it is
+missing, every page answers 503 naming that command rather than showing a blank
+screen.
 
 PostgreSQL is **not** a prerequisite — `pgserver` bundles a real PostgreSQL with
 pgvector as a Python wheel and runs it against a local data directory.
