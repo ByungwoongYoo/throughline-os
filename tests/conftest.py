@@ -196,7 +196,21 @@ def _fresh_model_provider():
     file order. Cheap to reset, and the alternative is an order-dependent suite.
     """
     import throughline_model
+    from throughline_model import registry
 
+    # The cache was only half the shared state. `registry.configure()` — which
+    # `PUT /api/system/models` calls — writes a module-level `_override` that
+    # takes precedence over the environment and nothing ever cleared, so one
+    # test choosing a model in the interface pinned the selection for every test
+    # that ran after it in file order.
+    #
+    # It stayed invisible while `/api/system/capabilities` reported `configured`
+    # as a hardcoded `False`: the endpoint could not disagree with anything.
+    # Wiring it to the registry surfaced the leak immediately, as an
+    # order-dependent failure in a test that passed on its own. Recorded as D037.
+    before = dict(registry._override)
     throughline_model.provider(refresh=True)
     yield
+    registry._override.clear()
+    registry._override.update(before)
     throughline_model.provider(refresh=True)

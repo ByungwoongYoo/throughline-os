@@ -212,6 +212,296 @@ function Accounts() {
   );
 }
 
+type Pack = {
+  installed: boolean;
+  distribution: string;
+  enables: string;
+  withheld_without_it: string;
+  approximate_size: string;
+  install: string | null;
+  install_state?: "running" | "installed" | "failed" | null;
+  install_detail?: string | null;
+};
+
+/**
+ * The capabilities this installation does not have, and how to turn them on.
+ *
+ * The base install carries what every researcher needs. Everything else is an
+ * extra, and until now four of them — the graph driver, local transcription,
+ * figure digitising and the hosted model client — were undiscoverable except by
+ * trying them and reading an error.
+ *
+ * Two things this screen refuses to do.
+ *
+ * **It does not say only what you would gain.** Every pack states what is
+ * *withheld* without it, because "semantic search unavailable" is a fact about
+ * the software and "search finds the word and not the meaning" is a fact about
+ * your results — and only the second tells you whether the download is worth
+ * it. Several of these are genuinely optional for most people, and a screen
+ * that reads like an upsell earns less trust than one that says "you probably
+ * do not need this".
+ *
+ * **It does not hide the size.** `speech` pulls in torch, which is gigabytes —
+ * an order of magnitude more than everything else here combined. A researcher
+ * on a metered connection is entitled to know that before the progress bar
+ * starts rather than after.
+ *
+ * The command is shown next to the button on purpose. The button is the
+ * convenience; the command is what somebody can run, read, paste into an issue,
+ * or use when the button fails on a machine we cannot see.
+ */
+export function FeaturePacks() {
+  const [packs, setPacks] = useState<Record<string, Pack> | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
+
+  useEffect(() => {
+    api.get<{ packs: Record<string, Pack> }>("/api/system/capabilities")
+      .then((c) => setPacks(c.packs))
+      .catch(setError);
+  }, []);
+
+  /**
+   * Start an install, then watch it.
+   *
+   * Polled rather than awaited: pip installing torch takes minutes, and a
+   * request held open that long is a timeout reported to the researcher as a
+   * failure while the install is still running perfectly well.
+   */
+  async function install(name: string) {
+    setBusy(name);
+    setError(null);
+    try {
+      await api.post(`/api/system/packs/${name}/install`);
+      const poll = window.setInterval(async () => {
+        try {
+          const state = await api.get<Pack>(`/api/system/packs/${name}`);
+          setPacks((current) =>
+            current ? { ...current, [name]: { ...current[name], ...state } } : current);
+          if (state.install_state !== "running") {
+            window.clearInterval(poll);
+            setBusy(null);
+          }
+        } catch (err) {
+          window.clearInterval(poll);
+          setError(err);
+          setBusy(null);
+        }
+      }, 3000);
+    } catch (err) {
+      setError(err);
+      setBusy(null);
+    }
+  }
+
+  if (!packs) return null;
+
+  const entries = Object.entries(packs);
+  const absent = entries.filter(([, pack]) => !pack.installed);
+
+  return (
+    <section className="set-section">
+      <h2>Feature packs</h2>
+      <p className="set-sub">
+        {absent.length === 0
+          ? "Every optional capability is installed on this machine."
+          : `${absent.length} of ${entries.length} optional capabilities are not `
+            + "installed here. Each one is genuinely optional — nothing below is "
+            + "needed to open your work, run an analysis, or read a paper."}
+      </p>
+
+      <ul className="set-packs">
+        {entries.map(([name, pack]) => (
+          <li key={name} data-installed={pack.installed}>
+            <div className="set-pack-head">
+              <strong>{name}</strong>
+              <span className="set-pack-state">
+                {pack.installed ? "installed" : pack.approximate_size}
+              </span>
+            </div>
+            <p>{pack.enables}</p>
+            {!pack.installed && (
+              <p className="set-note">Without it: {pack.withheld_without_it}</p>
+            )}
+
+            {!pack.installed && (
+              <div className="set-pack-actions">
+                <button
+                  type="button"
+                  onClick={() => install(name)}
+                  disabled={busy !== null || pack.install_state === "running"}
+                >
+                  {pack.install_state === "running" || busy === name
+                    ? "Installing…"
+                    : "Install"}
+                </button>
+                {/* Shown beside the button, not instead of it: the command is
+                    what somebody can read, paste into an issue, or fall back to
+                    when the button fails on a machine nobody can see. */}
+                {pack.install && <code>{pack.install}</code>}
+              </div>
+            )}
+
+            {pack.install_state === "running" && (
+              <p className="set-note">
+                This can take several minutes, and longer for anything that
+                pulls in a machine-learning runtime. You can leave this page.
+              </p>
+            )}
+            {pack.install_state === "failed" && (
+              <p className="set-error" role="alert">
+                {pack.install_detail || "The install did not finish."}
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
+
+      {error != null && (
+        <p className="set-error" role="alert">
+          {error instanceof Error ? error.message : "Could not read capabilities."}
+        </p>
+      )}
+    </section>
+  );
+}
+
+type Version = {
+  version: string | null;
+  source: "release" | "checkout" | "unknown";
+  commit: string | null;
+  modified: boolean;
+  note: string;
+};
+
+type UpdateCheck = {
+  checked: boolean;
+  reason?: string;
+  channel?: string;
+  following?: string;
+  behind?: number;
+  ahead?: number;
+  update_available?: boolean;
+  how?: string | null;
+};
+
+/**
+ * Which version this is, and whether there is a newer one.
+ *
+ * Two things this screen is careful about.
+ *
+ * **It never checks on its own.** T073's first line is "never automatic", and
+ * an effect that checked on mount would quietly make it automatic — every visit
+ * to Settings becoming a network request, and eventually a habit nobody
+ * remembers agreeing to. The version itself is shown immediately because that
+ * costs nothing; asking GitHub happens when somebody asks.
+ *
+ * **It distinguishes "up to date" from "I could not ask".** Those look
+ * identical on a screen and only one of them means what it says. A researcher
+ * on a train who is told they are up to date has been told something false.
+ *
+ * The command is shown rather than an Update button, and that is not timidity:
+ * applying an update replaces the code the API process is running from, so it
+ * cannot be done from inside that process. A button that appeared to do it
+ * would have to lie about when it had finished.
+ */
+export function VersionPanel() {
+  const [version, setVersion] = useState<Version | null>(null);
+  const [check, setCheck] = useState<UpdateCheck | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  useEffect(() => {
+    api.get<Version>("/api/system/version").then(setVersion).catch(setError);
+  }, []);
+
+  async function checkNow() {
+    setChecking(true);
+    setError(null);
+    setCheck(null);
+    try {
+      setCheck(await api.post<UpdateCheck>("/api/system/version/check"));
+    } catch (err) {
+      setError(err);
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  if (!version) return null;
+
+  return (
+    <section className="set-section">
+      <h2>Version</h2>
+      <p className="set-sub">
+        Which version produced a result is part of that result. `main` on Tuesday
+        and `main` on Thursday are different software wearing one name.
+      </p>
+
+      <dl className="set-facts">
+        <div>
+          <dt>Running</dt>
+          <dd>{version.version ?? "unknown"}</dd>
+        </div>
+        <div>
+          <dt>Established from</dt>
+          <dd>
+            {version.source === "release" ? "a stamped release"
+              : version.source === "checkout" ? "the git checkout"
+              : "nothing — this installation cannot say"}
+          </dd>
+        </div>
+        {version.modified && (
+          <div>
+            <dt>Modified</dt>
+            <dd>uncommitted changes are present</dd>
+          </div>
+        )}
+      </dl>
+      <p className="set-note">{version.note}</p>
+
+      <div className="set-pack-actions">
+        <button type="button" onClick={checkNow} disabled={checking}>
+          {checking ? "Checking…" : "Check for updates"}
+        </button>
+      </div>
+
+      {check && !check.checked && (
+        /* Not "up to date". Saying so would be inventing an answer. */
+        <p className="set-note" role="status">
+          Could not check: {check.reason}
+        </p>
+      )}
+
+      {check?.checked && !check.update_available && (
+        <p className="set-note" role="status">
+          Up to date with {check.following} ({check.channel}).
+          {check.ahead ? ` This checkout is ${check.ahead} commit(s) ahead of it.` : ""}
+        </p>
+      )}
+
+      {check?.checked && check.update_available && (
+        <>
+          <p className="set-note" role="status">
+            {check.behind} update(s) available on {check.channel}. Updating backs
+            up your database first and puts the previous version back if anything
+            fails.
+          </p>
+          <div className="set-pack-actions">
+            <code>{check.how}</code>
+          </div>
+        </>
+      )}
+
+      {error != null && (
+        <p className="set-error" role="alert">
+          {error instanceof Error ? error.message : "Could not read the version."}
+        </p>
+      )}
+    </section>
+  );
+}
+
 export function Settings() {
   const [models, setModels] = useState<Models | null>(null);
   const [projection, setProjection] = useState<Projection | null>(null);
@@ -526,6 +816,10 @@ export function Settings() {
           <p className="set-note">{projection.note}</p>
         </section>
       )}
+
+      <VersionPanel />
+
+      <FeaturePacks />
 
       <Accounts />
 

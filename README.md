@@ -59,11 +59,13 @@ the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **1264 backend tests and 1273 web tests**, with 13 backend
+The current suite is **1408 backend tests and 1286 web tests**, with 13 backend
 skips. Nine carry a reason CI's allowlist recognises — a skip with an
 unrecognised reason fails the build, so the suite cannot quietly shrink. The
-other four are the speech tests, whose reason was never added to that allowlist;
-see D030 in `TASKS.md`.
+other four are the speech tests, whose reason (`openai-whisper is not
+installed`) was never added to that allowlist, so a dispatched run would fail on
+it; recorded as D030 in `TASKS.md` rather than fixed in passing, because editing
+`ci.yml` is itself a reason to dispatch.
 
 Those numbers are checked by `tests/test_readme_claims.py`, which collects the
 suite and compares. They were wrong before it existed — the file said 848 and
@@ -167,20 +169,87 @@ import.
 
 ## Requirements
 
-- Python **3.12** — not merely 3.12 or newer. `pgserver`, which provides the
-  embedded PostgreSQL, publishes no wheel past cp312, so 3.13 and 3.14 cannot
-  install the database. `bootstrap` checks this and says so rather than letting
-  pip fail obliquely.
-- Node 20+ *(for `apps/web`; if installed user-locally at `~/.local/opt/node`,
-  the launcher finds it. The API and workers run without it.)*
+**Any Python 3.8 or newer, and git.** That is the whole list, and it is short
+because the bootstrap now fetches what it actually runs on rather than asking
+you to.
+
+What it fetches, and why it cannot just use yours:
+
+- **Python 3.12 exactly** — not merely 3.12 or newer. `pgserver`, which provides
+  the embedded PostgreSQL, publishes no wheel past cp312, so 3.13 and 3.14
+  cannot install the database. A relocatable build is downloaded from
+  `python-build-standalone`, verified against a checksum committed to this
+  repository, and the bootstrap re-executes itself under it. If your machine
+  already has 3.12, that one is used and nothing is downloaded.
+- **Node 20+ — but only to *build* the interface, never to run it.** The
+  interface is exported to a folder of HTML, CSS and JavaScript that the API
+  serves itself, so a copy that already has it built needs no Node at all. A
+  source checkout builds one during bootstrap and fetches Node to do it; that
+  is the only reason it is ever downloaded, and it is not needed again.
+
+Both land in `~/.throughline-os/runtimes`, versioned, so an update can be walked
+back. `THROUGHLINE_RUNTIME_DIR` moves them; `THROUGHLINE_SKIP_NODE=1` declines
+the Node download for a deliberately headless install.
+
+### One process, one port
+
+The API serves the interface as well as answering it, on **port 8080**. There is
+no second server.
+
+That is not tidiness. The session cookie is `httpOnly` and `SameSite=strict`, so
+a cross-origin request drops it *silently* — no error, just a researcher who
+appears logged out. Serving both from one process makes same-origin true by
+construction rather than by a proxy rule somebody has to keep correct.
+
+`next dev` still runs on port 3000 during development, with its own proxy, so
+hot reload is unaffected. Only the shipped product changed.
+
+```bash
+python scripts/manage.py build-interface
+```
+
+Exports the interface to `apps/web/out`, which is what the API serves. If it is
+missing, every page answers 503 naming that command rather than showing a blank
+screen.
 
 PostgreSQL is **not** a prerequisite — `pgserver` bundles a real PostgreSQL with
 pgvector as a Python wheel and runs it against a local data directory.
+
+### Feature packs
+
+The base install carries what every researcher needs. Nine further capabilities
+are optional, reported by `/api/system/capabilities`, and installable from
+Settings — or by hand, since the screen shows the command next to the button:
+
+```bash
+pip install 'throughline-domain[speech]'
+```
+
+Each one states what is **withheld** without it rather than only what it adds,
+and its approximate size. That matters most for `speech`, which pulls in torch
+and is gigabytes where everything else on the list is tens of megabytes.
+
+None of them is needed to open your work, run an analysis, or read a paper. A
+capability that is off is reported as *"needs the X extra"* and never as
+unavailable-and-unexplained — the same rule `datasets.py` has always applied to
+file formats, now applied to all of them.
 
 Linux, macOS and Windows. The analysis sandbox was POSIX-only until it grew a
 Windows backend built on Job Objects; see `services/scientific-runtime`.
 
 ## Quick start
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SarthakPattnaik1/throughline-os/main/scripts/install.sh | sh
+```
+
+That clones the repository to `~/throughline-os` (override with
+`THROUGHLINE_INSTALL_DIR`) and runs the bootstrap. A terminal line rather than a
+download on purpose: the quarantine flag that triggers Gatekeeper and SmartScreen
+is set by the downloading browser, not by the operating system, so this path
+carries no security warning at all.
+
+From an existing clone, the bootstrap directly:
 
 ```bash
 ./scripts/bootstrap.sh
@@ -191,6 +260,32 @@ Then:
 ```bash
 ./scripts/dev.sh
 ```
+
+### Without a terminal
+
+`launchers/` holds one door per platform. Each sets up on first run and starts
+Throughline afterwards — they all call `python scripts/manage.py start`, so
+there is one install sequence rather than three that drift.
+
+| Platform | Double-click | First-run warning |
+|---|---|---|
+| macOS | `launchers/Throughline.command` | Gatekeeper — right-click, Open, once |
+| Windows | `launchers/Throughline.bat` | SmartScreen — More info, Run anyway, once |
+| Linux | `python scripts/manage.py desktop-entry`, then Throughline in the menu | none |
+
+The warnings are what being unsigned costs; signing removes them for roughly
+$100–500 a year, and is worth buying the first time a link goes to somebody
+nobody has spoken to. The `curl | sh` line above carries no warning at all,
+because quarantine is set by the downloading browser rather than by the
+operating system.
+
+**The window stays open while it installs.** A first run pulls several hundred
+megabytes, and behind a hidden window that is indistinguishable from a freeze.
+
+Linux gets a `.desktop` entry rather than an `.AppImage`: an AppImage is a
+squashfs image built by `appimagetool` around a bundled runtime, which is a
+build pipeline rather than a script in this repository. The entry is written
+rather than committed because it has to carry an absolute path.
 
 On Windows, or wherever bash is not the shell, call the launcher directly — the
 shell scripts are wrappers around it and there is no separate implementation to
@@ -227,6 +322,43 @@ New API surface goes in its **own router module** mounted with one line in
 `app.py`, rather than as more routes inside it. This is a merge decision, not an
 architectural one: `app.py` is the file two branches always both touch, and the
 last wave merged with zero conflicts because nothing new was added to it.
+
+## Updating
+
+```bash
+python scripts/manage.py update --check
+python scripts/manage.py update
+```
+
+Never automatic, and never from inside the running app — applying an update
+replaces the code the API process is executing, so it cannot swap itself out
+from underneath a request. Settings has a **Check for updates** button; it
+checks and then names this command.
+
+The order matters more than the mechanism, because the database is your only
+copy of your research:
+
+1. **Refuses on a dirty checkout.** Updating fast-forwards the working tree, and
+   uncommitted work is what this must not silently discard.
+2. **Backs up before anything changes** — database and object store in one
+   archive, since either without the other is useless.
+3. **Fast-forward only.** A merge could conflict, and a half-updated checkout is
+   worse than an old one.
+4. Reinstalls, rebuilds the interface, migrates — in that order, because a
+   migration may need code that arrived in the update.
+5. **Puts the previous version back if any of that fails**, and tells you where
+   the backup is. It does *not* restore the database for you: that is
+   destructive and would discard anything done since the backup, which is your
+   decision rather than the updater's.
+
+An installation follows `main` until somebody tags a release, and follows tags
+after that — one mechanism, not two.
+
+**A version this installation cannot state is a hole in its own provenance.**
+`main` on Tuesday and `main` on Thursday are different software wearing one
+name, so the version is reported along with *where that answer came from*: a
+stamped release, a git checkout, or nothing. A modified checkout says so, since
+it names something nobody else can obtain.
 
 ## Is this installation healthy?
 

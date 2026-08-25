@@ -19,6 +19,7 @@ virtualenv to install anything into.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -28,8 +29,20 @@ import sys
 import time
 from pathlib import Path
 
+import runtimes
+
 ROOT = Path(__file__).resolve().parent.parent
 WINDOWS = sys.platform == "win32"
+
+# Set on the child when this script re-executes itself under a fetched
+# interpreter. Without it a build whose fetched Python somehow reports the wrong
+# version would fetch and re-exec forever, which is a worse failure than the
+# refusal it replaced because it never returns.
+_REEXEC = "THROUGHLINE_BOOTSTRAP_REEXEC"
+
+# Below this, `next` will not start. Enforced rather than merely printed: a
+# bootstrap that ships Node is pointless if an older one on PATH shadows it.
+NODE_MINIMUM = 20
 
 # The floor every pyproject declares, and the ceiling pgserver imposes: it ships
 # the embedded PostgreSQL as a binary wheel and publishes none past cp312. Windows
@@ -75,19 +88,81 @@ def _venv_has_pip(root: Path = ROOT) -> bool:
                           capture_output=True).returncode == 0
 
 
+def _explain_the_version(want: str, have: str) -> None:
+    """Why 3.12 and not whatever this machine has. Printed only when we cannot
+    fix it ourselves — it is an explanation, not an instruction, now that the
+    normal path is to go and get the right one."""
+    print(f"Python {want} is required; this is {have} ({sys.executable}).",
+          file=sys.stderr)
+    print(f"\n  Every package here declares requires-python >= {want}, and"
+          f"\n  pgserver — which provides the embedded PostgreSQL — publishes"
+          f"\n  no wheel past cp{''.join(str(p) for p in REQUIRED_PYTHON)}."
+          f" Anything newer cannot install\n  the database."
+          f"\n\n  Run this with a {want} interpreter instead.", file=sys.stderr)
+
+
+def _venv_version(root: Path = ROOT) -> tuple[int, int] | None:
+    """The Python the existing virtualenv was built from, if it has one.
+
+    This became a question worth asking the moment the bootstrap could supply
+    its own interpreter. Before, the venv was always built by whatever ran this
+    script and the version could not drift; now a venv left by an earlier run
+    may have been built from a different Python entirely, and `_venv_has_pip`
+    would happily call it usable right up until an extension module fails to
+    import with a message about a symbol.
+    """
+    python = venv_python(root)
+    if not python.exists():
+        return None
+    result = subprocess.run(
+        [str(python), "-c",
+         "import sys; print(sys.version_info[0], sys.version_info[1])"],
+        capture_output=True, text=True)
+    if result.returncode != 0:
+        return None
+    try:
+        major, minor = result.stdout.split()
+        return int(major), int(minor)
+    except ValueError:
+        return None
+
+
 def bootstrap() -> int:
     version = sys.version_info[:2]
+    want = ".".join(str(part) for part in REQUIRED_PYTHON)
+    have = ".".join(str(part) for part in version)
+
     if version != REQUIRED_PYTHON:
-        want = ".".join(str(part) for part in REQUIRED_PYTHON)
-        have = ".".join(str(part) for part in version)
-        print(f"Python {want} is required; this is {have} ({sys.executable}).",
-              file=sys.stderr)
-        print(f"\n  Every package here declares requires-python >= {want}, and"
-              f"\n  pgserver — which provides the embedded PostgreSQL — publishes"
-              f"\n  no wheel past cp{''.join(str(p) for p in REQUIRED_PYTHON)}."
-              f" Anything newer cannot install\n  the database."
-              f"\n\n  Run this with a {want} interpreter instead.", file=sys.stderr)
-        return 1
+        if os.environ.get(_REEXEC):
+            # Fetched an interpreter, ran this under it, and it still is not the
+            # version it claims to be. Stopping is the only safe answer: the
+            # alternative is fetching the same thing again forever.
+            print(f"The fetched interpreter reports {have}, not {want}.",
+                  file=sys.stderr)
+            _explain_the_version(want, have)
+            return 1
+
+        print(f"This is Python {have}, and {want} is required.")
+        print("Fetching one rather than asking you to install it.\n")
+        try:
+            interpreter = runtimes.ensure("python")
+        except runtimes.RuntimeError_ as error:
+            print(f"\n{error}\n", file=sys.stderr)
+            _explain_the_version(want, have)
+            return 1
+
+        return subprocess.run(
+            [str(interpreter), str(Path(__file__).resolve()), "bootstrap"],
+            env={**os.environ, _REEXEC: "1"}).returncode
+
+    # A virtualenv built by a different interpreter is not reusable, and the
+    # symptom if it is reused is an import error naming a C symbol.
+    existing = _venv_version()
+    if existing is not None and existing != REQUIRED_PYTHON:
+        stale = ".".join(str(part) for part in existing)
+        print(f"Replacing the existing virtualenv: it was built from Python "
+              f"{stale}, and this is {have}.")
+        shutil.rmtree(ROOT / ".venv", ignore_errors=True)
 
     if not _venv_has_pip():
         shutil.rmtree(ROOT / ".venv", ignore_errors=True)
@@ -129,17 +204,415 @@ def bootstrap() -> int:
     subprocess.run([python, "-c",
                     "from throughline_domain.migrate import migrate;"
                     " print('applied:', migrate() or 'nothing new')"], check=True)
+
+    _ensure_interface()
     print("\nReady. Start the stack with:  python scripts/manage.py dev")
     return 0
 
 
-def _node_on_path() -> str | None:
-    """node, including the user-local location the repo installs it to."""
+def _ensure_interface(log=print) -> bool:
+    """Make sure there is an interface for the API to serve.
+
+    Node used to be a *runtime* dependency: `serve.sh` started `next start`, and
+    without it the researcher got a warning line instead of a product — so
+    bootstrap fetched a 204 MB runtime onto every machine. The interface is now
+    an exported folder of files the API serves itself, which changes what this
+    function is for. Node is needed to **build** that folder and for nothing
+    else.
+
+    Hence the order. **An already-built interface needs no Node at all**, which
+    is the case a release should arrive in: ship the exported files and the
+    install is a Python install. Only a source checkout has to build one, and
+    only then is a runtime fetched.
+
+    Not fatal when it cannot be done. The API and worker are genuinely useful
+    headless, `serve.sh` says so, and the interface itself answers 503 naming
+    the command that fixes it rather than showing a blank page.
+    """
+    if (ROOT / "apps" / "web" / "out" / "index.html").is_file():
+        log("  Interface already built — nothing to do.")
+        return True
+
+    if os.environ.get("THROUGHLINE_SKIP_NODE"):
+        log("  Skipping the interface (THROUGHLINE_SKIP_NODE is set) — API only.")
+        return False
+
+    node = _node_on_path()
+    major = _node_major(node) if node else None
+    if node is None or major is None or major < NODE_MINIMUM:
+        try:
+            node = str(runtimes.ensure("node", log=log))
+        except runtimes.RuntimeError_ as error:
+            log(f"\n  No interface built — Node {NODE_MINIMUM}+ is needed to "
+                f"build one and could not be fetched: {error}")
+            log("  The API and worker will run. Build it later with:")
+            log("    python scripts/manage.py build-interface")
+            return False
+
+    web = ROOT / "apps" / "web"
+    environment = dict(os.environ)
+    environment["PATH"] = str(Path(node).parent) + os.pathsep + environment.get("PATH", "")
+
+    if not (web / "node_modules").is_dir():
+        # Said out loud because it is the largest single download in the whole
+        # install and it is *temporary*: these are build dependencies, and a
+        # release that ships the exported files needs none of them.
+        log("  Installing the interface's build dependencies (a few hundred MB,")
+        log("  needed only to build it — a release ships it already built)…")
+        result = subprocess.run([node_exe(node, "npm"), "ci", "--no-audit",
+                                 "--no-fund"], cwd=str(web), env=environment)
+        if result.returncode != 0:
+            log("  Could not install them; the interface will not be available.")
+            return False
+
+    log("  Building the interface…")
+    if build_interface() != 0:
+        log("  The interface did not build. The API and worker still run.")
+        return False
+    return True
+
+
+def start(api_port: int, web_port: int) -> int:
+    """Install if this machine has not got it yet, then run. One command.
+
+    The launchers exist to be double-clicked by somebody who has never opened a
+    terminal, and what they need is not `bootstrap` or `dev` but "make it work".
+    Splitting that into two commands and a decision is exactly the step that
+    loses people, so the decision is made here — the same sequence `ROADMAP.md`
+    describes: detect an existing install, otherwise build one, then launch.
+
+    **The window stays visible while it installs**, and the message says how long
+    it will take. A first run downloads a relocatable Python, possibly Node, and
+    several hundred megabytes of wheels; behind a hidden window that is
+    indistinguishable from a freeze, and the person kills it at four minutes and
+    reports that it does not start.
+
+    The venv is checked for its *version*, not merely its existence, so an
+    install left behind by a different interpreter is rebuilt rather than used —
+    `bootstrap` knows how to do that, this only has to ask the question.
+    """
+    if _venv_has_pip() and _venv_version() == REQUIRED_PYTHON:
+        return dev(api_port, web_port)
+
+    print("First run — setting this up before starting it.")
+    print("It downloads a few hundred megabytes and takes a few minutes.")
+    print("Leave this window open; it will start on its own when it is done.\n",
+          flush=True)
+    code = bootstrap()
+    if code != 0:
+        print("\nSetup did not finish, so there is nothing to start yet.",
+              file=sys.stderr)
+        return code
+    print("\nSetup finished. Starting…\n", flush=True)
+    return dev(api_port, web_port)
+
+
+def _venv_json(python: Path, expression: str) -> dict | None:
+    """Ask the installed packages a question and get structured data back.
+
+    Through the virtualenv's interpreter, because that is where the product is
+    installed — `manage.py` itself is standard-library only and cannot import
+    any of it.
+    """
+    code = f"import json; {expression}"
+    result = subprocess.run([str(python), "-c", code], capture_output=True,
+                            text=True, cwd=str(ROOT))
+    if result.returncode != 0:
+        return None
+    try:
+        return json.loads(result.stdout)
+    except (ValueError, TypeError):
+        return None
+
+
+def update(check_only: bool) -> int:
+    """Update this installation, backing up first and reverting on failure.
+
+    **Never automatic, and this is the only thing that applies one.** An update
+    replaces the code the API process is executing, so it cannot be done from
+    inside that process — a running server cannot swap itself out from
+    underneath a request. The button in Settings checks and then names this
+    command; it does not run it.
+
+    The order is the whole design, and it is chosen around one fact: **the
+    database is the researcher's only copy of their research.**
+
+    1. Refuse on a dirty checkout. Updating fast-forwards the working tree, and
+       uncommitted work is exactly the thing this must not silently discard.
+    2. Back up before anything. `backup.sh` writes the database and the object
+       store into one archive, because either without the other is useless.
+    3. Fast-forward only. A merge or a rebase here could conflict, and a
+       half-updated checkout is a worse place to be than an old one.
+    4. Reinstall, rebuild, migrate — in that order, because a migration may
+       depend on code that arrived in this update.
+    5. On any failure after the code moved, put the code back and reinstall from
+       it, so the previous version runs again.
+
+    What it deliberately does **not** do is restore the database automatically.
+    Migrations are forward-only by construction and each runs in its own
+    transaction, so a failure leaves the schema at the last one that succeeded
+    rather than half-applied — and old code generally tolerates a newer schema.
+    Restoring is destructive and would throw away anything done since the backup,
+    which is a decision that belongs to the researcher. The command is printed
+    instead.
+    """
+    python = venv_python()
+    if not python.exists():
+        print("No virtualenv. Run bootstrap first.", file=sys.stderr)
+        return 1
+
+    state = _venv_json(
+        python, "from throughline_domain import updates;"
+                " print(json.dumps(updates.check()))")
+    if state is None:
+        print("Could not check for updates.", file=sys.stderr)
+        return 1
+
+    here = state["current"]
+    print(f"This installation: {here['version'] or 'unknown'} "
+          f"({here['source']})")
+
+    if not state.get("checked"):
+        print(f"\n{state['reason']}", file=sys.stderr)
+        # Not an error when only checking: "I could not ask" is a legitimate
+        # answer to a question, and exiting non-zero would make a button red.
+        return 0 if check_only else 1
+
+    print(f"Following: {state['following']} ({state['channel']})")
+    if state.get("ahead"):
+        print(f"  {state['ahead']} local commit(s) not on {state['channel']} — "
+              f"this checkout is ahead as well as behind.")
+
+    if not state["update_available"]:
+        print("\nUp to date.")
+        return 0
+
+    print(f"\n{state['behind']} update(s) available on {state['channel']}.")
+    if check_only:
+        print("Apply with:  python scripts/manage.py update")
+        return 0
+
+    dirty = _git("status", "--porcelain", check=False).strip()
+    if dirty:
+        print("\nThis checkout has uncommitted changes:", file=sys.stderr)
+        for line in dirty.splitlines()[:10]:
+            print(f"  {line}", file=sys.stderr)
+        print("\nUpdating fast-forwards the working tree, which would discard "
+              "them.\nCommit or stash them first.", file=sys.stderr)
+        return 1
+
+    before = _git("rev-parse", "HEAD").strip()
+    print(f"\nBacking up before anything changes (current: {before[:9]})…")
+    backup = subprocess.run([str(ROOT / "scripts" / "backup.sh")], cwd=str(ROOT))
+    if backup.returncode != 0:
+        print("\nThe backup failed, so nothing was updated. The database is "
+              "the only copy of your research and an update that cannot be "
+              "walked back is not one worth applying.", file=sys.stderr)
+        return backup.returncode
+
+    target = (f"refs/tags/{state['channel']}"
+              if state["following"] == "a release tag" else "origin/main")
+    print(f"\nUpdating to {state['channel']}…")
+    moved = subprocess.run(["git", "-C", str(ROOT), "merge", "--ff-only", target])
+    if moved.returncode != 0:
+        print("\nCould not fast-forward. Nothing was changed.", file=sys.stderr)
+        return moved.returncode
+
+    def put_it_back(why: str) -> int:
+        print(f"\n{why}", file=sys.stderr)
+        print(f"Putting the code back to {before[:9]} …", file=sys.stderr)
+        subprocess.run(["git", "-C", str(ROOT), "reset", "--hard", before],
+                       capture_output=True)
+        subprocess.run([str(python), "-m", "pip", "install", "-q", "-e",
+                        str(ROOT / "apps" / "api")], capture_output=True)
+        print("The previous version is in place again.", file=sys.stderr)
+        print("\nYour backup is in ~/throughline-backups. If the database "
+              "needs restoring too:", file=sys.stderr)
+        print("  ./scripts/restore.sh <archive.tar> --force", file=sys.stderr)
+        return 1
+
+    print("\nReinstalling packages…")
+    for package in PACKAGES:
+        result = subprocess.run([str(python), "-m", "pip", "install", "-q", "-e",
+                                 str(ROOT / package)])
+        if result.returncode != 0:
+            return put_it_back(f"Installing {package} failed.")
+
+    if (ROOT / "apps" / "web" / "out").exists() or _node_on_path():
+        print("\nRebuilding the interface…")
+        if build_interface() != 0:
+            return put_it_back("The interface did not rebuild.")
+
+    print("\nApplying migrations…")
+    migrated = subprocess.run(
+        [str(python), "-c",
+         "from throughline_domain.migrate import migrate;"
+         " print('applied:', migrate() or 'nothing new')"], cwd=str(ROOT))
+    if migrated.returncode != 0:
+        return put_it_back("A migration failed.")
+
+    after = _venv_json(python, "from throughline_domain import version;"
+                               " print(json.dumps(version.current()))")
+    print(f"\nUpdated to {after['version'] if after else 'a new version'}.")
+    print("Restart Throughline for it to take effect.")
+    return 0
+
+
+def build_interface() -> int:
+    """Export the interface to `apps/web/out`, where the API serves it from.
+
+    One command, because the destination matters and is not the default. A
+    static export is written to whatever `distDir` says, and `distDir` defaults
+    to `.next` — which is also where `next dev` keeps its working files. Building
+    into `.next` would leave the API serving a dev server's scratch space rather
+    than an exported site, and the symptom is a blank page rather than an error.
+
+    **Node is needed here and nowhere else.** This is the one step that requires
+    it, and it is a step somebody runs before shipping rather than something a
+    researcher's machine has to do — which is the whole reason a second language
+    runtime no longer has to be fetched, checksummed and updated on every
+    install.
+    """
+    node = _node_on_path()
+    if node is None:
+        print("Building the interface needs Node 20+, which is not installed.\n"
+              "  This is a build step, not something an installed copy does —\n"
+              "  a release ships the exported files and needs no Node at all.",
+              file=sys.stderr)
+        return 1
+    major = _node_major(node)
+    if major is not None and major < NODE_MINIMUM:
+        print(f"Node {major} is too old to build the interface; "
+              f"{NODE_MINIMUM}+ is required.", file=sys.stderr)
+        return 1
+
+    web = ROOT / "apps" / "web"
+    environment = dict(os.environ)
+    environment["PATH"] = str(Path(node).parent) + os.pathsep + environment.get("PATH", "")
+    environment["NEXT_DIST_DIR"] = "out"
+    environment["NEXT_TELEMETRY_DISABLED"] = "1"
+
+    print("Exporting the interface to apps/web/out …", flush=True)
+    result = subprocess.run([node_exe(node, "npm"), "run", "build"],
+                            cwd=str(web), env=environment)
+    if result.returncode != 0:
+        return result.returncode
+
+    # Checked rather than trusted. `npm run build` exits 0 having compiled and
+    # then failed to export more than once in this codebase's short history, and
+    # an empty `out/` is served as a 503 much later — by which point the person
+    # reading it is debugging the API rather than the build.
+    index = web / "out" / "index.html"
+    if not index.is_file():
+        print(f"\nThe build reported success but {index} is not there.",
+              file=sys.stderr)
+        return 1
+    size = sum(f.stat().st_size for f in (web / "out").rglob("*") if f.is_file())
+    print(f"\nInterface exported: {size / 1_000_000:.0f} MB in apps/web/out")
+    print("The API serves it; nothing needs Node to run it.")
+    return 0
+
+
+def desktop_entry() -> int:
+    """Put Throughline in the Linux applications menu, pointing at this checkout.
+
+    The Linux half of T071 asked for an `.AppImage`, and that is the one door on
+    the list that cannot be a script in this repository: an AppImage is a
+    squashfs image built by `appimagetool` around a bundled runtime — a build
+    artifact produced by a pipeline, not twenty lines somebody can read. What the
+    request actually wants is *a thing you double-click*, and on Linux that is a
+    `.desktop` entry; a double-clicked shell script has not run by default in
+    GNOME for years. Recorded as D033 so the substitution is visible rather than
+    quietly made.
+
+    Written rather than committed because it has to carry an **absolute path**,
+    which is not known until somebody clones this somewhere. That is also why it
+    is an explicit command and not a side effect of `bootstrap`: writing into a
+    user's applications menu is a thing to ask for, not to discover.
+    """
+    if sys.platform != "linux":
+        print("Desktop entries are a Linux thing. On macOS double-click "
+              "launchers/Throughline.command; on Windows, Throughline.bat.",
+              file=sys.stderr)
+        return 1
+
+    launcher = ROOT / "launchers" / "throughline.sh"
+    if not launcher.exists():
+        print(f"No launcher at {launcher}.", file=sys.stderr)
+        return 1
+
+    directory = Path.home() / ".local" / "share" / "applications"
+    directory.mkdir(parents=True, exist_ok=True)
+    target = directory / "throughline.desktop"
+
+    # Terminal=true is the point of the whole exercise: a first run installs
+    # several hundred megabytes, and behind a hidden window that is
+    # indistinguishable from a freeze.
+    target.write_text(
+        "[Desktop Entry]\n"
+        "Type=Application\n"
+        "Name=Throughline\n"
+        "Comment=A research workspace that keeps its provenance\n"
+        # Quoted per the Desktop Entry spec: an unquoted Exec is split on
+        # spaces, so a clone under "~/My Research/" becomes two arguments and
+        # the entry launches nothing, silently.
+        f'Exec="{launcher}"\n'
+        f"Path={ROOT}\n"
+        "Terminal=true\n"
+        "Categories=Science;Education;\n")
+    target.chmod(0o755)
+    print(f"Written {target}")
+    print("It points at this checkout, so moving the folder means running this "
+          "again.")
+    return 0
+
+
+def _node_major(binary: str) -> int | None:
+    """The major version of a node binary, or None if it will not answer."""
+    try:
+        result = subprocess.run([binary, "--version"], capture_output=True,
+                                text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    match = re.match(r"v(\d+)\.", result.stdout.strip())
+    return int(match.group(1)) if match else None
+
+
+def _node_candidates() -> list[str]:
+    """Every node this machine might use, best-known location first."""
+    candidates = []
     found = shutil.which("node")
     if found:
-        return found
-    local = Path.home() / ".local" / "opt" / "node" / "bin" / "node"
-    return str(local) if local.exists() else None
+        candidates.append(found)
+    # Where Phase 5 installed it by hand, before anything fetched it.
+    legacy = Path.home() / ".local" / "opt" / "node" / "bin" / "node"
+    if legacy.exists():
+        candidates.append(str(legacy))
+    try:
+        managed = runtimes.executable("node")
+    except runtimes.RuntimeError_:
+        managed = None
+    if managed is not None and managed.exists():
+        candidates.append(str(managed))
+    return candidates
+
+
+def _node_on_path() -> str | None:
+    """The first node new enough to run the interface, else the first we found.
+
+    Version, not just presence, because this is now a real fork: a machine may
+    carry an old node on PATH *and* the one the bootstrap fetched, and picking
+    by position rather than by capability would prefer the one that cannot
+    start `next`. Falling back to the first candidate keeps `doctor` honest —
+    "Node v18.4.0, too old" is a better report than "not found" about a node
+    that is plainly there.
+    """
+    candidates = _node_candidates()
+    for candidate in candidates:
+        major = _node_major(candidate)
+        if major is not None and major >= NODE_MINIMUM:
+            return candidate
+    return candidates[0] if candidates else None
 
 
 def _spawn(command: list[str], **kwargs: object) -> subprocess.Popen:
@@ -326,8 +799,15 @@ def dev(api_port: int, web_port: int) -> int:
                                THROUGHLINE_API=f"http://127.0.0.1:{api_port}",
                                PATH=os.pathsep.join(
                                    [str(Path(node).parent), os.environ.get("PATH", "")]))
+            # `node_exe`, not `shutil.which`: which() searches *this* process's
+            # PATH, which is not where the chosen node necessarily lives. On a
+            # machine carrying an old node on PATH and a fetched one under
+            # ~/.throughline-os/runtimes, that pairs the new node with the old
+            # npm — the same pick-by-position mistake `_node_on_path` fixes one
+            # level up, and it surfaces as an npm error about an engine
+            # constraint rather than as a version mismatch.
             children.append(_spawn(
-                [shutil.which("npm") or "npm", "run", "dev", "--",
+                [node_exe(node, "npm"), "run", "dev", "--",
                  "--port", str(web_port)],
                 cwd=str(ROOT / "apps" / "web"), env=environment))
         else:
@@ -979,9 +1459,21 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("bootstrap", help="create the virtualenv and install everything")
+    go = sub.add_parser("start", help="set up if needed, then run — what the "
+                                      "double-click launchers call")
+    go.add_argument("--api-port", type=int, default=8080)
+    go.add_argument("--web-port", type=int, default=3000)
     run = sub.add_parser("dev", help="run the API, a worker and the web interface")
     run.add_argument("--api-port", type=int, default=int(os.environ.get("PORT", 8080)))
     run.add_argument("--web-port", type=int, default=int(os.environ.get("WEB_PORT", 3000)))
+    sub.add_parser("build-interface",
+                   help="export the web interface for the API to serve")
+    up = sub.add_parser("update",
+                        help="update this installation, backing up first")
+    up.add_argument("--check", action="store_true",
+                    help="only say whether an update is available")
+    sub.add_parser("desktop-entry",
+                   help="add Throughline to the Linux applications menu")
     sub.add_parser("sync", help="fetch, and show what everyone else is working on")
     doc = sub.add_parser("doctor", help="check this installation and say what is wrong")
     doc.add_argument("--api-port", type=int, default=int(os.environ.get("PORT", 8080)))
@@ -1000,6 +1492,14 @@ def main() -> int:
         return doctor(args.api_port, args.web_port)
     if args.command == "preflight":
         return preflight(args.full)
+    if args.command == "start":
+        return start(args.api_port, args.web_port)
+    if args.command == "build-interface":
+        return build_interface()
+    if args.command == "update":
+        return update(args.check)
+    if args.command == "desktop-entry":
+        return desktop_entry()
     return dev(args.api_port, args.web_port)
 
 

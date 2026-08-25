@@ -2274,6 +2274,35 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 
 .set-note { margin-top: 12px; font-size: 13px; color: var(--ink-soft); }
 
+/* --- Feature packs --------------------------------------------------------
+   One row per optional capability. An installed pack is deliberately quieter
+   than an absent one: the screen exists to answer "what can this installation
+   not do", and a wall of equally-weighted rows buries that. */
+.set-packs { list-style: none; margin: 20px 0 0; padding: 0; display: grid; gap: 10px; }
+.set-packs li {
+  padding: 14px 16px;
+  border: 1px solid var(--line); border-radius: var(--r-card);
+  background: var(--n-25);
+}
+.set-packs li[data-installed="true"] { opacity: 0.66; }
+.set-packs li p { margin: 6px 0 0; font-size: 13px; color: var(--ink-soft); }
+
+.set-pack-head { display: flex; gap: 12px; align-items: baseline; justify-content: space-between; }
+.set-pack-head strong { font-size: 13px; color: var(--ink); font-family: var(--mono); }
+.set-pack-state { font-size: 12px; color: var(--ink-faint); }
+
+.set-pack-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+/* The command sits beside the button rather than replacing it: it is what
+   somebody reads, pastes into an issue, or falls back to when the button fails
+   on a machine nobody here can see. */
+.set-pack-actions code {
+  font-family: var(--mono); font-size: 12px; color: var(--ink-faint);
+  padding: 4px 8px; border: 1px solid var(--line); border-radius: var(--r-chip);
+  overflow-wrap: anywhere;
+}
+
+.set-error { margin-top: 12px; font-size: 13px; color: var(--danger); }
+
 .set-history { list-style: none; margin: 0; padding: 0; }
 .set-history li {
   display: flex; gap: 16px; align-items: baseline;

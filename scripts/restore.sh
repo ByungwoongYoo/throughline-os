@@ -53,10 +53,13 @@ pgdata.mkdir(parents=True, exist_ok=True)
 server = pgserver.get_server(str(pgdata))
 binaries = pathlib.Path(pgserver.__file__).parent / 'pginstall' / 'bin'
 
+# The URI the server reports, not the data directory. pgserver puts its unix
+# socket in a per-user runtime directory (/run/user/1000/python_PostgresServer/…),
+# so '-h pgdata' points at somewhere that has never held a socket — the same
+# mistake backup.sh made, which meant neither half of the safety net worked.
 result = subprocess.run(
-    [str(binaries / 'pg_restore'), '-h', str(pgdata), '-U', 'postgres',
-     '-d', 'postgres', '--clean', '--if-exists', '--no-owner',
-     os.environ['DUMP']],
+    [str(binaries / 'pg_restore'), '--clean', '--if-exists', '--no-owner',
+     '-d', server.get_uri(), os.environ['DUMP']],
     capture_output=True, text=True,
 )
 # pg_restore reports --clean drops of objects that were never there. Those are

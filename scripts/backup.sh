@@ -35,15 +35,54 @@ PY_BIN="${REPO}/.venv/bin/python"
 [ -x "$PY_BIN" ] || PY_BIN="$(command -v python3)"
 PGBIN="$("$PY_BIN" -c 'import pathlib,pgserver;print(pathlib.Path(pgserver.__file__).parent/"pginstall"/"bin")')"
 
-if [ -x "$PGBIN/pg_dump" ]; then
-  echo "  database…"
-  "$PGBIN/pg_dump" -h "$HOME_DIR/pgdata" -U postgres -d postgres -Fc \
-    -f "$WORK/database.dump" 2>/dev/null \
-    || { echo "  pg_dump failed — is the server running?" >&2; exit 1; }
-else
-  echo "  pg_dump not found in the bundled PostgreSQL" >&2
-  exit 1
-fi
+# Start the embedded server if it is not already up.
+#
+# `pg_dump` connects over a socket inside pgdata, so a stopped installation
+# cannot be dumped at all. That was survivable while backups were something a
+# person ran on a running system — and stopped being survivable when `update`
+# started requiring one, because an update backs up *before* it restarts. A
+# backup that only works while the app happens to be running would make T073's
+# central guarantee quietly conditional. Found by actually running an update
+# against a stopped installation, which is the only way this shows up.
+#
+# `get_server` is the same call `db.py` makes, and it is idempotent: on a
+# running server it connects and returns, on a stopped one it starts it.
+# The dump happens inside one Python process that holds the server open.
+#
+# `pgserver` ties the server's lifetime to the process that started it —
+# `restore.sh` documents this and was built around it. So starting the server in
+# one step and running pg_dump in the next leaves nothing listening by the time
+# pg_dump connects, which is precisely what happened here: the server came up,
+# the process exited, and the dump failed against a socket that had just been
+# removed.
+#
+# Two things were wrong before, and both were invisible while the app happened
+# to be running. `-h "$HOME_DIR/pgdata"` pointed at the data directory, but
+# pgserver puts its socket in a per-user runtime directory, so that host has
+# never been right. And connecting only ever worked against an already-running
+# server, while `update` backs up *before* restarting — so a stopped
+# installation could not be backed up at all, which made T073's central
+# guarantee conditional on the very thing an update is about to change.
+#
+# Found by running an update against a stopped installation.
+echo "  database…"
+THROUGHLINE_TARGET="$HOME_DIR" DUMP="$WORK/database.dump" "$PY_BIN" -c "
+import os, pathlib, subprocess, sys
+import pgserver
+
+home = pathlib.Path(os.environ['THROUGHLINE_TARGET'])
+server = pgserver.get_server(str(home / 'pgdata'))
+binaries = pathlib.Path(pgserver.__file__).parent / 'pginstall' / 'bin'
+
+result = subprocess.run(
+    [str(binaries / 'pg_dump'), '-Fc', '-f', os.environ['DUMP'],
+     server.get_uri()],
+    capture_output=True, text=True,
+)
+if result.returncode != 0:
+    print(result.stderr.strip()[:500], file=sys.stderr)
+    sys.exit(1)
+" || { echo "  the database could not be dumped" >&2; exit 1; }
 
 echo "  objects…"
 if [ -d "$HOME_DIR/objects" ]; then

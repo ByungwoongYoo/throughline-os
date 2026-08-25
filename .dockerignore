@@ -5,6 +5,10 @@
 .venv/
 **/node_modules/
 **/.next/
+# The exported interface. The image builds its own inside the `web` stage;
+# copying a local one in would ship whatever happened to be on the developer's
+# machine, which is the class of thing that makes an image irreproducible.
+**/out/
 **/__pycache__/
 **/*.pyc
 **/*.egg-info/
