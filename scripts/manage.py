@@ -570,9 +570,25 @@ def _container_check() -> int:
     if not shutil.which("docker"):
         print("! No docker on PATH — skipping the image build. CI still runs it.")
         return 0
-    if subprocess.run(["docker", "info"], capture_output=True).returncode != 0:
-        print("! The docker daemon is not running — skipping the image build.")
-        print("  Start it with:  sudo service docker start")
+    probe = subprocess.run(["docker", "info"], capture_output=True, text=True)
+    if probe.returncode != 0:
+        # Two different faults with one symptom, and they were reported as the
+        # same thing. A daemon that is not running and a socket this user may
+        # not open both make `docker info` exit non-zero — but "start the
+        # daemon" is useless advice for the second, and following it changes
+        # nothing, which reads as the instruction not working rather than as the
+        # wrong instruction. Observed: `sudo service docker start` on a machine
+        # whose daemon had been up for a day. Recorded as D043.
+        denied = "permission denied" in (probe.stderr + probe.stdout).lower()
+        print("! Skipping the image build.")
+        if denied:
+            print("  The daemon is running; this user may not talk to it —")
+            print("  /var/run/docker.sock is owned by the `docker` group.")
+            print("    sudo usermod -aG docker $USER")
+            print("  then open a new shell, or run `newgrp docker` in this one.")
+        else:
+            print("  The docker daemon is not running.")
+            print("    sudo service docker start")
         print("  CI still runs this, and it is the check that catches Dockerfile")
         print("  errors nothing else can.")
         return 0
