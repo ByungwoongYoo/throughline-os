@@ -13,7 +13,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { FirstProject } from "@/app/workspace/page";
+import { FirstProject } from "@/components/FirstProject";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 

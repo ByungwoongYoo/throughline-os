@@ -3754,6 +3754,8 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   padding: 7px 9px; font-size: 13px;
   border: 1px solid var(--line); border-radius: var(--r-control);
   background: var(--bg); color: var(--ink);
+}
+
 /* --- chart interaction (T011) --------------------------------------------- */
 
 /*

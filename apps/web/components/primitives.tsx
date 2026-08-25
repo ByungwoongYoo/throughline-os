@@ -7,6 +7,21 @@
 
 import { ReactNode } from "react";
 
+/**
+ * A single panel centred in the viewport — the gate, and the first-run screen.
+ *
+ * Lived in `app/workspace/page.tsx` until `FirstProject` moved out of that file
+ * and needed it too. A page file cannot export a helper, so the shared piece
+ * belongs where the other shared pieces already are.
+ */
+export function Centered({ children }: { children: ReactNode }) {
+  return (
+    <div style={{ display: "grid", placeItems: "center", height: "100vh", padding: 24 }}>
+      <div style={{ width: "min(420px, 100%)" }}>{children}</div>
+    </div>
+  );
+}
+
 export function Loading({ rows = 3, label }: { rows?: number; label?: string }) {
   return (
     <div role="status" aria-live="polite" aria-busy="true">

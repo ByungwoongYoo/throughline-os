@@ -454,6 +454,31 @@ def sync() -> int:
     return 0
 
 
+def _marker_applies(marker: str, python: Path) -> bool:
+    """Whether a PEP 508 environment marker is true for the target interpreter.
+
+    Evaluated by `packaging`, in the virtualenv, rather than pattern-matched
+    here. `manage.py` is standard-library only because `bootstrap` runs before
+    there is anything to import from — but this function only ever runs when a
+    virtualenv already exists, so it can ask something that understands the
+    grammar instead of guessing at `sys_platform ==` and being wrong about the
+    rest.
+
+    **Unreadable markers count as applying.** A dependency wrongly reported as
+    missing costs one confusing message; one wrongly skipped is a package that
+    is genuinely absent and never mentioned, which is the failure this whole
+    check exists to prevent.
+    """
+    probe = ("import sys;"
+             "from packaging.markers import Marker;"
+             "print('1' if Marker(sys.argv[1]).evaluate() else '0')")
+    result = subprocess.run([str(python), "-c", probe, marker],
+                            capture_output=True, text=True)
+    if result.returncode != 0:
+        return True
+    return result.stdout.strip() != "0"
+
+
 def _undeclared_but_needed(python: Path) -> list[str]:
     """
     Dependencies the packages declare that the virtualenv does not have.
@@ -485,9 +510,19 @@ def _undeclared_but_needed(python: Path) -> list[str]:
         declared = tomllib.loads(pyproject.read_text())
         project = declared.get("project", {})
         for entry in project.get("dependencies", []):
-            name = re.split(r"[<>=!~\[; ]", entry, 1)[0].strip()
-            if name:
-                wanted.add(name.lower().replace("_", "-"))
+            # The marker is the half that used to be thrown away, and it was not
+            # cosmetic: `pyobjc-framework-Cocoa; sys_platform == "darwin"` was
+            # therefore demanded on Linux and Windows, so preflight exited 1
+            # before running a single check on any machine that is not a Mac.
+            # With CI unable to run since D034, that left no working pre-push
+            # verification anywhere. Recorded as D039.
+            requirement, _, marker = entry.partition(";")
+            name = re.split(r"[<>=!~\[ ]", requirement.strip(), 1)[0].strip()
+            if not name:
+                continue
+            if marker.strip() and not _marker_applies(marker.strip(), python):
+                continue
+            wanted.add(name.lower().replace("_", "-"))
 
     check = (
         "import importlib.metadata as m, sys;"
@@ -643,9 +678,26 @@ def preflight(full: bool) -> int:
         # dependency rather than a missing PATH entry.
         env = dict(os.environ)
         env["PATH"] = str(Path(node).parent) + os.pathsep + env.get("PATH", "")
-        steps.append(("the interface builds and its tests pass",
+        steps.append(("the interface's tests pass",
                       [node_exe(node, "npx"), "vitest", "run"],
                       ROOT / "apps" / "web", env))
+        # This label used to say "builds and its tests pass" while running only
+        # vitest, and the missing half was not academic: `main` carried a broken
+        # production build — an unclosed CSS block, and a component exported
+        # from a page file, which Next forbids — and neither `next dev` nor a
+        # single one of 1269 unit tests noticed. CI runs `npm run build` for
+        # exactly this reason ("the build catches what unit tests cannot"), and
+        # CI has been unable to run since D034. Recorded as D038.
+        #
+        # NEXT_DIST_DIR keeps it off `.next`: building into the directory a dev
+        # server is serving from corrupts it, every page starts returning 500,
+        # and the fix — `rm -rf .next` — is not one anybody guesses from the
+        # error. That incident is why the setting exists at all.
+        steps.append(("the interface builds for production",
+                      [node_exe(node, "npm"), "run", "build"],
+                      ROOT / "apps" / "web",
+                      {**env, "NEXT_DIST_DIR": ".next-check",
+                       "NEXT_TELEMETRY_DISABLED": "1"}))
     else:
         print("! No node found — skipping the web tests. CI will still run them.")
 
@@ -653,15 +705,31 @@ def preflight(full: bool) -> int:
         steps.append(("the full backend suite",
                       [str(python), "-m", "pytest", "tests", "-q"], ROOT, {}))
 
+    # `next build` writes the chosen dist directory into tsconfig.json's
+    # `include`, so a check build leaves a repo change nobody asked for and a
+    # reference to a directory that is about to be deleted. Snapshotted rather
+    # than fixed with `git checkout`, because preflight has no business running
+    # git against a tree somebody may be mid-rebase on.
+    tsconfig = ROOT / "apps" / "web" / "tsconfig.json"
+    tsconfig_before = tsconfig.read_text() if tsconfig.exists() else None
+
+    def tidy() -> None:
+        if tsconfig_before is not None and tsconfig.read_text() != tsconfig_before:
+            tsconfig.write_text(tsconfig_before)
+        shutil.rmtree(ROOT / "apps" / "web" / ".next-check", ignore_errors=True)
+
     for label, command, cwd, env in steps:
         print(f"\n── {label}")
         result = subprocess.run(command, cwd=cwd, env=env or None)
         if result.returncode != 0:
+            tidy()
             print(f"\nFAILED: {label}.", file=sys.stderr)
             print("Nothing was pushed. Fix this first — it is the same check CI "
                   "runs, so pushing would only move the failure somewhere more "
                   "public.", file=sys.stderr)
             return result.returncode
+
+    tidy()
 
     if full:
         # Last, because it is the slowest and everything above is a faster way

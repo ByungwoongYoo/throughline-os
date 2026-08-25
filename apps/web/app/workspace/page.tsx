@@ -6,7 +6,7 @@ import {
   ArtifactSummary, Capabilities, Connection, DiscoveryMap, Finding, Project, Source, api,
 } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
-import { Empty, Failure, Loading } from "@/components/primitives";
+import { Centered, Empty, Failure, Loading } from "@/components/primitives";
 import { Crumb, SECTIONS, Section, Shell } from "@/components/Shell";
 import { CommandPalette, buildCommands } from "@/components/CommandPalette";
 import {
@@ -21,6 +21,7 @@ import { EmbeddingSpace } from "@/components/embeddingspace";
 import { ProjectMenu } from "@/components/ProjectMenu";
 import { AccountMenu, SignedInUser } from "@/components/AccountMenu";
 import { IconPlus, IconSpark } from "@/components/icons";
+import { FirstProject, NewProject } from "@/components/FirstProject";
 import { DataSearch } from "@/components/datasearch";
 import { Compare } from "@/components/compare";
 import { Patterns } from "@/components/patterns";
@@ -57,14 +58,6 @@ export default function Home() {
   }
   if (!auth.data?.authenticated) return <Gate status={auth.data!} onDone={auth.reload} />;
   return <Workspace user={auth.data.user as SignedInUser} />;
-}
-
-function Centered({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={{ display: "grid", placeItems: "center", height: "100vh", padding: 24 }}>
-      <div style={{ width: "min(420px, 100%)" }}>{children}</div>
-    </div>
-  );
 }
 
 /** First run creates the local account; afterwards it signs in. */
@@ -599,155 +592,6 @@ function AnalysisList({ projectId, onSelect }: { projectId: string; onSelect: (i
 // be imported — the component was module-private, so the one control standing
 // between a new researcher and a working project was the one control no test
 // could touch.
-export function FirstProject({ onCreated, user }: {
-  onCreated: () => void; user: SignedInUser;
-}) {
-  const [started, setStarted] = useState(false);
-  const [loadingExample, setLoadingExample] = useState(false);
-  const [exampleError, setExampleError] = useState("");
-
-  // The request returns as soon as the sources are queued; the workspace then
-  // shows them ingesting, which is the point — the researcher watches the
-  // pipeline run rather than being handed a finished screen.
-  const openExample = async () => {
-    setLoadingExample(true);
-    setExampleError("");
-    try {
-      const response = await fetch("/api/projects/example", { method: "POST" });
-      if (!response.ok) {
-        throw new Error(await response.text() || `HTTP ${response.status}`);
-      }
-      onCreated();
-    } catch (error) {
-      // §104 — say what failed. A dead button teaches nothing.
-      setExampleError(
-        `The example could not be created: ${
-          error instanceof Error ? error.message : String(error)}`);
-      setLoadingExample(false);
-    }
-  };
-
-  if (started) return <NewProject onCreated={onCreated}
-                                  onCancel={() => setStarted(false)} />;
-
-  return (
-    <div className="first">
-      <div className="first-inner">
-        <span className="badge badge-quiet">
-          <IconSpark size={12} /> New workspace
-        </span>
-        <h1 className="serif">
-          Welcome{user.display_name ? `, ${user.display_name.split(" ")[0]}` : ""}.
-          <br />Let&apos;s start with a question.
-        </h1>
-        <p className="first-lede">
-          A project is one research question and everything gathered to answer
-          it — the papers, the data, every analysis that ran, and every finding
-          that survived. Nothing here is shared with anyone else on this
-          machine.
-        </p>
-
-        {/* Part B6 — something to open before committing anything.
-            Offered first, and deliberately not as the quiet secondary option:
-            a form is the highest-effort possible first action, and it explains
-            nothing about what the product does with the answer. The example is
-            a real project built by the real pipeline, so everything it shows
-            is something the researcher's own sources will also do. */}
-        <div className="first-actions">
-          <button className="btn btn-primary btn-lg"
-                  onClick={openExample}
-                  disabled={loadingExample}>
-            <IconSpark size={16} />
-            {loadingExample ? "Building the example…" : "Open a worked example"}
-          </button>
-          <button className="btn btn-lg" onClick={() => setStarted(true)}>
-            <IconPlus size={16} />
-            Start with your own question
-          </button>
-        </div>
-        {exampleError && <p className="first-error" role="alert">{exampleError}</p>}
-        <p className="first-note">
-          The example is a real project — two sources, ingested and analysed the
-          same way yours will be. Delete it whenever you like.
-        </p>
-
-        <ul className="first-steps">
-          <li>
-            <b>1 · Bring evidence</b>
-            Drop in papers and datasets. Papers are parsed to exact character
-            spans; datasets are profiled column by column.
-          </li>
-          <li>
-            <b>2 · Let it look</b>
-            Candidate relationships are generated from variable types, then
-            computed for real in a sandboxed process.
-          </li>
-          <li>
-            <b>3 · Keep what survives</b>
-            Corrected for every test that ran, then attacked. What is left is
-            linked to the rows it came from, permanently.
-          </li>
-        </ul>
-      </div>
-    </div>
-  );
-}
-
-
-function NewProject({ onCreated, onCancel }: {
-  onCreated: () => void; onCancel?: () => void;
-}) {
-  const [question, setQuestion] = useState("");
-  const [name, setName] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    setBusy(true); setError(null);
-    try {
-      await api.post("/api/projects", {
-        name: name || question.slice(0, 60) || "Untitled project",
-        research_question: question,
-      });
-      onCreated();
-    } catch (err) { setError(err); } finally { setBusy(false); }
-  }
-
-  // §6 — the first screen asks what the researcher is trying to discover.
-  return (
-    <Centered>
-      <h1 className="serif" style={{ fontSize: 24, marginBottom: 12 }}>
-        What are you trying to discover?
-      </h1>
-      <form onSubmit={submit}>
-        <textarea
-          rows={4} value={question} onChange={(e) => setQuestion(e.target.value)}
-          placeholder="I want to investigate whether antibiotic consumption is associated with resistance across countries, and whether GDP explains the relationship."
-          aria-label="Research question"
-          style={{ marginBottom: 10, fontFamily: "var(--serif)", fontSize: 14 }}
-        />
-        <input type="text" value={name} onChange={(e) => setName(e.target.value)}
-               placeholder="Project name (optional)" style={{ marginBottom: 10 }} />
-        {error ? <Failure error={error} /> : null}
-        <div className="np-actions">
-          <button className="btn btn-primary" type="submit"
-                  disabled={busy || !question.trim()}>
-            <IconPlus size={15} />
-            {busy ? "Creating…" : "Create project"}
-          </button>
-          {onCancel && (
-            <button className="btn" type="button" onClick={onCancel} disabled={busy}>
-              Cancel
-            </button>
-          )}
-        </div>
-      </form>
-    </Centered>
-  );
-}
-
-/** The right rail: what is selected, and what this installation can actually do. */
 function Inspector({ selection, capabilities, map }: {
   selection: { kind: string; id: string } | null;
   capabilities: Capabilities | null;
