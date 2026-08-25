@@ -84,8 +84,13 @@ else
 fi
 
 say ""
+# `start`, not `bootstrap`. `start` already means "set up if needed, then run",
+# so ending here at `bootstrap` left the researcher with a finished install and
+# nothing on screen — which is the same failure the launchers had, one level up:
+# something that completes successfully and appears to have done nothing.
+#
 # From here manage.py owns the sequence: it fetches the pinned CPython if this
 # interpreter is the wrong version, re-executes under it, builds the virtualenv,
-# installs the workspace, migrates the database and fetches Node if the machine
-# has none new enough.
-exec "$PYTHON" "$DEST/scripts/manage.py" bootstrap
+# installs the workspace, migrates the database, builds the interface, and then
+# starts the stack and opens a browser once it answers.
+exec "$PYTHON" "$DEST/scripts/manage.py" start

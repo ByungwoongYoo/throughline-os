@@ -59,7 +59,7 @@ the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **1424 backend tests and 1439 web tests**, with 13 backend
+The current suite is **1432 backend tests and 1439 web tests**, with 13 backend
 skips. Nine carry a reason CI's allowlist recognises — a skip with an
 unrecognised reason fails the build, so the suite cannot quietly shrink. The
 other four are the speech tests, whose reason (`openai-whisper is not
@@ -263,9 +263,25 @@ Then:
 
 ### Without a terminal
 
-`launchers/` holds one door per platform. Each sets up on first run and starts
-Throughline afterwards — they all call `python scripts/manage.py start`, so
-there is one install sequence rather than three that drift.
+`launchers/` holds one door per platform, and **each is a file you can hand
+somebody on its own**. Run it and it opens Throughline — installing it first if
+that machine has not got it yet. There is one install sequence rather than three:
+each launcher does two cheap local checks and then delegates.
+
+It looks in three places, cheapest first, with the network only in the last:
+
+1. **Inside a checkout** — running from a clone keeps working, and uses *that*
+   clone rather than some other copy in the home directory.
+2. **`~/throughline-os`**, or wherever `THROUGHLINE_INSTALL_DIR` points. This is
+   the common case for a downloaded launcher on its second run, and it costs two
+   `stat` calls.
+3. **Nothing yet** — hand over to `install.sh`, which clones and sets up, and
+   ends by starting it.
+
+They previously assumed they were already inside a checkout, so a launcher saved
+on its own to a downloads folder failed looking for `scripts/manage.py` one
+directory up. That made them a convenience for somebody who already had the code
+rather than a way to get it, which is the opposite of what a download is for.
 
 | Platform | Double-click | First-run warning |
 |---|---|---|
