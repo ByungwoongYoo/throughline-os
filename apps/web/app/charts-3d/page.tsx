@@ -33,7 +33,10 @@ import { VisualizationController } from "@/lib/spatial/commands";
 import { Graph } from "@/lib/charts3d/network";
 import { Sample, sampleFunction } from "@/lib/charts3d/field";
 import { Grid, gridFromFunction } from "@/lib/charts3d/voxels";
-import { CATALOGUE, available, drawnBy } from "@/lib/charts3d/registry";
+import { SpecialistMount } from "@/components/specialist/mount";
+import {
+  CATALOGUE, available, drawableOnDemand, drawnBy,
+} from "@/lib/charts3d/registry";
 
 /**
  * A citation network with real structure.
@@ -110,6 +113,13 @@ export default function Charts3DPage() {
   const density = useMemo(densityVolume, []);
 
   const drawable = available().length;
+  /*
+   * Counted apart from `drawable` on purpose. These need a file from the
+   * researcher's disk and a chunk that has not been downloaded yet, so adding
+   * them to the sentence above would make one number stand for two different
+   * promises — and the smaller, truer one is what a reader is checking here.
+   */
+  const onDemand = drawableOnDemand();
   const byPrimitive = (["network", "glyphs", "volume"] as const)
     .map((p) => `${drawnBy(p).length} ${p}`)
     .join(", ");
@@ -120,9 +130,17 @@ export default function Charts3DPage() {
         <h1>Spatial charts</h1>
         <p>
           {drawable} of {CATALOGUE.length} catalogued visualizations can be
-          drawn today. The three below are the primitives behind {byPrimitive}{" "}
-          of them — every one of those is this same renderer with different
-          data bound to it.
+          drawn today, from data this system already holds.{" "}
+          {onDemand.length > 0 && (
+            <>
+              A further {onDemand.length} are drawn by a specialist library
+              once you open a file of your own; none of that library is
+              downloaded until you do.{" "}
+            </>
+          )}
+          The three below are the primitives behind {byPrimitive} of them —
+          every one of those is this same renderer with different data bound to
+          it.
         </p>
         <p>
           Depth is not free. It buys occlusion, perspective distortion and
@@ -188,6 +206,9 @@ export default function Charts3DPage() {
           caption="A dense core inside a thin shell, synthetic."
         />
       </section>
+
+      {/* Renders nothing at all while no catalogue entry names a viewer. */}
+      <SpecialistMount entries={onDemand} />
     </main>
   );
 }
