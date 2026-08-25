@@ -77,7 +77,7 @@ export type PaperReaderProps = {
    * A paper the search already found, opened without asking for a file.
    *
    * `source` is carried separately from the PDF because it is *better*. It has
-   * been reconciled across OpenAlex, Crossref, arXiv and PubMed, with the
+   * been reconciled across every source the search queries, with the
    * disagreements kept — whereas a PDF's own Info dictionary is whatever the
    * exporter happened to write, frequently empty and frequently wrong. This is
    * also where the publication year comes from at all: `document.ts` refuses to

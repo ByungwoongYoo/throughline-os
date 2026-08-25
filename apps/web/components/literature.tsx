@@ -266,16 +266,37 @@ export function Literature({ projectId }: { projectId: string }) {
   return (
     <>
       <h1>Find papers</h1>
+      {/*
+        * The lede names no sources, and that is the fix rather than an
+        * omission. It used to read "Searches OpenAlex, Crossref, arXiv and
+        * PubMed at once" — true when it was written and wrong by six sources by
+        * the time anybody noticed, because bioRxiv, Europe PMC, Semantic
+        * Scholar, DOAJ, OpenAIRE and Zotero were added underneath it. A
+        * researcher reading it would conclude their preprints and their own
+        * library were not being searched, when they were.
+        *
+        * The count comes from the same capabilities the chips below are built
+        * from, so the sentence cannot drift from what actually runs: adding a
+        * connector changes both, or neither.
+        */}
       <p className="lede">
-        Searches OpenAlex, Crossref, arXiv and PubMed at once. Records that
-        appear in more than one are merged — and where the databases disagree,
-        every version is kept rather than quietly resolved.
+        Searches {capabilities ? `all ${capabilities.length}` : "every"} source
+        below at once. Records that appear in more than one are merged — and
+        where the databases disagree, every version is kept rather than quietly
+        resolved.
       </p>
 
       <div className="lit-search">
         <label className="sr-only" htmlFor="lit-q">Search literature</label>
         <input
           id="lit-q"
+          /*
+           * A search field, not a text box. Without this the browser gives it
+           * none of the affordances a search input has — no clear control, the
+           * wrong on-screen keyboard and Enter key on a phone, and none of the
+           * semantics assistive technology uses to announce it as a search.
+           */
+          type="search"
           value={query}
           placeholder="antibiotic consumption and resistance"
           onChange={(event) => setQuery(event.target.value)}

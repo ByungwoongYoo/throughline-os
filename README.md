@@ -59,9 +59,11 @@ the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **1252 backend tests and 1117 web tests**, with 6 backend
-skips, each carrying a reason CI's allowlist recognises — a skip with an
-unrecognised reason fails the build, so the suite cannot quietly shrink.
+The current suite is **1264 backend tests and 1273 web tests**, with 13 backend
+skips. Nine carry a reason CI's allowlist recognises — a skip with an
+unrecognised reason fails the build, so the suite cannot quietly shrink. The
+other four are the speech tests, whose reason was never added to that allowlist;
+see D030 in `TASKS.md`.
 
 Those numbers are checked by `tests/test_readme_claims.py`, which collects the
 suite and compares. They were wrong before it existed — the file said 848 and
