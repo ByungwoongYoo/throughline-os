@@ -14,7 +14,8 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  CATALOGUE, Primitive, available, buildOrder, drawnBy, unlockedBy,
+  CATALOGUE, Primitive, available, buildOrder, drawableOnDemand, drawnBy,
+  unlockedBy,
 } from "@/lib/charts3d/registry";
 
 const PRIMITIVES: Primitive[] = [
@@ -118,6 +119,37 @@ describe("what can be drawn today", () => {
     expect(now.length).toBeGreaterThan(50);
     expect(now.every((v) => v.status !== "primitive-missing")).toBe(true);
     expect(now.every((v) => v.status !== "needs-library")).toBe(true);
+  });
+
+  it("counts a specialist viewer as on demand, not as drawn today", () => {
+    /*
+     * Two different promises, and the charts page states the first one as a
+     * number: what is on screen now from data this system holds, against what
+     * appears after a researcher opens a file from their own disk and waits
+     * for a library to download. Folding the second into `available()` would
+     * inflate that sentence — the one sentence on the page whose whole job is
+     * to be honest about reach.
+     */
+    expect(available().every((v) => v.status !== "specialist")).toBe(true);
+    expect(drawableOnDemand().every((v) => v.status === "specialist")).toBe(true);
+
+    // No entry can be counted in both, and none is lost between them.
+    const today = new Set(available().map((v) => v.name));
+    expect(drawableOnDemand().some((v) => today.has(v.name))).toBe(false);
+    expect(drawableOnDemand()).toEqual(
+      CATALOGUE.filter((v) => v.status === "specialist"));
+  });
+
+  it("gives every specialist entry a viewer to be drawn by", () => {
+    /*
+     * "Specialist" is a claim that something loads. An entry making it without
+     * naming which library would be unreachable by construction — the Wave-0
+     * failure in one field. Which viewer names resolve is checked by
+     * `specialist-seam.test.tsx`, against the loader map itself.
+     */
+    for (const entry of drawableOnDemand()) {
+      expect(entry.viewer, `${entry.name} names no viewer`).toBeDefined();
+    }
   });
 
   it("already covers the commonest scientific spatial charts", () => {

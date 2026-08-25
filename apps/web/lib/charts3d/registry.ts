@@ -26,6 +26,8 @@
  * selection, region-select and focus by existing, not by wiring.
  */
 
+import type { SpecialistId } from "@/lib/specialist/contract";
+
 /** The nine things that actually draw. */
 export type Primitive =
   /** Positioned marks: scatter, embeddings, point clouds, particles. */
@@ -79,7 +81,23 @@ export type Status =
    * megabytes. Worth paying when a researcher arrives with the file, and not
    * before.
    */
-  | "needs-library";
+  | "needs-library"
+  /**
+   * Drawable through a lazily loaded specialist library; the chunk costs
+   * nothing until a researcher's file arrives.
+   *
+   * The state a `needs-library` entry reaches once somebody has paid the cost
+   * above and wired the viewer. It is deliberately not `built`: what is
+   * drawable today from data this system already holds, and what becomes
+   * drawable when a researcher opens a file from their own disk and waits for
+   * a download, are different promises, and a count that merged them would
+   * overstate the first one.
+   *
+   * An entry in this state names its `viewer`, and a test resolves that name
+   * against the loader map — so "specialist" cannot be claimed for a viewer
+   * that does not exist.
+   */
+  | "specialist";
 
 export type Spatial =
   /** The data has three meaningful dimensions. */
@@ -112,6 +130,14 @@ export type Visualization = {
    * timeline rather than a still frame.
    */
   animated?: boolean;
+  /**
+   * Which specialist library draws it, for `status: "specialist"` entries.
+   *
+   * Set only on those. A viewer named beside any other status would be a claim
+   * about how the thing is drawn that nothing loads, which is the kind of
+   * detail that survives review and is discovered by a researcher.
+   */
+  viewer?: SpecialistId;
   /** Why this is the right primitive, where it is not obvious. */
   note?: string;
 };
@@ -191,9 +217,9 @@ export const CATALOGUE: Visualization[] = [
   { name: "Pressure volume", primitive: "volume", needs: "voxels", spatial: "inherently", status: "configuration", family: "Volume" },
   { name: "Seismic volume", primitive: "volume", needs: "voxels", spatial: "inherently", status: "configuration", family: "Volume" },
   { name: "Atmospheric volume", primitive: "volume", needs: "voxels", spatial: "inherently", status: "configuration", family: "Volume" },
-  { name: "CT volume", primitive: "volume", needs: "voxels", spatial: "inherently", status: "needs-library", family: "Volume", note: "The primitive draws it; DICOM reading is the library." },
-  { name: "MRI volume", primitive: "volume", needs: "voxels", spatial: "inherently", status: "needs-library", family: "Volume", note: "NIfTI reading is the library." },
-  { name: "PET volume", primitive: "volume", needs: "voxels", spatial: "inherently", status: "needs-library", family: "Volume" },
+  { name: "CT volume", primitive: "volume", needs: "voxels", spatial: "inherently", status: "specialist", family: "Volume", viewer: "niivue", note: "NiiVue draws it from a NIfTI (.nii/.nii.gz) or MGH volume. DICOM straight off the scanner is still read by nothing in this system — convert the series with dcm2niix and open the result." },
+  { name: "MRI volume", primitive: "volume", needs: "voxels", spatial: "inherently", status: "specialist", family: "Volume", viewer: "niivue", note: "NiiVue is the NIfTI reader, and orients the volume from the header rather than the voxel order — which is what keeps left and right the way the scanner recorded them." },
+  { name: "PET volume", primitive: "volume", needs: "voxels", spatial: "inherently", status: "specialist", family: "Volume", viewer: "niivue", note: "The same NIfTI path as MRI. A dynamic series opens at its first frame, and the viewer says which frame that is; choosing another is not exposed." },
 
   // 5. Statistical ----------------------------------------------------------
   { name: "3D histogram", primitive: "bars", needs: "grid", spatial: "framed", status: "primitive-missing", family: "Statistical" },
@@ -264,6 +290,7 @@ export const CATALOGUE: Visualization[] = [
   { name: "Shipping network", primitive: "network", needs: "graph", spatial: "inherently", status: "configuration", family: "Geographic" },
   { name: "Urban 3D map", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "needs-library", family: "Geographic" },
   { name: "Geographic heat map", primitive: "surface", needs: "grid", spatial: "framed", status: "built", family: "Geographic" },
+  { name: "Point map", primitive: "points", needs: "xyz", spatial: "framed", status: "specialist", family: "Geographic", viewer: "geomap", note: "Longitude and latitude on a plane — the third axis is the room, not the data. deck.gl draws the researcher's own CSV or GeoJSON over the country outlines bundled with this build; there is no tile server (T080)." },
 
   // 9. Physics --------------------------------------------------------------
   { name: "Particle simulation", primitive: "points", needs: "xyzv", spatial: "inherently", status: "configuration", family: "Physics" },
@@ -282,8 +309,8 @@ export const CATALOGUE: Visualization[] = [
   { name: "Rigid body simulation", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "needs-library", family: "Physics" },
 
   // 10. Engineering ---------------------------------------------------------
-  { name: "CAD model", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "needs-library", family: "Engineering" },
-  { name: "Mechanical assembly", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "needs-library", family: "Engineering" },
+  { name: "CAD model", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "specialist", family: "Engineering", viewer: "vtk", note: "vtk.js reads the export, not the part file: STL, OBJ, PLY and VTP draw; STEP, IGES and native CAD formats need a kernel and still do not." },
+  { name: "Mechanical assembly", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "specialist", family: "Engineering", viewer: "vtk", note: "An exported assembly mesh draws as one body. That is the assembly as built; per-part selection and explosion are not in the file." },
   { name: "Exploded assembly", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "needs-library", family: "Engineering" },
   { name: "Finite element analysis", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "needs-library", family: "Engineering" },
   { name: "Stress visualization", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "needs-library", family: "Engineering" },
@@ -304,15 +331,15 @@ export const CATALOGUE: Visualization[] = [
   { name: "Engine simulation", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "needs-library", family: "Engineering" },
 
   // 11. Chemistry -----------------------------------------------------------
-  { name: "3D molecule", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "needs-library", family: "Chemistry" },
-  { name: "Ball and stick", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "needs-library", family: "Chemistry" },
-  { name: "Space filling", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "needs-library", family: "Chemistry" },
-  { name: "Molecular surface", primitive: "isosurface", needs: "voxels", spatial: "inherently", status: "needs-library", family: "Chemistry" },
+  { name: "3D molecule", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "specialist", family: "Chemistry", viewer: "molstar" },
+  { name: "Ball and stick", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "specialist", family: "Chemistry", viewer: "molstar", note: "Asked for by name in the viewer, not inferred: Mol*'s automatic preset would draw a cartoon for a protein." },
+  { name: "Space filling", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "specialist", family: "Chemistry", viewer: "molstar" },
+  { name: "Molecular surface", primitive: "isosurface", needs: "voxels", spatial: "inherently", status: "specialist", family: "Chemistry", viewer: "molstar", note: "Mol* samples the field from the atoms in the file, so the voxels are computed rather than supplied." },
   { name: "Electron density", primitive: "volume", needs: "voxels", spatial: "inherently", status: "configuration", family: "Chemistry" },
   { name: "Molecular orbital", primitive: "isosurface", needs: "voxels", spatial: "inherently", status: "primitive-missing", family: "Chemistry" },
-  { name: "Protein structure", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "needs-library", family: "Chemistry" },
-  { name: "DNA structure", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "needs-library", family: "Chemistry" },
-  { name: "RNA structure", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "needs-library", family: "Chemistry" },
+  { name: "Protein structure", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "specialist", family: "Chemistry", viewer: "molstar" },
+  { name: "DNA structure", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "specialist", family: "Chemistry", viewer: "molstar" },
+  { name: "RNA structure", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "specialist", family: "Chemistry", viewer: "molstar" },
   { name: "Protein ligand interaction", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "needs-library", family: "Chemistry" },
   { name: "Docking", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "needs-library", family: "Chemistry" },
   { name: "Crystal structure", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "needs-library", family: "Chemistry" },
@@ -330,8 +357,8 @@ export const CATALOGUE: Visualization[] = [
   { name: "Cellular model", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "needs-library", family: "Medical" },
   { name: "Tissue volume", primitive: "volume", needs: "voxels", spatial: "inherently", status: "configuration", family: "Medical" },
   { name: "Tumour visualization", primitive: "isosurface", needs: "voxels", spatial: "inherently", status: "primitive-missing", family: "Medical" },
-  { name: "CT reconstruction", primitive: "volume", needs: "voxels", spatial: "inherently", status: "needs-library", family: "Medical" },
-  { name: "MRI reconstruction", primitive: "volume", needs: "voxels", spatial: "inherently", status: "needs-library", family: "Medical" },
+  { name: "CT reconstruction", primitive: "volume", needs: "voxels", spatial: "inherently", status: "specialist", family: "Medical", viewer: "niivue", note: "The reconstruction happens on the scanner; this draws the reconstructed volume, once it is a NIfTI." },
+  { name: "MRI reconstruction", primitive: "volume", needs: "voxels", spatial: "inherently", status: "specialist", family: "Medical", viewer: "niivue", note: "Drawn from the reconstructed NIfTI. Nothing here touches k-space — the reconstruction is somebody else's step, upstream." },
   { name: "Surgical planning", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "needs-library", family: "Medical" },
   { name: "Biological pathway network", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Medical" },
   { name: "Gene expression space", primitive: "points", needs: "xyz", spatial: "inherently", status: "built", family: "Medical" },
@@ -412,10 +439,29 @@ export function drawnBy(primitive: Primitive): Visualization[] {
   return CATALOGUE.filter((v) => v.primitive === primitive);
 }
 
-/** What is drawable today. */
+/**
+ * What is drawable today, from data this system already holds.
+ *
+ * Deliberately excludes `specialist`. Those are drawable too, but only after a
+ * researcher supplies a file and a chunk downloads — folding them in here would
+ * inflate the one number the charts page states about itself, and the page
+ * would be overstating its reach in the exact sentence that exists to be
+ * honest about it. `drawableOnDemand()` counts them separately.
+ */
 export function available(): Visualization[] {
   return CATALOGUE.filter(
     (v) => v.status === "built" || v.status === "configuration");
+}
+
+/**
+ * What a specialist viewer draws once the researcher opens their own file.
+ *
+ * Kept apart from `available()` rather than merged into it, because the two
+ * carry different costs to the person reading the count: one is on screen now,
+ * the other needs a file and a download first.
+ */
+export function drawableOnDemand(): Visualization[] {
+  return CATALOGUE.filter((v) => v.status === "specialist");
 }
 
 /**
