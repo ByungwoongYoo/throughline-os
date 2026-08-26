@@ -34,10 +34,12 @@ from . import signing, version
 
 #: Where a released copy asks what the newest release is.
 #:
-#: Overridable so a fork, a staging bucket or a test can point elsewhere, and
-#: because the host is a decision that has not been made yet (D050) — the launcher
-#: and the updater must agree on it, so it lives in one place.
-RELEASE_URL = "https://releases.throughline.tools/latest.json"
+#: Overridable so a fork, a staging bucket or a test can point elsewhere. The
+#: landing page names the same host in `frontend/assemble.mjs`, and the two are
+#: held together by `test_the_page_and_the_updater_name_the_same_host` rather
+#: than by anybody remembering: if they drift, downloads keep working while
+#: every installed copy checks a host that publishes nothing (D050).
+RELEASE_URL = "https://throughlineresearch.pages.dev/latest.json"
 
 #: How long a check may take before it is abandoned. A button that hangs is
 #: worse than one that says it could not reach the network: the researcher is

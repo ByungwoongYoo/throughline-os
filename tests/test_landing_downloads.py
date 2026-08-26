@@ -86,6 +86,59 @@ def test_the_release_host_is_a_token_rather_than_a_literal():
         "the host is hardcoded somewhere in the template")
 
 
+def assembler_host() -> str:
+    """The release host the landing page falls back to, read from the assembler
+    rather than restated here."""
+    source = (ROOT / "frontend" / "assemble.mjs").read_text()
+    found = re.search(r'TL_RELEASES\s*\|\|\s*"([^"]+)"', source)
+    assert found, "assemble.mjs no longer has a TL_RELEASES default to compare"
+    return found.group(1).rstrip("/")
+
+
+def updater_url() -> str:
+    """Where an installed copy asks what the newest release is."""
+    source = (ROOT / "packages" / "research-domain" / "src" /
+              "throughline_domain" / "updates.py").read_text()
+    found = re.search(r'^RELEASE_URL\s*=\s*"([^"]+)"', source, re.MULTILINE)
+    assert found, "updates.py no longer defines RELEASE_URL"
+    return found.group(1)
+
+
+def manifest_name() -> str:
+    """The manifest filename a release actually writes, read from the writer."""
+    source = (ROOT / "scripts" / "release.py").read_text()
+    found = re.search(r'destination / "([^"]+)"\)\.write_text\(json\.dumps',
+                      source)
+    assert found, "release.py no longer writes a manifest by a literal name"
+    return found.group(1)
+
+
+def test_the_page_and_the_updater_name_the_same_host():
+    """The drift D050 names, and the reason it is worth a test: they are two
+    hardcoded literals in two languages with nothing tying them together, and
+    the failure is silent in the worst direction. If the page is moved to a new
+    host and the updater is not, every download keeps working — so nothing looks
+    broken — while every installed copy checks a host that no longer publishes
+    anything. It does not even report an error, because a copy that cannot reach
+    its server says *could not check* rather than *up to date*. Nobody finds out
+    until an update that shipped is one nobody received."""
+    host, updater = assembler_host(), updater_url()
+    assert updater.startswith(host + "/"), (
+        f"the landing page sends people to {host} but an installed copy checks "
+        f"{updater} — downloads would keep working while updates silently found "
+        "nothing. Change both, in frontend/assemble.mjs and updates.py.")
+
+
+def test_the_updater_asks_for_the_file_the_release_writes():
+    """Agreeing on the host is half of it. A release writes its manifest under
+    one name and the updater fetches another, and the symptom is identical to
+    the host drifting above."""
+    wanted = updater_url().rsplit("/", 1)[-1]
+    assert wanted == manifest_name(), (
+        f"an installed copy fetches {wanted!r} but a release publishes "
+        f"{manifest_name()!r}")
+
+
 def test_assembling_refuses_to_leave_a_token_unsubstituted():
     """A page written with `__TL_RELEASES__` still in it would render literal
     broken links — the failure looks like a typo and reaches production."""

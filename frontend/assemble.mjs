@@ -21,7 +21,7 @@ if (!template.includes("/*__TL_MODULES__*/")) { console.error("marker missing");
 // What they point *at* is the launcher rather than the tarball: T081 made the
 // launcher the thing you download — run it and it installs Throughline or opens
 // it if the machine already has it.
-const RELEASES = process.env.TL_RELEASES || "https://releases.throughline.tools";
+const RELEASES = process.env.TL_RELEASES || "https://throughlineresearch.pages.dev";
 const GITHUB = process.env.TL_GITHUB || "https://github.com/SarthakPattnaik1/throughline-os";
 
 const page = template
