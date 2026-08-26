@@ -461,6 +461,46 @@ def update(check_only: bool) -> int:
     return 0
 
 
+def release(destination: str | None, version: str | None) -> int:
+    """Build the artifact a stranger downloads: tarball, checksum, manifest.
+
+    Here rather than in a workflow file, and the workflow will call this. YAML
+    is not testable and not runnable locally, and a release pipeline that only
+    exists inside CI cannot be exercised on the day CI is down — which is today
+    (D034). `bootstrap.sh` is a wrapper around this file for the same reason.
+
+    The interface is built first if it is not already there. A release without
+    it is a Python package that serves 503s, and the check costs one `stat`.
+    """
+    import release as release_build
+
+    root = ROOT
+    out = Path(destination) if destination else root / "dist"
+
+    if not (root / "apps" / "web" / "out" / "index.html").is_file():
+        print("No built interface; building one first…")
+        if build_interface() != 0:
+            return 1
+
+    print(f"\nBuilding a release into {out}")
+    try:
+        manifest = release_build.build(root, PACKAGES, out, version=version)
+    except release_build.ReleaseError as error:
+        print(f"\n{error}", file=sys.stderr)
+        return 1
+
+    print(f"\n  version   {manifest['version']}")
+    print(f"  file      {manifest['file']}")
+    print(f"  size      {manifest['size'] / 1_000_000:.0f} MB")
+    print(f"  sha256    {manifest['sha256']}")
+    print(f"\nOne artifact serves every platform: the interface is already "
+          f"built,\nand the runtimes are fetched per machine at install time.")
+    print("\nThe checksum beside the tarball is not the security story — "
+          "anyone who\ncan replace one can replace the other. Signing the "
+          "manifest is T083.")
+    return 0
+
+
 def build_interface() -> int:
     """Export the interface to `apps/web/out`, where the API serves it from.
 
@@ -1526,6 +1566,13 @@ def main() -> int:
     run.add_argument("--web-port", type=int, default=int(os.environ.get("WEB_PORT", 3000)))
     sub.add_parser("build-interface",
                    help="export the web interface for the API to serve")
+    rel = sub.add_parser("release",
+                         help="build the tarball, checksum and manifest a "
+                              "stranger downloads")
+    rel.add_argument("--into", default=None,
+                     help="where to write them (default: dist/)")
+    rel.add_argument("--version", default=None,
+                     help="override the version name (default: git describe)")
     up = sub.add_parser("update",
                         help="update this installation, backing up first")
     up.add_argument("--check", action="store_true",
@@ -1554,6 +1601,8 @@ def main() -> int:
         return start(args.api_port, args.web_port)
     if args.command == "build-interface":
         return build_interface()
+    if args.command == "release":
+        return release(args.into, args.version)
     if args.command == "update":
         return update(args.check)
     if args.command == "desktop-entry":

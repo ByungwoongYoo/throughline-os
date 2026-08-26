@@ -1,0 +1,233 @@
+"""Building the artifact a stranger downloads.
+
+The property that matters most here is the boring one: **everything needed must
+be in the archive**. `test_packaging.py` exists because `bootstrap.sh` once
+installed four of nine packages and nothing failed — the machine it was written
+on already had the other five. A release has the same shape of failure and a
+worse blast radius: ship eight of nine and it imports fine for the person who
+built it and fails on every researcher's machine, with an error naming a module
+rather than a missing file.
+
+So the archive is checked against the same `PACKAGES` list `bootstrap` installs
+from, rather than against a second list written here — comparing two lists to
+one another passes happily when both are missing the same thing.
+
+The other property is that a release is reproducible from a commit. Built from a
+dirty tree it looks identical to one that is, and the difference only shows up
+when somebody tries to rebuild it and cannot.
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+import tarfile
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+import manage  # noqa: E402
+import release  # noqa: E402
+
+
+def git(root: Path, *args: str) -> str:
+    return subprocess.run(("git", "-C", str(root)) + args, check=True,
+                          capture_output=True, text=True).stdout.strip()
+
+
+@pytest.fixture()
+def workspace(tmp_path):
+    """A miniature repository shaped like this one, committed and clean."""
+    root = tmp_path / "repo"
+    (root / "scripts").mkdir(parents=True)
+    (root / "launchers").mkdir()
+    (root / "apps" / "web" / "out").mkdir(parents=True)
+    (root / "apps" / "api" / "src").mkdir(parents=True)
+    (root / "packages" / "model" / "src").mkdir(parents=True)
+
+    (root / "scripts" / "manage.py").write_text("# manage\n")
+    (root / "launchers" / "throughline.sh").write_text("#!/bin/sh\n")
+    (root / "apps" / "web" / "out" / "index.html").write_text("<html></html>")
+    (root / "apps" / "api" / "src" / "app.py").write_text("# api\n")
+    (root / "packages" / "model" / "src" / "m.py").write_text("# model\n")
+    (root / "README.md").write_text("# readme\n")
+
+    # The things a release must never carry.
+    (root / "apps" / "web" / "node_modules").mkdir()
+    (root / "apps" / "web" / "node_modules" / "huge.js").write_text("x" * 100)
+    (root / ".venv").mkdir()
+    (root / ".venv" / "python").write_text("binary")
+    (root / "packages" / "model" / "build").mkdir()
+    (root / "packages" / "model" / "build" / "stale.py").write_text("# old\n")
+    (root / "packages" / "model" / "src" / "__pycache__").mkdir()
+    (root / "packages" / "model" / "src" / "__pycache__" / "m.pyc").write_text("x")
+
+    git(root, "init", "--quiet", "--initial-branch=main")
+    git(root, "config", "user.email", "t@example.com")
+    git(root, "config", "user.name", "Test")
+    git(root, "add", "-A")
+    git(root, "commit", "--quiet", "-m", "one")
+    return root
+
+
+PACKAGES = ("packages/model", "apps/api")
+
+
+def names_in(archive: Path) -> set[str]:
+    with tarfile.open(archive) as bundle:
+        return {n.split("/", 1)[1] for n in bundle.getnames() if "/" in n}
+
+
+# --- what must be in it -----------------------------------------------------
+
+
+def test_every_package_bootstrap_installs_is_in_the_archive(workspace, tmp_path):
+    """The `bootstrap.sh` failure with a worse blast radius: ship eight of nine
+    and it imports fine for whoever built it and fails on every other machine."""
+    release.build(workspace, PACKAGES, tmp_path / "dist")
+    inside = names_in(next((tmp_path / "dist").glob("*.tar.gz")))
+
+    for package in PACKAGES:
+        assert any(n.startswith(package) for n in inside), package
+
+
+def test_the_real_package_list_is_the_one_checked():
+    """A second list written in the release code would pass happily while both
+    it and the archive were missing the same package."""
+    source = (ROOT / "scripts" / "release.py").read_text()
+    assert "packages/" not in source.replace("packages: tuple", ""), (
+        "release.py should take the package list as an argument, not keep one")
+
+
+def test_the_built_interface_travels(workspace, tmp_path):
+    """Without it every page answers 503 and the release is a Python package."""
+    release.build(workspace, PACKAGES, tmp_path / "dist")
+    inside = names_in(next((tmp_path / "dist").glob("*.tar.gz")))
+    assert "apps/web/out/index.html" in inside
+
+
+def test_a_version_file_travels_so_the_copy_can_name_itself(workspace, tmp_path):
+    """A released copy has no `.git`, so `version.py` reads this instead — and
+    without it an installation cannot say what produced a result."""
+    manifest = release.build(workspace, PACKAGES, tmp_path / "dist")
+    with tarfile.open(next((tmp_path / "dist").glob("*.tar.gz"))) as bundle:
+        stamped = bundle.extractfile(
+            [n for n in bundle.getnames() if n.endswith("VERSION")][0])
+        assert stamped.read().decode().strip() == manifest["version"]
+
+
+# --- what must not be ------------------------------------------------------
+
+
+@pytest.mark.parametrize("unwanted", [
+    "apps/web/node_modules/huge.js",   # what built the interface, not the interface
+    ".venv/python",                    # built on the target, and not relocatable
+    "packages/model/build/stale.py",   # a stale copy of a module that also ships
+    "packages/model/src/__pycache__/m.pyc",
+])
+def test_the_archive_carries_nothing_it_should_not(workspace, tmp_path, unwanted):
+    """An outcome check, and worth being precise about what enforces it.
+
+    Only two of these are kept out by `EXCLUDE_NAMES`. `node_modules` and
+    `.venv` are never *reached*: the archive is an allowlist of declared roots,
+    and neither sits under one. Deleting the exclusion logic entirely would
+    leave two of these four still passing — which is exactly the kind of test
+    that reads as coverage and is not. The mechanism is pinned separately below.
+    """
+    release.build(workspace, PACKAGES, tmp_path / "dist")
+    assert unwanted not in names_in(next((tmp_path / "dist").glob("*.tar.gz")))
+
+
+def test_the_archive_is_an_allowlist(workspace, tmp_path):
+    """The actual protection, stated once.
+
+    Nothing enters a release because it happens to be in the directory. Every
+    path is under a root that was named on purpose, so a stray `secrets.env` or
+    a colleague's scratch folder at the top level cannot ship by accident — the
+    failure mode a denylist has, where safety depends on having thought of the
+    thing in advance.
+    """
+    (workspace / "secrets.env").write_text("TOKEN=hunter2\n")
+    (workspace / "scratch").mkdir()
+    (workspace / "scratch" / "notes.txt").write_text("mine\n")
+    git(workspace, "add", "-A")
+    git(workspace, "commit", "--quiet", "-m", "stray files")
+
+    roots = [*PACKAGES, *release.INCLUDE]
+    for relative in release.contents(workspace, PACKAGES):
+        assert any(str(relative) == r or str(relative).startswith(r + "/")
+                   for r in roots), f"{relative} is under no declared root"
+
+    inside = names_in(next(iter([release.build(workspace, PACKAGES,
+                                               tmp_path / "dist")])) and
+                      (tmp_path / "dist").glob("*.tar.gz").__next__())
+    assert "secrets.env" not in inside
+    assert "scratch/notes.txt" not in inside
+
+
+def test_it_unpacks_into_one_directory_named_for_the_version(workspace, tmp_path):
+    """Two releases must sit side by side on disk — that is what makes a
+    rollback a rename rather than a re-download."""
+    manifest = release.build(workspace, PACKAGES, tmp_path / "dist")
+    with tarfile.open(next((tmp_path / "dist").glob("*.tar.gz"))) as bundle:
+        tops = {n.split("/", 1)[0] for n in bundle.getnames()}
+    assert tops == {f"throughline-{manifest['version']}"}, tops
+
+
+# --- reproducible, or refused ----------------------------------------------
+
+
+def test_a_dirty_tree_is_refused(workspace, tmp_path):
+    """A release built from uncommitted changes looks identical to one built
+    from a commit, and the difference appears only when somebody tries to
+    reproduce it."""
+    (workspace / "scripts" / "manage.py").write_text("# changed\n")
+
+    with pytest.raises(release.ReleaseError) as raised:
+        release.build(workspace, PACKAGES, tmp_path / "dist")
+    assert "could not be reproduced" in str(raised.value)
+    assert not (tmp_path / "dist").exists() or not list(
+        (tmp_path / "dist").glob("*.tar.gz"))
+
+
+def test_a_missing_interface_is_refused_by_name(workspace, tmp_path):
+    """Naming the command that fixes it, rather than shipping a release whose
+    every page answers 503."""
+    (workspace / "apps" / "web" / "out" / "index.html").unlink()
+    (workspace / "apps" / "web" / "out").rmdir()
+    git(workspace, "add", "-A")
+    git(workspace, "commit", "--quiet", "-m", "drop interface")
+
+    with pytest.raises(release.ReleaseError) as raised:
+        release.build(workspace, PACKAGES, tmp_path / "dist")
+    assert "build-interface" in str(raised.value)
+
+
+# --- the manifest -----------------------------------------------------------
+
+
+def test_the_checksum_describes_the_file_beside_it(workspace, tmp_path):
+    dist = tmp_path / "dist"
+    manifest = release.build(workspace, PACKAGES, dist)
+    archive = dist / manifest["file"]
+    assert release.sha256(archive) == manifest["sha256"]
+    assert manifest["sha256"] in (dist / f"{manifest['file']}.sha256").read_text()
+
+
+def test_the_manifest_names_the_commit_it_came_from(workspace, tmp_path):
+    """Which version produced a result is the product's own argument; a manifest
+    that cannot answer it undermines the thing being shipped."""
+    manifest = release.build(workspace, PACKAGES, tmp_path / "dist")
+    assert manifest["commit"] == git(workspace, "rev-parse", "HEAD")
+    assert manifest["manifest_version"] == 1
+
+
+def test_latest_json_is_written_where_a_client_would_look(workspace, tmp_path):
+    dist = tmp_path / "dist"
+    release.build(workspace, PACKAGES, dist)
+    loaded = json.loads((dist / "latest.json").read_text())
+    for field in ("version", "file", "sha256", "size", "commit"):
+        assert field in loaded, field
