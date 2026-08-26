@@ -59,7 +59,7 @@ the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **1432 backend tests and 1439 web tests**, with 13 backend
+The current suite is **1447 backend tests and 1439 web tests**, with 13 backend
 skips. Nine carry a reason CI's allowlist recognises — a skip with an
 unrecognised reason fails the build, so the suite cannot quietly shrink. The
 other four are the speech tests, whose reason (`openai-whisper is not
@@ -351,6 +351,31 @@ New API surface goes in its **own router module** mounted with one line in
 `app.py`, rather than as more routes inside it. This is a merge decision, not an
 architectural one: `app.py` is the file two branches always both touch, and the
 last wave merged with zero conflicts because nothing new was added to it.
+
+## Building a release
+
+```bash
+python scripts/manage.py release
+```
+
+Writes a tarball, its SHA-256 and a `latest.json` manifest into `dist/`. **One
+artifact serves every platform** — the interface is a static export with no
+native binaries, and the runtimes are fetched per machine at install time — so a
+release is one build rather than three, and 19 MB rather than the 850 MB the
+build dependencies weigh.
+
+It refuses on a dirty checkout. A release built from uncommitted changes looks
+exactly like one built from a commit, and the difference only surfaces when
+somebody tries to reproduce it and cannot.
+
+The archive is an allowlist of declared paths rather than a directory walk with
+exclusions, so nothing ships because it happened to be lying in the folder.
+
+**The checksum beside the tarball is not the security story.** Whoever can
+replace the file can replace the digest next to it — the same reason the pinned
+CPython digests live in this repository rather than beside their download.
+Signing the manifest is T083, and until it exists a release is only as
+trustworthy as the server it came from.
 
 ## Updating
 

@@ -1,0 +1,186 @@
+"""Building the thing a stranger downloads.
+
+A release is **one tarball for every platform**, and that falls out of decisions
+already made rather than being a goal in itself. The interface is a static
+export — plain HTML with no native binaries (T072). `runtimes.py` fetches the
+right CPython and Node for the machine it lands on, at install time. pip builds
+the virtualenv there too. So nothing platform-shaped is in the archive, and
+there is one artifact and one build rather than three.
+
+**What is deliberately not in it.** `node_modules` and the `apps/web` sources,
+because the interface arrives already built and rebuilding it is what the 800 MB
+of build dependencies were for. `.venv`, because it is built on the target and a
+virtualenv is not relocatable anyway. `.git`, because a release is not a
+checkout — which is also why `updates.check()` reports a tarball install as
+unable to check for updates until T084 gives it another way. `tests/`, because a
+researcher does not run them and they are a third of the source.
+
+**Why it refuses on a dirty tree.** A release is a claim that some exact commit
+produces these bytes. Built from a working directory with uncommitted changes,
+that claim is false and unfalsifiable at once: nobody can reproduce it, and
+nothing says so. The version string it stamps comes from the same `git describe`
+`version.py` reads back, so the artifact and the installation agree about what
+they are.
+
+**The checksum is emitted beside the tarball and is not the security story.**
+Anyone who can replace the file can replace the digest next to it — the same
+reasoning that puts `runtimes.py`'s CPython digests in the repository rather
+than beside the download. Signing the manifest is T083, and this file produces
+the manifest it will sign.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import subprocess
+import tarfile
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+#: Top-level paths that go into a release, beyond the workspace packages.
+#:
+#: `apps/web/out` and not `apps/web`: the built interface, not the thing that
+#: built it. That single line is most of the difference between a 36 MB download
+#: and an 850 MB one.
+INCLUDE = (
+    "scripts",
+    "launchers",
+    "apps/web/out",
+    "README.md",
+)
+
+#: Never included, wherever they appear. `build` and `*.egg-info` are the
+#: awkward ones: they are stale copies of package sources that pip leaves
+#: behind, and shipping them means a release carrying two versions of the same
+#: module with no way to tell which one imports.
+EXCLUDE_NAMES = frozenset({
+    "__pycache__", ".git", ".venv", "node_modules", ".next", "build", "dist",
+    ".pytest_cache", ".mypy_cache", ".ruff_cache",
+})
+EXCLUDE_SUFFIXES = (".pyc", ".pyo", ".egg-info")
+
+
+class ReleaseError(RuntimeError):
+    """A release that must not be built, with a reason worth reading."""
+
+
+def _git(root: Path, *args: str) -> str:
+    result = subprocess.run(("git", "-C", str(root)) + args,
+                            capture_output=True, text=True)
+    if result.returncode != 0:
+        raise ReleaseError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def require_clean(root: Path) -> None:
+    """Refuse to build from a tree with uncommitted changes.
+
+    Checked rather than trusted, because the failure is silent: a release built
+    from a dirty tree looks exactly like one built from a commit, and the
+    difference only appears when somebody tries to reproduce it and cannot.
+    """
+    dirty = _git(root, "status", "--porcelain").strip()
+    if dirty:
+        listed = "\n".join(f"  {line}" for line in dirty.splitlines()[:10])
+        raise ReleaseError(
+            "This tree has uncommitted changes, so a release built from it "
+            "could not be reproduced from any commit:\n" + listed +
+            "\n\nCommit or stash them first.")
+
+
+def version_name(root: Path) -> str:
+    """What this release is called.
+
+    The same `git describe` `version.py` reads back from an installation, so the
+    artifact and the copy it becomes agree about what they are. A tag when there
+    is one, the commit when there is not.
+    """
+    return _git(root, "describe", "--tags", "--always")
+
+
+def _wanted(path: Path) -> bool:
+    parts = set(path.parts)
+    if parts & EXCLUDE_NAMES:
+        return False
+    return not any(part.endswith(EXCLUDE_SUFFIXES) for part in path.parts)
+
+
+def contents(root: Path, packages: tuple[str, ...]) -> list[Path]:
+    """Every path that goes into the archive, relative to `root`.
+
+    `packages` is passed in rather than imported so this module has no opinion
+    about the workspace layout — `manage.py` owns that list, and a second copy
+    here is the drift `test_packaging.py` exists to catch.
+    """
+    roots = [Path(p) for p in (*packages, *INCLUDE)]
+    found: list[Path] = []
+    for relative in roots:
+        target = root / relative
+        if not target.exists():
+            raise ReleaseError(
+                f"{relative} is missing, so this release would be incomplete. "
+                f"If it is the interface, run: python scripts/manage.py "
+                f"build-interface")
+        if target.is_file():
+            found.append(relative)
+            continue
+        for item in sorted(target.rglob("*")):
+            if item.is_file() and _wanted(item.relative_to(root)):
+                found.append(item.relative_to(root))
+    return found
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def build(root: Path, packages: tuple[str, ...], destination: Path, *,
+          version: str | None = None, log=print) -> dict[str, Any]:
+    """Write the tarball, its checksum and a manifest. Returns the manifest.
+
+    The archive unpacks into a single directory named for the version, so two
+    releases can sit side by side on disk — which is what makes T084's rollback
+    a rename rather than a re-download.
+    """
+    require_clean(root)
+    name = version or version_name(root)
+    destination.mkdir(parents=True, exist_ok=True)
+
+    stem = f"throughline-{name}"
+    archive = destination / f"{stem}.tar.gz"
+    paths = contents(root, packages)
+    log(f"  {len(paths)} files")
+
+    # A VERSION file, so the installed copy can say what it is without a
+    # checkout. `version.py` prefers it over git for exactly this case.
+    stamp = destination / "VERSION"
+    stamp.write_text(f"{name}\n")
+
+    with tarfile.open(archive, "w:gz") as bundle:
+        for relative in paths:
+            bundle.add(root / relative, arcname=str(Path(stem) / relative))
+        bundle.add(stamp, arcname=str(Path(stem) / "VERSION"))
+    stamp.unlink()
+
+    digest = sha256(archive)
+    manifest = {
+        "version": name,
+        "file": archive.name,
+        "sha256": digest,
+        "size": archive.stat().st_size,
+        "built": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "commit": _git(root, "rev-parse", "HEAD"),
+        # Stated so a client can refuse a manifest it does not understand rather
+        # than guessing at a newer shape.
+        "manifest_version": 1,
+    }
+    (destination / f"{stem}.tar.gz.sha256").write_text(
+        f"{digest}  {archive.name}\n")
+    (destination / "latest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    return manifest
