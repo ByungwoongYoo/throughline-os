@@ -54,3 +54,8 @@ temp/
 *.swp
 *.swo
 apps/web/tsconfig.tsbuildinfo
+
+# The *private* release key must never be here. The public half
+# (keys/release.pub) is committed on purpose and ships in every tarball.
+*.pem
+release.key

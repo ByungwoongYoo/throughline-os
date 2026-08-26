@@ -54,6 +54,10 @@ def workspace(tmp_path):
     (root / "apps" / "api" / "src" / "app.py").write_text("# api\n")
     (root / "packages" / "model" / "src" / "m.py").write_text("# model\n")
     (root / "README.md").write_text("# readme\n")
+    # The public release key travels inside every tarball, so a release without
+    # a `keys/` directory is one whose updates could never be verified.
+    (root / "keys").mkdir()
+    (root / "keys" / "release.pub").write_text("a-public-key\n")
 
     # The things a release must never carry.
     (root / "apps" / "web" / "node_modules").mkdir()
@@ -231,3 +235,32 @@ def test_latest_json_is_written_where_a_client_would_look(workspace, tmp_path):
     loaded = json.loads((dist / "latest.json").read_text())
     for field in ("version", "file", "sha256", "size", "commit"):
         assert field in loaded, field
+
+
+def test_a_missing_keys_directory_names_the_right_command(workspace, tmp_path):
+    """The remedy has to match what is missing.
+
+    This message used to say "if it is the interface, run build-interface" for
+    everything absent, including the release key — sending the reader at a
+    command that cannot help. That is D041 and D043's defect, which this
+    repository has now paid for twice: a diagnostic naming the wrong cause costs
+    more than no diagnostic, because the reader believes it.
+    """
+    import shutil as _shutil
+    _shutil.rmtree(workspace / "keys")
+    git(workspace, "add", "-A")
+    git(workspace, "commit", "--quiet", "-m", "drop keys")
+
+    with pytest.raises(release.ReleaseError) as raised:
+        release.build(workspace, PACKAGES, tmp_path / "dist")
+    message = str(raised.value)
+    assert "release-key" in message
+    assert "build-interface" not in message
+
+
+def test_the_public_key_travels_in_the_archive(workspace, tmp_path):
+    """It must arrive with the software rather than from the server being
+    verified — the entire reason a signature beats a checksum."""
+    release.build(workspace, PACKAGES, tmp_path / "dist")
+    assert "keys/release.pub" in names_in(
+        next((tmp_path / "dist").glob("*.tar.gz")))

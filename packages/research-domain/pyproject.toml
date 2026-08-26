@@ -6,6 +6,11 @@ requires-python = ">=3.12"
 dependencies = [
   "throughline-schemas",
   "throughline-visual",
+  # Verifying a release signature on update (T083). Base rather than an extra:
+  # a verification somebody has to install first is one nobody performs, and the
+  # point of signing is that it is not optional. Ships manylinux, macOS and
+  # Windows wheels, so it does not turn an install into a compile.
+  "cryptography>=42",
   "psycopg[binary]>=3.1",
   "psycopg-pool>=3.2",
   "pgserver>=0.1.4",
