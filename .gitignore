@@ -59,3 +59,7 @@ apps/web/tsconfig.tsbuildinfo
 # (keys/release.pub) is committed on purpose and ships in every tarball.
 *.pem
 release.key
+
+# Where an update parks the version it replaced, until the new one has proved
+# it can migrate. Present only mid-update.
+.rollback/

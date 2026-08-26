@@ -24,12 +24,20 @@ build period an installation follows the branch, and the day somebody runs
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from pathlib import Path
 from typing import Any
 
-from . import version
+from . import signing, version
+
+#: Where a released copy asks what the newest release is.
+#:
+#: Overridable so a fork, a staging bucket or a test can point elsewhere, and
+#: because the host is a decision that has not been made yet (D050) — the launcher
+#: and the updater must agree on it, so it lives in one place.
+RELEASE_URL = "https://releases.throughline.tools/latest.json"
 
 #: How long a check may take before it is abandoned. A button that hangs is
 #: worse than one that says it could not reach the network: the researcher is
@@ -64,19 +72,86 @@ def _newest_tag(root: Path) -> str | None:
     return match.group(1) if match else None
 
 
+def _fetch_manifest(url: str) -> dict[str, Any]:
+    import json
+    import urllib.request
+
+    with urllib.request.urlopen(url, timeout=TIMEOUT) as response:
+        return json.loads(response.read().decode())
+
+
+def check_releases(root: Path, here: dict[str, Any], *,
+                   url: str | None = None) -> dict[str, Any]:
+    """Ask the release server what is newest, and refuse to believe it lightly.
+
+    This is the path a downloaded copy takes: no `.git`, so no `git fetch`. The
+    manifest is fetched over HTTPS and then **verified against the public key
+    this installation shipped with** — which is the whole reason T083 signs it.
+    HTTPS alone authenticates the server; the signature authenticates whoever
+    made the release, and those become different facts the moment the server is
+    compromised.
+
+    **A manifest that does not verify is not an update, and not "up to date"
+    either.** It is reported as a refusal with its reason, because the three
+    states — newer available, current, could not establish — are genuinely
+    different and collapsing any two of them tells the researcher something
+    false.
+    """
+    import urllib.error
+
+    where = url or os.environ.get("THROUGHLINE_RELEASE_URL") or RELEASE_URL
+    key = signing.public_key(root)
+    if not key:
+        return {"checked": False, "current": here,
+                "reason": "This installation ships no release public key, so a "
+                          "manifest could not be verified even if one arrived. "
+                          "Refusing to check rather than trusting the server."}
+
+    try:
+        manifest = _fetch_manifest(where)
+    except (urllib.error.URLError, OSError, ValueError) as error:
+        return {"checked": False, "current": here,
+                "reason": f"Could not reach the release server: {error}"}
+
+    try:
+        signing.verify(manifest, key)
+    except signing.VerificationError as error:
+        return {"checked": False, "current": here,
+                "reason": f"The release manifest did not verify: {error}"}
+
+    newest = manifest.get("version")
+    if not newest:
+        return {"checked": False, "current": here,
+                "reason": "The manifest names no version."}
+
+    return {
+        "checked": True,
+        "current": here,
+        "channel": "releases",
+        "following": "signed releases",
+        # A string comparison, deliberately: a released copy knows the version
+        # it is and the version on offer, and "different" is the honest answer.
+        # Ordering release names is a guess this has no business making — a
+        # rollback published deliberately is still an update to apply.
+        "update_available": newest != here.get("version"),
+        "available": newest,
+        "manifest": manifest,
+        "behind": 1 if newest != here.get("version") else 0,
+        "ahead": 0,
+        "how": ("python scripts/manage.py update"
+                if newest != here.get("version") else None),
+    }
+
+
 def check(root: Path | None = None) -> dict[str, Any]:
     """Ask the remote what it has, and say plainly when the question failed."""
     root = root or version._repository_root()
     here = version.current()
 
     if not (root / ".git").exists():
-        return {
-            "checked": False,
-            "current": here,
-            "reason": ("This installation is not a git checkout, so it cannot "
-                       "check for updates. A released copy updates by "
-                       "downloading a newer release."),
-        }
+        # A released copy: no git, so ask the release server instead. This used
+        # to be a flat refusal pointing at a mechanism that did not exist.
+        return check_releases(root, here)
 
     code, _, error = _git(root, "fetch", "--quiet", "origin")
     if code != 0:

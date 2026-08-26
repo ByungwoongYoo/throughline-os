@@ -328,6 +328,124 @@ def _venv_json(python: Path, expression: str) -> dict | None:
         return None
 
 
+def _update_from_release(python: Path, state: dict, log=print) -> int:
+    """Apply an update to an installation that has no git checkout.
+
+    **The virtualenv is not moved, and that is the whole shape of this.** It
+    lives at `<root>/.venv` and the workspace packages are installed *editable*
+    into it, pointing back at `<root>/packages/...`. A virtualenv is not
+    relocatable — its scripts carry absolute paths — so an update that renamed
+    the installation directory would leave a venv addressing somewhere that no
+    longer exists. Instead the **source is replaced in place** and the venv
+    stays exactly where it is, which keeps every editable install valid and
+    every path in it true.
+
+    Rollback is therefore a move rather than a re-download: the replaced tree
+    goes to `.rollback/` first and comes back if anything after it fails. The
+    previous version is literally still on disk, which is what T073 asked for
+    and `git reset --hard` only approximated by reconstructing it.
+
+    The tarball URL is **derived from the manifest's own location** rather than
+    read out of the manifest. A signed manifest naming an arbitrary host would
+    be a redirect the signature endorses; deriving it means the archive comes
+    from the same place the verified manifest did, and there is no field to
+    abuse.
+    """
+    import shutil
+    import tempfile
+    from urllib.parse import urljoin
+
+    import runtimes
+    from throughline_domain import updates as domain_updates
+
+    manifest = state["manifest"]
+    base = os.environ.get("THROUGHLINE_RELEASE_URL") or domain_updates.RELEASE_URL
+    archive_url = urljoin(base, manifest["file"])
+
+    log(f"\nBacking up before anything changes "
+        f"(current: {state['current'].get('version')})…")
+    if subprocess.run([str(ROOT / "scripts" / "backup.sh")],
+                      cwd=str(ROOT)).returncode != 0:
+        print("\nThe backup failed, so nothing was updated. The database is "
+              "the only copy of your research.", file=sys.stderr)
+        return 1
+
+    staging = Path(tempfile.mkdtemp(prefix="throughline-update-"))
+    rollback = ROOT / ".rollback"
+    try:
+        log(f"\nDownloading {manifest['version']}…")
+        try:
+            archive = runtimes.download(archive_url, manifest["sha256"],
+                                        staging / manifest["file"], log=log)
+        except runtimes.RuntimeError_ as error:
+            print(f"\n{error}\n\nNothing was changed.", file=sys.stderr)
+            return 1
+
+        unpacked = runtimes.unpack(archive, staging / "new", "release")
+
+        # Checked before anything is moved: an archive that unpacked into
+        # something unrecognisable must not be discovered halfway through a swap.
+        if not (unpacked / "scripts" / "manage.py").is_file():
+            print("\nThe downloaded release has no scripts/manage.py. "
+                  "Nothing was changed.", file=sys.stderr)
+            return 1
+
+        incoming = sorted(p.name for p in unpacked.iterdir())
+        shutil.rmtree(rollback, ignore_errors=True)
+        rollback.mkdir()
+
+        log("\nReplacing the source…")
+        moved: list[str] = []
+        try:
+            for name in incoming:
+                existing = ROOT / name
+                if existing.exists():
+                    shutil.move(str(existing), str(rollback / name))
+                    moved.append(name)
+                shutil.move(str(unpacked / name), str(ROOT / name))
+        except OSError as error:
+            for name in moved:
+                shutil.rmtree(ROOT / name, ignore_errors=True)
+                shutil.move(str(rollback / name), str(ROOT / name))
+            print(f"\nThe swap failed and was undone: {error}", file=sys.stderr)
+            return 1
+
+        def put_it_back(why: str) -> int:
+            print(f"\n{why}", file=sys.stderr)
+            print("Putting the previous version back…", file=sys.stderr)
+            for name in moved:
+                shutil.rmtree(ROOT / name, ignore_errors=True)
+                shutil.move(str(rollback / name), str(ROOT / name))
+            subprocess.run([str(python), "-m", "pip", "install", "-q", "-e",
+                            str(ROOT / "apps" / "api")], capture_output=True)
+            print("The previous version is in place again.", file=sys.stderr)
+            print("\nYour backup is in ~/throughline-backups. If the database "
+                  "needs restoring too:\n  ./scripts/restore.sh <archive.tar> "
+                  "--force", file=sys.stderr)
+            return 1
+
+        log("\nReinstalling packages…")
+        for package in PACKAGES:
+            if subprocess.run([str(python), "-m", "pip", "install", "-q", "-e",
+                               str(ROOT / package)]).returncode != 0:
+                return put_it_back(f"Installing {package} failed.")
+
+        log("\nApplying migrations…")
+        if subprocess.run(
+                [str(python), "-c",
+                 "from throughline_domain.migrate import migrate;"
+                 " print('applied:', migrate() or 'nothing new')"],
+                cwd=str(ROOT)).returncode != 0:
+            return put_it_back("A migration failed.")
+
+        shutil.rmtree(rollback, ignore_errors=True)
+        log(f"\nUpdated to {manifest['version']}.")
+        log("Restart Throughline for it to take effect.")
+        return 0
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
 def update(check_only: bool) -> int:
     """Update this installation, backing up first and reverting on failure.
 
@@ -394,6 +512,11 @@ def update(check_only: bool) -> int:
     if check_only:
         print("Apply with:  python scripts/manage.py update")
         return 0
+
+    # A released copy has no checkout to be dirty and no branch to fast-forward;
+    # it swaps a verified tarball in instead.
+    if state.get("channel") == "releases":
+        return _update_from_release(python, state)
 
     dirty = _git("status", "--porcelain", check=False).strip()
     if dirty:
