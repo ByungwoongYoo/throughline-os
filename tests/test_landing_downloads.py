@@ -410,3 +410,27 @@ def test_the_hold_is_as_long_as_this_comment_claims():
     assert (float(claimed.group(1)), float(claimed.group(2))) == (start, end), (
         f"the comment claims the hold is {claimed.group(1)}-{claimed.group(2)} "
         f"but the code holds {start}-{end}")
+
+
+def test_the_page_does_not_claim_to_be_open_source_while_it_is_not():
+    """**It did, and nothing in the repository supported it.**
+
+    The hero carried an `Open Source` badge beside `Local First` and
+    `Cross-Platform`. There is no `LICENSE` file, the repository is private, and
+    `README.md` never says it either — the claim existed only on the landing
+    page, which is the one surface strangers actually read.
+
+    That is this project's own named defect class, wearing marketing clothes: a
+    displayed claim nothing can support. The test is conditional rather than
+    absolute, so the day a licence is added the badge may come back — what it
+    refuses is the claim arriving *before* the thing it describes.
+    """
+    if (ROOT / "LICENSE").exists() or (ROOT / "LICENSE.md").exists():
+        return
+
+    sources = [TEMPLATE] + sorted((ROOT / "frontend" / "mods").glob("*.js"))
+    for source in sources:
+        markup = re.sub(r"<!--.*?-->", "", what_runs(source), flags=re.DOTALL)
+        assert "open source" not in markup.lower(), (
+            f"{source.relative_to(ROOT)} calls the product open source, but "
+            "there is no LICENSE in this repository and it is private")
