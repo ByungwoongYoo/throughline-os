@@ -115,7 +115,12 @@ else
   # machine that has Python and no curl should not fail at the last step.
   "$PYTHON" -c '
 import sys, urllib.request
-with urllib.request.urlopen(sys.argv[1], timeout=60) as response:
+# A named agent. Cloudflare answers the default urllib agent with 403, so
+# without this the installer cannot fetch itself (D056). Note there is no
+# apostrophe anywhere in here: this block is inside a single-quoted shell
+# string, and one would end it.
+req = urllib.request.Request(sys.argv[1], headers={"User-Agent": "Throughline-Installer"})
+with urllib.request.urlopen(req, timeout=60) as response:
     sys.stdout.buffer.write(response.read())
 ' "$INSTALLER_PY" > "$TMP_PY" || die "Could not download the installer from
   $INSTALLER_PY

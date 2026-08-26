@@ -41,6 +41,12 @@ from . import signing, version
 #: every installed copy checks a host that publishes nothing (D050).
 RELEASE_URL = "https://throughline-research.pages.dev/latest.json"
 
+#: Cloudflare answers Python's default `Python-urllib/3.x` agent with **403**,
+#: so a release host behind it refuses this while `curl` of the same URL
+#: succeeds. Measured against the live host (D056). Naming ourselves is also
+#: the honest thing: the server's log should say who is asking.
+USER_AGENT = "Throughline (+https://throughline-research.pages.dev)"
+
 #: How long a check may take before it is abandoned. A button that hangs is
 #: worse than one that says it could not reach the network: the researcher is
 #: left unable to tell a slow answer from no answer.
@@ -78,7 +84,8 @@ def _fetch_manifest(url: str) -> dict[str, Any]:
     import json
     import urllib.request
 
-    with urllib.request.urlopen(url, timeout=TIMEOUT) as response:
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
         return json.loads(response.read().decode())
 
 

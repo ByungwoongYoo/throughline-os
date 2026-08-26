@@ -237,7 +237,12 @@ def download(url: str, expected: str, dest: Path,
     partial = dest.with_suffix(dest.suffix + ".part")
     log(f"  downloading {url.rsplit('/', 1)[-1]}")
     try:
-        with urllib.request.urlopen(url) as response, partial.open("wb") as out:
+        # Named rather than defaulted: Cloudflare 403s `Python-urllib/3.x`, and
+        # this function fetches the release tarball as well as the interpreters
+        # (D056). GitHub never minded; the release host does.
+        request = urllib.request.Request(
+            url, headers={"User-Agent": "Throughline (+https://throughline-research.pages.dev)"})
+        with urllib.request.urlopen(request) as response, partial.open("wb") as out:
             shutil.copyfileobj(response, out)
     except OSError as error:
         partial.unlink(missing_ok=True)

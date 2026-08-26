@@ -41,6 +41,13 @@ from urllib.parse import urljoin
 #: `tests/test_landing_downloads.py`, not by anybody remembering.
 MANIFEST_URL = "https://throughline-research.pages.dev/latest.json"
 
+#: Sent on every request. **Not cosmetic.** Cloudflare answers Python's default
+#: `Python-urllib/3.x` agent with 403, so a release host behind it refuses the
+#: installer while `curl` of the same URL succeeds — measured against the live
+#: host, and it made the product completely uninstallable. Naming ourselves is
+#: also the honest thing: the server's logs should say who is asking.
+USER_AGENT = "Throughline-Installer (+https://throughline-research.pages.dev)"
+
 TIMEOUT = 60
 #: Separate, and much longer: the archive is tens of megabytes and a slow
 #: connection is not a failure. A manifest that takes a minute is.
@@ -51,9 +58,15 @@ class InstallError(Exception):
     """Something went wrong that the person running this can act on."""
 
 
+def _open(url: str, timeout: int):
+    """Every request this file makes, with the agent set. See USER_AGENT."""
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    return urllib.request.urlopen(request, timeout=timeout)
+
+
 def fetch_manifest(url: str) -> dict:
     try:
-        with urllib.request.urlopen(url, timeout=TIMEOUT) as response:
+        with _open(url, TIMEOUT) as response:
             manifest = json.load(response)
     except Exception as error:
         raise InstallError(
@@ -74,7 +87,7 @@ def download(url: str, expected: str, dest: Path, log=print) -> Path:
     There is no path through this that returns an unverified file.
     """
     try:
-        with urllib.request.urlopen(url, timeout=DOWNLOAD_TIMEOUT) as response:
+        with _open(url, DOWNLOAD_TIMEOUT) as response:
             with dest.open("wb") as out:
                 shutil.copyfileobj(response, out)
     except Exception as error:
