@@ -273,3 +273,49 @@ def test_the_public_key_travels_in_the_archive(workspace, tmp_path):
     release.build(workspace, PACKAGES, tmp_path / "dist")
     assert "keys/release.pub" in names_in(
         next((tmp_path / "dist").glob("*.tar.gz")))
+
+
+def test_a_release_that_still_fits_the_host_says_nothing(tmp_path):
+    """Silence is the common case, and it has to stay silent — a warning that
+    fires on every build is one nobody reads by the time it matters."""
+    archive = tmp_path / "small.tar.gz"
+    archive.write_bytes(b"x" * 1024)
+    said = []
+    release._check_host_capacity(archive, said.append)
+    assert said == []
+
+
+def test_a_release_approaching_the_host_limit_says_how_much_room_is_left(tmp_path):
+    """The point is to arrive before the wall, not at it. A number nobody can
+    act on is the same as no warning."""
+    archive = tmp_path / "big.tar.gz"
+    archive.write_bytes(b"x" * int(release.HOST_FILE_LIMIT * 0.9))
+    said = []
+    release._check_host_capacity(archive, said.append)
+
+    assert said, "no warning at 90% of the host's file limit"
+    together = "\n".join(said)
+    assert "headroom" in together
+    assert "25 MiB" in together, "the limit itself is not quoted"
+    assert "2.5 MiB" in together, "how much room is left is not quoted"
+
+
+def test_a_release_over_the_host_limit_says_it_cannot_be_uploaded(tmp_path):
+    """Not a refusal — the limit belongs to the host, and the archive is still
+    a good archive. But it must not be reported as a normal build."""
+    archive = tmp_path / "huge.tar.gz"
+    archive.write_bytes(b"x" * (release.HOST_FILE_LIMIT + 1))
+    said = []
+    release._check_host_capacity(archive, said.append)
+
+    together = "\n".join(said)
+    assert "TOO BIG" in together
+    assert "R2" in together, "the way out is not named"
+
+
+def test_the_capacity_check_runs_during_a_real_build(workspace):
+    """Asserted through `build()` rather than on the helper alone: a check
+    nothing calls is the defect class this repository keeps finding."""
+    import inspect
+    source = inspect.getsource(release.build)
+    assert "_check_host_capacity" in source

@@ -191,12 +191,52 @@ def build(root: Path, packages: tuple[str, ...], destination: Path, *,
         # than guessing at a newer shape.
         "manifest_version": 1,
     }
+    _check_host_capacity(archive, log)
     _publish_launchers(root, destination, log)
     signed = _sign_if_possible(manifest, log)
     (destination / f"{stem}.tar.gz.sha256").write_text(
         f"{digest}  {archive.name}\n")
     (destination / "latest.json").write_text(json.dumps(signed, indent=2) + "\n")
     return signed
+
+
+#: Cloudflare Pages refuses a single asset larger than this. Named here because
+#: the release host is a Pages project (D050) and this is the only number about
+#: it that can stop a release from being publishable at all.
+HOST_FILE_LIMIT = 25 * 1024 * 1024
+#: Where to start saying so. Far enough back that there is time to do something
+#: about it — splitting the archive or moving the host is not a same-day job.
+HOST_LIMIT_WARN_AT = 0.85
+
+
+def _check_host_capacity(archive: Path, log) -> None:
+    """Say how much room is left on the host, while there is still some.
+
+    **This does not refuse.** The limit belongs to the host, not to the
+    artifact, and a release that is too big for Cloudflare Pages is still a
+    perfectly good release for somewhere else — refusing would be this file
+    asserting a hosting decision it does not own. What it must not do is stay
+    quiet: without this, a tarball crossing the limit is discovered when an
+    upload fails by hand, weeks after the commit that caused it, by whoever
+    happens to be publishing.
+    """
+    size = archive.stat().st_size
+    share = size / HOST_FILE_LIMIT
+    if share < HOST_LIMIT_WARN_AT:
+        return
+
+    headroom = (HOST_FILE_LIMIT - size) / (1024 * 1024)
+    if size >= HOST_FILE_LIMIT:
+        log(f"  TOO BIG FOR THE HOST — {size / 1048576:.1f} MiB against "
+            f"Cloudflare Pages' 25 MiB limit for one file.")
+        log("  This tarball cannot be uploaded there. Moving the archive to R2 "
+            "behind\n  a custom domain is the documented route; see D050.")
+    else:
+        log(f"  host headroom: {headroom:.1f} MiB left of 25 MiB "
+            f"({share:.0%} used)")
+        log("  Cloudflare Pages refuses a single file over 25 MiB. Past that "
+            "the archive\n  needs R2 behind a custom domain — a hosting change, "
+            "not a build change.")
 
 
 def _publish_launchers(root: Path, destination: Path, log) -> None:
