@@ -104,6 +104,22 @@ def _explain_the_version(want: str, have: str) -> None:
           f"\n\n  Run this with a {want} interpreter instead.", file=sys.stderr)
 
 
+def _explain_no_venv() -> None:
+    """The fallback advice, for when fetching an interpreter also failed.
+
+    Still worth printing: offline, on a platform with no pinned build, or behind
+    a proxy, installing the distribution's venv package really is the way out.
+    It is the second answer now rather than the first.
+    """
+    print("\nCould not create a virtualenv with pip in it, and could not "
+          "fetch an\ninterpreter that can.", file=sys.stderr)
+    print("  If the output above mentioned ensurepip, the venv module is"
+          "\n  packaged separately on this distribution:"
+          "\n    Debian/Ubuntu:  sudo apt install python3.12-venv"
+          "\n    Fedora/RHEL:    sudo dnf install python3-virtualenv"
+          "\n\n  Then run this again.", file=sys.stderr)
+
+
 def _venv_version(root: Path = ROOT) -> tuple[int, int] | None:
     """The Python the existing virtualenv was built from, if it has one.
 
@@ -173,12 +189,41 @@ def bootstrap() -> int:
         if not _venv_has_pip():
             # Leave nothing half-built for the next run to trip over.
             shutil.rmtree(ROOT / ".venv", ignore_errors=True)
-            print("\nCould not create a virtualenv with pip in it.", file=sys.stderr)
-            print("  If the output above mentioned ensurepip, the venv module is"
-                  "\n  packaged separately on this distribution:"
-                  "\n    Debian/Ubuntu:  sudo apt install python3.12-venv"
-                  "\n    Fedora/RHEL:    sudo dnf install python3-virtualenv"
-                  "\n\n  Then run this again.", file=sys.stderr)
+
+            # The right version, and still unable to build a virtualenv. Debian
+            # and Ubuntu package `venv` separately, so `python3.12` without
+            # `python3.12-venv` lands exactly here — a mainstream configuration,
+            # not an edge case.
+            #
+            # This used to stop and ask for `sudo apt install python3.12-venv`.
+            # That advice works and it is the wrong advice: it demands root on a
+            # machine where T070 already has everything needed to avoid the
+            # problem. The fetched python-build-standalone build ships pip and
+            # creates virtualenvs fine. The fetch was gated on a *version*
+            # mismatch alone, so the one case it could not rescue was the one
+            # where the version was already correct — which is D046, and which
+            # cost a real repair on this machine.
+            #
+            # "Cannot build a virtualenv" is now a fetch trigger in its own
+            # right. The sentinel still guards it: an interpreter we fetched
+            # that also cannot build one is a dead end, not a loop.
+            if not os.environ.get(_REEXEC):
+                print("\nThis Python cannot create a virtualenv — on Debian "
+                      "and Ubuntu the venv\nmodule is packaged separately. "
+                      "Fetching one that can, rather than\nasking you for root."
+                      "\n")
+                try:
+                    interpreter = runtimes.ensure("python")
+                except runtimes.RuntimeError_ as error:
+                    print(f"\n{error}\n", file=sys.stderr)
+                    _explain_no_venv()
+                    return 1
+                return subprocess.run(
+                    [str(interpreter), str(Path(__file__).resolve()),
+                     "bootstrap"],
+                    env={**os.environ, _REEXEC: "1"}).returncode
+
+            _explain_no_venv()
             return 1
 
     python = str(venv_python())

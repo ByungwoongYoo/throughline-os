@@ -465,3 +465,60 @@ def test_a_missing_sibling_falls_back_to_the_bare_name(tmp_path):
     node.parent.mkdir(parents=True)
     node.write_text("#!/bin/sh\n")
     assert manage.node_exe(str(node), "npm") == "npm"
+
+
+def test_a_python_that_cannot_build_a_venv_triggers_the_fetch(monkeypatch):
+    """D046, and the reason it was worth fixing rather than documenting.
+
+    Debian and Ubuntu package `venv` separately, so `python3.12` without
+    `python3.12-venv` is a mainstream configuration — not an edge case. The
+    version is *correct*, so the version check passes, and bootstrap used to
+    stop and ask for `sudo apt install python3.12-venv`.
+
+    That advice works and it is the wrong advice: it demands root on a machine
+    where T070 already has everything needed to avoid the problem. The fetch was
+    gated on a version mismatch alone, so the one case it could not rescue was
+    the one where the version was already right.
+    """
+    monkeypatch.setattr(manage, "_venv_has_pip", lambda *a, **k: False)
+    monkeypatch.setattr(manage, "_venv_version", lambda *a, **k: None)
+    monkeypatch.delenv(manage._REEXEC, raising=False)
+    monkeypatch.setattr(manage.shutil, "rmtree", lambda *a, **k: None)
+
+    fetched = []
+    monkeypatch.setattr(manage.runtimes, "ensure",
+                        lambda *a, **k: fetched.append("python") or "/fetched/python")
+
+    class Result:
+        returncode = 0
+
+    monkeypatch.setattr(manage.subprocess, "run", lambda *a, **k: Result())
+
+    assert manage.bootstrap() == 0
+    assert fetched == ["python"], (
+        "bootstrap should fetch an interpreter that can build a virtualenv "
+        "rather than asking the researcher for root")
+
+
+def test_it_does_not_fetch_forever_when_the_fetched_one_also_fails(monkeypatch,
+                                                                   capsys):
+    """The sentinel still guards it. An interpreter we fetched that also cannot
+    build a virtualenv is a dead end, not a loop — and the distribution's own
+    package really is the way out then."""
+    monkeypatch.setattr(manage, "_venv_has_pip", lambda *a, **k: False)
+    monkeypatch.setattr(manage, "_venv_version", lambda *a, **k: None)
+    monkeypatch.setenv(manage._REEXEC, "1")
+    monkeypatch.setattr(manage.shutil, "rmtree", lambda *a, **k: None)
+
+    def refuse(*_a, **_k):
+        raise AssertionError("fetched a second interpreter after re-executing")
+
+    monkeypatch.setattr(manage.runtimes, "ensure", refuse)
+
+    class Result:
+        returncode = 0
+
+    monkeypatch.setattr(manage.subprocess, "run", lambda *a, **k: Result())
+
+    assert manage.bootstrap() == 1
+    assert "python3.12-venv" in capsys.readouterr().err
