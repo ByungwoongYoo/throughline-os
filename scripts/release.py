@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import os
 import subprocess
 import tarfile
@@ -283,6 +284,7 @@ end
     log("  homebrew: throughline.rb")
 
 
+
 def _check_host_capacity(archive: Path, log) -> None:
     """Say how much room is left on the host, while there is still some.
 
@@ -349,6 +351,9 @@ def _publish_launchers(root: Path, destination: Path, log) -> None:
         "scripts/install.ps1":
             "it is the Windows half of the one-liner. Windows has no `sh`, so "
             "`irm ... | iex` is how that platform gets the same single line.",
+        "README.txt":
+            "the landing page links it as the read me. A release without it "
+            "publishes a link with nothing behind it.",
         "frontend/_headers":
             "without it the host serves the launchers as text and the browser "
             "displays them instead of downloading. The buttons look like they "
@@ -360,7 +365,7 @@ def _publish_launchers(root: Path, destination: Path, log) -> None:
     for relative in ("launchers/Throughline.command", "launchers/Throughline.bat",
                      "launchers/throughline.sh", "scripts/install.sh",
                      "scripts/install.py", "scripts/install.ps1",
-                     "frontend/_headers"):
+                     "frontend/_headers", "README.txt"):
         source = root / relative
         if not source.is_file():
             raise ReleaseError(

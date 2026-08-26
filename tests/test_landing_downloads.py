@@ -80,15 +80,35 @@ def test_every_platform_has_a_route_on_the_page():
     assert "Throughline.command" not in linked, (
         "the macOS download is back. It cannot be notarised, so it greets "
         "every stranger with a malware warning; the one-liner is the route")
-    assert ">macOS<" in page, "macOS is not named on the page at all"
+    assert "macOS" in page, "macOS is not named on the page at all"
     assert "curl -fsSL __TL_RELEASES__/install.sh | sh" in page, (
         "macOS has no download and no one-liner, so it has no route at all")
 
 
-def test_the_page_offers_install_sh_for_reading():
-    """The one honest thing a page that suggests piping a script to a shell can
-    do is let you read it first."""
-    assert "install.sh" in linked_names()
+def test_install_sh_can_still_be_read_before_it_is_piped():
+    """The one honest thing a page suggesting `curl | sh` can do is let you read
+    the script first — but it does not need a menu row to do it.
+
+    **The URL is the affordance.** It sits in the copyable command itself, and
+    `_headers` pins install.sh to `text/plain`, so opening it shows the script
+    rather than downloading it. A separate "Read install.sh first" row restated
+    a link the reader already had.
+
+    What must not be lost is the capability, so that is what this asserts: the
+    command on the page names the script's own URL, and the host is told to
+    serve it as readable text. Worth being clear-eyed about how much that buys
+    — a server can serve different bytes to curl than to a browser, so reading
+    first is a courtesy from an honest publisher rather than a security control.
+    """
+    page = TEMPLATE.read_text()
+    assert "__TL_RELEASES__/install.sh" in page, (
+        "the page no longer names install.sh anywhere, so there is nothing to "
+        "read before piping it")
+    block = header_rules().get("/install.sh", "")
+    assert "text/plain" in block, (
+        "install.sh is not pinned to text/plain, so a browser may download it "
+        "instead of showing it")
+    assert "Content-Disposition: attachment" not in block
 
 
 def test_no_download_points_into_the_private_repository():
@@ -595,3 +615,33 @@ def test_the_formula_is_published(tmp_path):
     """Written into dist/ beside the tarball it describes, so whoever updates
     the tap copies a file rather than editing one."""
     assert "_write_formula" in (ROOT / "scripts" / "release.py").read_text()
+
+
+# --- the read me -------------------------------------------------------------
+
+
+def test_the_page_links_a_read_me_that_the_release_publishes():
+    """A link the release does not publish is a 404 wearing a working link —
+    the same defect as the download buttons in D050, one link along."""
+    assert "__TL_RELEASES__/README.txt" in TEMPLATE.read_text(), (
+        "the page does not link a read me")
+    assert "README.txt" in published_names(), (
+        "the page links a read me that no release publishes")
+
+
+def test_the_read_me_is_shown_rather_than_downloaded():
+    """It is instructions. A file you must save and open before you can read it
+    is one nobody reads — the same reason install.sh is pinned to text."""
+    block = header_rules().get("/README.txt", "")
+    assert "text/plain" in block, "README.txt is not pinned to readable text"
+    assert "Content-Disposition: attachment" not in block, (
+        "the read me is forced to download rather than shown")
+
+
+def test_the_read_me_covers_both_one_liners():
+    """It is the page's overflow: what would not fit in a menu row goes here,
+    so it has to carry at least the two install lines the page shows."""
+    body = (ROOT / "README.txt").read_text()
+    assert "install.sh | sh" in body, "the read me omits the POSIX one-liner"
+    assert "install.ps1 | iex" in body, "the read me omits the PowerShell one-liner"
+    assert "doctor" in body, "the read me does not say what to run when it breaks"

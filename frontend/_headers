@@ -47,3 +47,9 @@
 
 /install.ps1
   Content-Type: text/plain; charset=utf-8
+
+# Shown, not downloaded: it is instructions, and a file you must save and
+# open before you can read it is one nobody reads.
+
+/README.txt
+  Content-Type: text/plain; charset=utf-8

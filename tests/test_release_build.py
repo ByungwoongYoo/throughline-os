@@ -62,6 +62,9 @@ def workspace(tmp_path):
     # Windows has no `sh`, so the one-liner there is `irm ... | iex` and needs
     # its own front door published beside the others.
     (root / "scripts" / "install.ps1").write_text("# install\n")
+    # Linked from the page as the read me, so a release without it publishes a
+    # link with nothing behind it.
+    (root / "README.txt").write_text("read me\n")
     # Host rules for the download buttons; without it a browser displays the
     # launchers instead of saving them, so the release refuses to ship without.
     (root / "frontend").mkdir()
