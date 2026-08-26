@@ -344,3 +344,69 @@ def test_the_deploy_note_names_the_page_that_works():
     assert "Upload `Main.dc.html` as the page" not in readme, (
         "frontend/README.md still tells you to upload the canvas artboard")
     assert "mkharness" in readme
+
+
+# --- how long the download button is actually on screen ----------------------
+
+
+def content_window() -> tuple[float, float]:
+    """When the name, tagline and Download button are at full opacity.
+
+    Read out of the choreography itself. `content` is a smoothstep in
+    multiplied by a smoothstep out, so full opacity runs from where the first
+    finishes to where the second begins.
+    """
+    page = TEMPLATE.read_text()
+    found = re.search(
+        r"const content = ss\(([\d.]+), ([\d.]+), p\) \* "
+        r"\(1 - ss\(([\d.]+), ([\d.]+), p\)\);", page)
+    assert found, "the content window is no longer written in a shape this can read"
+    _, up, down, _ = (float(g) for g in found.groups())
+    return up, down
+
+
+def test_the_download_button_stays_long_enough_to_use():
+    """**The complaint that produced this test**: the title and the Download
+    button went by too fast to click.
+
+    They are the only call to action on the page, and they used to hold from
+    p=0.78 to p=0.86 — under a tenth of the runway, a couple of wheel notches.
+    A landing page whose download disappears while you are reaching for it has
+    failed at the one thing it is for.
+
+    The floor is deliberately below the current value: this pins the property,
+    not the design. Retiming the finale is fine; quietly halving the window is
+    what this refuses.
+    """
+    start, end = content_window()
+    assert end - start >= 0.15, (
+        f"the Download button holds for only {end - start:.3f} of the runway "
+        f"(p={start} to p={end}). It is the only download on the page.")
+
+
+def test_the_reverse_does_not_start_before_the_hold_ends():
+    """A hold the mark expands away through is not a hold. When the finale was
+    retimed, every part of the reverse had to move with it — this is what
+    catches the half of that job being forgotten."""
+    _, hold_ends = content_window()
+    page = TEMPLATE.read_text()
+    for name in ("back", "expand", "pull"):
+        found = re.search(rf"const {name} = ss\(([\d.]+),", page)
+        assert found, f"{name} is no longer a smoothstep this can read"
+        assert float(found.group(1)) >= hold_ends - 0.005, (
+            f"`{name}` begins at {found.group(1)} but the Download button is "
+            f"still fully visible until {hold_ends} — the reverse animation "
+            "would run underneath it")
+
+
+def test_the_hold_is_as_long_as_this_comment_claims():
+    """The comment above the choreography said 0.70-0.86 while the code did
+    0.78-0.86, and the drift is how the window got short without anyone
+    noticing. The prose is load-bearing here, so it is checked."""
+    page = TEMPLATE.read_text()
+    start, end = content_window()
+    claimed = re.search(r"HOLD \(([\d.]+)-([\d.]+)\)", page)
+    assert claimed, "the choreography comment no longer states the hold window"
+    assert (float(claimed.group(1)), float(claimed.group(2))) == (start, end), (
+        f"the comment claims the hold is {claimed.group(1)}-{claimed.group(2)} "
+        f"but the code holds {start}-{end}")

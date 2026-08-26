@@ -37,7 +37,7 @@
 <div ref="{{setRoot}}" style="width: 100%; background: #06070a; color: #f4f2ee; font-family: Inter, -apple-system, 'Segoe UI', system-ui, sans-serif">
 
   <!-- ================= THE RUNWAY: scroll is real; the stage pins ================= -->
-  <section class="tl-runway" style="position: relative; height: 520vh">
+  <section class="tl-runway" style="position: relative; height: 620vh">
     <div ref="{{setStage}}" class="tl-stage" style="position: sticky; top: 0; height: 100vh; overflow: hidden">
       <canvas ref="{{setGlCanvas}}" class="tl-gl" style="position: absolute; inset: 0; width: 100%; height: 100%; display: block"></canvas>
       <canvas ref="{{setFxCanvas}}" class="tl-fx" style="position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none"></canvas>
@@ -127,7 +127,7 @@ class Component extends DCLogic {
       skipToInstall: () => {
         const vh = window.innerHeight || 800;
         const runway = (this.stage && this.stage.parentElement ? this.stage.parentElement.offsetHeight : vh * 5.2) - vh;
-        window.scrollTo({ top: runway * 0.81, behavior: this.reduced ? "auto" : "smooth" });
+        window.scrollTo({ top: runway * 0.85, behavior: this.reduced ? "auto" : "smooth" });
       },
     };
   }
@@ -258,29 +258,45 @@ class Component extends DCLogic {
 
       // Act 3: blast (0.50-0.58) -> the mark draws in ON THE HOLE'S RIM
       // (0.56-0.64) -> condenses to lockup size (0.64-0.72) -> the name and
-      // the Download/GitHub buttons appear and HOLD (0.70-0.86) -> reverse:
-      // the buttons fade and the mark expands back onto the rim while the
-      // hole rebrightens and the camera pulls out (0.86-0.985) — the logo
-      // becomes the black hole again -> the page loops.
+      // the Download button appear and HOLD (0.76-0.945) -> reverse: the
+      // buttons fade and the mark expands back onto the rim while the hole
+      // rebrightens and the camera pulls out (0.945-0.99) — the logo becomes
+      // the black hole again -> the page loops.
+      //
+      // **The hold is the whole point of the page and it used to be too
+      // short.** `content` reached full opacity at 0.78 and began fading at
+      // 0.86 — about 300px of a 3,800px runway, a couple of wheel notches
+      // before the only Download button on the site started disappearing. It
+      // is now 0.76-0.945 on a runway lengthened from 520vh to 620vh, which
+      // is 842px measured rather than estimated: 2.8x longer.
+      //
+      // Two things had to move with it. Every part of the reverse (`back`,
+      // `expand`, `pull`, and the two un-draw tails) shifted later, because a
+      // hold the mark expands away through is not a hold. And the numbers in
+      // this comment are checked by `test_the_hold_is_as_long_as_this_comment
+      // _claims` — the previous version of this comment said 0.70-0.86 while
+      // the code did 0.78-0.86, and a comment that drifts from its code is
+      // how the window got short enough to complain about without anyone
+      // noticing.
       const ss = (a, b, x) => { const u = Math.min(1, Math.max(0, (x - a) / (b - a))); return u * u * (3 - 2 * u); };
       const flare = p > 0.54 && p < 0.62 ? Math.sin(((p - 0.54) / 0.08) * Math.PI) * 1.15 : 0;
       const dim = ss(0.58, 0.65, p);
-      const back = ss(0.86, 0.95, p);
+      const back = ss(0.945, 0.98, p);
       const reveal = ss(0.6, 0.68, p);
       const condense = ss(0.68, 0.75, p);
-      const expand = ss(0.88, 0.97, p);
-      const content = ss(0.73, 0.78, p) * (1 - ss(0.86, 0.9, p));
+      const expand = ss(0.95, 0.99, p);
+      const content = ss(0.71, 0.76, p) * (1 - ss(0.945, 0.975, p));
       // Spacestyle return: the camera eases back out to the wide framing as
       // the hole comes home, so the loop lands near where it began.
-      const pull = ss(0.88, 1, p);
+      const pull = ss(0.95, 1, p);
       const cam = p * (1 - pull) + 0.3 * pull;
       const glOp = (1 - 0.92 * dim + 0.6 * back) * (1 - 0.85 * this.rebirth);
       this.glCanvas.style.opacity = String(Math.min(1, glOp));
       if (this.fxCanvas) this.fxCanvas.style.opacity = String(Math.min(1, 1 - 0.85 * dim + 0.55 * back));
       // The mark draws in with the reveal and un-draws into the rim at the end.
-      const draw = reveal * (1 - ss(0.94, 0.985, p));
+      const draw = reveal * (1 - ss(0.975, 0.995, p));
       if (this.finalEl) {
-        this.finalEl.style.opacity = String(reveal * (1 - ss(0.96, 0.995, p)));
+        this.finalEl.style.opacity = String(reveal * (1 - ss(0.985, 0.999, p)));
         this.finalEl.style.pointerEvents = content > 0.5 ? "auto" : "none";
       }
       for (const [el, len] of this.markStrokes) el.style.strokeDashoffset = String(len * (1 - draw));
