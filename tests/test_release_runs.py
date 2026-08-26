@@ -138,3 +138,48 @@ def test_a_death_on_startup_points_at_doctor_and_update():
     assert "update" in supervisor, "a startup failure does not mention update"
     assert "time.monotonic()" in supervisor, (
         "the message no longer distinguishes a startup failure from a later one")
+
+
+def test_an_incomplete_install_is_moved_aside_not_deleted():
+    """**The safe half of "just rm it and start over".**
+
+    A download cut short leaves `scripts/manage.py` present and the rest
+    missing, so the *already installed* branch is taken and both `update` and
+    `start` fail in ways that read as the product being broken rather than the
+    install having been interrupted. Detecting that is right.
+
+    Deleting is not. An automatic `rm -rf` on a path the caller controls
+    through `THROUGHLINE_INSTALL_DIR` is something an installer must never do:
+    one bad value and it removes a directory it was never asked to touch.
+    Renaming reaches the same outcome, costs a folder nobody has to keep, and
+    can be undone by somebody who disagrees with the diagnosis.
+    """
+    body = read("install.sh")
+    assert "release_install_is_complete" in body, (
+        "install.sh no longer checks whether the tree it found is whole")
+    assert ".broken-" in body, "an incomplete install is not moved aside"
+    assert "rm -rf \"$DEST\"" not in body, (
+        "install.sh deletes the install directory automatically")
+
+
+def test_the_move_aside_refuses_anything_that_is_not_an_installation():
+    """The second half of not deleting: it will only move something it has
+    positively identified. `THROUGHLINE_INSTALL_DIR=$HOME` must not result in a
+    home directory being renamed."""
+    body = read("install.sh")
+    guard = body[body.index("release_install_is_complete; then"):]
+    guard = guard[:guard.index("elif")]
+    assert '"$HOME"' in guard and '"/"' in guard, (
+        "the move-aside has no guard against $HOME or /")
+    assert "Refusing to move" in guard
+
+
+def test_completeness_is_judged_on_what_a_release_actually_contains():
+    """Asserted against the things the release builder really writes — a VERSION
+    file, the packages bootstrap installs from, and the exported interface — so
+    the check cannot drift into passing on a tree that will not run."""
+    body = read("install.sh")
+    check = body[body.index("release_install_is_complete() {"):]
+    check = check[:check.index("\n}")]
+    for needed in ("VERSION", "packages", "apps/web/out/index.html"):
+        assert needed in check, f"completeness does not look for {needed}"

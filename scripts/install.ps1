@@ -56,6 +56,28 @@ if (-not $PyExe) {
 }
 Write-Host "  using $PyExe $($PyArgs -join ' ') to start"
 
+# Whether the tree at $Dest is a whole release rather than a partial one. See
+# install.sh for why: a download cut short leaves manage.py present and the rest
+# missing, and every branch below assumes the tree is whole.
+function Test-CompleteInstall($path) {
+    return (Test-Path (Join-Path $path 'VERSION')) -and
+           (Test-Path (Join-Path $path 'packages')) -and
+           (Test-Path (Join-Path $path 'apps\web\out\index.html'))
+}
+
+if ((Test-Path (Join-Path $Dest 'scripts\manage.py')) -and -not (Test-CompleteInstall $Dest)) {
+    # Moved, never deleted: an automatic Remove-Item on a path the caller sets
+    # through THROUGHLINE_INSTALL_DIR is not something an installer should do.
+    if ($Dest -eq $env:USERPROFILE -or [string]::IsNullOrWhiteSpace($Dest)) {
+        Write-Host "Refusing to move $Dest aside: that is not an installation directory."
+        exit 1
+    }
+    $Broken = "$Dest.broken-" + (Get-Date -Format 'yyyyMMdd-HHmmss')
+    Write-Host "  the installation at $Dest is incomplete"
+    Write-Host "  moving it to $Broken, then installing fresh"
+    Move-Item -Path $Dest -Destination $Broken
+}
+
 if (Test-Path (Join-Path $Dest 'scripts\manage.py')) {
     # See install.sh for why this compares rather than stopping: somebody
     # holding a build with a startup defect re-ran the advertised line, was told

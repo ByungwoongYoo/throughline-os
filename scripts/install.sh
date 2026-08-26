@@ -75,6 +75,53 @@ PYTHON=$(find_python) || die "No Python 3.8+ found on this machine.
 
 say "  using $PYTHON to start"
 
+# Whether the tree at $DEST is a *whole* release rather than a partial one.
+#
+# Every branch below assumes it is whole: `update` runs out of it, `start`
+# imports from it. A download interrupted halfway leaves `scripts/manage.py`
+# present and the rest missing, so the "already installed" branch is taken and
+# both of those fail in ways that read as the product being broken rather than
+# the install having been cut short.
+#
+# Checked positively: VERSION is written by the release builder and packages/
+# is what bootstrap installs from. A checkout has neither VERSION nor this
+# branch - `.git` is matched first.
+# The download itself, as a function so the incomplete-install branch can
+# reuse it rather than carry a second copy of the install sequence.
+fetch_release() {
+  say "  fetching the current release"
+  # Handed to scripts/install.py rather than done here. Batch cannot express
+  # download-verify-unpack without a third copy of it, so the Windows door needs
+  # that file to exist anyway — and two doors sharing one implementation is the
+  # whole point. Fetched from beside the manifest, so a staging host set through
+  # THROUGHLINE_RELEASE_URL serves its own installer too.
+  INSTALLER_PY="${MANIFEST_URL%/*}/install.py"
+  TMP_PY="$(mktemp -t throughline-install.XXXXXX)" || die "Could not create a temporary file."
+  trap 'rm -f "$TMP_PY"' EXIT INT TERM
+  # Fetched with the Python we just found rather than with curl. This script is
+  # usually *delivered* by curl, but it can also be run from a file, and a
+  # machine that has Python and no curl should not fail at the last step.
+  "$PYTHON" -c '
+import sys, urllib.request
+# A named agent. Cloudflare answers the default urllib agent with 403, so
+# without this the installer cannot fetch itself (D056). Note there is no
+# apostrophe anywhere in here: this block is inside a single-quoted shell
+# string, and one would end it.
+req = urllib.request.Request(sys.argv[1], headers={"User-Agent": "Throughline-Installer"})
+with urllib.request.urlopen(req, timeout=60) as response:
+    sys.stdout.buffer.write(response.read())
+' "$INSTALLER_PY" > "$TMP_PY" || die "Could not download the installer from
+  $INSTALLER_PY
+
+  The release server may be unreachable from this machine."
+  "$PYTHON" "$TMP_PY" --into "$DEST" --url "$MANIFEST_URL"
+}
+
+release_install_is_complete() {
+  [ -f "$DEST/VERSION" ] && [ -d "$DEST/packages" ] \
+    && [ -f "$DEST/apps/web/out/index.html" ]
+}
+
 if [ -d "$DEST/.git" ]; then
   say "  updating the existing checkout"
   git -C "$DEST" fetch --quiet origin "$BRANCH"
@@ -84,6 +131,26 @@ if [ -d "$DEST/.git" ]; then
   git -C "$DEST" pull --quiet --ff-only origin "$BRANCH" || die \
     "The checkout at $DEST has diverged from $BRANCH and cannot fast-forward.
   Nothing has been changed. Move it aside, or update it yourself, and re-run."
+elif [ -f "$DEST/scripts/manage.py" ] && ! release_install_is_complete; then
+  # **Half an install is worse than none**, and it is moved rather than deleted.
+  #
+  # An automatic `rm -rf` on a path the caller controls through
+  # THROUGHLINE_INSTALL_DIR is not something an installer should ever do: one
+  # bad value and it removes a directory it was never asked to touch. Renaming
+  # reaches the same outcome, costs a folder nobody has to keep, and can be
+  # undone by somebody who disagrees with the diagnosis. The guard below is the
+  # second half of that: it will only move something it has positively
+  # identified as ours.
+  case "$DEST" in
+    "$HOME" | "/" | "") die "Refusing to move $DEST aside: that is not an
+  installation directory. Set THROUGHLINE_INSTALL_DIR to somewhere else." ;;
+  esac
+  BROKEN="$DEST.broken-$(date +%Y%m%d-%H%M%S 2>/dev/null || echo old)"
+  say "  the installation at $DEST is incomplete"
+  say "  moving it to $BROKEN, then installing fresh"
+  mv "$DEST" "$BROKEN" || die "Could not move $DEST aside.
+  Move or remove it yourself, then run this again."
+  fetch_release
 elif [ -f "$DEST/scripts/manage.py" ]; then
   # A release install rather than a checkout.
   #
@@ -133,32 +200,7 @@ elif [ -n "$REPO" ]; then
   say "  cloning $REPO"
   git clone --quiet --branch "$BRANCH" "$REPO" "$DEST"
 else
-  say "  fetching the current release"
-  # Handed to scripts/install.py rather than done here. Batch cannot express
-  # download-verify-unpack without a third copy of it, so the Windows door needs
-  # that file to exist anyway — and two doors sharing one implementation is the
-  # whole point. Fetched from beside the manifest, so a staging host set through
-  # THROUGHLINE_RELEASE_URL serves its own installer too.
-  INSTALLER_PY="${MANIFEST_URL%/*}/install.py"
-  TMP_PY="$(mktemp -t throughline-install.XXXXXX)" || die "Could not create a temporary file."
-  trap 'rm -f "$TMP_PY"' EXIT INT TERM
-  # Fetched with the Python we just found rather than with curl. This script is
-  # usually *delivered* by curl, but it can also be run from a file, and a
-  # machine that has Python and no curl should not fail at the last step.
-  "$PYTHON" -c '
-import sys, urllib.request
-# A named agent. Cloudflare answers the default urllib agent with 403, so
-# without this the installer cannot fetch itself (D056). Note there is no
-# apostrophe anywhere in here: this block is inside a single-quoted shell
-# string, and one would end it.
-req = urllib.request.Request(sys.argv[1], headers={"User-Agent": "Throughline-Installer"})
-with urllib.request.urlopen(req, timeout=60) as response:
-    sys.stdout.buffer.write(response.read())
-' "$INSTALLER_PY" > "$TMP_PY" || die "Could not download the installer from
-  $INSTALLER_PY
-
-  The release server may be unreachable from this machine."
-  "$PYTHON" "$TMP_PY" --into "$DEST" --url "$MANIFEST_URL"
+  fetch_release
 fi
 
 say ""
