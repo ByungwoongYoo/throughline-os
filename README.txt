@@ -50,10 +50,15 @@ WHERE THINGS LIVE
   The program      ~/throughline-os
                    (override with THROUGHLINE_INSTALL_DIR)
 
-  Your research    a PostgreSQL database inside that directory
+  Your research    ~/.throughline-os
+                   (override with THROUGHLINE_HOME)
 
-The database is the only copy of your work. Back it up like you would back up
-anything else you cannot lose.
+Note the dot. They are two different directories, deliberately: deleting or
+reinstalling the program does not touch your research. If you ever want to
+start the install over, removing ~/throughline-os is safe.
+
+~/.throughline-os holds the PostgreSQL database, and that is the only copy of
+your work. Back it up like anything else you cannot lose.
 
 
 UPDATING

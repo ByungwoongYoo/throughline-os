@@ -645,3 +645,25 @@ def test_the_read_me_covers_both_one_liners():
     assert "install.sh | sh" in body, "the read me omits the POSIX one-liner"
     assert "install.ps1 | iex" in body, "the read me omits the PowerShell one-liner"
     assert "doctor" in body, "the read me does not say what to run when it breaks"
+
+
+def test_the_read_me_names_the_data_directory_correctly():
+    """**It did not, and that is the dangerous kind of wrong.** The read me said
+    the database lived inside the program directory. It lives in
+    `~/.throughline-os` — note the dot — while the program is `~/throughline-os`,
+    and `db.py` resolves the first from `THROUGHLINE_HOME`.
+
+    Getting that backwards tells somebody either that reinstalling destroys
+    their research, or that backing up the program directory preserves it.
+    Both are false and only one of them is discovered safely.
+    """
+    body = (ROOT / "README.txt").read_text()
+    assert "~/.throughline-os" in body, (
+        "the read me does not name the data directory")
+    assert "inside that directory" not in body, (
+        "the read me still says the database lives inside the program directory")
+    source = (ROOT / "packages" / "research-domain" / "src" / "throughline_domain"
+              / "db.py").read_text()
+    assert '".throughline-os"' in source, (
+        "db.py no longer resolves the data root to ~/.throughline-os; the read "
+        "me now says something the code does not do")
