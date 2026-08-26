@@ -258,6 +258,26 @@ def bootstrap() -> int:
     return 0
 
 
+def _can_run_dev_server(root: Path | None = None) -> bool:
+    """Whether there is an npm project here to run `next dev` from.
+
+    **This is not the same question as "is Node installed", and conflating them
+    made every release unusable on any machine that happened to have Node.**
+    `start` branched on `if node:` and ran `npm run dev` inside `apps/web`. A
+    release ships the *exported* interface and no npm project at all, so npm
+    exited immediately with `ENOENT ... apps/web/package.json` — and because the
+    supervisor below deliberately exits as soon as any child does, that killed
+    the API and worker that had just started correctly. The researcher saw the
+    stack come up and shut itself down.
+
+    Invisible on a source checkout, where `package.json` is present and the dev
+    server is the right thing to run: the defect only exists on the installation
+    nobody develops on. Found by a release install on a Mac that had Node.
+    """
+    root = root or ROOT
+    return (root / "apps" / "web" / "package.json").is_file()
+
+
 def _ensure_interface(log=print) -> bool:
     """Make sure there is an interface for the API to serve.
 
@@ -1074,7 +1094,7 @@ def dev(api_port: int, web_port: int, *,
             "--reload-dir", str(ROOT / "packages")]))
 
         node = _node_on_path()
-        if node:
+        if node and _can_run_dev_server():
             print(f"\n  Throughline      http://localhost:{web_port}", flush=True)
             print(f"  API docs         http://127.0.0.1:{api_port}/docs", flush=True)
             # Said here because the alternative is finding out in the browser,
