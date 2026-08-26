@@ -930,7 +930,7 @@ def _stop_on_termination() -> None:
         signal.signal(signal.SIGBREAK, handler)
 
 
-def port_owner(port: int) -> str | None:
+def port_owner(port: int) -> tuple[str, int | None] | None:
     """Who is holding this port, or None if it is free.
 
     Checked *before* anything starts, because the alternative is what actually
@@ -939,8 +939,10 @@ def port_owner(port: int) -> str | None:
     it has to work out which of three processes died and what is holding the
     port. Naming the process up front turns that into one line.
 
-    Returns a description rather than a PID alone — "node (pid 35651)" is
-    something you can act on; a number is something you have to look up.
+    Returns a description *and* the PID: the description is what a person
+    reads, and the number is what the caller needs to offer `kill 35651`
+    instead of leaving them to work out how to stop it. Naming a process
+    without saying how to stop it is half an answer.
     """
     import socket
 
@@ -978,8 +980,9 @@ def port_owner(port: int) -> str | None:
         for line in found.stdout.splitlines()[1:]:
             parts = line.split()
             if len(parts) >= 2:
-                return f"{parts[0]} (pid {parts[1]})"
-    return "another process"
+                pid = int(parts[1]) if parts[1].isdigit() else None
+                return f"{parts[0]} (pid {parts[1]})", pid
+    return "another process", None
 
 
 def _hand_tracking_ready() -> bool:
@@ -1060,16 +1063,33 @@ def dev(api_port: int, web_port: int, *,
     # Ports first, before a database is touched or a child is spawned. A stack
     # that half-starts and then fails on an address already in use leaves two
     # processes running and one confusing traceback.
-    blocked = False
+    blocked, holders = False, []
     for label, port in (("API", api_port), ("web interface", web_port)):
-        owner = port_owner(port)
-        if owner:
-            print(f"Port {port} ({label}) is already in use by {owner}.",
+        found = port_owner(port)
+        if found:
+            description, pid = found
+            print(f"Port {port} ({label}) is already in use by {description}.",
                   file=sys.stderr)
+            if pid:
+                holders.append(pid)
             blocked = True
     if blocked:
-        print("\nEither stop that process, or choose other ports:"
-              "\n  PORT=8081 WEB_PORT=3001 ./scripts/dev.sh", file=sys.stderr)
+        # **Both commands absolute, and both runnable from where the reader is
+        # standing.** This used to say `./scripts/dev.sh`, which is a relative
+        # path to a developer script: somebody who installed with the one-liner
+        # is sitting in their home directory and has never heard of dev.sh, so
+        # the advice named a file that was not there under a name they did not
+        # know. Advice that cannot be followed is worse than none, because it
+        # reads as the product being broken rather than the port being busy.
+        if holders:
+            print("\n  Most often that is an earlier Throughline that did not "
+                  "shut down.\n  Stop it with:", file=sys.stderr)
+            print("    kill " + " ".join(str(pid) for pid in holders),
+                  file=sys.stderr)
+        print("\n  Or start on ports that are free:", file=sys.stderr)
+        print(f"    {venv_python()} {ROOT / 'scripts' / 'manage.py'} start"
+              f" --api-port {api_port + 1} --web-port {web_port + 1}",
+              file=sys.stderr)
         return 1
 
     # Before anything starts. Both processes would otherwise race a fresh
@@ -1717,10 +1737,11 @@ def _check_ports(api_port: int, web_port: int) -> list[dict[str, Any]]:
     for label, port, probe in (
             ("API", api_port, f"http://127.0.0.1:{api_port}/api/health"),
             ("Web interface", web_port, f"http://127.0.0.1:{web_port}/")):
-        owner = port_owner(port)
-        if owner is None:
+        found = port_owner(port)
+        if found is None:
             results.append(_check(f"Port {port} ({label})", True, "free"))
             continue
+        owner, holder = found
         if _answers(probe):
             results.append(_check(
                 f"Port {port} ({label})", True,
@@ -1729,8 +1750,8 @@ def _check_ports(api_port: int, web_port: int) -> list[dict[str, Any]]:
         results.append(_check(
             f"Port {port} ({label})", False, f"in use by {owner}, and not "
             f"answering as Throughline",
-            "Stop that process, or run with PORT= and WEB_PORT= set to other "
-            "ports."))
+            (f"kill {holder}" if holder else "Stop that process")
+            + f", or start with --api-port {api_port + 1} --web-port {web_port + 1}."))
     return results
 
 

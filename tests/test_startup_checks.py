@@ -35,11 +35,15 @@ def test_a_held_port_names_something_actionable():
         held.listen(1)
         port = held.getsockname()[1]
 
-        owner = manage.port_owner(port)
+        found = manage.port_owner(port)
 
-    assert owner is not None
+    assert found is not None
+    owner, pid = found
     # Either the process name from lsof, or an honest fallback — never silence.
     assert owner.strip() != ""
+    # The PID is what lets the caller offer `kill <pid>` rather than leaving
+    # somebody to work out how to stop a process they did not start.
+    assert pid is None or isinstance(pid, int)
 
 
 def test_a_server_listening_on_every_interface_is_noticed():
@@ -69,7 +73,7 @@ def test_dev_refuses_before_starting_anything_when_a_port_is_taken(capsys, monke
     """
     spawned: list[object] = []
     monkeypatch.setattr(manage, "_spawn", lambda *a, **k: spawned.append(a))
-    monkeypatch.setattr(manage, "port_owner", lambda port: "node (pid 1)")
+    monkeypatch.setattr(manage, "port_owner", lambda port: ("node (pid 1)", 1))
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as held:
         held.bind(("127.0.0.1", 0))
@@ -81,8 +85,16 @@ def test_dev_refuses_before_starting_anything_when_a_port_is_taken(capsys, monke
     assert spawned == [], "children were started despite a blocked port"
     error = capsys.readouterr().err
     assert "already in use" in error
-    # Says what to do, not only what is wrong.
-    assert "WEB_PORT" in error
+    # **Says what to do, from where the reader is standing.** This used to
+    # assert `WEB_PORT`, pinning advice that read
+    # `PORT=8081 WEB_PORT=3001 ./scripts/dev.sh` — a relative path to a
+    # developer script. Somebody who installed with the one-liner is sitting in
+    # their home directory and has never heard of dev.sh, so it named a file
+    # that was not there under a name they did not know.
+    assert "kill 1" in error, "the holder's pid is known but never offered"
+    assert "manage.py start" in error, "no runnable way to start elsewhere"
+    assert "--api-port" in error
+    assert "./scripts/dev.sh" not in error, "the unfollowable advice is back"
 
 
 def test_hand_tracking_readiness_is_reported_from_the_file_that_matters():
@@ -105,7 +117,7 @@ def test_a_running_stack_is_not_reported_as_a_failure(monkeypatch, capsys):
     that as two failures teaches people to ignore the tool, and then it is worth
     nothing on the day it matters.
     """
-    monkeypatch.setattr(manage, "port_owner", lambda port: "node (pid 1)")
+    monkeypatch.setattr(manage, "port_owner", lambda port: ("node (pid 1)", 1))
     monkeypatch.setattr(manage, "_answers", lambda url: True)
 
     results = manage._check_ports(8080, 3000)
@@ -116,14 +128,19 @@ def test_a_running_stack_is_not_reported_as_a_failure(monkeypatch, capsys):
 
 def test_a_port_held_by_something_else_is_a_failure_with_a_way_out(monkeypatch):
     """Held and *not* answering as Throughline is the case worth flagging."""
-    monkeypatch.setattr(manage, "port_owner", lambda port: "node (pid 1)")
+    monkeypatch.setattr(manage, "port_owner", lambda port: ("node (pid 1)", 1))
     monkeypatch.setattr(manage, "_answers", lambda url: False)
 
     results = manage._check_ports(8080, 3000)
 
     assert not any(check["ok"] for check in results)
     for check in results:
-        assert "PORT=" in check["fix"], "a diagnosis with no next step"
+        fix = check["fix"]
+        assert "kill" in fix or "--api-port" in fix, (
+            "a diagnosis with no next step")
+        assert "PORT=" not in fix, (
+            "back to `PORT= WEB_PORT= ./scripts/dev.sh`, which a release "
+            "install cannot follow")
 
 
 def test_a_model_that_is_present_but_wrong_is_caught(monkeypatch, tmp_path):
