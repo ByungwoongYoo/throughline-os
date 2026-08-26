@@ -50,9 +50,11 @@ const TL_SECTIONS_HTML = `
         <span class="tl-mark" aria-hidden="true"><span class="tl-mark-bar"></span></span>
         <span>Throughline · a research operating system</span>
       </div>
-      <p class="tl-foot-link" data-tl-rise="32">
-        <a href="https://github.com/SarthakPattnaik1/throughline-os#readme">Read how it works on GitHub</a>
-      </p>
+      <!-- A "Read how it works on GitHub" link lived here, pointing at the
+           private repository. This module is not wired into the page today, so
+           it was a trap rather than a live defect: resurrect the section and the
+           404 comes back with it. Removed for the same reason as the GitHub
+           button in main.template.html. -->
     </div>
   </footer>
 </div>

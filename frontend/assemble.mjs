@@ -16,18 +16,22 @@ if (!template.includes("/*__TL_MODULES__*/")) { console.error("marker missing");
 // private — so every one of them returned 404 to exactly the person the page
 // exists for. They now point at the release host, and the host is a token
 // rather than a literal because it is a decision that outlives any one edit
-// (D050). Override with TL_RELEASES / TL_GITHUB when assembling.
+// (D050). Override with TL_RELEASES when assembling.
+//
+// There is no TL_GITHUB any more. The page carried a GitHub button beside
+// Download and it pointed at the private repository, which made it a 404 for
+// every stranger the page is for — D050's defect one button along. The
+// substitution is gone rather than left pointing somewhere harmless, so that
+// putting the button back is a deliberate act with a public URL in hand.
 //
 // What they point *at* is the launcher rather than the tarball: T081 made the
 // launcher the thing you download — run it and it installs Throughline or opens
 // it if the machine already has it.
 const RELEASES = process.env.TL_RELEASES || "https://throughlineresearch.pages.dev";
-const GITHUB = process.env.TL_GITHUB || "https://github.com/SarthakPattnaik1/throughline-os";
 
 const page = template
   .replace("/*__TL_MODULES__*/", () => mods)
-  .replaceAll("__TL_RELEASES__", RELEASES)
-  .replaceAll("__TL_GITHUB__", GITHUB);
+  .replaceAll("__TL_RELEASES__", RELEASES);
 
 if (page.includes("__TL_")) {
   console.error("a __TL_ token was left unsubstituted; refusing to write a page "

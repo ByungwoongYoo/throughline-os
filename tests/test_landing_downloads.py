@@ -77,6 +77,35 @@ def test_no_download_points_into_the_private_repository():
             "private and returns 404 to everybody the page is for")
 
 
+def test_nothing_on_the_page_links_into_the_private_repository():
+    """Wider than the download check above, and for the same reason. The page
+    also carried a **GitHub button** beside Download, pointing at a repository a
+    stranger cannot open — D050's defect one button along, and it survived the
+    download fix because it was not a download. It is removed rather than
+    repointed: there is nothing public to aim it at yet, and a button that has
+    to be remembered is one that gets forgotten.
+
+    Every source the page is built from is checked, including modules not
+    currently wired in — a dead section that still holds the link is a trap that
+    springs the moment somebody resurrects it.
+    """
+    sources = [TEMPLATE, ROOT / "frontend" / "assemble.mjs"]
+    sources += sorted((ROOT / "frontend" / "mods").glob("*.js"))
+
+    for source in sources:
+        text = what_runs(source) if source.suffix in (".js", ".mjs") \
+            else source.read_text()
+        # Comments are allowed to say the link used to be there; markup is not.
+        markup = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+        for host in ("github.com/SarthakPattnaik1", "raw.githubusercontent.com"):
+            assert host not in markup, (
+                f"{source.relative_to(ROOT)} links to {host}, which is private "
+                "and 404s for everybody this page exists for")
+        assert "__TL_GITHUB__" not in markup, (
+            f"{source.relative_to(ROOT)} reintroduces the GitHub token; there "
+            "is still no public URL to substitute into it")
+
+
 def test_the_release_host_is_a_token_rather_than_a_literal():
     """It is a decision that outlives any one edit, and the page and the updater
     must agree on it. One place to change, not four."""
