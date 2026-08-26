@@ -528,3 +528,51 @@ def test_the_powershell_installer_is_published():
     """A line on the page pointing at a file no release publishes is the same
     dead link as a 404 button."""
     assert "install.ps1" in published_names()
+
+
+# --- the Homebrew tap --------------------------------------------------------
+
+
+def formula_text(tmp_path) -> str:
+    """The formula a release writes, built the way a release builds it."""
+    release._write_formula(tmp_path, "1.2.3", "throughline-1.2.3.tar.gz",
+                           "a" * 64, lambda *_: None)
+    return (tmp_path / "throughline.rb").read_text()
+
+
+def test_the_release_writes_a_homebrew_formula(tmp_path):
+    """**The one free route to a warning-free macOS install.**
+
+    Homebrew quarantines *cask* downloads so Gatekeeper checks them, and from
+    September 2026 disables casks that fail. Formulae are outside that regime
+    entirely — Homebrew does not quarantine what a formula installs, so nothing
+    it puts on disk meets Gatekeeper. A tap therefore costs nothing, where a
+    Developer ID and a notarised `.pkg` cost $99 a year (D058).
+    """
+    body = formula_text(tmp_path)
+    assert "class Throughline < Formula" in body
+    assert "Formula/throughline.rb" in body, "the formula does not say where to put it"
+
+
+def test_the_formula_carries_this_release_and_not_the_last_one(tmp_path):
+    """Generated rather than hand-written, because both the URL and the digest
+    change every release. A formula holding a stale sha256 fails on the user's
+    machine with a checksum mismatch and nowhere obvious to look."""
+    body = formula_text(tmp_path)
+    assert 'sha256 "' + "a" * 64 + '"' in body, "the digest is not this build's"
+    assert "throughline-1.2.3.tar.gz" in body, "the URL is not this build's archive"
+    assert 'version "1.2.3"' in body
+
+
+def test_the_formula_points_at_the_same_host_as_everything_else(tmp_path):
+    """Five places named the release host and none of them agreed until a test
+    held them together. This is the sixth."""
+    host = every_host()["scripts/install.py"]
+    assert f'homepage "{host}"' in formula_text(tmp_path), (
+        f"the formula does not point at {host}, the host every other door uses")
+
+
+def test_the_formula_is_published(tmp_path):
+    """Written into dist/ beside the tarball it describes, so whoever updates
+    the tap copies a file rather than editing one."""
+    assert "_write_formula" in (ROOT / "scripts" / "release.py").read_text()
