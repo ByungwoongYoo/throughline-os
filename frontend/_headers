@@ -1,0 +1,44 @@
+# Cloudflare Pages reads this file from the root of a deployment and applies
+# the rules to matching paths. It is consumed by the host, never served.
+#
+# **Why it exists.** Without it, clicking Download showed the launcher as text
+# in the browser instead of downloading it — `Throughline.bat` and
+# `Throughline.command` are served with no content type and sniffed as text,
+# and `throughline.sh` comes back as `text/x-sh`. Every download button on the
+# page displayed a script rather than handing over a file, which is a dead
+# download that looks like a working link.
+#
+# `_publish_launchers` copies this into `dist/` with the launchers themselves,
+# so it travels with every release rather than being a step somebody has to
+# remember on the day they upload.
+
+# --- The three doors. These are downloads: force the browser to save them. ---
+# `attachment` is what actually decides it; the octet-stream type is belt and
+# braces for a browser that would otherwise sniff and render anyway.
+
+/Throughline.command
+  Content-Disposition: attachment; filename="Throughline.command"
+  Content-Type: application/octet-stream
+
+/Throughline.bat
+  Content-Disposition: attachment; filename="Throughline.bat"
+  Content-Type: application/octet-stream
+
+/throughline.sh
+  Content-Disposition: attachment; filename="throughline.sh"
+  Content-Type: application/octet-stream
+
+# --- install.sh is deliberately NOT a download. ---
+# The page offers it as "Read install.sh first — trust, then pipe", which is the
+# one honest thing a page suggesting `curl | sh` can do. Forcing it to save
+# would break exactly that affordance, so it is pinned to plain text so a
+# browser shows it rather than downloading or rendering it as markup.
+
+/install.sh
+  Content-Type: text/plain; charset=utf-8
+
+# install.py is fetched by the front doors rather than clicked, but a person who
+# goes looking should be able to read it for the same reason.
+
+/install.py
+  Content-Type: text/plain; charset=utf-8

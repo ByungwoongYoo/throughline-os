@@ -59,6 +59,10 @@ def workspace(tmp_path):
     # doors fetch it to do the install, so a release without it fails at the
     # last step instead of at a button.
     (root / "scripts" / "install.py").write_text("# install\n")
+    # Host rules for the download buttons; without it a browser displays the
+    # launchers instead of saving them, so the release refuses to ship without.
+    (root / "frontend").mkdir()
+    (root / "frontend" / "_headers").write_text("/Throughline.bat\n")
     (root / "apps" / "web" / "out" / "index.html").write_text("<html></html>")
     (root / "apps" / "api" / "src" / "app.py").write_text("# api\n")
     (root / "packages" / "model" / "src" / "m.py").write_text("# model\n")

@@ -257,22 +257,36 @@ def _publish_launchers(root: Path, destination: Path, log) -> None:
     nor a batch file can express that without becoming a second copy of it.
     Nothing links to it, so no button 404s if it is missing — the install
     simply fails at the last step, which is why it is on this list.
+
+    `_headers` travels because without it the host serves the launchers as text
+    and the browser *displays* them instead of downloading. Every button on the
+    page then looks like it works and hands back a wall of script. It belongs
+    here rather than in an upload checklist for the obvious reason: a checklist
+    step is one somebody eventually skips.
     """
     import shutil
+
+    # Why each one has to be there, so a missing file names its own consequence
+    # instead of raising a message that is only true of the launchers.
+    REASONS = {
+        "scripts/install.py":
+            "both front doors fetch it to do the install. A release without it "
+            "downloads, then fails at the last step.",
+        "frontend/_headers":
+            "without it the host serves the launchers as text and the browser "
+            "displays them instead of downloading. The buttons look like they "
+            "work and hand back a wall of script.",
+    }
+    BUTTON = "the landing page links to it. A release without it publishes a button that 404s."
 
     published = []
     for relative in ("launchers/Throughline.command", "launchers/Throughline.bat",
                      "launchers/throughline.sh", "scripts/install.sh",
-                     "scripts/install.py"):
+                     "scripts/install.py", "frontend/_headers"):
         source = root / relative
         if not source.is_file():
             raise ReleaseError(
-                f"{relative} is missing. A release without it publishes a "
-                f"button that 404s."
-                if relative != "scripts/install.py" else
-                f"{relative} is missing, and both front doors fetch it to do "
-                f"the install. A release without it downloads, then fails at "
-                f"the last step.")
+                f"{relative} is missing, and {REASONS.get(relative, BUTTON)}")
         target = destination / Path(relative).name
         shutil.copy2(source, target)
         # Copied with their mode: a launcher that arrives without its executable

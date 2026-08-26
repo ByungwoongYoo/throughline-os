@@ -36,7 +36,12 @@ def published_names() -> set[str]:
     source = (ROOT / "scripts" / "release.py").read_text()
     body = source[source.index("def _publish_launchers("):]
     body = body[:body.index("\ndef ")]
-    return {Path(m).name for m in re.findall(r'"((?:launchers|scripts)/[^"]+)"', body)}
+    # Only the loop's tuple. Reading every quoted path in the function would
+    # also match the REASONS table beside it, so dropping a file from the list
+    # while leaving its explanation behind would look like coverage.
+    listed = re.search(r"for relative in \((.*?)\):", body, re.DOTALL)
+    assert listed, "the publish list is no longer a tuple this can read"
+    return {Path(m).name for m in re.findall(r'"([^"]+)"', listed.group(1))}
 
 
 def linked_names() -> set[str]:
@@ -434,3 +439,68 @@ def test_the_page_does_not_claim_to_be_open_source_while_it_is_not():
         assert "open source" not in markup.lower(), (
             f"{source.relative_to(ROOT)} calls the product open source, but "
             "there is no LICENSE in this repository and it is private")
+
+
+# --- what the host is told to do with each file ------------------------------
+
+
+def header_rules() -> dict[str, str]:
+    """Path -> the header block the host applies to it."""
+    text = (ROOT / "frontend" / "_headers").read_text()
+    rules, current = {}, None
+    for line in text.splitlines():
+        if line.startswith("#") or not line.strip():
+            continue
+        if line.startswith("/"):
+            current = line.strip()
+            rules[current] = ""
+        elif current:
+            rules[current] += line.strip() + "\n"
+    return rules
+
+
+def test_the_headers_file_is_published_with_the_release():
+    """It configures the host, so it has to reach the host. Read from the code
+    that copies it rather than from a list restated here."""
+    assert "_headers" in published_names(), (
+        "the release does not publish _headers, so an upload would serve the "
+        "launchers as text again")
+
+
+def test_every_launcher_is_served_as_a_download():
+    """**The defect this exists for.** Clicking Download printed the batch file
+    into the browser instead of saving it: Pages serves `.bat` and `.command`
+    with no content type and `.sh` as `text/x-sh`, and a browser renders all
+    three. Every button on the page appeared to work and handed back a wall of
+    script — a dead download wearing a working link.
+    """
+    rules = header_rules()
+    for launcher in ("Throughline.command", "Throughline.bat", "throughline.sh"):
+        block = rules.get(f"/{launcher}", "")
+        assert "Content-Disposition: attachment" in block, (
+            f"{launcher} has no attachment rule, so the browser will display it "
+            "rather than download it")
+        assert launcher in block, (
+            f"{launcher}'s rule does not name the filename to save it under")
+
+
+def test_install_sh_is_readable_rather_than_downloaded():
+    """Deliberately the exception. The page offers it as *Read install.sh first
+    — trust, then pipe*, which is the one honest thing a page suggesting
+    `curl | sh` can do. An attachment rule here would break that on purpose."""
+    block = header_rules().get("/install.sh", "")
+    assert "Content-Disposition: attachment" not in block, (
+        "install.sh is forced to download; the page offers it for reading, and "
+        "that affordance is the whole argument for the one-liner")
+    assert "text/plain" in block, (
+        "install.sh should be pinned to text/plain so a browser shows it")
+
+
+def test_every_linked_download_has_a_rule_one_way_or_the_other():
+    """A file the page links but `_headers` never mentions is one whose
+    behaviour is whatever the host guesses — which is how this broke."""
+    rules = header_rules()
+    for name in linked_names():
+        assert f"/{name}" in rules, (
+            f"{name} is linked from the page but _headers says nothing about "
+            "it, so how it behaves is up to the host's content sniffing")
