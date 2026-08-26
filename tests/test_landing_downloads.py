@@ -273,3 +273,74 @@ def test_the_shell_launchers_keep_their_executable_bit(tmp_path):
 
     for name in ("Throughline.command", "throughline.sh", "install.sh"):
         assert (dist / name).stat().st_mode & 0o111, name
+
+
+# --- the page that actually gets published -----------------------------------
+
+
+def build_standalone(tmp_path: Path) -> str:
+    """The page a host serves, built the way deploying builds it."""
+    import shutil
+    import subprocess
+    if not shutil.which("node"):
+        pytest.skip("node is not on PATH")
+
+    canvas = tmp_path / "Main.dc.html"
+    page = tmp_path / "index.html"
+    subprocess.run(["node", str(ROOT / "frontend" / "assemble.mjs")],
+                   check=True, capture_output=True)
+    shutil.copy(ROOT / "frontend" / "Main.dc.html", canvas)
+    subprocess.run(["node", str(ROOT / "frontend" / "tools" / "mkharness.mjs"),
+                    str(canvas), str(page)], check=True, capture_output=True)
+    return page.read_text()
+
+
+def test_the_canvas_source_is_not_the_page_to_publish():
+    """**The mistake this exists to stop, because it was made.**
+
+    `Main.dc.html` is a Claude Design *canvas artboard*: it opens with
+    `<script src="./support.js">` and wraps everything in `<x-dc>` and
+    `<helmet>`, all of which mean something only inside the canvas runtime.
+    Uploaded to a static host it renders as a blank black page — and worse than
+    blank, because a host that falls back to `index.html` for missing paths
+    answers the `support.js` request with HTML, so the browser fails on a syntax
+    error rather than a 404 and nothing says why.
+
+    Asserted on the source rather than trusting the docs: the deploy note used
+    to say "upload Main.dc.html as the page", and it was followed.
+    """
+    canvas = (ROOT / "frontend" / "Main.dc.html")
+    if not canvas.is_file():
+        pytest.skip("Main.dc.html is generated; run frontend/assemble.mjs")
+    text = canvas.read_text()
+    assert "<x-dc>" in text and "support.js" in text, (
+        "Main.dc.html no longer looks like a canvas artboard — if it became a "
+        "standalone page, this test and the deploy note both need rewriting")
+
+
+def test_the_published_page_stands_on_its_own(tmp_path):
+    """No runtime it does not carry, no element only an editor defines."""
+    page = build_standalone(tmp_path)
+
+    for construct in ("<x-dc>", "<helmet>", "support.js", "data-dc-script"):
+        assert construct not in page, (
+            f"the published page still carries {construct}, which only resolves "
+            "inside the design canvas")
+    assert "<head>" in page, "no real <head>; the stylesheet would not be linked"
+
+
+def test_the_published_page_keeps_every_download(tmp_path):
+    """The port must not quietly drop the thing the page is for."""
+    page = build_standalone(tmp_path)
+    for name in linked_names():
+        assert f"/{name}" in page, f"{name} is linked in the template but not in the built page"
+
+
+def test_the_deploy_note_names_the_page_that_works():
+    """The note said to upload the artboard. Following it published a blank
+    page, so the note is part of the defect and gets a test like anything else.
+    """
+    readme = (ROOT / "frontend" / "README.md").read_text()
+    assert "Upload `Main.dc.html` as the page" not in readme, (
+        "frontend/README.md still tells you to upload the canvas artboard")
+    assert "mkharness" in readme

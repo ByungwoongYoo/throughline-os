@@ -17,13 +17,29 @@ is 2.2 MB of regenerable screenshots.
 ## Deploying it
 
 ```bash
-node frontend/assemble.mjs      # sources -> Main.dc.html
+node frontend/assemble.mjs                                    # sources -> Main.dc.html
+node frontend/tools/mkharness.mjs \
+  frontend/Main.dc.html frontend/dist/index.html              # -> the page you upload
 ```
 
-Upload `Main.dc.html` as the page. The download buttons point at a **release
-host**, not at GitHub — they used to link into the private repository and
-returned 404 to every stranger the page exists for. Override the host when
-assembling:
+**Upload `index.html` from that second command — not `Main.dc.html`.** This was
+got wrong once and the symptom is worth knowing, because it does not look like a
+mistake. `Main.dc.html` is a Claude Design *canvas artboard*: it opens with
+`<script src="./support.js">` and wraps everything in `<x-dc>` and `<helmet>`,
+which mean something only inside the canvas editor. Served from a static host it
+renders as a blank black page. Worse, a host that falls back to `index.html` for
+unknown paths answers the `support.js` request with HTML, so the browser dies on
+a syntax error instead of a 404 and the network tab shows 200s throughout.
+
+`mkharness.mjs` is the port, despite the name: it lifts `<helmet>` into a real
+`<head>`, `<x-dc>` into `<body>`, and supplies the component base class and props
+the canvas runtime would have. `tests/test_landing_downloads.py` fails if the
+built page still carries any canvas construct, or if it drops a download link on
+the way through.
+
+The download buttons point at a **release host**, not at GitHub — they used to
+link into the private repository and returned 404 to every stranger the page
+exists for. Override the host when assembling:
 
 ```bash
 TL_RELEASES=https://downloads.example.com node frontend/assemble.mjs
