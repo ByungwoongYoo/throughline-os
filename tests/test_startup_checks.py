@@ -15,7 +15,8 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
 import manage  # noqa: E402
 
 
@@ -179,3 +180,99 @@ def test_every_failing_check_carries_a_fix():
                   manage._check_node(), manage._check_model()):
         if not check["ok"]:
             assert check["fix"], check["name"]
+
+
+# --- re-running the one-liner while it is already up -------------------------
+
+
+def test_an_already_running_throughline_is_opened_not_restarted(monkeypatch, capsys):
+    """**The answer to "just kill the old one".**
+
+    Somebody re-running the advertised line wants to get to Throughline. If it
+    is already up, the right outcome is to open it — not to refuse, and not to
+    kill it. Killing would end whatever analysis was mid-flight and surprise
+    anyone with the app open in a tab, to fix a problem that opening solves.
+    """
+    opened: list[str] = []
+    monkeypatch.setattr(manage, "_throughline_at", lambda port: True)
+    monkeypatch.setattr(manage, "_open_when_ready", lambda url, **k: opened.append(url))
+    monkeypatch.setattr(manage.time, "sleep", lambda seconds: None)
+    started: list[object] = []
+    monkeypatch.setattr(manage, "_spawn", lambda *a, **k: started.append(a))
+
+    assert manage.dev(api_port=8080, web_port=3000, open_browser=True) == 0
+    assert opened == ["http://localhost:8080"], "it did not open what was running"
+    assert started == [], "it started a second copy alongside the running one"
+    assert "already running" in capsys.readouterr().out
+
+
+def test_only_our_own_api_counts_as_already_running(monkeypatch):
+    """**Why this checks the payload and not the status code.** `_answers`
+    returns true for any 200, and 8080 is a busy address — a Java service,
+    another dev server, somebody's Jenkins. Treating "a server is here" as "we
+    are here" would send a researcher to a stranger's application, and would be
+    an outright hazard if the reaction to it were to kill the process.
+    """
+    source = (ROOT / "scripts" / "manage.py").read_text()
+    body = source[source.index("def _throughline_at("):]
+    body = body[:body.index("\ndef _first_free_port")]
+    assert '"checks" in body' in body, (
+        "_throughline_at no longer inspects the payload, so anything "
+        "answering 200 on that port would be taken for Throughline")
+    assert "/api/health" in body
+
+
+def test_a_port_held_by_a_stranger_is_stepped_around_not_killed(monkeypatch, capsys):
+    """Something else on 8080 is not a reason to fail, and not ours to stop.
+    On the `start` path it moves aside; nothing is ever signalled."""
+    held = {8080}
+    monkeypatch.setattr(manage, "_throughline_at", lambda port: False)
+    monkeypatch.setattr(
+        manage, "port_owner",
+        lambda port: ("something-else (pid 99)", 99) if port in held else None)
+    # A child that is already finished, so the supervisor exits at once instead
+    # of looping. The point of this test is the message printed before any of
+    # that, not the supervision.
+    class Finished:
+        returncode = 0
+
+        def poll(self):
+            return 0
+
+    monkeypatch.setattr(manage, "_spawn", lambda *a, **k: Finished())
+    monkeypatch.setattr(manage, "_stop", lambda process: None)
+    monkeypatch.setattr(manage, "_open_when_ready", lambda url, **k: None)
+    monkeypatch.setattr(manage, "venv_python", lambda: Path(sys.executable))
+    monkeypatch.setattr(
+        manage.subprocess, "run",
+        lambda *a, **k: type("R", (), {"returncode": 0, "stdout": "",
+                                       "stderr": ""})())
+
+    manage.dev(api_port=8080, web_port=3000, open_browser=True)
+    out = capsys.readouterr().out
+    assert "using 8081 instead" in out, "it did not step around the busy port"
+
+
+def test_nothing_in_start_ever_kills_a_process_it_did_not_start():
+    """The suggestion was to have the installer kill whatever holds the port.
+    Deliberately not done: port 8080 belongs to no one, and terminating an
+    unidentified process to start our own is a thing a product should never do
+    to a machine it is a guest on. `_stop` exists for children we spawned."""
+    source = (ROOT / "scripts" / "manage.py").read_text()
+    body = source[source.index("def dev("):]
+    body = body[:body.index("\ndef ", 10)]
+
+    # `_stop` is fine and necessary — it is how the children we spawned are shut
+    # down. What must never happen is a pid discovered by `port_owner` being
+    # signalled: that process belongs to somebody else.
+    for line in body.splitlines():
+        if "holders" not in line:
+            continue
+        for weapon in ("kill(", "_stop(", "terminate", "taskkill"):
+            assert weapon not in line, (
+                f"a pid found by port_owner is passed to {weapon}: "
+                f"{line.strip()}")
+    for weapon in ("os.kill", "SIGKILL", "taskkill"):
+        assert weapon not in body, (
+            f"`dev` calls {weapon}; nothing here should signal a process it "
+            "did not start")

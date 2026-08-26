@@ -985,6 +985,50 @@ def port_owner(port: int) -> tuple[str, int | None] | None:
     return "another process", None
 
 
+def _throughline_at(port: int) -> bool:
+    """Whether the thing on this port is *our* API, rather than merely a server.
+
+    The distinction is the whole reason this exists. `_answers` returns true for
+    any 200, and something else on 8080 — a Java service, another dev server,
+    someone's Jenkins — would pass it. Acting on "a server is here" would mean
+    sending a researcher to somebody else's application, or worse, deciding it
+    was safe to kill.
+
+    So the payload is checked, not just the status. 503 counts: `/api/health`
+    deliberately answers 503 while degraded, and a Throughline with no model is
+    still a Throughline that is already running.
+    """
+    import json
+    import urllib.error
+    import urllib.request
+
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}/api/health",
+        headers={"User-Agent": "Throughline"})
+    try:
+        with urllib.request.urlopen(request, timeout=2) as response:
+            body = json.loads(response.read().decode())
+    except urllib.error.HTTPError as error:
+        if error.code != 503:
+            return False
+        try:
+            body = json.loads(error.read().decode())
+        except Exception:
+            return False
+    except Exception:
+        return False
+    return isinstance(body, dict) and "checks" in body and "database" in (
+        body.get("checks") or {})
+
+
+def _first_free_port(start_at: int, tries: int = 20) -> int | None:
+    """The next port nothing is listening on, or None if the range is full."""
+    for candidate in range(start_at, start_at + tries):
+        if port_owner(candidate) is None:
+            return candidate
+    return None
+
+
 def _hand_tracking_ready() -> bool:
     """Whether the gesture model has been vendored.
 
@@ -1063,6 +1107,38 @@ def dev(api_port: int, web_port: int, *,
     # Ports first, before a database is touched or a child is spawned. A stack
     # that half-starts and then fails on an address already in use leaves two
     # processes running and one confusing traceback.
+    # **Already running is not an error.** Somebody re-running the advertised
+    # one-liner wants to get to Throughline, and if it is already up the right
+    # answer is to open it — not to refuse, and certainly not to kill it. The
+    # check is for *our* API specifically, so a stranger's service on 8080 is
+    # never mistaken for ours and never interfered with.
+    if open_browser and _throughline_at(api_port):
+        address = f"http://localhost:{api_port}"
+        print(f"\n  Throughline is already running at {address}", flush=True)
+        print("  Opening it. Nothing was started or stopped.\n", flush=True)
+        _open_when_ready(address)
+        # Give the browser thread its moment; there are no children to supervise.
+        time.sleep(3)
+        return 0
+
+    # Only then, ports. Something else holding 8080 is not a reason to fail on
+    # the `start` path: move aside and say so. A developer running `dev` still
+    # gets the refusal, because they asked for those ports on purpose.
+    if open_browser:
+        for name in ("api_port", "web_port"):
+            wanted = api_port if name == "api_port" else web_port
+            if port_owner(wanted) is None:
+                continue
+            moved = _first_free_port(wanted + 1)
+            if moved is None:
+                break
+            print(f"  Port {wanted} is in use by something else; "
+                  f"using {moved} instead.", flush=True)
+            if name == "api_port":
+                api_port = moved
+            else:
+                web_port = moved
+
     blocked, holders = False, []
     for label, port in (("API", api_port), ("web interface", web_port)):
         found = port_owner(port)
@@ -1102,9 +1178,17 @@ def dev(api_port: int, web_port: int, *,
         return migrated.returncode
 
     children: list[subprocess.Popen] = []
+    named: dict[int, str] = {}
+
+    def watch(process: subprocess.Popen, what: str) -> subprocess.Popen:
+        """Remember what a child was, so its death can be explained rather than
+        reported as a bare exit code from something unnamed."""
+        named[id(process)] = what
+        return process
+
     try:
         children.append(watch(_spawn([str(python), "-m", "throughline_workers"]),
-                                  "the background worker"))
+                              "the background worker"))
         # --reload so the API tracks edits the way the web dev server already
         # does. Without it the two halves disagree about which code is running,
         # which is a confusing way to lose an afternoon.
