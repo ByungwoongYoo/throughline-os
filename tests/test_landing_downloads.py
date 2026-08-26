@@ -504,3 +504,27 @@ def test_every_linked_download_has_a_rule_one_way_or_the_other():
         assert f"/{name}" in rules, (
             f"{name} is linked from the page but _headers says nothing about "
             "it, so how it behaves is up to the host's content sniffing")
+
+
+def test_both_shell_families_get_a_one_liner():
+    """**Windows has no `sh`.** Somebody pasted the POSIX line into PowerShell
+    and got *The term 'sh' is not recognized* — a reasonable thing to try, since
+    the page offered exactly one line and did not say who it was for.
+
+    A single literal line cannot be universal; what is universal is the shape.
+    So both are shown, each labelled with the shells it works in.
+    """
+    page = TEMPLATE.read_text()
+    assert "curl -fsSL __TL_RELEASES__/install.sh | sh" in page, (
+        "the POSIX one-liner is gone from the page")
+    assert "irm __TL_RELEASES__/install.ps1 | iex" in page, (
+        "the page offers no PowerShell line, so Windows users will paste the "
+        "POSIX one and be told 'sh' does not exist")
+    for shell in ("macOS", "Linux", "WSL", "Windows PowerShell"):
+        assert shell in page, f"the one-liners do not say they cover {shell}"
+
+
+def test_the_powershell_installer_is_published():
+    """A line on the page pointing at a file no release publishes is the same
+    dead link as a 404 button."""
+    assert "install.ps1" in published_names()

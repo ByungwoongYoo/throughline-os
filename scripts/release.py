@@ -272,6 +272,9 @@ def _publish_launchers(root: Path, destination: Path, log) -> None:
         "scripts/install.py":
             "both front doors fetch it to do the install. A release without it "
             "downloads, then fails at the last step.",
+        "scripts/install.ps1":
+            "it is the Windows half of the one-liner. Windows has no `sh`, so "
+            "`irm ... | iex` is how that platform gets the same single line.",
         "frontend/_headers":
             "without it the host serves the launchers as text and the browser "
             "displays them instead of downloading. The buttons look like they "
@@ -282,7 +285,8 @@ def _publish_launchers(root: Path, destination: Path, log) -> None:
     published = []
     for relative in ("launchers/Throughline.command", "launchers/Throughline.bat",
                      "launchers/throughline.sh", "scripts/install.sh",
-                     "scripts/install.py", "frontend/_headers"):
+                     "scripts/install.py", "scripts/install.ps1",
+                     "frontend/_headers"):
         source = root / relative
         if not source.is_file():
             raise ReleaseError(

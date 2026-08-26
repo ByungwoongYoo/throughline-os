@@ -1,0 +1,89 @@
+# The Windows front door, for the same reason install.sh exists elsewhere:
+#
+#     irm https://throughline-research.pages.dev/install.ps1 | iex
+#
+# **Windows has no `sh`.** The POSIX one-liner cannot be made universal by
+# wanting it to be — `curl ... | sh` in PowerShell fails with *The term 'sh' is
+# not recognized*, because there is no such program on a stock Windows. What is
+# universal is the shape: one line, per shell family, both ending in the same
+# installer. rustup, deno, uv and pnpm all ship exactly this pair.
+#
+#   macOS / Linux / WSL / Git Bash   curl -fsSL .../install.sh | sh
+#   Windows PowerShell               irm .../install.ps1 | iex
+#
+# Like install.sh, this file does not implement the install. It finds a Python
+# and hands over to scripts/install.py, which is the one implementation of
+# download-verify-unpack. A third copy of that sequence in PowerShell is the
+# drift this repository has already paid for twice.
+#
+# Run through `iex` there is no script file on disk, so nothing here may depend
+# on its own path.
+
+$ErrorActionPreference = 'Stop'
+
+$ManifestUrl = if ($env:THROUGHLINE_RELEASE_URL) { $env:THROUGHLINE_RELEASE_URL }
+               else { 'https://throughline-research.pages.dev/latest.json' }
+$Dest = if ($env:THROUGHLINE_INSTALL_DIR) { $env:THROUGHLINE_INSTALL_DIR }
+        else { Join-Path $env:USERPROFILE 'throughline-os' }
+
+Write-Host "Throughline - installing into $Dest"
+
+# `py` is the launcher that ships with python.org installs. Plain `python` on a
+# machine with no Python is the Microsoft Store stub, which prints an advert and
+# exits 9009 - trying `py` first is what keeps the stub from being mistaken for
+# an interpreter.
+$Check = 'import sys; raise SystemExit(0 if sys.version_info[:2] >= (3, 8) else 1)'
+# Held as executable and arguments separately, and invoked by splatting the
+# arguments. `& $array` makes PowerShell look for a command literally named
+# "py -3" and fail with CommandNotFound - measured on Windows, not guessed.
+$PyExe = $null
+$PyArgs = @()
+foreach ($candidate in @(@('py', @('-3')), @('python', @()))) {
+    $exe, $prefix = $candidate
+    if (-not (Get-Command $exe -ErrorAction SilentlyContinue)) { continue }
+    & $exe @prefix -c $Check 2>$null
+    if ($LASTEXITCODE -eq 0) { $PyExe = $exe; $PyArgs = @($prefix); break }
+}
+
+if (-not $PyExe) {
+    Write-Host ""
+    Write-Host "Throughline needs any Python 3.8 or newer to start."
+    Write-Host "It fetches the exact version it runs on (3.12) by itself."
+    Write-Host ""
+    Write-Host "  Install it from https://www.python.org/downloads/ or the"
+    Write-Host "  Microsoft Store, then run this line again."
+    exit 1
+}
+Write-Host "  using $PyExe $($PyArgs -join ' ') to start"
+
+if (Test-Path (Join-Path $Dest 'scripts\manage.py')) {
+    Write-Host "  already installed at $Dest"
+} else {
+    Write-Host "  fetching the current release"
+    # Resolved against the manifest's own location, so a staging host set through
+    # THROUGHLINE_RELEASE_URL serves its own installer too.
+    $InstallerUrl = [System.Uri]::new([System.Uri]$ManifestUrl, 'install.py').AbsoluteUri
+    $Installer = Join-Path $env:TEMP 'throughline-install.py'
+    try {
+        # The agent is named for the same reason it is everywhere else: the
+        # release host answers anonymous defaults with 403 (D056).
+        Invoke-WebRequest -Uri $InstallerUrl -OutFile $Installer `
+            -UserAgent 'Throughline-Installer' -UseBasicParsing
+    } catch {
+        Write-Host ""
+        Write-Host "Cannot install: the release server could not be reached."
+        Write-Host "  $InstallerUrl"
+        Write-Host "  $($_.Exception.Message)"
+        exit 1
+    }
+
+    & $PyExe @PyArgs $Installer --into $Dest --url $ManifestUrl
+    if ($LASTEXITCODE -ne 0) { Remove-Item $Installer -ErrorAction SilentlyContinue; exit $LASTEXITCODE }
+    Remove-Item $Installer -ErrorAction SilentlyContinue
+}
+
+Write-Host ""
+# `start`, not `bootstrap`: start already means "set up if needed, then run", so
+# stopping at bootstrap leaves a finished install and nothing on screen.
+& $PyExe @PyArgs (Join-Path $Dest 'scripts\manage.py') 'start'
+exit $LASTEXITCODE

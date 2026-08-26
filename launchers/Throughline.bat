@@ -70,7 +70,8 @@ if not defined FOUND (
   rem
   rem The installer's URL is derived from the manifest's, so a staging host set
   rem through THROUGHLINE_RELEASE_URL serves its own installer too. urljoin does
-  rem that here because %~dp on a URL yields a filesystem path, not a URL.
+  rem that here because the ~dp path operator on a URL yields a filesystem
+rem path rather than a URL.
   %PYTHON% -c "import sys, urllib.request; from urllib.parse import urljoin; r = urllib.request.Request(urljoin(sys.argv[1], 'install.py'), headers={'User-Agent': 'Throughline-Installer'}); open(sys.argv[2], 'wb').write(urllib.request.urlopen(r, timeout=60).read())" "%THROUGHLINE_RELEASE_URL%" "%TEMP%\throughline-install.py" || (
     echo Cannot install: the release server could not be reached.
     echo   %THROUGHLINE_RELEASE_URL%

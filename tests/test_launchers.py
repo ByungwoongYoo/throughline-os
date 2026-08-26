@@ -350,3 +350,27 @@ def test_the_shell_doors_keep_one_resolution(name):
     b = (LAUNCHERS / other).read_text()
     assert a[a.index(marker):] == b[b.index(marker):], (
         f"{name} and {other} have drifted below the resolution block")
+
+
+def test_no_comment_in_the_batch_file_contains_an_invalid_substitution():
+    """**A comment killed the Windows launcher, and it looked like nothing.**
+
+    `rem` in cmd is not an inert comment: the parser still expands `%`
+    substitutions on the line. A `rem` explaining that "`%~dp` on a URL yields a
+    filesystem path" contained a bare `%~dp` — a parameter operator with no
+    argument number — which is a *fatal syntax error*, not an ignored one. A
+    double-clicked launcher therefore opened a window and closed it again with
+    no message, which is the hardest possible failure to report: "it runs and
+    disappears".
+
+    `%~dp0` is fine; `%~dp` is not. The rule is that every `%~` must be followed
+    by optional modifiers and then an argument number.
+    """
+    import re
+    text = (ROOT / "launchers" / "Throughline.bat").read_bytes().decode("ascii")
+    for number, line in enumerate(text.splitlines(), 1):
+        for match in re.finditer(r"%~([a-zA-Z]*)([^\s%]?)", line):
+            assert match.group(2).isdigit(), (
+                f"Throughline.bat:{number} contains '%~{match.group(1)}' with no "
+                f"argument number. cmd treats that as an invalid substitution "
+                f"and aborts the script — even inside a rem.\n  {line.strip()}")

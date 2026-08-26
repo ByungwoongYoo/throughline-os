@@ -36,6 +36,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CALLERS = {
     "scripts/install.py": ROOT / "scripts" / "install.py",
     "scripts/install.sh": ROOT / "scripts" / "install.sh",
+    "scripts/install.ps1": ROOT / "scripts" / "install.ps1",
     "scripts/runtimes.py": ROOT / "scripts" / "runtimes.py",
     "launchers/Throughline.bat": ROOT / "launchers" / "Throughline.bat",
     "throughline_domain/updates.py": (
@@ -49,8 +50,12 @@ def test_every_caller_names_itself(name):
     """A request with no agent set is a request that gets 403 from the host we
     actually publish to."""
     text = CALLERS[name].read_text()
-    assert "urlopen" in text, f"{name} no longer opens a URL; drop it from CALLERS"
-    assert "User-Agent" in text, (
+    opens = "urlopen" in text or "Invoke-WebRequest" in text
+    assert opens, f"{name} no longer opens a URL; drop it from CALLERS"
+    # PowerShell spells the same header `-UserAgent`; the requirement is
+    # identical, only the idiom differs.
+    named = "User-Agent" in text or "-UserAgent" in text
+    assert named, (
         f"{name} opens a URL without setting a User-Agent. The release host "
         "answers Python's default agent with 403, so this fails in production "
         "and nowhere else")

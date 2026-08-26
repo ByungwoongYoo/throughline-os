@@ -83,12 +83,12 @@
             <summary style="display: inline-flex; align-items: center; gap: 10px; padding: 12px 22px; border-radius: 6px; background: #f4f2ee; color: #0b0d10; font-size: 14px; font-weight: 580; border: 1px solid #f4f2ee; cursor: pointer">Download now
               <svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="#0b0d10" stroke-width="1.5" aria-hidden="true"><path d="M1 1l4 4 4-4"></path></svg>
             </summary>
-            <div style="position: absolute; left: 50%; transform: translateX(-50%); top: calc(100% + 10px); min-width: 300px; background: rgba(10, 12, 17, 0.96); border: 1px solid rgba(244, 242, 238, 0.18); border-radius: 8px; padding: 6px; text-align: left; z-index: 6">
-              <a class="tl-dl-item" href="__TL_RELEASES__/Throughline.command"><span style="font-weight: 520">macOS</span><span style="color: rgba(244,242,238,0.5); font-size: 12px">Throughline.command · double-click it</span></a>
-              <a class="tl-dl-item" href="__TL_RELEASES__/Throughline.bat"><span style="font-weight: 520">Windows</span><span style="color: rgba(244,242,238,0.5); font-size: 12px">Throughline.bat · double-click it</span></a>
-              <a class="tl-dl-item" href="__TL_RELEASES__/throughline.sh"><span style="font-weight: 520">Linux</span><span style="color: rgba(244,242,238,0.5); font-size: 12px">throughline.sh · or the one-liner</span></a>
-              <a class="tl-dl-item" href="__TL_RELEASES__/install.sh"><span style="font-weight: 350; color: rgba(244,242,238,0.7)">Read install.sh first</span><span style="color: rgba(244,242,238,0.4); font-size: 12px">trust, then pipe</span></a>
-              <div style="padding: 9px 12px 7px; border-top: 1px solid rgba(244,242,238,0.1); margin-top: 4px; font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-size: 10.5px; color: rgba(244,242,238,0.4)">unsigned for now — macOS and Windows each ask once</div>
+            <div style="position: absolute; left: 50%; transform: translateX(-50%); top: calc(100% + 10px); width: min(540px, 92vw); max-width: 92vw; box-sizing: border-box; background: rgba(10, 12, 17, 0.96); border: 1px solid rgba(244, 242, 238, 0.18); border-radius: 8px; padding: 6px; text-align: left; z-index: 6">
+              <a class="tl-dl-item" target="_blank" rel="noopener" href="__TL_RELEASES__/Throughline.command"><span style="font-weight: 520">macOS</span><span style="color: rgba(244,242,238,0.5); font-size: 12px">Throughline.command · macOS will ask first, see below</span></a>
+              <a class="tl-dl-item" target="_blank" rel="noopener" href="__TL_RELEASES__/Throughline.bat"><span style="font-weight: 520">Windows</span><span style="color: rgba(244,242,238,0.5); font-size: 12px">Throughline.bat · double-click it</span></a>
+              <a class="tl-dl-item" target="_blank" rel="noopener" href="__TL_RELEASES__/throughline.sh"><span style="font-weight: 520">Linux</span><span style="color: rgba(244,242,238,0.5); font-size: 12px">throughline.sh · double-click it</span></a>
+              <a class="tl-dl-item" target="_blank" rel="noopener" href="__TL_RELEASES__/install.sh"><span style="font-weight: 350; color: rgba(244,242,238,0.7)">Read install.sh first</span><span style="color: rgba(244,242,238,0.4); font-size: 12px">trust, then pipe</span></a>
+              <div style="padding: 10px 12px 4px; border-top: 1px solid rgba(244,242,238,0.1); margin-top: 4px"><div style="font-size: 11px; color: rgba(244,242,238,0.5); margin-bottom: 5px">One line instead — no warning, nothing to allow.</div><div style="font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(244,242,238,0.35); margin-bottom: 4px">macOS · Linux · WSL</div><div style="position: relative; display: flex; align-items: stretch; gap: 6px"><code style="display: block; font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-size: 10.5px; color: rgba(244,242,238,0.8); background: rgba(244,242,238,0.06); border-radius: 4px; padding: 8px 10px; overflow-x: auto; white-space: nowrap; flex: 1 1 auto">curl -fsSL __TL_RELEASES__/install.sh | sh</code><button type="button" class="tl-copy" data-copy="curl -fsSL __TL_RELEASES__/install.sh | sh" aria-label="Copy this command" title="Copy" style="flex: none; display: inline-flex; align-items: center; justify-content: center; width: 30px; border: 1px solid rgba(244,242,238,0.18); border-radius: 4px; background: rgba(244,242,238,0.04); color: rgba(244,242,238,0.65); cursor: pointer; font: 500 10px Inter, system-ui, sans-serif; padding: 0"><svg width="11" height="11" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="4.5" width="8" height="8" rx="1.4"></rect><path d="M9.5 1.5h-7a1 1 0 0 0-1 1v7"></path></svg></button></div><div style="font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(244,242,238,0.35); margin: 9px 0 4px">Windows PowerShell</div><div style="position: relative; display: flex; align-items: stretch; gap: 6px"><code style="display: block; font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-size: 10.5px; color: rgba(244,242,238,0.8); background: rgba(244,242,238,0.06); border-radius: 4px; padding: 8px 10px; overflow-x: auto; white-space: nowrap; flex: 1 1 auto">irm __TL_RELEASES__/install.ps1 | iex</code><button type="button" class="tl-copy" data-copy="irm __TL_RELEASES__/install.ps1 | iex" aria-label="Copy this command" title="Copy" style="flex: none; display: inline-flex; align-items: center; justify-content: center; width: 30px; border: 1px solid rgba(244,242,238,0.18); border-radius: 4px; background: rgba(244,242,238,0.04); color: rgba(244,242,238,0.65); cursor: pointer; font: 500 10px Inter, system-ui, sans-serif; padding: 0"><svg width="11" height="11" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="4.5" width="8" height="8" rx="1.4"></rect><path d="M9.5 1.5h-7a1 1 0 0 0-1 1v7"></path></svg></button></div></div><div style="padding: 8px 12px 7px; font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-size: 10.5px; color: rgba(244,242,238,0.4); line-height: 1.5; white-space: normal">The downloads are unsigned. macOS blocks them until you allow it in System Settings › Privacy &amp; Security; Windows shows SmartScreen once. The line above is fetched by your terminal rather than your browser, so neither asks.</div>
             </div>
           </details>
           <!-- The GitHub button lived here and was removed deliberately. It
@@ -207,6 +207,38 @@ class Component extends DCLogic {
         el.style.strokeDashoffset = String(len);
         this.markStrokes.push([el, len]);
       }
+    }
+
+    // Copy buttons on the one-liners. Wired *above* the WebGL branch below on
+    // purpose: the command is the route that works when everything else does
+    // not, so it must not stop working on a machine with no WebGL2 or with
+    // reduced motion set, where that branch returns early.
+    for (const btn of (this.root || document).querySelectorAll(".tl-copy")) {
+      const icon = btn.innerHTML;
+      btn.addEventListener("click", async (e) => {
+        // The button lives inside the <details> menu; without this, clicking it
+        // would close the menu you are copying from.
+        e.preventDefault(); e.stopPropagation();
+        const text = btn.getAttribute("data-copy") || "";
+        let ok = false;
+        try { await navigator.clipboard.writeText(text); ok = true; }
+        catch (err) {
+          // navigator.clipboard needs a secure context. A page opened from
+          // file://, or over plain http, has none - so there is a fallback
+          // rather than a button that silently does nothing.
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.style.cssText = "position:fixed;top:-100px;opacity:0";
+          document.body.appendChild(ta); ta.select();
+          try { ok = document.execCommand("copy"); } catch (e2) { ok = false; }
+          ta.remove();
+        }
+        btn.style.width = "auto"; btn.style.padding = "0 9px";
+        btn.textContent = ok ? "Copied" : "Select it";
+        setTimeout(() => {
+          btn.innerHTML = icon; btn.style.width = "30px"; btn.style.padding = "0";
+        }, 1400);
+      });
     }
 
     this.GL = this.glCanvas ? this.initGL(this.glCanvas) : null;

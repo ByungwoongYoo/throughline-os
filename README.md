@@ -243,6 +243,13 @@ Windows backend built on Job Objects; see `services/scientific-runtime`.
 curl -fsSL https://throughline-research.pages.dev/install.sh | sh
 ```
 
+On **Windows**, in PowerShell — there is no `sh` on a stock Windows, so the line
+above cannot work there and the equivalent is:
+
+```powershell
+irm https://throughline-research.pages.dev/install.ps1 | iex
+```
+
 That downloads the current release to `~/throughline-os` (override with
 `THROUGHLINE_INSTALL_DIR`), checks it against the checksum the release
 publishes, and runs the bootstrap. It does **not** clone the repository — this

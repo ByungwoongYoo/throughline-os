@@ -59,6 +59,9 @@ def workspace(tmp_path):
     # doors fetch it to do the install, so a release without it fails at the
     # last step instead of at a button.
     (root / "scripts" / "install.py").write_text("# install\n")
+    # Windows has no `sh`, so the one-liner there is `irm ... | iex` and needs
+    # its own front door published beside the others.
+    (root / "scripts" / "install.ps1").write_text("# install\n")
     # Host rules for the download buttons; without it a browser displays the
     # launchers instead of saving them, so the release refuses to ship without.
     (root / "frontend").mkdir()
