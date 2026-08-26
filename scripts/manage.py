@@ -1036,9 +1036,19 @@ def _hand_tracking_ready() -> bool:
     otherwise arrives as a 404 on a `.task` file at the moment somebody enables
     a camera feature, which reads as the feature being broken rather than
     un-installed.
+
+    **Two places, because a release keeps it somewhere else.** `public/` is
+    where the vendor step puts it in a checkout; `out/` is where the export
+    carries it, and `out/` is what a release actually ships — `public/` is not
+    in the archive at all. Looking only in `public/` therefore reported hand
+    tracking as missing on every release install *while it was working*, since
+    the API serves the model straight out of `out/`. A false negative rather
+    than a false positive, but the same defect: a claim that does not match what
+    the machine can do.
     """
-    return (ROOT / "apps" / "web" / "public" / "mediapipe"
-            / "hand_landmarker.task").exists()
+    web = ROOT / "apps" / "web"
+    return any((web / where / "mediapipe" / "hand_landmarker.task").exists()
+               for where in ("public", "out"))
 
 
 def _exported_interface() -> bool:
@@ -1777,10 +1787,22 @@ def _check_model() -> dict[str, Any]:
     A truncated or half-downloaded model exists on disk and fails in the browser
     with a message about WASM, which points nowhere near the cause.
     """
-    path = ROOT / "apps" / "web" / "public" / "mediapipe" / "hand_landmarker.task"
-    if not path.exists():
-        return _check("Hand-tracking model", False, "not installed",
-                      "npm --prefix apps/web run vendor:hand-model")
+    # Same two locations as `_hand_tracking_ready`, and for the same reason: a
+    # release ships the model under `out/`, never `public/`.
+    web = ROOT / "apps" / "web"
+    path = next(
+        (candidate for candidate in
+         (web / "public" / "mediapipe" / "hand_landmarker.task",
+          web / "out" / "mediapipe" / "hand_landmarker.task")
+         if candidate.exists()), None)
+    if path is None:
+        # The vendor step needs an npm project, which a release does not have,
+        # so the advice is only followable in a checkout. Say the right thing
+        # for the installation actually in front of us.
+        fix = ("npm --prefix apps/web run vendor:hand-model"
+               if (web / "package.json").is_file() else
+               "reinstall: this release should have shipped the model")
+        return _check("Hand-tracking model", False, "not installed", fix)
 
     import hashlib
 
@@ -1789,7 +1811,9 @@ def _check_model() -> dict[str, Any]:
         return _check(
             "Hand-tracking model", False,
             f"present but the contents do not match ({digest[:12]}…)",
-            "npm --prefix apps/web run vendor:hand-model")
+            "npm --prefix apps/web run vendor:hand-model"
+            if (web / "package.json").is_file() else
+            "reinstall: the model that shipped is not the one expected")
     return _check("Hand-tracking model", True,
                   f"{path.stat().st_size // (1024 * 1024)}MB, hash matches")
 

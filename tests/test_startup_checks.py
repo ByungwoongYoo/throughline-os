@@ -156,16 +156,50 @@ def test_a_model_that_is_present_but_wrong_is_caught(monkeypatch, tmp_path):
 
     assert result["ok"] is False
     assert "do not match" in result["detail"]
-    assert "vendor:hand-model" in result["fix"]
+    # Same rule as above: the fix has to be one this installation can carry out.
+    assert result["fix"], "a mismatch with no next step"
 
 
-def test_a_missing_model_names_the_command_that_installs_it(monkeypatch, tmp_path):
+def test_a_missing_model_names_a_command_the_reader_can_actually_run(
+        monkeypatch, tmp_path):
+    """**The advice has to suit the installation in front of you.**
+
+    `npm --prefix apps/web run vendor:hand-model` needs an npm project, and a
+    release has none — so on a release install this named a command that could
+    not run, the same defect as the port advice in D066 and the hand-tracking
+    hint in D063. A checkout gets the vendor command; a release is told to
+    reinstall, because a release *should* have shipped the model.
+    """
     monkeypatch.setattr(manage, "ROOT", tmp_path)
+    release = manage._check_model()
+    assert release["ok"] is False
+    assert "vendor:hand-model" not in release["fix"], (
+        "a release install is told to run npm, which it cannot")
+    assert "reinstall" in release["fix"]
 
-    result = manage._check_model()
+    (tmp_path / "apps" / "web").mkdir(parents=True)
+    (tmp_path / "apps" / "web" / "package.json").write_text("{}")
+    checkout = manage._check_model()
+    assert checkout["ok"] is False
+    assert "vendor:hand-model" in checkout["fix"], (
+        "a checkout should still be told the vendor command")
 
-    assert result["ok"] is False
-    assert "vendor:hand-model" in result["fix"]
+
+def test_the_model_is_found_where_a_release_actually_keeps_it(monkeypatch, tmp_path):
+    """**It was reported missing while it was working.** The release ships the
+    model under `apps/web/out/mediapipe/`, which is what the API serves from.
+    The check looked only in `apps/web/public/mediapipe/`, the source location,
+    which is not in the archive — so every release install was told hand
+    tracking was not installed while the browser could load it perfectly well.
+    """
+    monkeypatch.setattr(manage, "ROOT", tmp_path)
+    exported = tmp_path / "apps" / "web" / "out" / "mediapipe"
+    exported.mkdir(parents=True)
+    (exported / "hand_landmarker.task").write_bytes(b"x")
+
+    assert manage._hand_tracking_ready(), (
+        "the model shipped by a release is not found, so hand tracking is "
+        "reported missing while it works")
 
 
 def test_no_haptic_hardware_is_never_a_failure(monkeypatch):
