@@ -73,3 +73,68 @@ def test_the_exported_interface_is_what_a_release_serves(tmp_path):
     tree = make_tree(tmp_path, package_json=False, exported=True)
     assert (tree / "apps" / "web" / "out" / "index.html").is_file()
     assert not manage._can_run_dev_server(tree)
+
+
+# --- what happens when an install goes wrong ---------------------------------
+
+
+def read(name: str) -> str:
+    return (ROOT / "scripts" / name).read_text()
+
+
+def test_the_one_liner_notices_it_is_out_of_date():
+    """**The gap that stranded somebody.** Re-running the advertised line over an
+    existing install said *already installed* and ran the copy that was there.
+    Correct for a launcher, but it means a person holding a build with a startup
+    defect re-runs the line they were given and sees the identical failure —
+    which reads as the fix not working.
+
+    It compounds: a failure that kills the interface also removes the update
+    button, so the one install that needs updating is the one that cannot ask.
+    """
+    for name in ("install.sh", "install.ps1"):
+        body = read(name)
+        assert "VERSION" in body, (
+            f"{name} never reads the installed version, so it cannot tell "
+            "whether the copy on disk is current")
+        assert "manage.py" in body and "update" in body, (
+            f"{name} does not hand over to `manage.py update` when a newer "
+            "release exists")
+
+
+def test_a_failed_update_still_starts_the_copy_that_is_here():
+    """Refusing to run because a newer version exists would be a worse failure
+    than the one being fixed. The update is best-effort; the install still
+    starts either way."""
+    body = read("install.sh")
+    assert "|| say" in body, (
+        "a failed update aborts install.sh instead of starting the copy that "
+        "is already present")
+    assert "reinstall with" in body, (
+        "a failed update does not tell the reader how to start over")
+
+
+def test_the_supervisor_says_which_child_died():
+    """It used to return in silence. A child that failed on startup produced a
+    wall of its own error output and then the stack tearing itself down with no
+    explanation — the researcher saw something start and stop, and had nothing
+    to act on."""
+    body = (ROOT / "scripts" / "manage.py").read_text()
+    assert 'named.get(id(child), "a component")' in body, (
+        "the supervisor no longer knows which child it is reporting")
+    for expected in ("the API", "the background worker", "the web dev server"):
+        assert f'"{expected}"' in body, f"no child is labelled {expected!r}"
+
+
+def test_a_death_on_startup_points_at_doctor_and_update():
+    """Dying within seconds is a startup failure, not a crash under load, and
+    is almost always the environment. Both commands are named in full, because
+    somebody reading this is by definition on an installation that does not
+    work."""
+    body = (ROOT / "scripts" / "manage.py").read_text()
+    supervisor = body[body.index("# Exit as soon as any child does"):]
+    supervisor = supervisor[:supervisor.index("except KeyboardInterrupt")]
+    assert "doctor" in supervisor, "a startup failure does not mention doctor"
+    assert "update" in supervisor, "a startup failure does not mention update"
+    assert "time.monotonic()" in supervisor, (
+        "the message no longer distinguishes a startup failure from a later one")

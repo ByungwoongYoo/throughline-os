@@ -1083,15 +1083,16 @@ def dev(api_port: int, web_port: int, *,
 
     children: list[subprocess.Popen] = []
     try:
-        children.append(_spawn([str(python), "-m", "throughline_workers"]))
+        children.append(watch(_spawn([str(python), "-m", "throughline_workers"]),
+                                  "the background worker"))
         # --reload so the API tracks edits the way the web dev server already
         # does. Without it the two halves disagree about which code is running,
         # which is a confusing way to lose an afternoon.
-        children.append(_spawn([
+        children.append(watch(_spawn([
             str(python), "-m", "uvicorn", "throughline_api.app:app",
             "--host", "127.0.0.1", "--port", str(api_port), "--reload",
             "--reload-dir", str(ROOT / "apps" / "api" / "src"),
-            "--reload-dir", str(ROOT / "packages")]))
+            "--reload-dir", str(ROOT / "packages")]), "the API"))
 
         node = _node_on_path()
         if node and _can_run_dev_server():
@@ -1117,10 +1118,11 @@ def dev(api_port: int, web_port: int, *,
             # npm — the same pick-by-position mistake `_node_on_path` fixes one
             # level up, and it surfaces as an npm error about an engine
             # constraint rather than as a version mismatch.
-            children.append(_spawn(
+            children.append(watch(_spawn(
                 [node_exe(node, "npm"), "run", "dev", "--",
                  "--port", str(web_port)],
-                cwd=str(ROOT / "apps" / "web"), env=environment))
+                cwd=str(ROOT / "apps" / "web"), env=environment),
+                "the web dev server"))
             if open_browser:
                 # `next dev`'s port, not the API's: in development the browser
                 # loads pages from the Next server and its rewrites proxy /api
@@ -1149,10 +1151,39 @@ def dev(api_port: int, web_port: int, *,
 
         # Exit as soon as any child does: a dead worker with a live API looks like
         # a working stack that silently never finishes anything.
+        #
+        # **Say which one, and what to do.** This used to return in silence, so a
+        # child that failed on startup produced a wall of its own error output
+        # followed by the stack tearing itself down with no explanation — the
+        # researcher saw something start and stop and had nothing to act on
+        # (D063, D064). A supervisor that knows why it is exiting and does not
+        # say so is throwing away the one piece of information nobody else has.
+        started = time.monotonic()
         while True:
             for child in children:
-                if child.poll() is not None:
-                    return child.returncode or 0
+                if child.poll() is None:
+                    continue
+                what = named.get(id(child), "a component")
+                code = child.returncode or 0
+                print(f"\n  Stopping: {what} exited"
+                      + (f" with status {code}" if code else "")
+                      + ".", flush=True, file=sys.stderr)
+                if time.monotonic() - started < 20:
+                    # Dying within seconds is a startup failure, not a crash
+                    # under load, and it is almost always the environment
+                    # rather than the code.
+                    print("  It stopped almost immediately, which usually means "
+                          "this installation\n  is missing something rather than "
+                          "that it went wrong while running.\n", flush=True,
+                          file=sys.stderr)
+                    print("  Check this installation:", flush=True, file=sys.stderr)
+                    print(f"    {python} {ROOT / 'scripts' / 'manage.py'} doctor",
+                          flush=True, file=sys.stderr)
+                    print("\n  Or bring it up to date, in case this is already "
+                          "fixed:", flush=True, file=sys.stderr)
+                    print(f"    {python} {ROOT / 'scripts' / 'manage.py'} update\n",
+                          flush=True, file=sys.stderr)
+                return code
             time.sleep(0.4)
     except KeyboardInterrupt:
         return 0

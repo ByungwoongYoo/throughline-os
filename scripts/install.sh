@@ -85,10 +85,42 @@ if [ -d "$DEST/.git" ]; then
     "The checkout at $DEST has diverged from $BRANCH and cannot fast-forward.
   Nothing has been changed. Move it aside, or update it yourself, and re-run."
 elif [ -f "$DEST/scripts/manage.py" ]; then
-  # A release install rather than a checkout. Nothing to fetch: `start` below
-  # already means "set up if needed, then run", and updating a copy that has no
-  # git is T073's job, which knows how to roll back and this script does not.
+  # A release install rather than a checkout.
+  #
+  # **This used to stop here, and that stranded people.** Somebody holding a
+  # build with a startup defect re-ran the advertised line, was told "already
+  # installed", and got the identical failure — which reads as the fix not
+  # working. Worse, a failure that kills the interface also takes away the
+  # update button, so the one install that needs updating is the one that
+  # cannot ask for it (D064).
+  #
+  # So it compares. It does not update silently: it says what it found and
+  # hands over to `manage.py update`, which is T073's job and knows how to back
+  # up, verify a signature and roll back. This script only notices.
   say "  already installed at $DEST"
+  HERE_VERSION="$(cat "$DEST/VERSION" 2>/dev/null || echo unknown)"
+  THERE_VERSION="$("$PYTHON" -c '
+import json, sys, urllib.request
+req = urllib.request.Request(sys.argv[1], headers={"User-Agent": "Throughline-Installer"})
+try:
+    with urllib.request.urlopen(req, timeout=30) as response:
+        sys.stdout.write(str(json.load(response).get("version", "")))
+except Exception:
+    pass
+' "$MANIFEST_URL" 2>/dev/null)"
+
+  if [ -n "$THERE_VERSION" ] && [ "$HERE_VERSION" != "$THERE_VERSION" ]; then
+    say "  this copy is $HERE_VERSION; $THERE_VERSION has been released"
+    say "  updating before starting"
+    # Not fatal. An update that fails leaves the copy that is here, and that
+    # copy still starts - refusing to run because a newer one exists would be
+    # a worse failure than the one being fixed.
+    "$PYTHON" "$DEST/scripts/manage.py" update || say "
+  The update did not finish, so the copy already here is being started
+  instead. If it does not work, reinstall with:
+    rm -rf \"$DEST\" && curl -fsSL ${MANIFEST_URL%/*}/install.sh | sh
+"
+  fi
 elif [ -e "$DEST" ]; then
   die "$DEST already exists and is not a Throughline installation.
   Refusing to write into it. Set THROUGHLINE_INSTALL_DIR to somewhere else."

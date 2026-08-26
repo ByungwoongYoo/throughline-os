@@ -57,7 +57,26 @@ if (-not $PyExe) {
 Write-Host "  using $PyExe $($PyArgs -join ' ') to start"
 
 if (Test-Path (Join-Path $Dest 'scripts\manage.py')) {
+    # See install.sh for why this compares rather than stopping: somebody
+    # holding a build with a startup defect re-ran the advertised line, was told
+    # "already installed", and got the identical failure (D064).
     Write-Host "  already installed at $Dest"
+    $Here = (Get-Content (Join-Path $Dest 'VERSION') -ErrorAction SilentlyContinue | Select-Object -First 1)
+    $There = $null
+    try {
+        $There = (Invoke-RestMethod -Uri $ManifestUrl -UserAgent 'Throughline-Installer' -TimeoutSec 30).version
+    } catch { }
+    if ($There -and ($Here -ne $There)) {
+        Write-Host "  this copy is $Here; $There has been released"
+        Write-Host "  updating before starting"
+        & $PyExe @PyArgs (Join-Path $Dest 'scripts\manage.py') 'update'
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host ""
+            Write-Host "  The update did not finish, so the copy already here is being"
+            Write-Host "  started instead. If it does not work, reinstall with:"
+            Write-Host "    Remove-Item -Recurse -Force '$Dest'; irm $($ManifestUrl -replace '/latest\.json$', '/install.ps1') | iex"
+        }
+    }
 } else {
     Write-Host "  fetching the current release"
     # Resolved against the manifest's own location, so a staging host set through
