@@ -123,6 +123,15 @@ if (Test-Path (Join-Path $Dest 'scripts\manage.py')) {
     Remove-Item $Installer -ErrorAction SilentlyContinue
 }
 
+# Throughline.bat sets this: it installs through here and then starts the copy
+# itself, so that the launcher owns the window the app runs in. Nothing else
+# sets it, and the one-liner never does.
+if ($env:THROUGHLINE_NO_START) {
+    Write-Host ""
+    Write-Host "  installed. The launcher will start it."
+    exit 0
+}
+
 Write-Host ""
 # `start`, not `bootstrap`: start already means "set up if needed, then run", so
 # stopping at bootstrap leaves a finished install and nothing on screen.

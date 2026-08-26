@@ -33,12 +33,17 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 #: Every file in the product that opens a URL against the release host.
+#:
+#: `Throughline.bat` is deliberately absent: it stopped being an HTTP caller
+#: when it began handing to `install.ps1` instead of fetching `install.py`
+#: itself. `test_the_batch_file_delegates_rather_than_fetching` below keeps that
+#: honest, so this is a file leaving the list by not making requests any more
+#: rather than by having its requests go unchecked.
 CALLERS = {
     "scripts/install.py": ROOT / "scripts" / "install.py",
     "scripts/install.sh": ROOT / "scripts" / "install.sh",
     "scripts/install.ps1": ROOT / "scripts" / "install.ps1",
     "scripts/runtimes.py": ROOT / "scripts" / "runtimes.py",
-    "launchers/Throughline.bat": ROOT / "launchers" / "Throughline.bat",
     "throughline_domain/updates.py": (
         ROOT / "packages" / "research-domain" / "src" / "throughline_domain"
         / "updates.py"),
@@ -114,3 +119,21 @@ def test_the_agent_says_who_it_is():
         assert pretending not in agent, (
             f"the agent claims to be {pretending}; identify the product "
             "honestly rather than impersonating a browser")
+
+
+def test_the_batch_file_delegates_rather_than_fetching():
+    """Why `Throughline.bat` is not in CALLERS above.
+
+    It used to fetch `install.py` itself, and needed the agent header like
+    everything else. It now hands to `install.ps1`, which is in the list — so
+    the Windows door is covered by that file's header rather than by its own.
+    If it ever goes back to fetching, this fails and it belongs in CALLERS
+    again.
+    """
+    body = (ROOT / "launchers" / "Throughline.bat").read_bytes().decode("ascii")
+    runs = "\n".join(line for line in body.splitlines()
+                      if not line.strip().lower().startswith("rem "))
+    assert "install.ps1" in runs, "the batch file no longer delegates"
+    assert "urllib" not in runs, (
+        "the batch file is fetching over HTTP again; put it back in CALLERS so "
+        "its User-Agent is checked")

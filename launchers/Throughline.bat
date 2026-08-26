@@ -63,8 +63,8 @@ if not defined FOUND (
   rem not read Username" to everybody it was built for (D050). It now installs
   rem the same published release the other doors do, and needs no git at all.
   rem
-  rem The sequence itself is not implemented here: it is scripts/install.py,
-  rem fetched from beside the manifest and run with the Python found above.
+  rem The sequence is not implemented here, and is no longer even fetched
+  rem here: this hands to install.ps1, which hands to install.py.
   rem Expressing download-verify-unpack in batch would be a third copy of it,
   rem which is the drift this repository has already paid for twice.
   rem
@@ -72,15 +72,23 @@ if not defined FOUND (
   rem through THROUGHLINE_RELEASE_URL serves its own installer too. urljoin does
   rem that here because the ~dp path operator on a URL yields a filesystem
 rem path rather than a URL.
-  %PYTHON% -c "import sys, urllib.request; from urllib.parse import urljoin; r = urllib.request.Request(urljoin(sys.argv[1], 'install.py'), headers={'User-Agent': 'Throughline-Installer'}); open(sys.argv[2], 'wb').write(urllib.request.urlopen(r, timeout=60).read())" "%THROUGHLINE_RELEASE_URL%" "%TEMP%\throughline-install.py" || (
-    echo Cannot install: the release server could not be reached.
-    echo   %THROUGHLINE_RELEASE_URL%
-    echo.
-    pause
-    exit /b 1
-  )
-  %PYTHON% "%TEMP%\throughline-install.py" --into "%DEST%" --url "%THROUGHLINE_RELEASE_URL%"
-  del "%TEMP%\throughline-install.py" >nul 2>&1
+  rem Handed to install.ps1, exactly as throughline.sh and Throughline.command
+  rem hand to install.sh. This used to fetch install.py directly, which worked
+  rem but went around the installer -- and the installer is where "already here,
+  rem so update it" and "half-installed, so redo it" live. A door that skips it
+  rem is a door those never reach, so Windows double-click was the one route
+  rem missing both.
+  rem
+  rem PowerShell rather than more batch: it is always present, and irm piped to
+  rem iex runs from a string, so no execution-policy prompt applies to a file.
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "$m = '%THROUGHLINE_RELEASE_URL%'; $env:THROUGHLINE_RELEASE_URL = $m; $env:THROUGHLINE_INSTALL_DIR = '%DEST%'; $env:THROUGHLINE_NO_START = '1'; irm ([System.Uri]::new([System.Uri]$m, 'install.ps1').AbsoluteUri) | iex" 
+  rem **No `|| echo "could not reach the server"` here, deliberately.** That was
+  rem written and it was wrong: it fires on *any* non-zero exit from PowerShell,
+  rem so a port already in use during startup was reported to the researcher as
+  rem the release server being unreachable. Naming a cause you have not
+  rem established is worse than naming none - it sends somebody to check their
+  rem network over a busy port. The check below asks the only question this
+  rem file can actually answer: is it installed now?
   if not exist "%DEST%\scripts\manage.py" (
     echo.
     echo Setup did not finish, so there is nothing to start yet.

@@ -374,3 +374,40 @@ def test_no_comment_in_the_batch_file_contains_an_invalid_substitution():
                 f"Throughline.bat:{number} contains '%~{match.group(1)}' with no "
                 f"argument number. cmd treats that as an invalid substitution "
                 f"and aborts the script — even inside a rem.\n  {line.strip()}")
+
+
+def test_every_door_installs_through_an_installer():
+    """**One installer per platform, and every door goes through it.**
+
+    `Throughline.bat` used to fetch `install.py` directly. That worked, and it
+    skipped the installer — which is where "already here, so update it" and
+    "half-installed, so redo it" live. So Windows double-click was the single
+    route missing both, while the two shell launchers and both one-liners had
+    them. Two lists in two languages again, in a third language.
+    """
+    doors = {
+        "launchers/throughline.sh": "install.sh",
+        "launchers/Throughline.command": "install.sh",
+        "launchers/Throughline.bat": "install.ps1",
+    }
+    for name, installer in doors.items():
+        body = (ROOT / name).read_bytes().decode("ascii", "replace")
+        runs = "\n".join(
+            line for line in body.splitlines()
+            if not line.strip().lower().startswith(("rem ", "#")))
+        assert installer in runs, (
+            f"{name} does not install through {installer}, so it misses "
+            "whatever the installer learns")
+
+
+def test_the_batch_file_does_not_blame_the_server_for_every_failure():
+    """It did. A `|| echo "the release server could not be reached"` fired on
+    *any* non-zero exit from PowerShell, so a port already in use during startup
+    was reported as a network problem — sending somebody to check their
+    connection over a busy port. Naming a cause you have not established is
+    worse than naming none."""
+    body = (ROOT / "launchers" / "Throughline.bat").read_bytes().decode("ascii")
+    runs = "\n".join(line for line in body.splitlines()
+                     if not line.strip().lower().startswith("rem "))
+    assert "could not be reached" not in runs, (
+        "the batch file diagnoses a network failure it has not established")
