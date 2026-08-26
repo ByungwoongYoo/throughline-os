@@ -211,17 +211,28 @@ def _publish_launchers(root: Path, destination: Path, log) -> None:
     `install.sh` travels too, because the page offers it for reading before
     piping it to a shell — which is the one honest thing a `curl | sh` page can
     do, and it has to be fetchable to be readable.
+
+    `install.py` travels because both front doors fetch it: it is the one
+    implementation of download-verify-unpack, and neither a POSIX shell script
+    nor a batch file can express that without becoming a second copy of it.
+    Nothing links to it, so no button 404s if it is missing — the install
+    simply fails at the last step, which is why it is on this list.
     """
     import shutil
 
     published = []
     for relative in ("launchers/Throughline.command", "launchers/Throughline.bat",
-                     "launchers/throughline.sh", "scripts/install.sh"):
+                     "launchers/throughline.sh", "scripts/install.sh",
+                     "scripts/install.py"):
         source = root / relative
         if not source.is_file():
             raise ReleaseError(
-                f"{relative} is missing, and the landing page links to it. A "
-                f"release without it publishes a button that 404s.")
+                f"{relative} is missing. A release without it publishes a "
+                f"button that 404s."
+                if relative != "scripts/install.py" else
+                f"{relative} is missing, and both front doors fetch it to do "
+                f"the install. A release without it downloads, then fails at "
+                f"the last step.")
         target = destination / Path(relative).name
         shutil.copy2(source, target)
         # Copied with their mode: a launcher that arrives without its executable

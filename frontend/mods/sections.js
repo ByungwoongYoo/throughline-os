@@ -20,7 +20,7 @@ const TL_SECTIONS_HTML = `
 
       <div class="tl-cmd" data-tl-rise="48">
         <div class="tl-cmd-scroll">
-          <span class="tl-cmd-sigil">$</span><span class="tl-cmd-text">curl -fsSL https://raw.githubusercontent.com/SarthakPattnaik1/throughline-os/main/scripts/install.sh | sh</span>
+          <span class="tl-cmd-sigil">$</span><span class="tl-cmd-text">curl -fsSL https://throughlineresearch.pages.dev/install.sh | sh</span>
         </div>
       </div>
 

@@ -113,20 +113,93 @@ def manifest_name() -> str:
     return found.group(1)
 
 
-def test_the_page_and_the_updater_name_the_same_host():
-    """The drift D050 names, and the reason it is worth a test: they are two
-    hardcoded literals in two languages with nothing tying them together, and
-    the failure is silent in the worst direction. If the page is moved to a new
-    host and the updater is not, every download keeps working — so nothing looks
-    broken — while every installed copy checks a host that no longer publishes
-    anything. It does not even report an error, because a copy that cannot reach
+def every_host() -> dict[str, str]:
+    """Every place that names the release host, read from the files themselves.
+
+    Five, in four languages. Each one is a hardcoded literal because it has to
+    work before anything is on disk to read a config from — which is exactly
+    why they need a test holding them together.
+    """
+    def host_of(url: str) -> str:
+        return "/".join(url.split("/")[:3])
+
+    found = {
+        "frontend/assemble.mjs": assembler_host(),
+        "throughline_domain/updates.py": host_of(updater_url()),
+    }
+    for label, path, pattern in (
+        ("scripts/install.py", ROOT / "scripts" / "install.py",
+         r'^MANIFEST_URL\s*=\s*"([^"]+)"'),
+        ("scripts/install.sh", ROOT / "scripts" / "install.sh",
+         r'MANIFEST_URL="\$\{THROUGHLINE_RELEASE_URL:-([^}"]+)\}"'),
+        ("launchers/Throughline.bat", ROOT / "launchers" / "Throughline.bat",
+         r'set "THROUGHLINE_RELEASE_URL=([^"]+)"'),
+    ):
+        match = re.search(pattern, path.read_text(), re.MULTILINE)
+        assert match, f"{label} no longer names a release host to compare"
+        found[label] = host_of(match.group(1))
+    return found
+
+
+def test_every_front_door_names_the_same_host():
+    """The drift D050 names, and the reason it is worth a test: these are
+    hardcoded literals in four languages with nothing tying them together, and
+    the failure is silent in the worst direction. Move the page to a new host
+    and leave the updater behind and every download keeps working — so nothing
+    looks broken — while every installed copy checks a host that publishes
+    nothing. It does not even report an error, because a copy that cannot reach
     its server says *could not check* rather than *up to date*. Nobody finds out
     until an update that shipped is one nobody received."""
-    host, updater = assembler_host(), updater_url()
-    assert updater.startswith(host + "/"), (
-        f"the landing page sends people to {host} but an installed copy checks "
-        f"{updater} — downloads would keep working while updates silently found "
-        "nothing. Change both, in frontend/assemble.mjs and updates.py.")
+    found = every_host()
+    assert len(set(found.values())) == 1, (
+        "the release host is named differently in different places, so some "
+        "doors would work while others silently did not:\n  " +
+        "\n  ".join(f"{where}: {host}" for where, host in sorted(found.items())))
+
+
+def what_runs(path: Path) -> str:
+    """The file with its comment lines removed.
+
+    The distinction matters here: these files *explain* that they used to fetch
+    from a private repository, and a test that cannot tell a comment from a
+    command would forbid them from recording their own history.
+    """
+    keep = []
+    for line in path.read_text().splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#") or stripped.lower().startswith("rem "):
+            continue
+        keep.append(line)
+    return "\n".join(keep)
+
+
+def test_no_front_door_points_into_the_private_repository():
+    """Every one of them did, and every one returned 404 or `could not read
+    Username` to a stranger — measured, not assumed (D050). The whole point of
+    a release host is that the people it exists for have no credentials."""
+    for name in ("scripts/install.sh", "scripts/install.py",
+                 "launchers/Throughline.bat", "launchers/throughline.sh",
+                 "launchers/Throughline.command"):
+        runs = what_runs(ROOT / name)
+        assert "raw.githubusercontent.com" not in runs, (
+            f"{name} fetches from raw.githubusercontent.com, which 404s for "
+            "everybody without access to a private repository")
+        assert "github.com/SarthakPattnaik1" not in runs, (
+            f"{name} reaches into the private repository; that is the developer "
+            "path, and it has to be opted into rather than be the default")
+
+
+def test_the_advertised_install_line_is_one_a_stranger_can_run():
+    """The line in the README is the first thing anybody does, and for the whole
+    life of this project it 404'd before a byte ran."""
+    readme = (ROOT / "README.md").read_text()
+    assert "raw.githubusercontent.com" not in readme, (
+        "the README still advertises a raw.githubusercontent.com one-liner "
+        "against a private repository")
+    host = every_host()["scripts/install.sh"]
+    assert f"curl -fsSL {host}/install.sh | sh" in readme, (
+        f"the README should advertise {host}/install.sh, the host every front "
+        "door actually uses")
 
 
 def test_the_updater_asks_for_the_file_the_release_writes():

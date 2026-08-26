@@ -20,6 +20,12 @@ setlocal
 set "HERE=%~dp0"
 if "%THROUGHLINE_INSTALL_DIR%"=="" set "THROUGHLINE_INSTALL_DIR=%USERPROFILE%\throughline-os"
 set "DEST=%THROUGHLINE_INSTALL_DIR%"
+rem Set out here rather than inside the install block below, and that is not a
+rem style choice: cmd expands %VAR% for a whole parenthesised block when it
+rem *parses* it, so a variable set inside the block reads as empty everywhere
+rem later in the same block. The same variable, with the same meaning, that
+rem install.sh and throughline_domain.updates read.
+if "%THROUGHLINE_RELEASE_URL%"=="" set "THROUGHLINE_RELEASE_URL=https://throughlineresearch.pages.dev/latest.json"
 
 rem `py` is the Python launcher that ships with python.org installs; `python` on
 rem a machine with no Python is the Microsoft Store stub, which prints an advert
@@ -52,17 +58,28 @@ if not defined FOUND (
   echo This downloads a few hundred megabytes and takes a few minutes.
   echo Leave this window open; it will start on its own when it is done.
   echo.
-  rem git is how this arrives on Windows: there is no curl-to-sh here, and
-  rem shipping a second implementation of the install sequence in batch is the
-  rem drift this repository has already paid for twice.
-  where git >nul 2>&1 || (
-    echo Cannot install: git is not on this machine.
-    echo   Install it from https://git-scm.com/download/win and try again.
+  rem It used to `git clone` the project's repository, which is private - so
+  rem this door worked for the two people with credentials and returned "could
+  rem not read Username" to everybody it was built for (D050). It now installs
+  rem the same published release the other doors do, and needs no git at all.
+  rem
+  rem The sequence itself is not implemented here: it is scripts/install.py,
+  rem fetched from beside the manifest and run with the Python found above.
+  rem Expressing download-verify-unpack in batch would be a third copy of it,
+  rem which is the drift this repository has already paid for twice.
+  rem
+  rem The installer's URL is derived from the manifest's, so a staging host set
+  rem through THROUGHLINE_RELEASE_URL serves its own installer too. urljoin does
+  rem that here because %~dp on a URL yields a filesystem path, not a URL.
+  %PYTHON% -c "import sys, urllib.request; from urllib.parse import urljoin; open(sys.argv[2], 'wb').write(urllib.request.urlopen(urljoin(sys.argv[1], 'install.py'), timeout=60).read())" "%THROUGHLINE_RELEASE_URL%" "%TEMP%\throughline-install.py" || (
+    echo Cannot install: the release server could not be reached.
+    echo   %THROUGHLINE_RELEASE_URL%
     echo.
     pause
     exit /b 1
   )
-  git clone --quiet "%THROUGHLINE_REPO%" "%DEST%" 2>nul || git clone --quiet https://github.com/SarthakPattnaik1/throughline-os.git "%DEST%"
+  %PYTHON% "%TEMP%\throughline-install.py" --into "%DEST%" --url "%THROUGHLINE_RELEASE_URL%"
+  del "%TEMP%\throughline-install.py" >nul 2>&1
   if not exist "%DEST%\scripts\manage.py" (
     echo.
     echo Setup did not finish, so there is nothing to start yet.

@@ -60,7 +60,7 @@ fi
 #      fetched otherwise, because three launchers with three copies of an
 #      install order is the drift this repository has already shipped twice.
 DEST="${THROUGHLINE_INSTALL_DIR:-$HOME/throughline-os}"
-INSTALLER_URL="${THROUGHLINE_INSTALLER_URL:-https://raw.githubusercontent.com/SarthakPattnaik1/throughline-os/main/scripts/install.sh}"
+INSTALLER_URL="${THROUGHLINE_INSTALLER_URL:-https://throughlineresearch.pages.dev/install.sh}"
 
 FOUND=""
 if [ -f "$HERE/../scripts/manage.py" ]; then

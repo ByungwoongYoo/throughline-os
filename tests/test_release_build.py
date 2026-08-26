@@ -55,6 +55,10 @@ def workspace(tmp_path):
     for name in ("throughline.sh", "Throughline.command", "Throughline.bat"):
         (root / "launchers" / name).write_text("#!/bin/sh\n")
     (root / "scripts" / "install.sh").write_text("#!/bin/sh\n")
+    # Not linked from the page, but published for the same reason: both front
+    # doors fetch it to do the install, so a release without it fails at the
+    # last step instead of at a button.
+    (root / "scripts" / "install.py").write_text("# install\n")
     (root / "apps" / "web" / "out" / "index.html").write_text("<html></html>")
     (root / "apps" / "api" / "src" / "app.py").write_text("# api\n")
     (root / "packages" / "model" / "src" / "m.py").write_text("# model\n")

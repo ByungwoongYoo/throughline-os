@@ -240,11 +240,17 @@ Windows backend built on Job Objects; see `services/scientific-runtime`.
 ## Quick start
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SarthakPattnaik1/throughline-os/main/scripts/install.sh | sh
+curl -fsSL https://throughlineresearch.pages.dev/install.sh | sh
 ```
 
-That clones the repository to `~/throughline-os` (override with
-`THROUGHLINE_INSTALL_DIR`) and runs the bootstrap. A terminal line rather than a
+That downloads the current release to `~/throughline-os` (override with
+`THROUGHLINE_INSTALL_DIR`), checks it against the checksum the release
+publishes, and runs the bootstrap. It does **not** clone the repository — this
+one is private, so the clone that used to happen here failed for everybody
+without credentials (D050). Set `THROUGHLINE_REPO` to take the git path on
+purpose if you have access.
+
+A terminal line rather than a
 download on purpose: the quarantine flag that triggers Gatekeeper and SmartScreen
 is set by the downloading browser, not by the operating system, so this path
 carries no security warning at all.
