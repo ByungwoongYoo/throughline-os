@@ -49,7 +49,12 @@ def workspace(tmp_path):
     (root / "packages" / "model" / "src").mkdir(parents=True)
 
     (root / "scripts" / "manage.py").write_text("# manage\n")
-    (root / "launchers" / "throughline.sh").write_text("#!/bin/sh\n")
+    # Every launcher the landing page links to, because `build()` publishes
+    # them beside the tarball and refuses if one is missing — a release without
+    # them puts a button on the page with nothing behind it.
+    for name in ("throughline.sh", "Throughline.command", "Throughline.bat"):
+        (root / "launchers" / name).write_text("#!/bin/sh\n")
+    (root / "scripts" / "install.sh").write_text("#!/bin/sh\n")
     (root / "apps" / "web" / "out" / "index.html").write_text("<html></html>")
     (root / "apps" / "api" / "src" / "app.py").write_text("# api\n")
     (root / "packages" / "model" / "src" / "m.py").write_text("# model\n")

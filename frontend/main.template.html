@@ -1,0 +1,329 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@350;400;520;600&amp;family=Source+Serif+4:ital,wght@1,400&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+  <style>
+    html, body { margin: 0; background: #06070a; }
+    * { box-sizing: border-box; }
+    a { color: #f4f2ee; } a:hover { color: #ffffff; }
+    .tl-beat { position: absolute; left: 50%; top: 62%; transform: translate(-50%, -50%); width: min(680px, 88vw); text-align: center; opacity: 0; pointer-events: none; will-change: opacity; z-index: 2; }
+    .tl-beat a { pointer-events: auto; }
+    .tl-skip:hover { color: #ffffff; border-color: rgba(244,242,238,0.4); }
+    .tl-dl summary { list-style: none; }
+    .tl-dl summary::marker, .tl-dl summary::-webkit-details-marker { display: none; content: ""; }
+    .tl-dl summary:hover { background: #ffffff !important; }
+    .tl-dl-item { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; padding: 10px 12px; border-radius: 6px; font-size: 13px; color: #f4f2ee; text-decoration: none; }
+    .tl-dl-item:hover { background: rgba(244, 242, 238, 0.08); }
+    .tl-beat details, .tl-beat summary { pointer-events: auto; }
+    /* Reduced motion / no WebGL2: beats become normal flow, runway collapses. */
+    .tl-static .tl-runway { height: auto !important; }
+    .tl-static .tl-stage { position: static !important; height: auto !important; padding: 18vh 0 6vh; }
+    .tl-static .tl-beat { position: static !important; transform: none !important; opacity: 1 !important; filter: none !important; margin: 10vh auto; pointer-events: auto; }
+    .tl-static .tl-gl, .tl-static .tl-fx, .tl-static .tl-tx { position: fixed !important; z-index: -1 !important; }
+    .tl-static .tl-skip, .tl-static .tl-hint { display: none !important; }
+    .tl-static .tl-final { position: static !important; width: auto !important; height: auto !important; opacity: 1 !important; margin: 12vh auto 6vh; pointer-events: auto; max-width: min(680px, 90vw); }
+    .tl-static .tl-final > * { position: static !important; transform: none !important; opacity: 1 !important; }
+    .tl-static .tl-fsvg { display: block; margin: 0 auto; }
+    .tl-static .tl-fbtns { display: flex !important; justify-content: center; margin-top: 24px; pointer-events: auto !important; }
+  </style>
+</helmet>
+
+<div ref="{{setRoot}}" style="width: 100%; background: #06070a; color: #f4f2ee; font-family: Inter, -apple-system, 'Segoe UI', system-ui, sans-serif">
+
+  <!-- ================= THE RUNWAY: scroll is real; the stage pins ================= -->
+  <section class="tl-runway" style="position: relative; height: 520vh">
+    <div ref="{{setStage}}" class="tl-stage" style="position: sticky; top: 0; height: 100vh; overflow: hidden">
+      <canvas ref="{{setGlCanvas}}" class="tl-gl" style="position: absolute; inset: 0; width: 100%; height: 100%; display: block"></canvas>
+      <canvas ref="{{setFxCanvas}}" class="tl-fx" style="position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none"></canvas>
+
+      <!-- ==================== BEAT 0 — no name yet ==================== -->
+      <div class="tl-beat" data-beat="0">
+        <h1 style="font-family: 'Source Serif 4', 'Iowan Old Style', Georgia, serif; font-style: italic; font-weight: 400; letter-spacing: -0.022em; line-height: 1.1; font-size: clamp(2rem, 5vw, 4.2rem); margin: 0; text-shadow: 0 2px 24px rgba(6,7,10,0.9)">
+          Most research tools find you something.<br>
+          <span style="color: rgba(244, 242, 238, 0.6)">This one tries to break it.</span>
+        </h1>
+        <div style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 28px">
+          <span style="font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: rgba(244, 242, 238, 0.6); border: 1px solid rgba(244, 242, 238, 0.22); border-radius: 999px; padding: 7px 14px; background: rgba(10, 12, 17, 0.5)">Local First</span>
+          <span style="font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: rgba(244, 242, 238, 0.6); border: 1px solid rgba(244, 242, 238, 0.22); border-radius: 999px; padding: 7px 14px; background: rgba(10, 12, 17, 0.5)">Open Source</span>
+          <span style="font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: rgba(244, 242, 238, 0.6); border: 1px solid rgba(244, 242, 238, 0.22); border-radius: 999px; padding: 7px 14px; background: rgba(10, 12, 17, 0.5)">Cross-Platform</span>
+        </div>
+      </div>
+
+      <!-- ============================ BEAT 1 ============================ -->
+      <div class="tl-beat" data-beat="1">
+        <span style="display: block; font-size: 10.5px; letter-spacing: 0.24em; text-transform: uppercase; color: rgba(244, 242, 238, 0.45); font-weight: 600; margin: 0 0 14px; font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace">What survives</span>
+        <p style="font-family: 'Source Serif 4', 'Iowan Old Style', Georgia, serif; font-style: italic; font-size: clamp(1.5rem, 2.8vw, 2.4rem); line-height: 1.28; margin: 0; text-shadow: 0 2px 24px rgba(6,7,10,0.9)">
+          Every candidate finding falls in — computed for real,
+          corrected for luck, attacked from every side.
+        </p>
+        <p style="font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-size: 12.5px; color: rgba(244, 242, 238, 0.5); margin: 22px 0 0">almost nothing gets out</p>
+      </div>
+
+
+      <canvas ref="{{setTxCanvas}}" class="tl-tx" style="position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none"></canvas>
+
+      <!-- ==== THE REVEAL: hole -> mark -> the mark's line becomes a table ==== -->
+      <!-- A zero-size anchor pinned to the hole's screen point; every child
+           centres itself on it, so the mark lands exactly on the shadow. -->
+      <div ref="{{setFinal}}" class="tl-final" style="position: absolute; left: 50%; top: 34%; width: 0; height: 0; text-align: center; opacity: 0; z-index: 3; pointer-events: none">
+        <svg class="tl-fsvg" width="220" height="150" viewBox="0 0 220 150" fill="none" aria-hidden="true" style="position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); overflow: visible">
+          <circle cx="110" cy="75" r="46" stroke="#f4f2ee" stroke-width="1.6"></circle>
+          <line x1="20.7" y1="122.5" x2="199.3" y2="27.5" stroke="#f4f2ee" stroke-width="1.6"></line>
+        </svg>
+        <div class="tl-fword" style="position: absolute; left: 0; top: 88px; transform: translateX(-50%); white-space: nowrap; font-size: 21px; letter-spacing: 0.1em; font-weight: 520">Throughline</div>
+        <div class="tl-ftag" style="position: absolute; left: 0; top: 124px; transform: translateX(-50%); white-space: nowrap; font-size: 13px; font-weight: 350; color: rgba(244, 242, 238, 0.55)">a research operating system</div>
+
+        <div class="tl-fbtns" style="position: absolute; left: 0; top: 164px; transform: translateX(-50%); display: flex; gap: 12px; align-items: center; opacity: 0; white-space: nowrap">
+          <details class="tl-dl" style="position: relative">
+            <summary style="display: inline-flex; align-items: center; gap: 10px; padding: 12px 22px; border-radius: 6px; background: #f4f2ee; color: #0b0d10; font-size: 14px; font-weight: 580; border: 1px solid #f4f2ee; cursor: pointer">Download now
+              <svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="#0b0d10" stroke-width="1.5" aria-hidden="true"><path d="M1 1l4 4 4-4"></path></svg>
+            </summary>
+            <div style="position: absolute; left: 50%; transform: translateX(-50%); top: calc(100% + 10px); min-width: 300px; background: rgba(10, 12, 17, 0.96); border: 1px solid rgba(244, 242, 238, 0.18); border-radius: 8px; padding: 6px; text-align: left; z-index: 6">
+              <a class="tl-dl-item" href="__TL_RELEASES__/Throughline.command"><span style="font-weight: 520">macOS</span><span style="color: rgba(244,242,238,0.5); font-size: 12px">Throughline.command · double-click it</span></a>
+              <a class="tl-dl-item" href="__TL_RELEASES__/Throughline.bat"><span style="font-weight: 520">Windows</span><span style="color: rgba(244,242,238,0.5); font-size: 12px">Throughline.bat · double-click it</span></a>
+              <a class="tl-dl-item" href="__TL_RELEASES__/throughline.sh"><span style="font-weight: 520">Linux</span><span style="color: rgba(244,242,238,0.5); font-size: 12px">throughline.sh · or the one-liner</span></a>
+              <a class="tl-dl-item" href="__TL_RELEASES__/install.sh"><span style="font-weight: 350; color: rgba(244,242,238,0.7)">Read install.sh first</span><span style="color: rgba(244,242,238,0.4); font-size: 12px">trust, then pipe</span></a>
+              <div style="padding: 9px 12px 7px; border-top: 1px solid rgba(244,242,238,0.1); margin-top: 4px; font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-size: 10.5px; color: rgba(244,242,238,0.4)">unsigned for now — macOS and Windows each ask once</div>
+            </div>
+          </details>
+          <a class="tl-btn" href="__TL_GITHUB__" style="display: inline-flex; align-items: center; gap: 9px; padding: 12px 20px; border-radius: 6px; border: 1px solid rgba(244, 242, 238, 0.25); color: #f4f2ee; text-decoration: none; font-size: 14px; font-weight: 520">GitHub
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#f4f2ee" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 1.5H1.5v9h9V7.5"></path><path d="M7 1.5h3.5V5"></path><path d="M10.5 1.5 5.5 6.5"></path></svg>
+          </a>
+        </div>
+      </div>
+
+      <button ref="{{setSkip}}" onClick="{{skipToInstall}}" class="tl-skip" style="position: absolute; right: 22px; top: 22px; z-index: 4; background: rgba(10,12,17,0.7); color: rgba(244,242,238,0.75); border: 1px solid rgba(244,242,238,0.2); border-radius: 6px; padding: 9px 14px; font: 520 12px Inter, system-ui, sans-serif; letter-spacing: 0.04em; cursor: pointer">Skip to installer</button>
+
+      <div ref="{{setHint}}" class="tl-hint" aria-hidden="true" style="position: absolute; bottom: 26px; left: 50%; transform: translateX(-50%); font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; color: rgba(244, 242, 238, 0.4); font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; white-space: nowrap">Scroll — it all falls in</div>
+    </div>
+  </section>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"glowTint":{"editor":"color","default":"#e8b76a","options":["#e8b76a","#fff2dc","#a9c4e8","#c8a45c"],"section":"Black hole"},"spinSpeed":{"editor":"range","default":1,"min":0.2,"max":3,"step":0.1,"section":"Black hole"},"setRoot":{"editor":null},"setStage":{"editor":null},"setGlCanvas":{"editor":null},"setFxCanvas":{"editor":null},"setTxCanvas":{"editor":null},"setFinal":{"editor":null},"setSkip":{"editor":null},"setHint":{"editor":null},"skipToInstall":{"editor":null}}'>
+/* ==================== ELEMENT MODULES (assembled) ==================== */
+/*__TL_MODULES__*/
+/* ========================== INTEGRATOR ============================== */
+class Component extends DCLogic {
+
+  renderVals() {
+    return {
+      setRoot: (el) => { this.root = el; },
+      setStage: (el) => { this.stage = el; },
+      setGlCanvas: (el) => { this.glCanvas = el; },
+      setFxCanvas: (el) => { this.fxCanvas = el; },
+      setTxCanvas: (el) => { this.txCanvas = el; },
+      setFinal: (el) => { this.finalEl = el; },
+      setSkip: (el) => { this.skip = el; },
+      setHint: (el) => { this.hint = el; },
+      skipToInstall: () => {
+        const vh = window.innerHeight || 800;
+        const runway = (this.stage && this.stage.parentElement ? this.stage.parentElement.offsetHeight : vh * 5.2) - vh;
+        window.scrollTo({ top: runway * 0.81, behavior: this.reduced ? "auto" : "smooth" });
+      },
+    };
+  }
+
+  tintVec() {
+    const hex = (this.props.glowTint || "#e8b76a").replace("#", "");
+    return [parseInt(hex.slice(0, 2), 16) / 255, parseInt(hex.slice(2, 4), 16) / 255, parseInt(hex.slice(4, 6), 16) / 255];
+  }
+
+  initGL(cv) {
+    const gl = cv.getContext("webgl2", { antialias: false, alpha: false });
+    if (!gl) return null;
+    const sh = (type, src) => {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src); gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) return null;
+      return s;
+    };
+    const vs = sh(gl.VERTEX_SHADER, TL_VERT), fs = sh(gl.FRAGMENT_SHADER, TL_FRAG);
+    if (!vs || !fs) return null;
+    const pr = gl.createProgram();
+    gl.attachShader(pr, vs); gl.attachShader(pr, fs); gl.linkProgram(pr);
+    if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) return null;
+    gl.useProgram(pr);
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(pr, "aP");
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    const u = (n) => gl.getUniformLocation(pr, n);
+    return { gl, uRes: u("uRes"), uT: u("uT"), uTint: u("uTint"), uBoost: u("uBoost"), uFlare: u("uFlare"), uCam: u("uCam"), uStarOff: u("uStarOff") };
+  }
+
+  renderGL(t, cam, boost, flare, starOff) {
+    const cv = this.glCanvas, G = this.GL;
+    if (!cv || !G) return;
+    const scale = (window.innerWidth > 900 ? 0.66 : 0.5) * Math.min(window.devicePixelRatio || 1, 2);
+    const w = Math.max(2, Math.round(cv.clientWidth * scale));
+    const h = Math.max(2, Math.round(cv.clientHeight * scale));
+    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; G.gl.viewport(0, 0, w, h); }
+    const [r, g, b] = this.tintVec();
+    G.gl.uniform2f(G.uRes, w, h);
+    G.gl.uniform1f(G.uT, t);
+    G.gl.uniform3f(G.uTint, r, g, b);
+    G.gl.uniform1f(G.uBoost, boost);
+    G.gl.uniform1f(G.uFlare, flare);
+    G.gl.uniform1f(G.uCam, cam);
+    G.gl.uniform2f(G.uStarOff, starOff[0], starOff[1]);
+    G.gl.drawArrays(G.gl.TRIANGLES, 0, 3);
+  }
+
+  componentDidMount() {
+    this.reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    this.t = 0; this.mx = 0; this.my = 0; this.tmx = 0; this.tmy = 0;
+
+    // The mark's strokes draw themselves in during the reveal.
+    this.markStrokes = [];
+    if (this.finalEl) {
+      this.fsvg = this.finalEl.querySelector(".tl-fsvg");
+      this.fword = this.finalEl.querySelector(".tl-fword");
+      this.ftag = this.finalEl.querySelector(".tl-ftag");
+      this.fbtns = this.finalEl.querySelector(".tl-fbtns");
+    }
+    if (this.finalEl) {
+      for (const el of this.finalEl.querySelectorAll("circle, line")) {
+        let len = 300;
+        if (el.tagName === "circle") len = 2 * Math.PI * Number(el.getAttribute("r"));
+        else {
+          const dx = Number(el.getAttribute("x2")) - Number(el.getAttribute("x1"));
+          const dy = Number(el.getAttribute("y2")) - Number(el.getAttribute("y1"));
+          len = Math.sqrt(dx * dx + dy * dy);
+        }
+        el.style.strokeDasharray = String(len);
+        el.style.strokeDashoffset = String(len);
+        this.markStrokes.push([el, len]);
+      }
+    }
+
+    this.GL = this.glCanvas ? this.initGL(this.glCanvas) : null;
+    const beatEls = Array.from((this.stage || document).querySelectorAll(".tl-beat"));
+
+    if (!this.GL || this.reduced) {
+      if (this.root) this.root.classList.add("tl-static");
+      if (this.GL) this.renderGL(7, 0.35, 0, 0, [0, 0]);
+      else if (this.glCanvas) this.glCanvas.style.background =
+        "radial-gradient(circle at 50% 30%, #2a2214 0%, #0d0e13 45%, #06070a 100%)";
+      for (const [el] of this.markStrokes) el.style.strokeDashoffset = "0";
+      if (this.finalEl) this.finalEl.style.opacity = "1";
+      if (this.fbtns) this.fbtns.style.opacity = "1";
+      return;
+    }
+
+    this.layers = this.fxCanvas ? new TLLayers(this.fxCanvas) : null;
+    if (this.layers) this.layers.resize();
+    const holeXY = () => [window.innerWidth * 0.5 + this.mx * 12, window.innerHeight * 0.34 + this.my * 7];
+    // Beat 0 opens pre-entered (window reaches back past p=0); two story
+    // beats only — the finale owns everything after p=0.46.
+    this.beats = new TLBeats(beatEls, this.txCanvas, holeXY, [[-0.08, 0.22], [0.26, 0.46]]);
+
+    this.onPointer = (e) => {
+      this.tmx = (e.clientX / window.innerWidth) * 2 - 1;
+      this.tmy = (e.clientY / window.innerHeight) * 2 - 1;
+    };
+    window.addEventListener("pointermove", this.onPointer, { passive: true });
+    this.onResize = () => { if (this.layers) this.layers.resize(); };
+    window.addEventListener("resize", this.onResize, { passive: true });
+
+    // Swallow surges: the disk feeds during each beat's exit window.
+    const EXITS = [[0.13, 0.22], [0.40, 0.46]];
+    this.rebirth = 0;
+
+    const loop = () => {
+      const speed = Number(this.props.spinSpeed) || 1;
+      this.t += 0.016 * speed;
+      this.mx += (this.tmx - this.mx) * 0.06;
+      this.my += (this.tmy - this.my) * 0.06;
+
+      const vh = window.innerHeight || 800;
+      const runway = (this.stage && this.stage.parentElement ? this.stage.parentElement.offsetHeight : vh * 5.2) - vh;
+      const scrollY = window.scrollY || 0;
+      const p = Math.min(1, Math.max(0, runway > 0 ? scrollY / runway : 0));
+
+      let boost = 0;
+      for (const [a, b] of EXITS) {
+        if (p > a && p < b) boost = Math.max(boost, Math.sin(((p - a) / (b - a)) * Math.PI) * 1.8);
+      }
+
+      // Act 3: blast (0.50-0.58) -> the mark draws in ON THE HOLE'S RIM
+      // (0.56-0.64) -> condenses to lockup size (0.64-0.72) -> the name and
+      // the Download/GitHub buttons appear and HOLD (0.70-0.86) -> reverse:
+      // the buttons fade and the mark expands back onto the rim while the
+      // hole rebrightens and the camera pulls out (0.86-0.985) — the logo
+      // becomes the black hole again -> the page loops.
+      const ss = (a, b, x) => { const u = Math.min(1, Math.max(0, (x - a) / (b - a))); return u * u * (3 - 2 * u); };
+      const flare = p > 0.54 && p < 0.62 ? Math.sin(((p - 0.54) / 0.08) * Math.PI) * 1.15 : 0;
+      const dim = ss(0.58, 0.65, p);
+      const back = ss(0.86, 0.95, p);
+      const reveal = ss(0.6, 0.68, p);
+      const condense = ss(0.68, 0.75, p);
+      const expand = ss(0.88, 0.97, p);
+      const content = ss(0.73, 0.78, p) * (1 - ss(0.86, 0.9, p));
+      // Spacestyle return: the camera eases back out to the wide framing as
+      // the hole comes home, so the loop lands near where it began.
+      const pull = ss(0.88, 1, p);
+      const cam = p * (1 - pull) + 0.3 * pull;
+      const glOp = (1 - 0.92 * dim + 0.6 * back) * (1 - 0.85 * this.rebirth);
+      this.glCanvas.style.opacity = String(Math.min(1, glOp));
+      if (this.fxCanvas) this.fxCanvas.style.opacity = String(Math.min(1, 1 - 0.85 * dim + 0.55 * back));
+      // The mark draws in with the reveal and un-draws into the rim at the end.
+      const draw = reveal * (1 - ss(0.94, 0.985, p));
+      if (this.finalEl) {
+        this.finalEl.style.opacity = String(reveal * (1 - ss(0.96, 0.995, p)));
+        this.finalEl.style.pointerEvents = content > 0.5 ? "auto" : "none";
+      }
+      for (const [el, len] of this.markStrokes) el.style.strokeDashoffset = String(len * (1 - draw));
+      if (this.fsvg) {
+        // Rim radius from the shader's own camera math (photon-sphere impact
+        // parameter 2.6rs through the eased focal length and camera
+        // distance): the mark condenses off the rim into the lockup, then
+        // expands back onto it as the hole returns.
+        const cs = cam * cam * (3 - 2 * cam);
+        const rimPx = 1.3 * (1.7 - 0.36 * cs) * vh / (17 - 8 * cs);
+        const S0 = rimPx / 46;
+        const toLogo = condense * (1 - expand);
+        const totalScale = S0 * (1 - toLogo) + toLogo;
+        this.fsvg.style.transform = "translate(-50%, -50%) scale(" + totalScale + ")";
+        this.fsvg.style.opacity = "1";
+        // Strokes stay hairline-crisp at every scale.
+        for (const [el] of this.markStrokes) el.setAttribute("stroke-width", String(1.6 / totalScale));
+      }
+      if (this.fword) this.fword.style.opacity = String(content);
+      if (this.ftag) this.ftag.style.opacity = String(content);
+      if (this.fbtns) this.fbtns.style.opacity = String(content);
+      if (this.skip) this.skip.style.opacity = String(1 - reveal);
+      // Infinite scroll: past the dimmed hole, the story begins again.
+      this.rebirth = Math.max(0, this.rebirth - 0.015);
+      if (p >= 0.999 && scrollY >= runway - 3) {
+        this.rebirth = 1;
+        window.scrollTo(0, 1);
+      }
+
+      this.renderGL(this.t, cam, boost, flare, [this.mx * 8, scrollY * 0.05 + this.my * 4]);
+      if (this.layers) this.layers.draw(this.t, scrollY, p, this.mx, this.my);
+      if (this.beats) this.beats.update(p, this.t);
+      if (this.hint) this.hint.style.opacity = String(Math.max(0, 0.9 - p * 6));
+
+      this.raf = requestAnimationFrame(loop);
+    };
+    this.raf = requestAnimationFrame(loop);
+  }
+
+  componentWillUnmount() {
+    if (this.raf) cancelAnimationFrame(this.raf);
+    window.removeEventListener("pointermove", this.onPointer);
+    window.removeEventListener("resize", this.onResize);
+  }
+}
+</script>
+</body>
+</html>

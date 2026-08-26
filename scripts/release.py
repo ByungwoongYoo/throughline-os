@@ -191,11 +191,45 @@ def build(root: Path, packages: tuple[str, ...], destination: Path, *,
         # than guessing at a newer shape.
         "manifest_version": 1,
     }
+    _publish_launchers(root, destination, log)
     signed = _sign_if_possible(manifest, log)
     (destination / f"{stem}.tar.gz.sha256").write_text(
         f"{digest}  {archive.name}\n")
     (destination / "latest.json").write_text(json.dumps(signed, indent=2) + "\n")
     return signed
+
+
+def _publish_launchers(root: Path, destination: Path, log) -> None:
+    """Copy the launchers beside the tarball, because they are what gets linked.
+
+    The landing page's download buttons point at `Throughline.command`,
+    `Throughline.bat` and `throughline.sh` — not at the archive. T081 made the
+    launcher the thing you download: run it and it installs Throughline, or
+    opens it if the machine already has it. So a release that publishes only a
+    tarball leaves every button on the page pointing at nothing.
+
+    `install.sh` travels too, because the page offers it for reading before
+    piping it to a shell — which is the one honest thing a `curl | sh` page can
+    do, and it has to be fetchable to be readable.
+    """
+    import shutil
+
+    published = []
+    for relative in ("launchers/Throughline.command", "launchers/Throughline.bat",
+                     "launchers/throughline.sh", "scripts/install.sh"):
+        source = root / relative
+        if not source.is_file():
+            raise ReleaseError(
+                f"{relative} is missing, and the landing page links to it. A "
+                f"release without it publishes a button that 404s.")
+        target = destination / Path(relative).name
+        shutil.copy2(source, target)
+        # Copied with their mode: a launcher that arrives without its executable
+        # bit is a text file the researcher cannot run, and the failure looks
+        # like the download being broken.
+        target.chmod(source.stat().st_mode)
+        published.append(target.name)
+    log(f"  launchers: {', '.join(published)}")
 
 
 def _sign_if_possible(manifest: dict[str, Any], log) -> dict[str, Any]:
