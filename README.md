@@ -240,7 +240,7 @@ Windows backend built on Job Objects; see `services/scientific-runtime`.
 ## Quick start
 
 ```bash
-curl -fsSL https://throughlineresearch.pages.dev/install.sh | sh
+curl -fsSL https://throughline-research.pages.dev/install.sh | sh
 ```
 
 That downloads the current release to `~/throughline-os` (override with

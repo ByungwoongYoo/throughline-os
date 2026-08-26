@@ -39,7 +39,7 @@ from . import signing, version
 #: held together by `test_the_page_and_the_updater_name_the_same_host` rather
 #: than by anybody remembering: if they drift, downloads keep working while
 #: every installed copy checks a host that publishes nothing (D050).
-RELEASE_URL = "https://throughlineresearch.pages.dev/latest.json"
+RELEASE_URL = "https://throughline-research.pages.dev/latest.json"
 
 #: How long a check may take before it is abandoned. A button that hangs is
 #: worse than one that says it could not reach the network: the researcher is

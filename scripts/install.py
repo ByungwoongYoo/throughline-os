@@ -39,7 +39,7 @@ from urllib.parse import urljoin
 #: Where a stranger asks what the newest release is. Kept in agreement with
 #: `frontend/assemble.mjs` and `throughline_domain.updates` by
 #: `tests/test_landing_downloads.py`, not by anybody remembering.
-MANIFEST_URL = "https://throughlineresearch.pages.dev/latest.json"
+MANIFEST_URL = "https://throughline-research.pages.dev/latest.json"
 
 TIMEOUT = 60
 #: Separate, and much longer: the archive is tens of megabytes and a slow

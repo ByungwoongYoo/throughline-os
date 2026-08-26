@@ -25,7 +25,7 @@ rem style choice: cmd expands %VAR% for a whole parenthesised block when it
 rem *parses* it, so a variable set inside the block reads as empty everywhere
 rem later in the same block. The same variable, with the same meaning, that
 rem install.sh and throughline_domain.updates read.
-if "%THROUGHLINE_RELEASE_URL%"=="" set "THROUGHLINE_RELEASE_URL=https://throughlineresearch.pages.dev/latest.json"
+if "%THROUGHLINE_RELEASE_URL%"=="" set "THROUGHLINE_RELEASE_URL=https://throughline-research.pages.dev/latest.json"
 
 rem `py` is the Python launcher that ships with python.org installs; `python` on
 rem a machine with no Python is the Microsoft Store stub, which prints an advert

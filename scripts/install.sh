@@ -1,7 +1,7 @@
 #!/bin/sh
 # The front door. Fetches Throughline and sets it up:
 #
-#     curl -fsSL https://throughlineresearch.pages.dev/install.sh | sh
+#     curl -fsSL https://throughline-research.pages.dev/install.sh | sh
 #
 # **It installs the published release, not a git clone.** It used to clone the
 # project's GitHub repository, and that repository is private, so a stranger who
@@ -41,7 +41,7 @@ DEST="${THROUGHLINE_INSTALL_DIR:-$HOME/throughline-os}"
 # The same variable, with the same meaning, that `throughline_domain.updates`
 # and Throughline.bat read: the full URL of the signed manifest. One name for
 # one thing, so a staging host is pointed at once rather than once per program.
-MANIFEST_URL="${THROUGHLINE_RELEASE_URL:-https://throughlineresearch.pages.dev/latest.json}"
+MANIFEST_URL="${THROUGHLINE_RELEASE_URL:-https://throughline-research.pages.dev/latest.json}"
 
 say() { printf '%s\n' "$*"; }
 die() { printf '\n%s\n' "$*" >&2; exit 1; }
