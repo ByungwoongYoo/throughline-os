@@ -201,12 +201,25 @@ def test_an_unreachable_remote_is_not_reported_as_up_to_date(checkout, origin):
     assert state["reason"]
 
 
-def test_something_that_is_not_a_checkout_says_so(tmp_path):
-    """A released copy has no `.git`, and telling it to run git would be
-    advice it cannot follow."""
+def test_something_that_is_not_a_checkout_asks_the_release_server(tmp_path,
+                                                                  monkeypatch):
+    """This asserted a limitation, and T084 removed it.
+
+    A released copy has no `.git`, and this used to report a flat refusal
+    pointing at "downloading a newer release" — a mechanism that did not exist.
+    It now takes the release path: fetch the signed manifest and verify it
+    against the key the installation shipped with.
+
+    Here there is no key and no server, so it still cannot check — but for a
+    reason that names what is actually missing rather than the absence of git.
+    """
+    monkeypatch.setenv("THROUGHLINE_ROOT", str(tmp_path))
+    monkeypatch.delenv("THROUGHLINE_RELEASE_PUBLIC_KEY", raising=False)
+
     state = updates.check(tmp_path)
     assert state["checked"] is False
-    assert "not a git checkout" in state["reason"]
+    assert "not a git checkout" not in state["reason"]
+    assert "public key" in state["reason"]
 
 
 def test_the_current_version_is_carried_even_when_the_check_fails(tmp_path):
