@@ -58,12 +58,31 @@ def test_every_file_the_page_links_to_is_published():
     assert not missing, f"linked from the page but never published: {sorted(missing)}"
 
 
-def test_the_page_links_at_least_one_door_per_platform():
-    """macOS, Windows and Linux each need something to click."""
+def test_every_platform_has_a_route_on_the_page():
+    """Each platform needs *a way in* — not necessarily a file to click.
+
+    **macOS deliberately has no download.** `Throughline.command` was linked
+    here and it was the only route on the page whose first impression was a
+    malware warning: a browser download is quarantined, Gatekeeper checks it,
+    and since Sequoia the dialog offers Move to Bin and little else. Unlike the
+    other faults fixed around it, that one cannot be repaired — a shell script
+    can never be notarised (D058), so it was a permanent state and not a
+    temporary one. The one-liner installs on macOS with no warning at all, so
+    macOS is served by the command rather than by a button.
+
+    The file is still published for anyone who wants it; it is simply not what
+    a stranger is pointed at.
+    """
+    page = TEMPLATE.read_text()
     linked = linked_names()
-    assert "Throughline.command" in linked, "no macOS launcher linked"
     assert "Throughline.bat" in linked, "no Windows launcher linked"
     assert "throughline.sh" in linked, "no Linux launcher linked"
+    assert "Throughline.command" not in linked, (
+        "the macOS download is back. It cannot be notarised, so it greets "
+        "every stranger with a malware warning; the one-liner is the route")
+    assert ">macOS<" in page, "macOS is not named on the page at all"
+    assert "curl -fsSL __TL_RELEASES__/install.sh | sh" in page, (
+        "macOS has no download and no one-liner, so it has no route at all")
 
 
 def test_the_page_offers_install_sh_for_reading():
