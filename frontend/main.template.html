@@ -165,7 +165,8 @@ class Component extends DCLogic {
   renderGL(t, cam, boost, flare, starOff) {
     const cv = this.glCanvas, G = this.GL;
     if (!cv || !G) return;
-    const scale = (window.innerWidth > 900 ? 0.66 : 0.5) * Math.min(window.devicePixelRatio || 1, 2);
+    const scale = (window.innerWidth > 900 ? 0.66 : 0.5)
+      * Math.min(window.devicePixelRatio || 1, 2) * (this.quality || 1);
     const w = Math.max(2, Math.round(cv.clientWidth * scale));
     const h = Math.max(2, Math.round(cv.clientHeight * scale));
     if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; G.gl.viewport(0, 0, w, h); }
@@ -183,6 +184,8 @@ class Component extends DCLogic {
   componentDidMount() {
     this.reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     this.t = 0; this.mx = 0; this.my = 0; this.tmx = 0; this.tmy = 0;
+    // Set before the first renderGL, including the static branch below.
+    this.last = 0; this.quality = 1; this.slowTime = 0; this.fastTime = 0;
 
     // The mark's strokes draw themselves in during the reveal.
     this.markStrokes = [];
@@ -242,9 +245,49 @@ class Component extends DCLogic {
 
     const loop = () => {
       const speed = Number(this.props.spinSpeed) || 1;
-      this.t += 0.016 * speed;
-      this.mx += (this.tmx - this.mx) * 0.06;
-      this.my += (this.tmy - this.my) * 0.06;
+
+      // **Real elapsed time, not an assumed frame.** This was `this.t += 0.016`,
+      // which is 60fps written as a constant: on a machine drawing this shader
+      // at 30fps the clock advanced at half real speed, so the hole span slowly
+      // and the whole page read as *the motion is reduced* — which is exactly
+      // how it was reported. Frame rate now changes smoothness and nothing else.
+      //
+      // Clamped because a backgrounded tab pauses rAF and returns one enormous
+      // delta, which unclamped would teleport the animation on the frame you
+      // come back. 0.1s is deliberately generous: it is a tenth of a second of
+      // catch-up at worst, and it keeps the clock honest all the way down to
+      // 10fps instead of quietly slowing time on exactly the weak machines
+      // this is meant to help.
+      const now = (window.performance || Date).now();
+      const dt = Math.min(0.1, (now - (this.last || now)) / 1000);
+      this.last = now;
+      this.t += dt * speed;
+
+      // The same correction for every per-frame ease below: a fixed fraction
+      // per frame is a different curve at every frame rate. `k` is what 6% a
+      // frame at 60fps works out to over the time this frame actually took.
+      const k = 1 - Math.pow(0.94, dt * 60);
+      this.mx += (this.tmx - this.mx) * k;
+      this.my += (this.tmy - this.my) * k;
+
+      // Resolution follows what the machine can actually sustain. The shader is
+      // ray-marched per pixel, so on an integrated GPU at devicePixelRatio 2 it
+      // is the frame budget, and the honest lever is pixels rather than motion.
+      // Slow to drop and slower to climb back, so it settles instead of
+      // oscillating on the boundary.
+      // Measured in seconds, not in frames. Counting frames to notice that
+      // frames are slow is circular: at 2fps, "thirty slow frames" is fifteen
+      // seconds of staring at a stuttering page before anything is done about
+      // it. Half a second of slowness is half a second at any frame rate.
+      if (dt > 0.024) {
+        this.fastTime = 0;
+        this.slowTime += dt;
+        if (this.slowTime > 0.5) { this.quality = Math.max(0.4, this.quality - 0.15); this.slowTime = 0; }
+      } else if (dt < 0.019) {
+        this.slowTime = 0;
+        this.fastTime += dt;
+        if (this.fastTime > 3) { this.quality = Math.min(1, this.quality + 0.06); this.fastTime = 0; }
+      }
 
       const vh = window.innerHeight || 800;
       const runway = (this.stage && this.stage.parentElement ? this.stage.parentElement.offsetHeight : vh * 5.2) - vh;
@@ -320,7 +363,7 @@ class Component extends DCLogic {
       if (this.fbtns) this.fbtns.style.opacity = String(content);
       if (this.skip) this.skip.style.opacity = String(1 - reveal);
       // Infinite scroll: past the dimmed hole, the story begins again.
-      this.rebirth = Math.max(0, this.rebirth - 0.015);
+      this.rebirth = Math.max(0, this.rebirth - 0.015 * dt * 60);
       if (p >= 0.999 && scrollY >= runway - 3) {
         this.rebirth = 1;
         window.scrollTo(0, 1);
