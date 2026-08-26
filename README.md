@@ -59,7 +59,7 @@ the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **1447 backend tests and 1439 web tests**, with 13 backend
+The current suite is **1464 backend tests and 1439 web tests**, with 13 backend
 skips. Nine carry a reason CI's allowlist recognises — a skip with an
 unrecognised reason fails the build, so the suite cannot quietly shrink. The
 other four are the speech tests, whose reason (`openai-whisper is not
@@ -371,11 +371,18 @@ somebody tries to reproduce it and cannot.
 The archive is an allowlist of declared paths rather than a directory walk with
 exclusions, so nothing ships because it happened to be lying in the folder.
 
-**The checksum beside the tarball is not the security story.** Whoever can
-replace the file can replace the digest next to it — the same reason the pinned
-CPython digests live in this repository rather than beside their download.
-Signing the manifest is T083, and until it exists a release is only as
-trustworthy as the server it came from.
+**The manifest is signed**, and the public key travels inside every tarball —
+it has to arrive with the software rather than from the server being verified,
+which is the whole reason a signature beats a checksum published beside its own
+file. Make a key once with `python scripts/manage.py release-key`; see
+`keys/README.md`.
+
+**What a first install cannot check.** Verifying a download happens before
+anything is installed, and the library that checks a signature arrives *in* that
+download. So a first install trusts HTTPS and the digest in the manifest; every
+update afterwards verifies the signature properly, because the virtualenv exists
+by then. Said here rather than implied, because a verification that silently
+does nothing is worse than none — it is believed.
 
 ## Updating
 

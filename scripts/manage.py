@@ -461,6 +461,47 @@ def update(check_only: bool) -> int:
     return 0
 
 
+def release_key() -> int:
+    """Generate a release signing keypair, once, for a person to store.
+
+    Prints the private half rather than writing it anywhere. A signing key
+    written to disk by a script is a signing key that gets committed eventually,
+    and the only thing standing between a private repository and a published
+    private key is nobody having run `git add -A` at the wrong moment — which
+    happens.
+
+    The public half is written into `keys/release.pub`, committed, and therefore
+    travels inside every release tarball. That placement is the point: it
+    arrives with the software rather than from the server being verified.
+
+    **If the private key is lost, installed copies stop accepting updates** —
+    a new public key can only reach them in a release they would have to verify
+    with the key they no longer have. Worth understanding before generating one.
+    """
+    from throughline_domain import signing
+
+    target = ROOT / signing.PUBLIC_KEY_FILE
+    if target.is_file() and target.read_text().strip():
+        print(f"A public key already exists at {target}.", file=sys.stderr)
+        print("Replacing it would stop every installed copy from accepting "
+              "updates,\nbecause they verify against the key they shipped "
+              "with. Delete it deliberately\nif that is what you mean.",
+              file=sys.stderr)
+        return 1
+
+    private, public = signing.generate()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(public + "\n")
+
+    print(f"Public key written to {target} — commit it.")
+    print("\nPrivate key below. It is not written anywhere. Put it in a "
+          "password manager\nand a CI secret, then point "
+          "THROUGHLINE_RELEASE_KEY at a file containing it.\n")
+    print(private)
+    print("Losing it means installed copies can never accept another update.")
+    return 0
+
+
 def release(destination: str | None, version: str | None) -> int:
     """Build the artifact a stranger downloads: tarball, checksum, manifest.
 
@@ -495,9 +536,13 @@ def release(destination: str | None, version: str | None) -> int:
     print(f"  sha256    {manifest['sha256']}")
     print(f"\nOne artifact serves every platform: the interface is already "
           f"built,\nand the runtimes are fetched per machine at install time.")
-    print("\nThe checksum beside the tarball is not the security story — "
-          "anyone who\ncan replace one can replace the other. Signing the "
-          "manifest is T083.")
+    if manifest.get("signature"):
+        print("\nThe manifest is signed. An installed copy verifies it before "
+              "applying\nan update, against the public key it shipped with.")
+    else:
+        print("\nThe checksum beside the tarball is not the security story — "
+              "anyone who\ncan replace one can replace the other. See "
+              "keys/README.md.")
     return 0
 
 
@@ -1566,6 +1611,8 @@ def main() -> int:
     run.add_argument("--web-port", type=int, default=int(os.environ.get("WEB_PORT", 3000)))
     sub.add_parser("build-interface",
                    help="export the web interface for the API to serve")
+    sub.add_parser("release-key",
+                   help="generate the release signing keypair, once")
     rel = sub.add_parser("release",
                          help="build the tarball, checksum and manifest a "
                               "stranger downloads")
@@ -1601,6 +1648,8 @@ def main() -> int:
         return start(args.api_port, args.web_port)
     if args.command == "build-interface":
         return build_interface()
+    if args.command == "release-key":
+        return release_key()
     if args.command == "release":
         return release(args.into, args.version)
     if args.command == "update":

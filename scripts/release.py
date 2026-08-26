@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import tarfile
 from datetime import datetime, timezone
@@ -49,6 +50,10 @@ INCLUDE = (
     "launchers",
     "apps/web/out",
     "README.md",
+    # The public half of the release key. It has to arrive *with* the software
+    # rather than from the server being verified, which is the whole reason a
+    # signature is worth more than a checksum published beside its file.
+    "keys",
 )
 
 #: Never included, wherever they appear. `build` and `*.egg-info` are the
@@ -119,10 +124,16 @@ def contents(root: Path, packages: tuple[str, ...]) -> list[Path]:
     for relative in roots:
         target = root / relative
         if not target.exists():
+            # The remedy depends on what is missing, and a message naming the
+            # wrong one sends the reader at the wrong command — which is D041
+            # and D043's defect, twice over in this repository already.
+            remedy = {
+                "apps/web/out": "python scripts/manage.py build-interface",
+                "keys": "python scripts/manage.py release-key",
+            }.get(str(relative))
             raise ReleaseError(
-                f"{relative} is missing, so this release would be incomplete. "
-                f"If it is the interface, run: python scripts/manage.py "
-                f"build-interface")
+                f"{relative} is missing, so this release would be incomplete."
+                + (f"\n  Fix it with: {remedy}" if remedy else ""))
         if target.is_file():
             found.append(relative)
             continue
@@ -180,7 +191,43 @@ def build(root: Path, packages: tuple[str, ...], destination: Path, *,
         # than guessing at a newer shape.
         "manifest_version": 1,
     }
+    signed = _sign_if_possible(manifest, log)
     (destination / f"{stem}.tar.gz.sha256").write_text(
         f"{digest}  {archive.name}\n")
-    (destination / "latest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    (destination / "latest.json").write_text(json.dumps(signed, indent=2) + "\n")
+    return signed
+
+
+def _sign_if_possible(manifest: dict[str, Any], log) -> dict[str, Any]:
+    """Sign the manifest when a key is configured, and be loud when it is not.
+
+    Unsigned is a legitimate state — there is no key until somebody generates
+    one — but it is not a quiet one. A release that looks identical whether or
+    not it was signed is how signing comes to be skipped indefinitely, so the
+    absence is printed every time rather than mentioned once in a document.
+
+    The key is read from a path in the environment and never from a file in the
+    repository: a signing key that can be committed eventually is.
+    """
+    location = os.environ.get("THROUGHLINE_RELEASE_KEY")
+    if not location:
+        log("\n  UNSIGNED — set THROUGHLINE_RELEASE_KEY to the path of a")
+        log("  signing key to sign this manifest. Without one, a release is")
+        log("  only as trustworthy as the server it is downloaded from.")
+        log("  Generate a key with: python scripts/manage.py release-key")
+        return manifest
+
+    key_file = Path(location).expanduser()
+    if not key_file.is_file():
+        raise ReleaseError(
+            f"THROUGHLINE_RELEASE_KEY points at {key_file}, which is not a "
+            f"file. Refusing to build an unsigned release when one was asked "
+            f"for — silently falling back to unsigned is how a signature "
+            f"stops meaning anything.")
+
+    from throughline_domain import signing
+
+    manifest[signing.SIGNATURE_FIELD] = signing.sign(manifest,
+                                                     key_file.read_text())
+    log("\n  signed")
     return manifest
