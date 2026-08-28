@@ -3532,6 +3532,23 @@ def create_visual(project_id: str, payload: VisualCreate,
             "spec": created["spec"].model_dump(mode="json")}
 
 
+@app.get("/api/projects/{project_id}/visuals")
+def list_project_visuals(project_id: str, limit: int = Query(100, ge=1, le=500),
+                         user: dict = Depends(current_user)) -> list[dict[str, Any]]:
+    """
+    Every figure in this project.
+
+    **This route did not exist, and nothing else could reach a saved figure.**
+    Creating one answers with its id, the interface downloaded the file and
+    moved on, and the stored record — its critique, and the lineage edge back
+    to the analysis it draws — was from then on reachable only by somebody who
+    had written the id down.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        return visuals.list_visuals(cur, project_id, limit=limit)
+
+
 @app.get("/api/visuals/{visual_id}")
 def get_visual(visual_id: str, user: dict = Depends(current_user)) -> dict[str, Any]:
     with transaction() as cur:

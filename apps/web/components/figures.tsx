@@ -21,6 +21,7 @@ import { Estimate, Interval } from "./charts/Interval";
 import { Cell, Matrix } from "./charts/Matrix";
 import { Density, DensityCurve } from "./charts/Density";
 import { Empty, Failure, Loading } from "./primitives";
+import { SavedFigures } from "./savedfigures";
 import { PublishFigure } from "./publish";
 
 type Recommendation = {
@@ -162,6 +163,12 @@ export function Figures({ projectId, connections }: {
       )}
       </>
       )}
+
+      {/*
+        Under the live chart, because the list is a record of what has already
+        been made rather than the thing a researcher came to this screen to do.
+      */}
+      <SavedFigures projectId={projectId} />
     </>
   );
 }

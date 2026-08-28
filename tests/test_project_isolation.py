@@ -228,3 +228,10 @@ def test_another_account_cannot_delete_this_project(client):
     with connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT id FROM projects WHERE id = %s", (project_id,))
         assert cur.fetchone() is not None
+
+
+def test_another_account_cannot_list_this_projects_figures(client):
+    """The new listing route, asked the same question as every other."""
+    project_id = _first_account(client)
+    _second_account(client)
+    assert client.get(f"/api/projects/{project_id}/visuals").status_code == 404

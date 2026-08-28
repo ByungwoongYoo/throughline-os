@@ -223,6 +223,29 @@ def _serialisable(recommendation: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def list_visuals(cur, project_id: str, limit: int = 100) -> list[dict[str, Any]]:
+    """
+    Every figure this project has made, newest first.
+
+    Nothing listed them. A figure is created with its critique and a lineage
+    edge back to the analysis it draws, and then could only be reached by
+    somebody who had kept its id — so the record existed and the researcher
+    could not see it. `idx_visuals_project` has been indexed on exactly this
+    order since the table was written, for a query nobody had made.
+
+    The spec is not returned: it is large, and a list wants a title and whether
+    the figure passed the critic. Opening one loads the rest.
+    """
+    cur.execute(
+        "SELECT id, visual_type, publishable, created_at, analysis_run_id, "
+        "       finding_id, spec ->> 'title' AS title, "
+        "       spec ->> 'caption' AS caption "
+        "FROM visuals WHERE project_id = %s "
+        "ORDER BY created_at DESC LIMIT %s",
+        (project_id, limit))
+    return [dict(row) for row in cur.fetchall()]
+
+
 def load_visual(cur, visual_id: str) -> dict[str, Any]:
     cur.execute("SELECT * FROM visuals WHERE id = %s", (visual_id,))
     row = cur.fetchone()

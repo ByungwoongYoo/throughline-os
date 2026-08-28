@@ -102,11 +102,10 @@ WITHOUT_A_CLIENT = {
         "For one registration. The deviations screen shows every registration "
         "at once.",
     "GET /api/visuals/*":
-        "Export creates a figure and downloads it in one pass, so nothing "
-        "reloads one afterwards.",
-    "PATCH /api/visuals/*":
-        "Nothing edits a stored figure's spec; a saved-figures list is what "
-        "would, and there is not one yet.",
+        "One figure, with its spec and its renders. The saved-figures list "
+        "carries the title, caption and whether the critic passed it, which is "
+        "everything the list and its editor need; nothing yet opens a single "
+        "figure on its own.",
     "GET /api/workflows/*":
         "No interface opens a whole run. The approval screen shows the step "
         "that is waiting and releases it, which is what a person needs.",
