@@ -186,6 +186,23 @@ def pending(cur, project_id: str) -> list[dict[str, Any]]:
     return [dict(row) for row in cur.fetchall()]
 
 
+def variables(cur, project_id: str) -> list[dict[str, Any]]:
+    """
+    The canonical variables an alias can point at.
+
+    Nothing returned these. `labels()` and `equivalent_columns()` both project
+    the *name* and drop the id, and `learned()` counts them — so a phrase could
+    be decided but never proposed by hand, because a proposal has to name what
+    the phrase means and no id ever left the server.
+    """
+    cur.execute(
+        "SELECT id, name, COALESCE(NULLIF(display_label, ''), name) AS label, "
+        "       definition, canonical_unit "
+        "FROM canonical_variables WHERE project_id = %s ORDER BY label",
+        (project_id,))
+    return [dict(row) for row in cur.fetchall()]
+
+
 def learned(cur, project_id: str) -> dict[str, Any]:
     """
     What this project's vocabulary has actually accumulated.
@@ -221,5 +238,5 @@ def learned(cur, project_id: str) -> dict[str, Any]:
 
 __all__ = [
     "APPROVED", "REJECTED", "SUGGESTED", "candidates", "decide", "learned",
-    "normalise", "pending", "resolve", "suggest",
+    "normalise", "pending", "resolve", "suggest", "variables",
 ]

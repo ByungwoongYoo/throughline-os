@@ -217,3 +217,102 @@ describe("the harmonization payoff", () => {
     expect(screen.queryByText(/Columns measuring the same thing/)).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Saying by hand what a term means
+//
+// `POST /projects/{id}/vocabulary` had no caller, so the vocabulary could only
+// grow from what the system proposed while reading papers. The decide half was
+// reachable and the propose half was not: the queue could be answered and
+// never added to, and a researcher who knew their own field's word for
+// something had no way to say so.
+// ---------------------------------------------------------------------------
+
+const CANONICAL = [
+  { id: "cv_1", name: "resistance", label: "Resistance",
+    definition: "Share of isolates resistant.", canonical_unit: "%" },
+  { id: "cv_2", name: "consumption", label: "Antibiotic consumption",
+    definition: null, canonical_unit: "DDD" },
+];
+
+describe("teaching the project a term", () => {
+  const withVariables = { ...VOCABULARY, variables: CANONICAL };
+
+  it("proposes the phrase against the variable that was chosen", async () => {
+    serve({ vocabulary: withVariables });
+    const post = vi.spyOn(api, "post").mockResolvedValue({});
+    render(<Variables projectId="prj_1" />);
+
+    await userEvent.type(await screen.findByLabelText(/This phrase/), "AMR");
+    await userEvent.selectOptions(
+      screen.getByLabelText(/^means$/), "cv_1");
+    await userEvent.click(screen.getByRole("button", { name: /Propose it/ }));
+
+    expect(post).toHaveBeenCalledWith("/api/projects/prj_1/vocabulary", {
+      phrase: "AMR", canonical_variable_id: "cv_1", origin: "researcher",
+    });
+  });
+
+  it("records that a person typed it, not that a paper used it", async () => {
+    // The queue shows where a term came from, and a phrase somebody typed is
+    // not a phrase read out of a paper.
+    serve({ vocabulary: withVariables });
+    const post = vi.spyOn(api, "post").mockResolvedValue({});
+    render(<Variables projectId="prj_1" />);
+
+    await userEvent.type(await screen.findByLabelText(/This phrase/), "AMR");
+    await userEvent.selectOptions(screen.getByLabelText(/^means$/), "cv_1");
+    await userEvent.click(screen.getByRole("button", { name: /Propose it/ }));
+
+    expect((post.mock.calls[0][1] as Record<string, unknown>).origin)
+      .toBe("researcher");
+  });
+
+  it("will not propose a phrase pointing at nothing", async () => {
+    /*
+     * The variable is chosen, never typed: a term attached to a variable this
+     * project does not have resolves in no paper and looks, from outside,
+     * exactly like one that works.
+     */
+    serve({ vocabulary: withVariables });
+    const post = vi.spyOn(api, "post").mockResolvedValue({});
+    render(<Variables projectId="prj_1" />);
+
+    await userEvent.type(await screen.findByLabelText(/This phrase/), "AMR");
+    const propose = screen.getByRole("button", { name: /Propose it/ });
+    expect((propose as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.click(propose);
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it("says it is proposed rather than applied", async () => {
+    serve({ vocabulary: withVariables });
+    render(<Variables projectId="prj_1" />);
+    expect(await screen.findByText(/resolves nothing until you decide it/))
+      .toBeTruthy();
+  });
+
+  it("offers nothing to point at when the project has no variables yet", async () => {
+    // An alias maps a phrase onto a variable this project has; until a label
+    // is approved there are none, and the form would be a dead end.
+    serve({ vocabulary: { ...VOCABULARY, variables: [] } });
+    render(<Variables projectId="prj_1" />);
+    await screen.findByText(/Vocabulary/);
+    expect(screen.queryByLabelText(/This phrase/)).toBeNull();
+  });
+
+  it("says what the server said when a phrase is already ruled on", async () => {
+    // An approved alias is not re-proposed and a rejected one is not
+    // resurrected by somebody typing it again.
+    serve({ vocabulary: withVariables });
+    vi.spyOn(api, "post").mockRejectedValue(new ApiError(
+      409, "'AMR' already has a ruling in this project."));
+    render(<Variables projectId="prj_1" />);
+
+    await userEvent.type(await screen.findByLabelText(/This phrase/), "AMR");
+    await userEvent.selectOptions(screen.getByLabelText(/^means$/), "cv_1");
+    await userEvent.click(screen.getByRole("button", { name: /Propose it/ }));
+
+    expect(await screen.findByText(/already has a ruling/)).toBeTruthy();
+  });
+});

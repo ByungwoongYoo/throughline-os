@@ -2178,6 +2178,10 @@ def project_vocabulary(project_id: str,
     scoped_project(project_id, user)
     with transaction() as cur:
         return {"pending": vocabulary.pending(cur, project_id),
+                # The variables an alias can point at. Without these a term can
+                # be decided and never proposed: a proposal names what the
+                # phrase means, and no id had ever left the server.
+                "variables": vocabulary.variables(cur, project_id),
                 **vocabulary.learned(cur, project_id)}
 
 

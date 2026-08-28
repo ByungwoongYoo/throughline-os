@@ -70,10 +70,6 @@ WITHOUT_A_CLIENT = {
     "POST /api/projects/*/findings/*/library-note":
         "The note is displayed and cannot be written: `librarynote.tsx` reads "
         "it and posts nothing.",
-    "POST /api/projects/*/vocabulary":
-        "The variables screen decides the aliases the system proposes; nothing "
-        "proposes one by hand, which would need a canonical variable id no "
-        "route hands out.",
     "POST /api/projects/*/objects":
         "The interface opens an object and asks questions about it, but never "
         "creates one.",

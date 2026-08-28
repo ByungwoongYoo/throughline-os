@@ -55,8 +55,17 @@ type Alias = {
   canonical_name: string;
 };
 
+type CanonicalVariable = {
+  id: string;
+  name: string;
+  label: string;
+  definition: string | null;
+  canonical_unit: string | null;
+};
+
 type Vocabulary = {
   pending: Alias[];
+  variables: CanonicalVariable[];
   canonical_variables: number;
   approved_aliases: number;
   times_an_alias_resolved_a_term: number;
@@ -238,6 +247,12 @@ export function Variables({ projectId }: { projectId: string }) {
               term {vocabulary.data.times_an_alias_resolved_a_term} times
             </p>
 
+            <TeachATerm
+              projectId={projectId}
+              variables={vocabulary.data.variables ?? []}
+              onProposed={vocabulary.reload}
+            />
+
             {vocabulary.data.pending.length === 0 ? (
               <p className="note">No terms are waiting on a decision.</p>
             ) : (
@@ -286,5 +301,96 @@ export function Variables({ projectId }: { projectId: string }) {
         )}
       </section>
     </>
+  );
+}
+
+
+/**
+ * Say by hand that a phrase means one of this project's variables.
+ *
+ * `POST /projects/{id}/vocabulary` had no caller, so the vocabulary could only
+ * grow from what the system proposed while reading papers — a researcher who
+ * knew their own field's word for something had no way to say so. The decide
+ * half was reachable and the propose half was not, which meant the queue could
+ * only ever be answered, never added to.
+ *
+ * The variable is chosen rather than typed. An alias points at a canonical
+ * variable by id, and a free-text box would invite a name that matches
+ * nothing — a term attached to a variable this project does not have resolves
+ * in no paper and looks, from the outside, exactly like one that works.
+ */
+function TeachATerm({ projectId, variables, onProposed }: {
+  projectId: string;
+  variables: CanonicalVariable[];
+  onProposed: () => void;
+}) {
+  const [phrase, setPhrase] = useState("");
+  const [target, setTarget] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Nothing to point at yet: aliases exist to map a phrase onto a variable
+  // this project has, and until a label is approved there are none.
+  if (variables.length === 0) return null;
+
+  async function propose(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post(`/api/projects/${projectId}/vocabulary`, {
+        phrase,
+        canonical_variable_id: target,
+        // Where the term came from. A phrase somebody typed is not a phrase
+        // read out of a paper, and the queue shows the difference.
+        origin: "researcher",
+      });
+      setPhrase("");
+      setTarget("");
+      onProposed();
+    } catch (err) {
+      /*
+       * A 409 is the honest answer for a phrase already ruled on: an approved
+       * alias is not re-proposed, and a rejected one is not resurrected by
+       * somebody typing it again.
+       */
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={propose} aria-label="Say what a term means"
+          style={{ margin: "10px 0" }}>
+      <div className="row" style={{ gap: "0.5rem", flexWrap: "wrap",
+                                    alignItems: "flex-end" }}>
+        <label>
+          This phrase
+          <input value={phrase} required placeholder="AMR"
+                 onChange={(e) => setPhrase(e.target.value)} />
+        </label>
+        <label>
+          means
+          <select value={target} required
+                  onChange={(e) => setTarget(e.target.value)}>
+            <option value="">choose a variable</option>
+            {variables.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.label}{v.canonical_unit ? ` (${v.canonical_unit})` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button className="btn" type="submit" disabled={busy || !phrase || !target}>
+          {busy ? "Proposing…" : "Propose it"}
+        </button>
+      </div>
+      <p className="note" style={{ marginTop: 6 }}>
+        Proposed, not applied — it joins the queue below and resolves nothing
+        until you decide it.
+      </p>
+      {error && <div className="notice" role="alert">{error}</div>}
+    </form>
   );
 }
