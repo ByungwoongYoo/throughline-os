@@ -49,8 +49,32 @@ system's own record legible to the person using it:
   blank, because the system knows what changed and only the researcher knows
   why.
 
-What is missing is the spatial canvas, most of the integration surface, and the
-video engine. `ROADMAP.md` is the live document: it records what exists, what
+The spatial layer has started to render rather than only being catalogued.
+`apps/web/lib/charts3d/registry.ts` names all 238 visualizations the brief lists
+and records which of them anything can actually draw — **167 today, against 86
+at the start of the wave**. Three primitives account for all 81 of that
+difference, because a named visualization is a configuration of a primitive
+rather than a chart of its own: `network` unlocked 35, `glyphs` 26 (vector and
+tensor fields) and `volume` 20 (voxel grids — five further volume entries still
+want somebody else's DICOM or NIfTI reader, and the registry keeps that apart
+from a missing renderer because the costs differ in kind). What is still absent
+is named the same way: `lines` (17), `isosurface` (11) and `bars` (4).
+
+Each of those charts states what it is hiding, which for a spatial chart is not
+a courtesy. Depth buys occlusion, so a volume reports how many voxels fall below
+the window, how many sit inside it but too faint for a pixel to show, and what
+the sampling stride was; a field says how many arrows were shortened to fit and
+to read those by colour instead. `/charts-3d` draws all three from synthetic
+data, with one hand driving whichever chart it is over — which is where
+`bounds()` is actually used rather than merely implemented.
+
+The flat charts became interactive in the same wave: hover emphasis, a tooltip
+carrying the real value in the reader's units rather than in pixels, and
+highlighting linked between a chart and its data table, across 12 of the 13
+primitives.
+
+What is missing is most of the integration surface, the Scientific Motion
+Grammar and the video engine. `ROADMAP.md` is the live document: it records what exists, what
 does not, and the order the rest is being built in. Where an earlier audit was
 wrong, the correction is kept rather than quietly edited out.
 
@@ -546,6 +570,21 @@ CI runs the suite across Linux and macOS, a Windows job for the sandbox, the web
 build, and a Docker job that builds the image and polls `/api/health` until the
 API answers inside it — a Dockerfile that is written but never built is not
 evidence of anything.
+
+**It is manual only: nothing runs on a push or a pull request.** Actions minutes
+are metered on a private repository and the multipliers are steep — a full run
+billed about 82 minutes, 66 of them macOS — so with two people pushing often,
+automatic runs verified the same commit five times on its way to being merged
+once. A clean-environment check therefore happens when somebody asks for it:
+
+```bash
+gh workflow run ci.yml --ref "$(git rev-parse --abbrev-ref HEAD)"
+```
+
+The trade is real and worth stating: a defect only a fresh checkout can see now
+waits until someone dispatches a run. That is why `preflight` builds the
+interface as well as running the tests — the production build catches what unit
+tests cannot, and for a while nothing anywhere was doing it.
 
 ### What counts as a passing test here
 
