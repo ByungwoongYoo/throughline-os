@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 from throughline_domain import (
     analysis, auth, claim_test, compare, consistency, critic, discovery,
     embeddings, events, example, extraction, findings, graph_projection, graphs,
-    harmonize, images, journal, lineage, notebook, objects, observability,
+    harmonize, images, interpret, journal, lineage, notebook, objects, observability,
     authoring, board, citations, communication, embedding_space, excerpts, extras,
     haptics,
     marks,
@@ -3317,6 +3317,44 @@ def project_estimates(project_id: str, limit: int = Query(30, ge=1, le=200),
                     " — they were tested for association and have no coefficient "
                     "or interval to plot." if without_estimate else "")),
     }
+
+
+@app.get("/api/analyses/{run_id}/plain-summary")
+def plain_summary(run_id: str, refresh: bool = Query(False),
+                  user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    A plain-language reading of a result, beside the exact figures.
+
+    **This route did not exist, and the interface has been calling it.**
+    `ResultCard` asks for it whenever a connection is opened, so every request
+    fell through to the catch-all that serves the interface: 503 in
+    development, and an HTML page in a release, which the client then tried to
+    parse as JSON. `throughline_domain.interpret` — the module that answers it,
+    including the check that the model wrote no figures into prose that must
+    not carry them — was imported by nothing at all.
+
+    A 409 rather than a 404 when a run is not finished: the run exists and has
+    no result yet, which is a different thing from a run nobody has heard of,
+    and the interface says so differently.
+    """
+    with transaction() as cur:
+        cur.execute("SELECT project_id FROM analysis_runs WHERE id = %s", (run_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Analysis run not found.")
+        scoped_project(row["project_id"], user)
+        try:
+            return interpret.summarise_run(cur, run_id=run_id, refresh=refresh)
+        except interpret.SummaryContainedNumbers as exc:
+            # The summary is refused rather than shown with the figures in it:
+            # a paraphrase that restates a number can drift from the recorded
+            # value, which is the whole reason it is forbidden one.
+            raise HTTPException(502, str(exc)) from exc
+        except interpret.InterpretationError as exc:
+            # Includes "no model is configured", which is a fact about this
+            # machine the researcher can act on, and "the run is not
+            # completed", which is a fact about the run.
+            raise HTTPException(409, str(exc)) from exc
 
 
 @app.get("/api/analyses/{run_id}/points")

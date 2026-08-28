@@ -412,6 +412,34 @@ def test_every_route_is_reachable_or_recorded():
     )
 
 
+def test_the_interface_calls_nothing_the_server_does_not_serve():
+    """
+    The other direction, which this file did not check for its whole life.
+
+    Every check here asked whether a route has a caller. None asked whether a
+    caller has a route — and one did not: `ResultCard` had been requesting
+    `/api/analyses/{id}/plain-summary` since it was written, and no such route
+    was ever registered. Every one of those requests fell through to the
+    catch-all that serves the interface, which answers 503 in development and
+    an HTML page in a release, so the client parsed a web page as JSON. The
+    module that would have answered it was imported by nothing at all.
+
+    Asserted against method-known calls only. An unresolved literal may be a
+    template base that is only ever extended — `NodeJournal` builds
+    `${base}/journal` from one — or a rewrite pattern out of `next.config`,
+    and neither is a request anybody makes.
+    """
+    called, _ = called_by_the_interface()
+    served = {route.split(" ", 1)[1] for route in api_routes()}
+    missing = sorted(c for c in called if c.split(" ", 1)[1] not in served)
+    assert not missing, (
+        "the interface calls these, and no route answers them:\n  "
+        + "\n  ".join(missing)
+        + "\n\nA request with no route reaches the catch-all, which serves the "
+          "interface — so the client receives a web page where it expected JSON."
+    )
+
+
 def test_no_recorded_route_has_quietly_gained_a_client():
     """
     The happy direction, which is exactly the one that rots. A route that has
