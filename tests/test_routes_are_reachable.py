@@ -75,9 +75,6 @@ WITHOUT_A_CLIENT = {
         "creates one.",
 
     # The reading half of a screen that only writes — the same gap mirrored.
-    "GET /api/projects/*/compatibility":
-        "The compare screen posts a pair and shows the answer; nothing reads a "
-        "stored assessment back.",
     "GET /api/sources/*/claims":
         "`claimtest.tsx` posts to locate claims and renders the response; "
         "nothing reads them again afterwards.",

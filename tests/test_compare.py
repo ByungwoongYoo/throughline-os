@@ -262,3 +262,44 @@ def test_reassessing_replaces_rather_than_appends(cur, project):
             left_version_id=left["version_id"], right_version_id=right["version_id"])
 
     assert len(compare.list_assessments(cur, project)) == 1
+
+
+def test_a_stored_assessment_carries_the_word_for_its_verdict(cur, project):
+    """
+    The label travels with the verdict.
+
+    The interface lists what a project has already worked out about its
+    datasets, and a verdict code is not a sentence. Sending only the code would
+    put a second copy of this vocabulary in the client — which is the thing
+    that needed a drift test the one time this repository did it, for the
+    findings lifecycle.
+    """
+    from throughline_domain import compare
+
+    cur.execute(
+        "INSERT INTO compatibility_assessments(id, project_id, left_kind, "
+        "left_id, right_kind, right_id, verdict, reasoning) "
+        "VALUES (%s, %s, 'dataset', %s, 'dataset', %s, %s, %s)",
+        ("cmp_1", project, "dsv_a", "dsv_b", compare.NOT_COMPARABLE,
+         "Different populations."))
+
+    [stored] = compare.list_assessments(cur, project)
+    assert stored["verdict"] == compare.NOT_COMPARABLE
+    assert stored["label"] == compare.VERDICT_LABEL[compare.NOT_COMPARABLE]
+    # And it is a phrase a person can read, not the code again.
+    assert stored["label"] != stored["verdict"]
+
+
+def test_an_unknown_verdict_falls_back_to_itself(cur, project):
+    # A row written by an older version must not come back with an empty
+    # label, which would render as a blank where a verdict belongs.
+    from throughline_domain import compare
+
+    cur.execute(
+        "INSERT INTO compatibility_assessments(id, project_id, left_kind, "
+        "left_id, right_kind, right_id, verdict, reasoning) "
+        "VALUES (%s, %s, 'dataset', %s, 'dataset', %s, %s, %s)",
+        ("cmp_2", project, "dsv_a", "dsv_b", "something_new", ""))
+
+    [stored] = compare.list_assessments(cur, project)
+    assert stored["label"] == "something_new"

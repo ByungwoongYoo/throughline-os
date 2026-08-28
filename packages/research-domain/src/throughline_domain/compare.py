@@ -408,7 +408,12 @@ def list_assessments(cur, project_id: str) -> list[dict[str, Any]]:
         "ORDER BY created_at DESC",
         (project_id,),
     )
-    return [dict(row) for row in cur.fetchall()]
+    # The label travels with the verdict rather than being looked up again by
+    # the caller. A second copy of this vocabulary in the interface is a second
+    # thing to keep in step, and the one place that already needed one — the
+    # findings lifecycle — needed a test to stop the copies drifting.
+    return [{**dict(row), "label": VERDICT_LABEL.get(row["verdict"], row["verdict"])}
+            for row in cur.fetchall()]
 
 
 __all__ = [

@@ -17,7 +17,7 @@
 
 import { useState } from "react";
 import { Source, api } from "@/lib/api";
-import { ApiState } from "@/lib/useApi";
+import { ApiState, useApi } from "@/lib/useApi";
 import { Empty, Failure, Loading } from "./primitives";
 import { ClaimTest } from "./claimtest";
 import { Consistency } from "./consistency";
@@ -260,7 +260,93 @@ export function Compare({ projectId, sources }: {
       {error ? <Failure error={error} /> : null}
       {busy && <Loading rows={3} label="Checking whether these can be compared" />}
       {assessment && <Verdict assessment={assessment} />}
+
+      <AlreadyChecked projectId={projectId} datasets={datasets} />
     </>
+  );
+}
+
+/** A verdict this project has already reached about a pair. */
+type StoredAssessment = {
+  id: string;
+  left_id: string;
+  right_id: string;
+  verdict: string;
+  reasoning: string;
+  shared_dimensions: string[];
+  blocking_differences: string[];
+  harmonization_required: string[];
+  created_at: string;
+  /** The server's own word for the verdict, so this file keeps no copy. */
+  label: string;
+};
+
+/**
+ * What this project has already worked out about its datasets.
+ *
+ * Every assessment is stored — verdict, reasoning, what blocked it — and
+ * `GET /projects/{id}/compatibility` returned them to nobody. A researcher
+ * with six datasets asked the same question about the same pair as often as
+ * they happened to select it, and never saw that they had asked before.
+ *
+ * **Dated, and described as the answer at that time.** A version id is
+ * immutable, so the datasets have not changed underneath it — but the answer
+ * depends on harmonisation too, and approving a label since then can turn a
+ * blocking difference into a shared dimension. Presenting an old verdict as
+ * current would be the screen asserting something nobody rechecked.
+ */
+function AlreadyChecked({ projectId, datasets }: {
+  projectId: string;
+  datasets: Source[];
+}) {
+  const { data } = useApi<StoredAssessment[]>(
+    `/api/projects/${projectId}/compatibility`, [projectId]);
+
+  if (!data || data.length === 0) return null;
+
+  // Version id → the name a person knows it by. A dataset can be gone; the
+  // assessment stays, and the id is better than an empty cell.
+  const named = new Map(
+    datasets.filter((s) => s.dataset)
+      .map((s) => [s.dataset!.dataset_version_id, s.title]));
+
+  return (
+    <section aria-labelledby="checked-heading" style={{ marginTop: 20 }}>
+      <h2 id="checked-heading" className="eyebrow">Already checked</h2>
+      <p className="note">
+        What this project has worked out about these datasets before. Each one
+        was the answer when it was made — approving a variable label since then
+        can change it.
+      </p>
+
+      <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+        {data.map((row) => (
+          <li key={row.id} className="card" style={{ marginBottom: 10 }}>
+            <div style={{ fontWeight: 560 }}>
+              {named.get(row.left_id) ?? row.left_id}
+              {" ↔ "}
+              {named.get(row.right_id) ?? row.right_id}
+            </div>
+            <div className="mono" style={{ color: "var(--ink-faint)" }}>
+              {(row.label || row.verdict).toLowerCase()}
+              {" · "}
+              {new Date(row.created_at).toLocaleDateString()}
+            </div>
+            {row.reasoning && (
+              <p style={{ margin: "4px 0 0" }}>{row.reasoning}</p>
+            )}
+            {row.harmonization_required.length > 0 && (
+              // Named rather than counted: "harmonise 2 things" is a number to
+              // scroll past; the columns are what somebody has to go and do.
+              <p className="note" style={{ marginTop: 4 }}>
+                Would need harmonising first:{" "}
+                {row.harmonization_required.join(", ")}
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
