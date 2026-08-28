@@ -201,6 +201,12 @@ function Workspace({ user }: { user: SignedInUser }) {
   const [projectId, setProjectId] = useState<string | null>(null);
   const [section, setSection] = useState<Section>("overview");
   const [selection, setSelection] = useState<{ kind: string; id: string } | null>(null);
+  /*
+   * The method of the analysis on screen, reported up by the detail view so the
+   * branch panel below it can offer a fork that swaps it. Held here rather than
+   * fetched again, so both panels describe the same run.
+   */
+  const [runMethod, setRunMethod] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [pendingDiscovery, setPendingDiscovery] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -457,7 +463,7 @@ function Workspace({ user }: { user: SignedInUser }) {
         {section === "analyses" && (
           selection?.kind === "analysis"
             ? <>
-                <AnalysisDetail runId={selection.id} />
+                <AnalysisDetail runId={selection.id} onMethod={setRunMethod} />
                 {/*
                   Beneath the run, because the branch is context for the number
                   above it. Renders nothing at all for an original analysis with
@@ -465,6 +471,7 @@ function Workspace({ user }: { user: SignedInUser }) {
                   every run to say "no relationship" is noise.
                 */}
                 <ForkLineage projectId={project.id} runId={selection.id}
+                             method={runMethod}
                              onOpen={(id) => select("analysis")(id)} />
               </>
             : <AnalysisList projectId={project.id} onSelect={select("analysis")} />

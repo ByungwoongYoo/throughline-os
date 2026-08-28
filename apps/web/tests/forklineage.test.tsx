@@ -85,16 +85,26 @@ describe("the history, read as a history", () => {
 });
 
 describe("restraint", () => {
-  it("renders nothing for an original analysis with no branches", () => {
+  it("describes nothing for an original analysis, but still offers a branch",
+     async () => {
     /**
      * Most runs are these. A panel appearing on every one of them to say "no
      * relationship" is noise that teaches people to skip the region entirely.
+     *
+     * The panel is still withheld. What is not withheld any more is the button
+     * that creates the first branch: hiding that here hid it precisely where a
+     * researcher needs it first, on a run nobody has forked yet, which is why
+     * `POST /analyses/{id}/fork` went without a caller. The description stays
+     * conditional; the action does not.
      */
     serve({ run_id: "arun_1", depth: 0, ancestors: [], children: [],
             note: "This is an original analysis, not a variant of another." });
-    const { container } = render(<ForkLineage projectId="prj_1" runId="arun_1" />);
+    render(<ForkLineage projectId="prj_1" runId="arun_1" />);
 
-    expect(container.firstChild).toBeNull();
+    expect(await screen.findByRole("button", { name: /different way/ })).toBeTruthy();
+    // No heading, no note, no list: nothing that describes a relationship.
+    expect(screen.queryByRole("heading")).toBeNull();
+    expect(screen.queryByText(/original analysis, not a variant/)).toBeNull();
   });
 
   it("does not disapprove of a branch", () => {

@@ -114,10 +114,6 @@ WITHOUT_A_CLIENT = {
     "/api/projects/*/analyses":
         "POST. Analyses are started from the connection screens, which post "
         "elsewhere; nothing posts here.",
-    "/api/projects/*/analyses/compare":
-        "No interface compares two runs.",
-    "/api/analyses/*/fork":
-        "Nothing forks a run from the interface.",
     "/api/projects/*/reconcile":
         "The interface calls `/projects/{id}/reconcile-papers`; this one has "
         "no caller.",

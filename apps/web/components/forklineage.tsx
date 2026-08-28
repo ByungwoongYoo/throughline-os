@@ -24,6 +24,7 @@
 
 import { useApi } from "@/lib/useApi";
 import { Failure, Loading } from "./primitives";
+import { CompareBranches, ForkAnalysis } from "./sensitivity";
 
 type Ancestor = {
   id: string;
@@ -42,9 +43,11 @@ type Lineage = {
   note: string;
 };
 
-export function ForkLineage({ projectId, runId, onOpen }: {
+export function ForkLineage({ projectId, runId, method, onOpen }: {
   projectId: string;
   runId: string;
+  /** The method this run used, so a branch can be offered that changes it. */
+  method?: string | null;
   onOpen?: (runId: string) => void;
 }) {
   const { data, error, loading, reload } = useApi<Lineage>(
@@ -54,14 +57,42 @@ export function ForkLineage({ projectId, runId, onOpen }: {
   if (error) return <Failure error={error} retry={reload} />;
   if (loading || !data) return <Loading rows={2} label="Tracing where this came from" />;
 
-  // An original analysis with no branches has no relationship to describe, and
-  // a panel saying so on every run would be noise on most of them.
-  if (data.depth === 0 && data.children.length === 0) return null;
+  /*
+   * Every run in the family: the chain above, this one, and the branches from
+   * it. This is what a comparison is *of* — the relationship between the runs,
+   * which is the thing a sensitivity analysis actually reports.
+   */
+  const family = [
+    ...data.ancestors.filter((a) => !a.cycle).map((a) => a.id),
+    data.run_id,
+    ...data.children.map((c) => c.id),
+  ];
+
+  /*
+   * An original analysis with no branches still has no relationship to
+   * describe, and a panel saying so on every run would be noise on most of
+   * them. But the button that *creates* the first branch has to be somewhere,
+   * and hiding it here would hide it exactly where a researcher needs it
+   * first — on a run nobody has forked yet. So the description stays
+   * conditional and the action does not.
+   */
+  if (data.depth === 0 && data.children.length === 0) {
+    return (
+      <div style={{ marginTop: 20 }}>
+        <ForkAnalysis runId={runId} method={method} onForked={reload} />
+      </div>
+    );
+  }
 
   return (
     <section aria-labelledby="lineage-heading" style={{ marginTop: 20 }}>
       <h2 id="lineage-heading">Sensitivity branch</h2>
       <p className="note">{data.note}</p>
+
+      <div className="row" style={{ gap: "0.5rem", marginBottom: 12 }}>
+        <ForkAnalysis runId={runId} method={method} onForked={reload} />
+      </div>
+      <CompareBranches projectId={projectId} runIds={family} />
 
       {data.ancestors.length > 0 && (
         <ol style={{ margin: "0 0 12px", paddingLeft: 18, fontSize: 13 }}>

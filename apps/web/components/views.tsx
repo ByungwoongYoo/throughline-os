@@ -851,8 +851,19 @@ export function EvidenceGraphView({ findingId, onOpenAnalysis }: {
 // Analyses (§44, §47)
 // ---------------------------------------------------------------------------
 
-export function AnalysisDetail({ runId }: { runId: string }) {
+export function AnalysisDetail({ runId, onMethod }: {
+  runId: string;
+  /*
+   * Reported upward rather than fetched twice. The panel below this one offers
+   * a branch that swaps the method for its rank-based counterpart, and it needs
+   * to know which method that is — a second hook on `/api/analyses/{id}` would
+   * be a second copy of this run that can drift from the one on screen.
+   */
+  onMethod?: (method: string) => void;
+}) {
   const { data, error, loading, reload } = useApi<AnalysisRun>(`/api/analyses/${runId}`);
+  const method = data?.method;
+  useEffect(() => { if (method) onMethod?.(method); }, [method, onMethod]);
   if (error) return <Failure error={error} retry={reload} />;
   if (loading || !data) return <Loading rows={5} label="Reading the analysis" />;
 

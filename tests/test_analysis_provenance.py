@@ -278,3 +278,184 @@ def test_forking_isolates_an_analytical_choice(analysed_project):
     # Both methods should agree on this deliberately clean association.
     assert comparison["conclusion_stable"] is True
     assert "agree" in comparison["note"]
+
+
+# ---------------------------------------------------------------------------
+# The route a researcher takes to a sensitivity analysis
+#
+# The test above builds a fork by calling `create_spec` and `create_run`
+# directly, which is how the domain was proved correct and is not how anybody
+# uses it. `POST /analyses/{id}/fork` and `GET /projects/{id}/analyses/compare`
+# had no caller in the interface and no test over HTTP either — so the seam
+# between the screen and the domain was the one nothing exercised.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def client():
+    from fastapi.testclient import TestClient
+
+    from throughline_api.app import app
+
+    with TestClient(app) as test_client:
+        yield test_client
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM users WHERE email = %s", ("branches@lab.local",))
+
+
+def _signed_in_project(client) -> tuple[str, str]:
+    """A project owned by the signed-in account, with one completed analysis."""
+    status = client.get("/api/auth/status").json()
+    endpoint = "/api/auth/setup" if status["needs_setup"] else "/api/auth/login"
+    assert client.post(endpoint, json={
+        "email": "branches@lab.local", "display_name": "Branches",
+        "password": "correct-horse-battery"}).status_code == 200
+
+    project_id = client.post("/api/projects", json={"name": "Branches"}).json()["id"]
+    assert client.post(f"/api/projects/{project_id}/sources",
+                       files={"file": ("amr.csv", CSV, "text/csv")}
+                       ).status_code == 202
+    _drain()
+    sources = client.get(f"/api/projects/{project_id}/sources").json()
+    version_id = sources[0]["dataset"]["dataset_version_id"]
+
+    queued = client.post(f"/api/projects/{project_id}/analyses", json={
+        "method": "pearson_correlation",
+        "dataset_version_ids": [version_id],
+        "variables": {"x": "consumption_ddd", "y": "resistance_pct"},
+    })
+    assert queued.status_code == 202, queued.text
+    _drain()
+    return project_id, queued.json()["analysis_run_id"]
+
+
+def test_a_branch_taken_over_http_records_what_it_changed_and_why(client):
+    project_id, base = _signed_in_project(client)
+
+    forked = client.post(f"/api/analyses/{base}/fork", json={
+        "reason": "The outcome is skewed, so a rank-based test is fairer.",
+        "method": "spearman_correlation",
+    })
+    assert forked.status_code == 202, forked.text
+    branch = forked.json()["analysis_run_id"]
+    assert forked.json()["forked_from"] == base
+    _drain()
+
+    # The branch is a real run of the method that was asked for, and it knows
+    # where it came from — which is what makes the pair legible afterwards.
+    run = client.get(f"/api/analyses/{branch}").json()
+    assert run["status"] == "completed", run.get("error")
+    assert run["method"] == "spearman_correlation"
+    assert run["forked_from_run_id"] == base
+    assert "skewed" in run["fork_reason"]
+
+
+def test_a_branch_is_refused_without_a_reason(client):
+    """
+    Reporting only the branch that worked is what this whole path exists to
+    make visible, and a branch with no recorded reason cannot be read later.
+    """
+    _, base = _signed_in_project(client)
+    assert client.post(f"/api/analyses/{base}/fork", json={"reason": ""}
+                       ).status_code == 422
+
+
+def test_the_comparison_answers_whether_the_conclusion_held(client):
+    project_id, base = _signed_in_project(client)
+    branch = client.post(f"/api/analyses/{base}/fork", json={
+        "reason": "Rank-based check.", "method": "spearman_correlation",
+    }).json()["analysis_run_id"]
+    _drain()
+
+    compared = client.get(f"/api/projects/{project_id}/analyses/compare",
+                          params={"run_id": [base, branch]})
+    assert compared.status_code == 200, compared.text
+    body = compared.json()
+    assert [r["run_id"] for r in body["runs"]] == [base, branch]
+    # The verdict, which is the only question a set of branches raises.
+    assert isinstance(body["conclusion_stable"], bool)
+    assert body["note"]
+    assert body["runs"][1]["fork_reason"] == "Rank-based check."
+
+
+def test_comparing_a_run_from_another_project_is_refused(client):
+    """Otherwise a comparison could quietly reach outside the project."""
+    project_id, base = _signed_in_project(client)
+    other = client.post("/api/projects", json={"name": "Elsewhere"}).json()["id"]
+    assert client.get(f"/api/projects/{other}/analyses/compare",
+                      params={"run_id": [base, base]}).status_code == 404
+
+
+def test_one_run_is_not_a_comparison(client):
+    project_id, base = _signed_in_project(client)
+    assert client.get(f"/api/projects/{project_id}/analyses/compare",
+                      params={"run_id": [base]}).status_code == 422
+
+
+#: One outlier, and nothing else. Pearson reads a near-perfect linear
+#: association (p ≈ 8e-15) because the outlier dominates the covariance;
+#: Spearman, on ranks, sees the outlier as merely the largest value and finds
+#: nothing (p ≈ 0.55). The disagreement is real rather than arranged, and it is
+#: exactly the situation a sensitivity analysis exists to expose.
+OUTLIER_CSV = b"""country,consumption_ddd,resistance_pct
+a,1,8
+b,2,3
+c,3,9
+d,4,2
+e,5,7
+f,6,4
+g,7,10
+h,8,1
+i,9,6
+j,10,5
+k,11,11
+l,12,2
+m,13,9
+n,14,3
+o,200,300
+"""
+
+
+def test_branches_that_disagree_are_reported_as_a_dependency_on_a_choice(client):
+    """
+    The sentence this whole path exists to deliver, and the case the fork test
+    above cannot reach: it uses a deliberately clean association where both
+    methods agree.
+
+    An earlier version of this test set the second run's result directly. The
+    database refused it — a trigger holds a completed run immutable and says
+    *"fork it instead of editing it"* — so the disagreement here is produced by
+    data rather than asserted into existence, which is the better test anyway.
+    """
+    status = client.get("/api/auth/status").json()
+    endpoint = "/api/auth/setup" if status["needs_setup"] else "/api/auth/login"
+    client.post(endpoint, json={
+        "email": "branches@lab.local", "display_name": "Branches",
+        "password": "correct-horse-battery"})
+
+    project_id = client.post("/api/projects", json={"name": "Outlier"}).json()["id"]
+    client.post(f"/api/projects/{project_id}/sources",
+                files={"file": ("outlier.csv", OUTLIER_CSV, "text/csv")})
+    _drain()
+    version_id = client.get(f"/api/projects/{project_id}/sources"
+                            ).json()[0]["dataset"]["dataset_version_id"]
+
+    base = client.post(f"/api/projects/{project_id}/analyses", json={
+        "method": "pearson_correlation",
+        "dataset_version_ids": [version_id],
+        "variables": {"x": "consumption_ddd", "y": "resistance_pct"},
+    }).json()["analysis_run_id"]
+    _drain()
+
+    branch = client.post(f"/api/analyses/{base}/fork", json={
+        "reason": "One country is far from the rest; check it on ranks.",
+        "method": "spearman_correlation",
+    }).json()["analysis_run_id"]
+    _drain()
+
+    compared = client.get(f"/api/projects/{project_id}/analyses/compare",
+                          params={"run_id": [base, branch]}).json()
+
+    assert [r["statistically_significant"] for r in compared["runs"]] == [True, False]
+    assert compared["conclusion_stable"] is False
+    assert "depends on an analytical choice" in compared["note"]
