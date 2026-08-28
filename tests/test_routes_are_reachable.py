@@ -118,8 +118,6 @@ WITHOUT_A_CLIENT = {
     "POST /api/projects/*/reconcile":
         "The interface calls `/projects/{id}/reconcile-papers`; this one has "
         "no caller.",
-    "POST /api/projects/*/synthesis/key-points":
-        "No interface requests key points.",
 
     # Interpretation.
     "POST /api/projects/*/exploration/tests":

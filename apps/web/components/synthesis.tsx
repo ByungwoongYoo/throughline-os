@@ -59,6 +59,32 @@ type Matrix = {
   accuracy: string;
 };
 
+/**
+ * What a set of papers says taken together, counted rather than written.
+ *
+ * `POST /projects/{id}/synthesis/key-points` had no caller. Its own summary is
+ * the reason it is worth having: *"a generated synthesis of five papers is
+ * precisely the artifact nobody can check"*, so every point here is a count
+ * over verified quotations — how many papers state a design at all, how many
+ * pairs cannot be compared — and no sentence about the findings is generated.
+ *
+ * Above the table rather than below it, following this codebase's habit of
+ * putting the reading first and the evidence under it: the matrix is what the
+ * counts are counted from.
+ */
+type KeyPoint = {
+  kind: string;
+  field?: string;
+  headline: string;
+  reading: string;
+};
+
+type KeyPoints = {
+  points: KeyPoint[];
+  method: string;
+  note: string;
+};
+
 export function Synthesis({ projectId, sources }: {
   projectId: string;
   sources: Source[];
@@ -66,6 +92,13 @@ export function Synthesis({ projectId, sources }: {
   const papers = sources.filter((s) => !s.dataset);
   const [chosen, setChosen] = useState<string[]>([]);
   const [matrix, setMatrix] = useState<Matrix | null>(null);
+  const [points, setPoints] = useState<KeyPoints | null>(null);
+  /*
+   * Kept apart from `error`: the table and the points are two requests, and a
+   * failure of the second must not hide the first. A researcher who has the
+   * comparison should keep it.
+   */
+  const [pointsFailed, setPointsFailed] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
 
@@ -80,11 +113,29 @@ export function Synthesis({ projectId, sources }: {
 
   async function build(ids: string[]) {
     if (ids.length < 2) return;
-    setBusy("Comparing"); setError(null); setMatrix(null);
+    setBusy("Comparing");
+    setError(null);
+    setMatrix(null);
+    setPoints(null);
+    setPointsFailed(false);
     try {
       setMatrix(await api.post<Matrix>(
         `/api/projects/${projectId}/synthesis`, { source_ids: ids }));
-    } catch (err) { setError(err); } finally { setBusy(null); }
+    } catch (err) {
+      setError(err);
+      setBusy(null);
+      return;
+    }
+    try {
+      setPoints(await api.post<KeyPoints>(
+        `/api/projects/${projectId}/synthesis/key-points`, { source_ids: ids }));
+    } catch {
+      // Said rather than left blank: an absent summary above a full table
+      // reads as "these papers had nothing in common", which is a claim.
+      setPointsFailed(true);
+    } finally {
+      setBusy(null);
+    }
   }
 
   function toggle(id: string) {
@@ -142,6 +193,35 @@ export function Synthesis({ projectId, sources }: {
 
       {error ? <Failure error={error} /> : null}
       {busy && <Loading rows={3} label={busy} />}
+
+      {pointsFailed && (
+        <div className="notice" role="status">
+          The table below was built, but what the set says taken together could
+          not be worked out. That is not the same as it saying nothing.
+        </div>
+      )}
+
+      {points && (
+        <section aria-labelledby="points-heading" style={{ marginBottom: 18 }}>
+          <h2 id="points-heading">Taken together</h2>
+          {/* The server's own words about what these are and are not. */}
+          <p className="note">{points.note}</p>
+
+          {points.points.length === 0 ? (
+            <p className="note">
+              Nothing stands out across this set: every row these papers state,
+              they all state, and every pair can be compared.
+            </p>
+          ) : (
+            points.points.map((point, i) => (
+              <div className="card" key={`${point.kind}-${point.field ?? i}`}>
+                <div style={{ fontWeight: 560 }}>{point.headline}</div>
+                <p style={{ margin: "4px 0 0" }}>{point.reading}</p>
+              </div>
+            ))
+          )}
+        </section>
+      )}
 
       {matrix && (
         <>
