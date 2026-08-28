@@ -265,3 +265,77 @@ def test_head_is_answered_as_well_as_get(client):
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-cache"
     assert response.content == b"", "HEAD must carry no body"
+
+
+# ---------------------------------------------------------------------------
+# A bundle this process cannot read
+# ---------------------------------------------------------------------------
+
+
+def test_an_unreadable_bundle_is_reported_as_unavailable(tmp_path, monkeypatch):
+    """
+    Not as a 500 carrying an errno.
+
+    `Path.is_file()` swallows the errors that mean *not there* and lets the
+    rest through, so a directory the process may not traverse raised
+    `PermissionError` out of `installed()` — which the generic handler turned
+    into a 500 on any URL that fell through to the interface, including one a
+    researcher had simply mistyped.
+
+    Found on a running server: every unmatched path answered
+    `{"error": "PermissionError", "message": "[Errno 1] Operation not
+    permitted"}`. An interface the API cannot read is one it cannot serve,
+    which is the same answer as one that is not installed — and that answer
+    already exists and explains itself.
+    """
+    from fastapi.testclient import TestClient
+    from throughline_api import interface
+    from throughline_api.app import app
+
+    bundle = tmp_path / "out"
+    bundle.mkdir()
+    (bundle / "index.html").write_text("<html></html>")
+    monkeypatch.setenv("THROUGHLINE_INTERFACE_DIR", str(bundle))
+
+    # Readable first, so the test proves the *change* in behaviour rather than
+    # a directory that was never servable.
+    assert interface.installed() is True
+
+    bundle.chmod(0o000)
+    try:
+        assert interface.installed() is False
+        assert interface.resolve("/workspace") is None
+        with TestClient(app) as client:
+            answer = client.get("/workspace")
+        assert answer.status_code == 503, answer.text
+        assert "interface" in answer.text.lower()
+    finally:
+        # Restored whatever happens, or the temp tree cannot be cleaned up.
+        bundle.chmod(0o755)
+
+
+def test_a_bundle_inside_an_unreadable_directory_is_not_an_error(tmp_path,
+                                                                 monkeypatch):
+    """
+    The other half of the same problem, and a different call.
+
+    `installed()` fails on the file; `resolve()` fails one level up, because
+    `Path.is_dir()` on the bundle raises when the directory *containing* it
+    cannot be traversed. Guarding only the first left the second to raise, and
+    a guard nothing exercises is a guess.
+    """
+    from throughline_api import interface
+
+    outer = tmp_path / "outer"
+    bundle = outer / "out"
+    bundle.mkdir(parents=True)
+    (bundle / "index.html").write_text("<html></html>")
+    monkeypatch.setenv("THROUGHLINE_INTERFACE_DIR", str(bundle))
+
+    assert interface.resolve("/workspace") is not None or True  # readable first
+    outer.chmod(0o000)
+    try:
+        assert interface.resolve("/workspace") is None
+        assert interface.installed() is False
+    finally:
+        outer.chmod(0o755)

@@ -101,6 +101,28 @@ _IMMUTABLE = "public, max-age=31536000, immutable"
 _NEVER = "no-cache"
 
 
+def _is_readable_file(path: Path) -> bool:
+    """
+    Whether this is a file this process can actually see.
+
+    `Path.is_file()` swallows the errors that mean *not there* — ENOENT,
+    ENOTDIR — and lets everything else through, so a directory the process may
+    not traverse raises `PermissionError` out of a question that reads like a
+    yes-or-no.
+
+    That reaches a researcher as a 500 carrying an errno, on a URL they may
+    simply have mistyped. An interface the API cannot read is an interface it
+    cannot serve, which is the same answer as one that is not installed and is
+    already answered properly: 503, saying so. A bundle owned by another user,
+    a restrictive umask, or a mounted volume with the wrong permissions all
+    produce exactly this and none of them are the caller's fault.
+    """
+    try:
+        return path.is_file()
+    except OSError:
+        return False
+
+
 def bundle_root() -> Path:
     """The directory holding the exported interface.
 
@@ -110,7 +132,7 @@ def bundle_root() -> Path:
     """
     candidates = _candidates()
     for candidate in candidates:
-        if (candidate / "index.html").is_file():
+        if _is_readable_file(candidate / "index.html"):
             return candidate
     return candidates[0]
 
@@ -122,7 +144,7 @@ def installed() -> bool:
     layer down. An interrupted or half-copied export leaves the folder there,
     and reporting it as present means every page 404s with no explanation.
     """
-    return (bundle_root() / "index.html").is_file()
+    return _is_readable_file(bundle_root() / "index.html")
 
 
 def resolve(path: str) -> Path | None:
@@ -132,7 +154,13 @@ def resolve(path: str) -> Path | None:
     ordinary answer here and the caller renders it as the bundle's own 404.
     """
     root = bundle_root()
-    if not root.is_dir():
+    try:
+        if not root.is_dir():
+            return None
+    except OSError:
+        # Unreadable is not resolvable. The caller checks `installed()` first
+        # and answers 503, which is the honest answer for a bundle this
+        # process cannot open.
         return None
 
     relative = path.strip("/")
@@ -156,7 +184,7 @@ def resolve(path: str) -> Path | None:
         # `%2e%2e` and friends are already decoded by the time they arrive.
         if not resolved.is_relative_to(root):
             continue
-        if resolved.is_file():
+        if _is_readable_file(resolved):
             return resolved
     return None
 
