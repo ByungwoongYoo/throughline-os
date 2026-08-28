@@ -38,6 +38,7 @@ import { Harvest } from "@/components/harvest";
 import { LibraryNote } from "@/components/librarynote";
 import { ForkLineage } from "@/components/forklineage";
 import { FindingStanding } from "@/components/lifecycle";
+import { Journal } from "@/components/journal";
 import { Variables } from "@/components/variables";
 import { sessionId } from "@/lib/session";
 
@@ -530,6 +531,9 @@ function Workspace({ user }: { user: SignedInUser }) {
           </>
         )}
         {section === "notebook" && <Notebook projectId={project.id} />}
+        {section === "journal" && (
+          <Journal projectId={project.id} onOpenObject={select("analysis")} />
+        )}
         {section === "settings" && <Settings />}
         {section === "graph" && (
           <GraphView projectId={project.id} onSelect={select("object")} />

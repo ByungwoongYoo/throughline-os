@@ -27,7 +27,7 @@ export type Section =
   | "overview" | "sources" | "variables" | "search"
   | "discover" | "compare" | "patterns" | "connections" | "findings"
   | "analyses" | "graph" | "embedding"
-  | "reports" | "figures" | "gallery" | "notebook" | "literature"
+  | "reports" | "figures" | "gallery" | "notebook" | "journal" | "literature"
   | "datasearch" | "settings";
 
 export type Crumb = { label: string; onClick?: () => void };
@@ -77,6 +77,14 @@ const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; 
       { id: "figures", label: "Figures", count: "figures" },
       { id: "gallery", label: "Chart primitives" },
       { id: "notebook", label: "Notebook" },
+      /*
+       * Beside the notebook, because both are writing — but they are not the
+       * same view of it. The notebook is pages and links; the journal is
+       * everything written in the project in the order it was written,
+       * including what a model wrote, which is the only place that can be
+       * read across objects rather than one object at a time.
+       */
+      { id: "journal", label: "Journal" },
     ],
   },
   {
@@ -135,7 +143,11 @@ const ICONS: Record<Section, (p: { size?: number }) => ReactElement> = {
   // a second glyph for the same idea makes a sidebar harder to scan.
   embedding: IconGraph,
   reports: IconReports, figures: IconFigures, gallery: IconGallery,
-  notebook: IconNotebook, settings: IconSettings,
+  notebook: IconNotebook,
+  // Reuses the notebook glyph: they are the same notes read two ways, and a
+  // second glyph would suggest two different kinds of thing.
+  journal: IconNotebook,
+  settings: IconSettings,
 };
 
 export function Shell({

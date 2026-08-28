@@ -2177,6 +2177,19 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .nj-mark { font-size: 10px; }
 .nj-note[data-kind="model"] .nj-mark { color: var(--info); }
 .nj-author { font-weight: 500; }
+
+/*
+ * What a journal entry was about, on the project-wide view.
+ *
+ * The note itself reuses `.nj-note` because it is the same row read in a
+ * different place; only the line naming the object is new, and the per-object
+ * journal has no need of it — there, the object is the page you are on.
+ */
+.jr-about { margin: 6px 0 2px; font-size: 12px; }
+.jr-about button {
+  background: none; border: 0; padding: 0; cursor: pointer;
+  color: var(--accent, inherit); text-decoration: underline;
+}
 .nj-prompt {
   margin: 8px 0 0; font-size: 12px; font-style: italic; color: var(--ink-faint);
 }
