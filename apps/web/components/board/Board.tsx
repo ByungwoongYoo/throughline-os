@@ -69,6 +69,16 @@ export function Board({ projectId }: { projectId: string }) {
   const [camera, setCamera] = useState<Camera>(ORIGIN);
   const [problem, setProblem] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
+  /*
+   * The card just taken off, kept so it can be put back.
+   *
+   * §96 asks for soft delete with an immediate undo rather than a confirmation
+   * on everything, and taking a card off a board is exactly that case: the
+   * object is untouched — this removes a position, not a piece of research —
+   * and the same PUT that placed it will place it again. A modal here would
+   * ask a researcher to confirm something that costs one press to reverse.
+   */
+  const [takenOff, setTakenOff] = useState<Placement | null>(null);
   const surface = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
 
@@ -267,6 +277,46 @@ export function Board({ projectId }: { projectId: string }) {
     void event;
   };
 
+  /**
+   * Take a card off the board, and offer to put it back.
+   *
+   * Removed from the screen first. The alternative — waiting for the server
+   * before the card disappears — leaves a card sitting under a press that
+   * plainly did something, which reads as a board that ignores you.
+   */
+  const takeOff = useCallback(async (card: Placement) => {
+    setCards((current) => current.filter((c) => c.object_id !== card.object_id));
+    setTakenOff(card);
+    setProblem(null);
+    try {
+      await api.del(`/api/projects/${projectId}/board/${card.object_id}`);
+    } catch {
+      // Put back, because a card the researcher believes they removed and
+      // which returns on reload is worse than one that refused to go.
+      setCards((current) => [...current, card].sort((a, b) => a.z - b.z));
+      setTakenOff(null);
+      setProblem("That card could not be taken off the board.");
+    }
+  }, [projectId]);
+
+  /** Put back the card just taken off, where it was. */
+  const putBack = useCallback(async () => {
+    const card = takenOff;
+    if (!card) return;
+    setTakenOff(null);
+    try {
+      const placement = await api.put<Placement>(
+        `/api/projects/${projectId}/board`, {
+          object_id: card.object_id, x: card.x, y: card.y,
+          width: card.width, height: card.height,
+        });
+      setCards((current) => [...current, { ...card, ...placement }]
+        .sort((a, b) => a.z - b.z));
+    } catch {
+      setProblem("That card could not be put back.");
+    }
+  }, [projectId, takenOff]);
+
   /* ---- what to draw ---- */
 
   if (placed.error) return <Failure error={placed.error} />;
@@ -300,6 +350,13 @@ export function Board({ projectId }: { projectId: string }) {
       </div>
 
       {problem && <p className="board-problem" role="status">{problem}</p>}
+
+      {takenOff && (
+        <p className="board-problem" role="status">
+          {takenOff.title} is off the board.{" "}
+          <button type="button" onClick={() => void putBack()}>Put it back</button>
+        </p>
+      )}
 
       {picking && (
         <section className="board-picker">
@@ -368,6 +425,24 @@ export function Board({ projectId }: { projectId: string }) {
               <span className="board-kind">{card.object_type}</span>
               <h3>{card.title}</h3>
               <span className="board-status">{card.status}</span>
+              {/*
+                * `onPointerDown` stops here rather than reaching the surface,
+                * which would otherwise read the press as the start of a drag
+                * and leave a gesture in flight for a card that is going away.
+                *
+                * It is a real button, so this is also the first thing on this
+                * board a keyboard can reach: the cards themselves are moved by
+                * pointer only.
+                */}
+              <button
+                type="button"
+                className="board-remove"
+                aria-label={`Take ${card.title} off the board`}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={() => void takeOff(card)}
+              >
+                ×
+              </button>
             </article>
           ))}
         </div>

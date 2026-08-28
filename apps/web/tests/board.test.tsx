@@ -408,3 +408,130 @@ describe("putting something on the board", () => {
     expect(await screen.findByText(/already on the board/i)).toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Taking a card off (§96)
+//
+// The board could add a card and bring one to the front, and never remove one:
+// `DELETE /projects/{id}/board/{object_id}` had no caller, so a board only
+// ever accumulated. §96 asks for soft delete with an immediate undo rather
+// than a confirmation on everything, and this is that case exactly — the
+// object is untouched, only its position goes, and the same PUT that placed it
+// puts it back.
+// ---------------------------------------------------------------------------
+
+describe("taking a card off the board", () => {
+  function mockWithDelete(placements: Placement[] = CARDS) {
+    const calls: Array<{ method: string; url: string; body?: unknown }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({
+        method: init?.method ?? "GET", url: String(url),
+        body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      });
+      if (init?.method === "DELETE") {
+        return new Response(JSON.stringify({ removed: "obj1" }), { status: 200 });
+      }
+      if (init?.method === "PUT") {
+        return new Response(JSON.stringify(CARDS[0]), { status: 200 });
+      }
+      return new Response(JSON.stringify({ placements }), { status: 200 });
+    }));
+    return calls;
+  }
+
+  it("asks the server to take that object off", async () => {
+    const calls = mockWithDelete();
+    render(<Board projectId="prj_1" />);
+    const remove = await screen.findByRole("button",
+      { name: /Take Sleep and reaction time off the board/ });
+
+    fireEvent.click(remove);
+    await waitFor(() => expect(calls.some((c) => c.method === "DELETE")).toBe(true));
+    expect(calls.find((c) => c.method === "DELETE")!.url)
+      .toBe("/api/projects/prj_1/board/obj1");
+  });
+
+  it("takes the card off the screen without waiting for the server", async () => {
+    // A card still sitting under a press that plainly did something reads as a
+    // board that ignores you.
+    mockWithDelete();
+    render(<Board projectId="prj_1" />);
+    fireEvent.click(await screen.findByRole("button",
+      { name: /Take Sleep and reaction time off the board/ }));
+
+    await waitFor(() =>
+      expect(document.querySelector('[data-object="obj1"]')).toBeNull());
+    // And only that one.
+    expect(document.querySelector('[data-object="obj2"]')).not.toBeNull();
+  });
+
+  it("offers to put it back rather than asking first", async () => {
+    mockWithDelete();
+    render(<Board projectId="prj_1" />);
+    fireEvent.click(await screen.findByRole("button",
+      { name: /Take Sleep and reaction time off the board/ }));
+
+    const undo = await screen.findByRole("button", { name: /Put it back/ });
+    fireEvent.click(undo);
+
+    await waitFor(() =>
+      expect(document.querySelector('[data-object="obj1"]')).not.toBeNull());
+  });
+
+  it("puts it back where it was, not at the origin", async () => {
+    const calls = mockWithDelete();
+    render(<Board projectId="prj_1" />);
+    fireEvent.click(await screen.findByRole("button",
+      { name: /Take Sleep and reaction time off the board/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Put it back/ }));
+
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
+    expect(calls.find((c) => c.method === "PUT")!.body).toMatchObject({
+      object_id: "obj1", x: 100, y: 100, width: 200, height: 120,
+    });
+  });
+
+  it("puts the card back when the server refuses to remove it", async () => {
+    /*
+     * A card the researcher believes they removed, which returns on reload, is
+     * worse than one that refused to go — the board would be lying about what
+     * it holds.
+     */
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "DELETE") {
+        return new Response(JSON.stringify({ detail: "not on this board" }),
+                            { status: 404 });
+      }
+      return new Response(JSON.stringify({ placements: CARDS }), { status: 200 });
+    }));
+    render(<Board projectId="prj_1" />);
+    fireEvent.click(await screen.findByRole("button",
+      { name: /Take Sleep and reaction time off the board/ }));
+
+    await waitFor(() =>
+      expect(document.querySelector('[data-object="obj1"]')).not.toBeNull());
+    expect(screen.getByText(/could not be taken off the board/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Put it back/ })).toBeNull();
+  });
+
+  it("does not start a drag when the remove control is pressed", async () => {
+    /*
+     * The press would otherwise reach the surface underneath and be read as
+     * the beginning of a drag, leaving a gesture in flight for a card that is
+     * on its way out.
+     */
+    const calls = mockWithDelete();
+    render(<Board projectId="prj_1" />);
+    const remove = await screen.findByRole("button",
+      { name: /Take Sleep and reaction time off the board/ });
+
+    fireEvent.pointerDown(remove, { clientX: 10, clientY: 10, pointerId: 1 });
+    fireEvent.pointerMove(document.querySelector('[data-testid="board-surface"]')!,
+                          { clientX: 90, clientY: 90, pointerId: 1 });
+    fireEvent.pointerUp(document.querySelector('[data-testid="board-surface"]')!,
+                        { clientX: 90, clientY: 90, pointerId: 1 });
+
+    // No move was saved, because no drag ever started.
+    expect(calls.filter((c) => c.method === "PUT")).toHaveLength(0);
+  });
+});

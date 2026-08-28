@@ -77,9 +77,6 @@ WITHOUT_A_CLIENT = {
     "POST /api/projects/*/objects":
         "The interface opens an object and asks questions about it, but never "
         "creates one.",
-    "DELETE /api/projects/*/board/*":
-        "The board can add a card and bring one to the front; it has no way to "
-        "remove one.",
 
     # The reading half of a screen that only writes — the same gap mirrored.
     "GET /api/projects/*/compatibility":

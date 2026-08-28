@@ -176,7 +176,14 @@ describe("one report reads the same however it was asked for", () => {
     await screen.findByText(/tested more than once/);
     const fromSweep = screen.getAllByText("These two results disagree.").length;
 
-    const selects = screen.getAllByRole("combobox");
+    /*
+     * Waited for, not assumed. The sweep and the list of results are two
+     * separate requests, and the picker does not exist until the second one
+     * lands — so reaching for the selects straight after the sweep text passed
+     * alone and failed under the full suite, where the second request had not
+     * resolved yet.
+     */
+    const selects = await screen.findAllByRole("combobox");
     await userEvent.selectOptions(selects[0], "conn_1");
     await userEvent.selectOptions(selects[1], "conn_2");
     await userEvent.click(screen.getByRole("button", { name: /Are these consistent/ }));
