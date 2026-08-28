@@ -33,6 +33,15 @@ That split matters because DICOM is the only format here that records modality,
 sequence weighting and contrast phase; a NIfTI carries none of them, which is
 why two NIfTIs honestly come back as *cannot be judged*.
 
+A library scales by being **queried on acquisition rather than ranked on
+resemblance**: "every portal-venous CT at a millimetre or under" is the same
+facts the verdict rests on, asked as a question. A query built from the case
+returns exactly the scans the verdict calls directly comparable — a test holds
+the two together, because two answers to one question that disagreed would make
+both untrustworthy. Scans whose headers cannot answer are neither matched nor
+excluded but counted separately, since a filter reporting twelve matches while
+silently dropping forty unreadable headers is lying by omission.
+
 On top of that spine sits an interpretation layer, whose job is to make the
 system's own record legible to the person using it:
 
@@ -106,7 +115,7 @@ the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **1572 backend tests and 1659 web tests**, with 14 backend
+The current suite is **1572 backend tests and 1680 web tests**, with 14 backend
 skips. Ten carry a reason CI's allowlist recognises — a skip with an
 unrecognised reason fails the build, so the suite cannot quietly shrink. The
 other four are the speech tests, whose reason (`openai-whisper is not

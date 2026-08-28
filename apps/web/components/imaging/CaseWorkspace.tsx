@@ -40,6 +40,9 @@ import {
   Assessment, Verdict, assess, describePartition, partition, permitsComparison,
 } from "@/lib/imaging/comparability";
 import { Highlight, Point, inOrder, reach } from "@/lib/imaging/highlight";
+import {
+  describeQuery, describeResult, explainRow, fromCase, run,
+} from "@/lib/imaging/query";
 import { HighlightLayer, markFrom } from "./HighlightLayer";
 
 /** A scan the researcher has open: what it is, and the voxels to draw. */
@@ -119,9 +122,30 @@ export function CaseWorkspace({
   const [marks, setMarks] = useState<Highlight[]>([]);
   const [note, setNote] = useState("");
 
-  const groups = useMemo(
-    () => partition(received.study, library.map((s) => s.study)),
+  /*
+   * The library is narrowed before anything is drawn.
+   *
+   * A researcher with four hundred images cannot read four hundred verdicts,
+   * and the query is the same acquisition facts the verdict rests on, asked as
+   * a question. Off by default: on a handful of scans a filter is friction, and
+   * hiding scans by default would be the workspace deciding what is worth
+   * looking at.
+   */
+  const [narrow, setNarrow] = useState(false);
+  const queried = useMemo(
+    () => run(fromCase(received.study), library.map((s) => s.study)),
     [received, library]);
+
+  const shown = useMemo(() => {
+    if (!narrow) return library;
+    const keep = new Set([...queried.matched, ...queried.uncertain]
+      .map((r) => r.study.id));
+    return library.filter((s) => keep.has(s.study.id));
+  }, [narrow, library, queried]);
+
+  const groups = useMemo(
+    () => partition(received.study, shown.map((s) => s.study)),
+    [received, shown]);
 
   /** Each scan's verdict against the case, for deciding where marks may go. */
   const verdicts = useMemo(() => {
@@ -143,9 +167,9 @@ export function CaseWorkspace({
 
   const byId = useMemo(() => {
     const map = new Map<string, OpenScan>();
-    for (const scan of library) map.set(scan.study.id, scan);
+    for (const scan of shown) map.set(scan.study.id, scan);
     return map;
-  }, [library]);
+  }, [shown]);
 
   return (
     <div className="case-workspace">
@@ -177,6 +201,39 @@ export function CaseWorkspace({
         <MarkList marks={marks} view={view} verdicts={verdicts}
                   scanIds={[received.study.id, ...library.map((s) => s.study.id)]}
                   onShow={(mark) => adopt(mark.view)} />
+      )}
+
+      {library.length > 3 && (
+        <section className="case-narrow">
+          <label>
+            <input
+              type="checkbox"
+              aria-label="Narrow the library to this case's acquisition"
+              checked={narrow}
+              onChange={(event) => setNarrow(event.target.checked)}
+            />
+            Narrow to this case&apos;s acquisition
+          </label>
+          <p className="case-note">{describeQuery(fromCase(received.study))}</p>
+          <p className="case-note">{describeResult(queried)}</p>
+          {narrow && queried.excluded.length > 0 && (
+            /*
+              * What the filter removed, named rather than merely subtracted.
+              * A researcher who cannot see what a query dropped cannot tell a
+              * narrow library from a wrong query.
+              */
+            <details>
+              <summary>{queried.excluded.length} set aside by this filter</summary>
+              <ul className="case-setaside">
+                {queried.excluded.map((row) => (
+                  <li key={row.study.id}>
+                    {row.study.label} — {explainRow(row)}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </section>
       )}
 
       <p className="case-summary">{describePartition(groups)}</p>

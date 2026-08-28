@@ -3958,3 +3958,21 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   color: var(--ink); font-size: 13px; text-align: left;
   text-decoration: underline; text-underline-offset: 3px;
 }
+
+/* Narrowing a library before anything is drawn. What the filter set aside is
+   listed rather than merely subtracted: a researcher who cannot see what a
+   query dropped cannot tell a narrow library from a wrong query. */
+.case-narrow {
+  margin: 16px 0; padding: 10px 12px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r-card);
+}
+.case-narrow > label {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; color: var(--ink);
+}
+.case-narrow details { margin-top: 6px; }
+.case-narrow summary { font-size: 12px; color: var(--ink-soft); cursor: pointer; }
+.case-setaside {
+  margin: 6px 0 0 16px; font-size: 12px; color: var(--ink-faint);
+}
