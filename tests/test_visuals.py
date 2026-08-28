@@ -647,3 +647,153 @@ def test_a_lossy_export_comes_back_with_its_warning(analysed):
 
     assert jpeg["warning"] and "lossy" in jpeg["warning"].lower()
     assert png["warning"] is None
+
+
+# ---------------------------------------------------------------------------
+# The route a researcher actually takes (LAW 5)
+#
+# Everything above tests the domain, and the domain was never the problem: the
+# four HTTP routes had no caller in the interface at all, and the Figures
+# screen exported by cloning the live `<svg>` out of the page. That produced a
+# file, which is why nobody noticed it skipped the critic, the lineage edge,
+# the publication formats and the traceable filename.
+#
+# So this walks the sequence the export button performs, over HTTP, because
+# that seam is the one nothing exercised.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def client():
+    from fastapi.testclient import TestClient
+
+    from throughline_api.app import app
+
+    with TestClient(app) as test_client:
+        yield test_client
+    # The API owns its own connections, so these tests commit for real.
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM users WHERE email = %s", ("figures@lab.local",))
+
+
+def _http_project_with_analysis(client) -> tuple[str, str]:
+    """A project owned by the signed-in account, with one completed analysis."""
+    status = client.get("/api/auth/status").json()
+    endpoint = "/api/auth/setup" if status["needs_setup"] else "/api/auth/login"
+    assert client.post(endpoint, json={
+        "email": "figures@lab.local", "display_name": "Figures",
+        "password": "correct-horse-battery"}).status_code == 200
+
+    project_id = client.post("/api/projects", json={"name": "Figures"}).json()["id"]
+    assert client.post(
+        f"/api/projects/{project_id}/sources",
+        files={"file": ("amr.csv", _csv(), "text/csv")}).status_code == 202
+    _drain()
+
+    sources = client.get(f"/api/projects/{project_id}/sources").json()
+    version_id = sources[0]["dataset"]["dataset_version_id"]
+
+    queued = client.post(f"/api/projects/{project_id}/analyses", json={
+        "method": "pearson_correlation",
+        "dataset_version_ids": [version_id],
+        "variables": {"x": "consumption_ddd", "y": "resistance_pct"},
+    })
+    assert queued.status_code == 202, queued.text
+    _drain()
+    return project_id, queued.json()["analysis_run_id"]
+
+
+def test_a_figure_exported_over_http_is_recorded_against_its_analysis(client):
+    """
+    LAW 5 — a figure resolves back to the computation and the dataset under it.
+    The DOM export produced a file related to nothing; this produces an object
+    with a `VISUALIZES` edge, which is what makes a figure on a slide traceable.
+    """
+    project_id, run_id = _http_project_with_analysis(client)
+
+    created = client.post(f"/api/projects/{project_id}/visuals",
+                          json={"analysis_run_id": run_id})
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["visual_id"].startswith("vis_")
+    # The critic ran and said something, rather than the figure being stored blind.
+    assert "critiques" in body["critique"]
+
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT lineage_type FROM artifact_lineage_edges WHERE target_artifact_id = %s",
+            (body["object_id"],))
+        assert [r["lineage_type"] for r in cur.fetchall()] == ["visualizes"]
+
+
+def test_the_download_a_researcher_asks_for_arrives_as_that_format(client):
+    """
+    The formats journals ask for, which the browser export could not produce:
+    it could only save what the page happened to be holding.
+    """
+    project_id, run_id = _http_project_with_analysis(client)
+    visual_id = client.post(f"/api/projects/{project_id}/visuals",
+                            json={"analysis_run_id": run_id}).json()["visual_id"]
+
+    pdf = client.get(f"/api/visuals/{visual_id}/download?format=pdf")
+    assert pdf.status_code == 200, pdf.text
+    assert pdf.headers["content-type"] == "application/pdf"
+    assert pdf.content[:4] == b"%PDF"
+    # Named for the figure, not for the variables: a folder of downloads stays
+    # legible, and every file can be traced back.
+    assert visual_id in pdf.headers["content-disposition"]
+
+    png = client.get(f"/api/visuals/{visual_id}/download?format=png&height=600")
+    assert png.status_code == 200, png.text
+    assert png.headers["content-type"] == "image/png"
+    assert png.content[:8] == b"\x89PNG\r\n\x1a\n"
+    assert "600px" in png.headers["content-disposition"]
+
+
+def test_the_format_warning_is_available_before_the_file_is(client):
+    """
+    The render step exists so the interface can warn *before* the download. A
+    warning that arrives with the file has already lost.
+    """
+    project_id, run_id = _http_project_with_analysis(client)
+    visual_id = client.post(f"/api/projects/{project_id}/visuals",
+                            json={"analysis_run_id": run_id}).json()["visual_id"]
+
+    lossy = client.post(f"/api/visuals/{visual_id}/render?format=jpeg&height=600")
+    assert lossy.status_code == 200, lossy.text
+    assert "lossy" in (lossy.json()["warning"] or "").lower()
+
+    vector = client.post(f"/api/visuals/{visual_id}/render?format=pdf")
+    assert vector.status_code == 200, vector.text
+    assert vector.json()["warning"] is None
+
+
+def test_a_pixel_height_is_refused_for_a_vector_rather_than_ignored(client):
+    """
+    An SVG has no pixel size. Honouring the request in name only leaves the
+    caller believing the file is 1080 tall.
+    """
+    project_id, run_id = _http_project_with_analysis(client)
+    visual_id = client.post(f"/api/projects/{project_id}/visuals",
+                            json={"analysis_run_id": run_id}).json()["visual_id"]
+
+    refused = client.get(f"/api/visuals/{visual_id}/download?format=svg&height=1080")
+    assert refused.status_code == 400, refused.text
+
+
+def test_a_figure_for_an_unfinished_analysis_is_refused_with_a_reason(client):
+    """The export button's first call, on a run that has nothing to draw yet."""
+    project_id, _ = _http_project_with_analysis(client)
+    sources = client.get(f"/api/projects/{project_id}/sources").json()
+    version_id = sources[0]["dataset"]["dataset_version_id"]
+    queued = client.post(f"/api/projects/{project_id}/analyses", json={
+        "method": "pearson_correlation",
+        "dataset_version_ids": [version_id],
+        "variables": {"x": "consumption_ddd", "y": "resistance_pct"},
+    }).json()["analysis_run_id"]
+    # Deliberately not drained: the run is still queued.
+
+    refused = client.post(f"/api/projects/{project_id}/visuals",
+                          json={"analysis_run_id": queued})
+    assert refused.status_code == 409, refused.text
+    assert "completed" in refused.json()["detail"]

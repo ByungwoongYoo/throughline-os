@@ -21,6 +21,7 @@ import { Estimate, Interval } from "./charts/Interval";
 import { Cell, Matrix } from "./charts/Matrix";
 import { Density, DensityCurve } from "./charts/Density";
 import { Empty, Failure, Loading } from "./primitives";
+import { PublishFigure } from "./publish";
 
 type Recommendation = {
   visual_type: string;
@@ -157,7 +158,7 @@ export function Figures({ projectId, connections }: {
       {recommendation.loading && <Loading rows={4} label="Choosing the figure" />}
       {connection && recommendation.data && (
         <Figure connection={connection} recommendation={recommendation.data}
-                labels={labels} />
+                labels={labels} projectId={projectId} />
       )}
       </>
       )}
@@ -376,10 +377,11 @@ function ForestView({ state }: { state: ApiState<EstimatePayload> }) {
   );
 }
 
-function Figure({ connection, recommendation, labels }: {
+function Figure({ connection, recommendation, labels, projectId }: {
   connection: Connection;
   recommendation: Recommendation;
   labels: Record<string, string>;
+  projectId: string;
 }) {
   const svgHost = useRef<HTMLDivElement>(null);
   const points = useApi<Points>(
@@ -494,11 +496,24 @@ function Figure({ connection, recommendation, labels }: {
       </div>
 
       <div className="row" style={{ marginBottom: 14 }}>
-        <button className="btn btn-primary" onClick={exportSvg}>Export SVG</button>
+        <button className="btn" onClick={exportSvg}>Save this view</button>
         <span className="note" style={{ margin: 0 }}>
-          Vector, no interface chrome, light theme regardless of the app&apos;s theme.
+          The SVG on screen, as it is. Quick, and related to nothing — for a
+          figure that has to be traceable back to its analysis, export it below.
         </span>
       </div>
+
+      {/*
+        * The same figure, but through the server: critiqued, recorded against
+        * the analysis it came from, and rendered in the formats journals ask
+        * for. The button above copies what the browser is holding; this one
+        * produces a figure the system can account for.
+        */}
+      <PublishFigure
+        projectId={projectId}
+        analysisRunId={connection.analysis_run_id!}
+        spec={recommendation.spec as unknown as Record<string, unknown>}
+      />
 
       {/* Part P — an always-available table alternative. */}
       <details className="kg-table">

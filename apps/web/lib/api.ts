@@ -67,6 +67,8 @@ async function requestBytes(path: string, init?: RequestInit): Promise<Uint8Arra
 
 export const api = {
   get: <T>(path: string) => request<T>(path),
+  /** GET that returns a file. See `requestBytes`. */
+  getForBytes: (path: string) => requestBytes(path),
   /** POST that returns a file. See `requestBytes`. */
   postForBytes: (path: string, body?: unknown) =>
     requestBytes(path, {

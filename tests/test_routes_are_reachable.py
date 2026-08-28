@@ -124,15 +124,12 @@ WITHOUT_A_CLIENT = {
     "/api/projects/*/synthesis/key-points":
         "No interface requests key points.",
 
-    # Visuals: an entire built subsystem with no way in.
-    "/api/projects/*/visuals":
-        "POST. The visuals subsystem has no interface at all.",
+    # Visuals. Three of these five had no client at all until the Figures
+    # screen was routed through them; what is left is the reading half.
     "/api/visuals/*":
-        "GET and PATCH. The visuals subsystem has no interface at all.",
-    "/api/visuals/*/render":
-        "The visuals subsystem has no interface at all.",
-    "/api/visuals/*/download":
-        "The visuals subsystem has no interface at all.",
+        "GET and PATCH. Export creates a figure and downloads it in one pass, "
+        "so nothing reloads one afterwards or edits its spec. A saved-figures "
+        "list is what would call these, and there is not one yet.",
     "/api/artifacts/*/presentation":
         "Nothing turns an artifact into a presentation from the interface.",
 
