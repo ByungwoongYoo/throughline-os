@@ -1409,6 +1409,26 @@ def fetch_paper_pdf(payload: PaperPdfRequest,
 # called these paths and received 404s.
 # ---------------------------------------------------------------------------
 
+def _owning_project(cur, table: str, row_id: str, missing: str) -> str:
+    """
+    Which project a row belongs to, or 404.
+
+    Routes keyed by an artifact, a source or an alias cannot check ownership
+    from the path alone: the id names a row, and the project has to be looked
+    up before anybody can be asked whether it is theirs. Five such routes never
+    did, and answered 200 to a second account — one of them rendered another
+    researcher's report to a file.
+
+    404 rather than 403, matching `scoped_project`: whether a row exists is
+    itself something only its owner is entitled to know.
+    """
+    cur.execute(f"SELECT project_id FROM {table} WHERE id = %s", (row_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, missing)
+    return str(row["project_id"])
+
+
 @app.get("/api/projects/{project_id}/artifacts")
 def list_artifacts(project_id: str,
                    user: dict = Depends(current_user)) -> list[dict[str, Any]]:
@@ -1491,6 +1511,8 @@ def get_artifact(artifact_id: str,
     screen that has to ask twice tends to show one of the two.
     """
     with transaction() as cur:
+        scoped_project(_owning_project(cur, "communication_artifacts", artifact_id,
+                                       "There is no such document."), user)
         try:
             artifact = communication.load_artifact(cur, artifact_id, resolve=True)
         except communication.UnresolvedReference:
@@ -1528,6 +1550,8 @@ def render_artifact_to_file(artifact_id: str, fmt: str = Query("markdown"),
     prevent.
     """
     with transaction() as cur:
+        scoped_project(_owning_project(cur, "communication_artifacts", artifact_id,
+                                       "There is no such document."), user)
         try:
             return render_artifact.render(cur, artifact_id=artifact_id, fmt=fmt)
         except render_artifact.RenderError as exc:
@@ -1541,6 +1565,8 @@ def check_artifact_citations(artifact_id: str,
                              user: dict = Depends(current_user)) -> dict[str, Any]:
     """Check every citation in this artifact still says what it is quoted for."""
     with transaction() as cur:
+        scoped_project(_owning_project(cur, "communication_artifacts", artifact_id,
+                                       "There is no such document."), user)
         # Through the link table: a citation belongs to the project and is
         # attached to blocks, so it can support more than one sentence.
         cur.execute(
@@ -1674,6 +1700,8 @@ def list_marks(source_id: str,
                user: dict = Depends(current_user)) -> dict[str, Any]:
     """Everything drawn on this paper, oldest first, so it redraws as written."""
     with transaction() as cur:
+        scoped_project(_owning_project(cur, "sources", source_id,
+                                       "No such paper."), user)
         return {"marks": marks.for_source(cur, source_id=source_id)}
 
 
@@ -2182,6 +2210,8 @@ def decide_alias(alias_id: str, payload: AliasDecision,
     every future paper, and a reader is entitled to know who decided that.
     """
     with transaction() as cur:
+        scoped_project(_owning_project(cur, "variable_aliases", alias_id,
+                                       "No such term."), user)
         try:
             decided = vocabulary.decide(cur, alias_id=alias_id,
                                         status=payload.status,

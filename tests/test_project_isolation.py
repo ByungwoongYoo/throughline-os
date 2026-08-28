@@ -123,3 +123,108 @@ def test_another_account_cannot_recut_someone_elses_report(client):
     answer = client.post(f"/api/artifacts/{report_id}/presentation")
     assert answer.status_code == 404, (
         f"another account re-cut this report: {answer.status_code} {answer.text}")
+
+
+# ---------------------------------------------------------------------------
+# Routes keyed by something other than a project
+#
+# These are the harder half. A path carrying `project_id` at least names the
+# thing to check; a path carrying `artifact_id` names a row, and the check has
+# to go and find out which project that row belongs to before it can ask
+# anything. `POST /artifacts/{id}/presentation` is the one that was open, and
+# it was open in exactly this way.
+# ---------------------------------------------------------------------------
+
+
+def _report_in_first_account(client) -> str:
+    """A report belonging to the first account, then sign in as the second."""
+    from throughline_domain import communication
+
+    project_id = _first_account(client)
+    with connection() as conn, conn.cursor() as cur:
+        report_id = communication.create_artifact(
+            cur, project_id=project_id, artifact_type="report",
+            title="Mine", audience="journal", purpose="report the finding")
+    _second_account(client)
+    return report_id
+
+
+@pytest.mark.parametrize("method,suffix,body", [
+    ("get", "", None),
+    ("post", "/render?fmt=pptx", None),
+    ("post", "/check-citations", None),
+    ("post", "/presentation", None),
+])
+def test_another_account_cannot_reach_this_artifact(client, method, suffix, body):
+    report_id = _report_in_first_account(client)
+    call = getattr(client, method)
+    url = f"/api/artifacts/{report_id}{suffix}"
+    answer = call(url, json=body) if body is not None else call(url)
+
+    assert answer.status_code == 404, (
+        f"{method.upper()} {url} answered {answer.status_code} to another "
+        f"account: {answer.text[:200]}")
+
+
+def test_another_account_cannot_read_marks_on_this_source(client):
+    from throughline_domain import objects
+    from throughline_schemas.enums import SourceType
+
+    project_id = _first_account(client)
+    with connection() as conn, conn.cursor() as cur:
+        source_id = objects.create_source(
+            cur, project_id=project_id, source_type=SourceType.UPLOAD,
+            title="A paper", actor="owner")
+    _second_account(client)
+
+    answer = client.get(f"/api/sources/{source_id}/marks")
+    assert answer.status_code == 404, (
+        f"another account read the marks on this paper: {answer.status_code} "
+        f"{answer.text[:200]}")
+
+
+def test_another_account_cannot_decide_a_term_in_this_vocabulary(client):
+    """
+    A write, and a quiet one: an approved alias silently resolves that term in
+    every future paper of the project it belongs to.
+    """
+    from throughline_domain import harmonize, vocabulary
+
+    project_id = _first_account(client)
+    with connection() as conn, conn.cursor() as cur:
+        canonical = harmonize._upsert_canonical(
+            cur, project_id=project_id, name="resistance",
+            label="Resistance", definition="Share of isolates resistant.",
+            unit="%", semantic_type="ratio")
+        alias = vocabulary.suggest(
+            cur, project_id=project_id, phrase="AMR",
+            canonical_variable_id=canonical, origin="paper",
+            origin_ref=None, created_by="owner")
+    _second_account(client)
+
+    answer = client.post(f"/api/vocabulary/{alias['id']}/decide",
+                         json={"status": "approved"})
+    assert answer.status_code == 404, (
+        f"another account decided a term here: {answer.status_code} "
+        f"{answer.text[:200]}")
+
+
+def test_another_account_cannot_delete_this_project(client):
+    """
+    The most destructive route in the product, and it is safe — by a different
+    mechanism. It never calls `scoped_project`: it filters on
+    `owner_user_id` in its own SELECT and finds nothing.
+
+    Which is why this file tests behaviour rather than reading for the call. A
+    static scan flags mechanism; only the answer says whether the boundary
+    holds.
+    """
+    project_id = _first_account(client)
+    _second_account(client)
+
+    assert client.delete(f"/api/projects/{project_id}").status_code == 404
+
+    # And it really is still there.
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id FROM projects WHERE id = %s", (project_id,))
+        assert cur.fetchone() is not None
