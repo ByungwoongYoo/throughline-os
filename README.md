@@ -118,12 +118,22 @@ Grammar and the video engine. `ROADMAP.md` is the live document: it records what
 does not, and the order the rest is being built in. Where an earlier audit was
 wrong, the correction is kept rather than quietly edited out.
 
+**Every statistical method is checked against somebody else's implementation.**
+`evals/conformance.py` walks the method registry rather than a list somebody
+maintains: each method either has a scipy reference or a written reason why one
+cannot exist, and a method with neither fails the build. It runs over sixty
+random frames chosen to be awkward — unequal groups, single-member groups, tied
+ranks — because a hand-picked example can pass while the edge cases diverge.
+Agreement is required to floating-point noise rather than to a few decimal
+places, since two implementations of one closed form should differ only in
+rounding.
+
 **Nothing here is a placeholder presented as working functionality.** That is
 the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **1572 backend tests and 1703 web tests**, with 14 backend
+The current suite is **1579 backend tests and 1703 web tests**, with 14 backend
 skips. Ten carry a reason CI's allowlist recognises — a skip with an
 unrecognised reason fails the build, so the suite cannot quietly shrink. The
 other four are the speech tests, whose reason (`openai-whisper is not
