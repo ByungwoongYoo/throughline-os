@@ -3875,3 +3875,50 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   .chart-brush { fill: Highlight; fill-opacity: 0.3; stroke: Highlight; }
   .chart-table tbody tr.is-highlighted { outline: 2px solid Highlight; }
 }
+
+/* Comparing a received case (imaging). The refusals are as prominent as the
+   matches on purpose: a screen of matches with the set-aside scans hidden
+   would leave a reader with no sense of what was excluded, and that is the
+   part of this workflow hardest to get anywhere else. */
+.case-page { max-width: 1100px; margin: 0 auto; padding: 32px 20px 64px; }
+.case-page h1 { font-size: 22px; color: var(--ink-strong); margin-bottom: 8px; }
+.case-page h2 { font-size: 15px; color: var(--ink-strong); margin: 24px 0 6px; }
+.case-page > header p { font-size: 14px; color: var(--ink-soft); margin-bottom: 10px; }
+.case-warning {
+  font-size: 13px; color: var(--ink-soft);
+  border-left: 2px solid var(--line); padding-left: 10px;
+}
+.case-privacy {
+  margin: 20px 0; padding: 12px 14px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r-card);
+}
+.case-note { font-size: 12px; color: var(--ink-faint); margin: 4px 0; }
+.case-summary { font-size: 13px; color: var(--ink-soft); margin: 18px 0 6px; }
+.case-received { margin-bottom: 18px; }
+.case-group { margin-bottom: 26px; }
+.case-count {
+  font-size: 12px; color: var(--ink-faint); font-weight: 400; margin-left: 6px;
+}
+.case-row { display: flex; flex-wrap: wrap; gap: 18px; }
+.case-item { flex: 1 1 420px; min-width: 320px; }
+.case-scan { margin: 0; }
+.case-label {
+  display: flex; flex-direction: column; gap: 2px;
+  font-size: 13px; color: var(--ink); margin-bottom: 4px;
+}
+.case-evidence { font-size: 11px; color: var(--ink-faint); }
+.case-reasoning { font-size: 12px; color: var(--ink-soft); }
+.case-verdict-ok { color: var(--ink-soft); }
+.case-verdict-no { color: var(--ink); }
+.case-todo { margin: 6px 0 6px 16px; font-size: 12px; color: var(--ink-faint); }
+.case-axes { width: 100%; border-collapse: collapse; margin-top: 6px; }
+.case-axes th, .case-axes td {
+  text-align: left; font-weight: 400; font-size: 11px;
+  padding: 2px 6px 2px 0; color: var(--ink-faint);
+  border-bottom: 1px solid var(--line);
+}
+.case-axes th { color: var(--ink-soft); white-space: nowrap; }
+.case-axes tr.case-differ td, .case-axes tr.case-differ th { color: var(--ink); }
+.case-axes tr.case-not_stated th, .case-axes tr.case-not_stated td { opacity: 0.7; }
+.case-workspace { margin-top: 8px; }

@@ -29,7 +29,9 @@
 import {
   useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 } from "react";
-import { ScreenPoint, TargetRef, VisualizationController } from "@/lib/spatial/commands";
+import {
+  ScreenPoint, TargetRef, ViewState, VisualizationController,
+} from "@/lib/spatial/commands";
 import {
   Camera, DEFAULT_CAMERA, resetCamera, rotateCamera, toCanvas, zoomCamera,
 } from "@/lib/charts/scene3d";
@@ -47,6 +49,15 @@ export type VoxelVolumeProps = {
   controllerRef?: React.RefObject<VisualizationController | null>;
   /** Told when the reader moves the window, so a caller can keep it. */
   onWindowChange?: (window: Window) => void;
+  /**
+   * Told whenever the view changes — camera or window.
+   *
+   * Exists so several volumes can be held at one view. Comparing two scans at
+   * different windows is comparing two different pictures, so a workspace that
+   * shows them side by side has to be able to keep them in step; without a way
+   * to hear about a change it could only push, never follow.
+   */
+  onViewChange?: (view: ViewState) => void;
   onSelect?: (target: TargetRef | null) => void;
   caption?: string;
 };
@@ -58,7 +69,7 @@ const SPLAT_RADIUS = 2.6;
 
 export function VoxelVolume({
   grid, settings = DEFAULT_VOLUME, width = 720, height = 520, controllerRef,
-  onWindowChange, onSelect, caption,
+  onWindowChange, onViewChange, onSelect, caption,
 }: VoxelVolumeProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const cameraRef = useRef<Camera>({ ...DEFAULT_CAMERA });
@@ -75,6 +86,12 @@ export function VoxelVolume({
     () => prepareVolume(grid, window_ ? { ...settings, window: window_ }
                                       : settings),
     [grid, settings, window_]);
+
+  /*
+   * The window as the extractor resolved it, readable without waiting for a
+   * render: the announcement below runs inside a pointer move.
+   */
+  const windowRef = useRef<Window>(volume.window);
 
   const at = useCallback((splat: Splat): ScreenPoint => {
     const q = toCanvas(splat, cameraRef.current, width, height);
@@ -102,19 +119,42 @@ export function VoxelVolume({
     return best;
   }, [volume, width, height]);
 
+  /*
+   * Reported from one place, so a mutation that forgot to announce itself
+   * cannot exist. The window is read from `volume`, which is the value the
+   * caption and the extractor already agree on.
+   */
+  const announce = useCallback(() => {
+    onViewChange?.({
+      yaw: cameraRef.current.yaw, pitch: cameraRef.current.pitch,
+      zoom: cameraRef.current.zoom,
+      level: windowRef.current.level, window: windowRef.current.window,
+    });
+  }, [onViewChange]);
+
   const rotate = useCallback((dx: number, dy: number) => {
     rotateCamera(cameraRef.current, dx, dy);
     dirtyRef.current = true;
-  }, []);
+    announce();
+  }, [announce]);
 
   const moveWindow = useCallback((next: Window) => {
+    windowRef.current = next;
     setWindow(next);
     onWindowChange?.(next);
-  }, [onWindowChange]);
+    onViewChange?.({
+      yaw: cameraRef.current.yaw, pitch: cameraRef.current.pitch,
+      zoom: cameraRef.current.zoom, level: next.level, window: next.window,
+    });
+  }, [onWindowChange, onViewChange]);
 
   useImperativeHandle(controllerRef, (): VisualizationController => ({
     rotate,
-    zoom: (factor) => { zoomCamera(cameraRef.current, factor); dirtyRef.current = true; },
+    zoom: (factor) => {
+      zoomCamera(cameraRef.current, factor);
+      dirtyRef.current = true;
+      announce();
+    },
     pan: () => {},
     hover: (point) => nearest(point),
     select: (point) => {
@@ -182,6 +222,11 @@ export function VoxelVolume({
   useEffect(() => { dirtyRef.current = true; }, [volume, selected]);
 
   useEffect(() => {
+    windowRef.current = volume.window;
+    announce();
+  }, [volume.window, announce]);
+
+  useEffect(() => {
     if (typeof requestAnimationFrame === "undefined") return;
     let running = true;
     let handle = 0;
@@ -245,7 +290,15 @@ export function VoxelVolume({
             aria-label="Window level"
             min={volume.range.min}
             max={volume.range.max}
-            step={(volume.range.max - volume.range.min) / 200 || 1}
+            /*
+             * Continuous, not stepped. A step derived from this volume's own
+             * range snaps the thumb to that volume's grid — so several volumes
+             * held at one shared window display slightly different numbers
+             * while rendering identically. The pictures agree and the controls
+             * appear not to, which is the worst way round: a reader checking
+             * whether the comparison is honest looks at the numbers.
+             */
+            step="any"
             value={volume.window.level}
             onChange={(event) => moveWindow({
               level: Number(event.target.value),
@@ -259,7 +312,15 @@ export function VoxelVolume({
             aria-label="Window width"
             min={(volume.range.max - volume.range.min) / 100 || 1}
             max={(volume.range.max - volume.range.min) || 1}
-            step={(volume.range.max - volume.range.min) / 200 || 1}
+            /*
+             * Continuous, not stepped. A step derived from this volume's own
+             * range snaps the thumb to that volume's grid — so several volumes
+             * held at one shared window display slightly different numbers
+             * while rendering identically. The pictures agree and the controls
+             * appear not to, which is the worst way round: a reader checking
+             * whether the comparison is honest looks at the numbers.
+             */
+            step="any"
             value={volume.window.window}
             onChange={(event) => moveWindow({
               level: volume.window.level,
