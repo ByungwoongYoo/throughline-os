@@ -23,10 +23,25 @@ const INDEX = {
   notes: 0, by_kind: {}, entry_points: [], subjects: [], recent: [],
 };
 
+/**
+ * One note, in the shape the note view actually reads.
+ *
+ * Creating a note opens it, so these tests reach `/api/notes/{id}` whether
+ * they mean to or not. Answering `{}` there let the view read `body.slice` on
+ * `undefined`, React unmounted it, and the tests carried on asserting against
+ * an empty DOM — green over a crash, until `tests/setup.ts` began failing on
+ * exactly that.
+ */
+const CREATED = {
+  id: "note_1", title: "Ward round notes", body: "", note_kind: "note",
+  updated_at: "2026-08-29T09:00:00Z", links: [], backlinks: [],
+};
+
 function serveReads() {
   return vi.spyOn(apiModule.api, "get").mockImplementation(async (path: string) => {
     if (path.includes("/notebook/index")) return INDEX as never;
     if (path.includes("/notebook")) return LISTING as never;
+    if (path.includes("/notes/")) return CREATED as never;
     return {} as never;
   });
 }
@@ -71,6 +86,24 @@ describe("creating a note", () => {
     // Trimmed: leading space is a typo, not a name.
     await waitFor(() => expect(post).toHaveBeenCalledWith(
       "/api/projects/prj_1/notebook", { title: "Ward round notes", body: "" }));
+  });
+
+  it("opens the note it just created", async () => {
+    /*
+     * A note created and left unopened is a note the researcher has to go and
+     * find. This was never asserted, and could not have been: the step that
+     * opens it was throwing, and the test that covered creation passed anyway
+     * because the request it checked had already been made.
+     */
+    vi.spyOn(apiModule.api, "post").mockResolvedValue({ id: "note_1" } as never);
+
+    const input = await openNamingForm();
+    fireEvent.change(input, { target: { value: "Ward round notes" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => expect(
+      screen.getByDisplayValue("") ?? screen.getByText("Ward round notes"))
+      .toBeTruthy());
   });
 
   it("submits on Enter, as the prompt it replaced did", async () => {

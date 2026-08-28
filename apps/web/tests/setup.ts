@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
-import { afterEach } from "vitest";
+import { afterEach, beforeEach } from "vitest";
 
 /**
  * Give the test DOM a `localStorage`, because Node 26 takes it away.
@@ -51,3 +51,56 @@ function restoreLocalStorage(): void {
 restoreLocalStorage();
 
 afterEach(cleanup);
+
+
+/**
+ * A test cannot pass while the thing it rendered threw.
+ *
+ * React catches an error thrown during render, unmounts the tree, and logs it.
+ * The DOM is then empty — and an empty DOM satisfies every `queryBy…` that
+ * expects nothing, every `not.toContain`, and every assertion about a call
+ * that was made before the crash. The test goes green over a component that
+ * fell over.
+ *
+ * This has now cost four separate debugging sessions in this repository, and
+ * every one of them began by looking in the wrong place, because a dead render
+ * reports itself as whatever the first query happened to ask for: *unable to
+ * find role combobox* when the picker was fine, *unable to find the button*
+ * when the button was fine. The cause was always a fixture that had drifted
+ * from the type it stands in for — an object literal is a second copy of an
+ * API contract, and nothing keeps the two together unless it is typed.
+ *
+ * So the render error becomes the failure. A test that means to provoke one —
+ * an error boundary, a deliberately bad prop — opts out by name.
+ */
+const RENDER_CRASH =
+  /TypeError|is not iterable|Cannot read propert|is not a function/;
+
+/** Tests that provoke a render error on purpose. */
+const ALLOWED_TO_CRASH: RegExp[] = [];
+
+let crashes: string[] = [];
+let realError: typeof console.error;
+
+beforeEach(() => {
+  crashes = [];
+  realError = console.error;
+  console.error = (...args: unknown[]) => {
+    const text = args.map(String).join(" ");
+    if (RENDER_CRASH.test(text)) crashes.push(text.slice(0, 300));
+    realError(...args);
+  };
+});
+
+afterEach((ctx) => {
+  console.error = realError;
+  const name = ctx.task?.name ?? "";
+  if (!crashes.length) return;
+  if (ALLOWED_TO_CRASH.some((pattern) => pattern.test(name))) return;
+  throw new Error(
+    "Something threw while rendering, so this test asserted against an empty "
+    + "DOM:\n  " + crashes[0]
+    + "\n\nUsually a test fixture that has drifted from the type it stands "
+    + "in for. Type the fixture and the compiler will point at the missing "
+    + "field.");
+});

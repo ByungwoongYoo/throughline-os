@@ -25,6 +25,28 @@ const CARDS: Placement[] = [
     z: 1, object_type: "figure", title: "Figure 2", status: "complete" },
 ];
 
+/**
+ * What the panel behind a card asks for.
+ *
+ * Pressing a card opens it, and the panel then fetches the object's impact and
+ * its mentions. A mock that answers those with the board payload makes the
+ * panel throw, React unmounts it, and the test carries on against an empty
+ * DOM — which is how two tests here went green over a crash until
+ * `tests/setup.ts` started failing on it.
+ */
+function detailResponse(url: string): Response | null {
+  if (url.includes("/impact")) {
+    return new Response(JSON.stringify({
+      object_id: "obj1", dependent_artifacts: 0, by_type: {},
+      findings_losing_evidence: 0, artifacts: [],
+    }), { status: 200 });
+  }
+  if (url.includes("/mentions")) {
+    return new Response("[]", { status: 200 });
+  }
+  return null;
+}
+
 function mockApi(placements: Placement[] = CARDS) {
   const put = vi.fn((body: Record<string, unknown>) => body);
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
@@ -32,7 +54,8 @@ function mockApi(placements: Placement[] = CARDS) {
       put(JSON.parse(String(init.body)));
       return new Response("{}", { status: 200 });
     }
-    return new Response(JSON.stringify({ placements }), { status: 200 });
+    return detailResponse(String(url))
+      ?? new Response(JSON.stringify({ placements }), { status: 200 });
   }));
   return { put };
 }
@@ -171,7 +194,8 @@ describe("a click is not a drag", () => {
         raised.push(String(url));
         return new Response(JSON.stringify({ z: 9 }), { status: 200 });
       }
-      return new Response(JSON.stringify({ placements: CARDS }), { status: 200 });
+      return detailResponse(String(url))
+        ?? new Response(JSON.stringify({ placements: CARDS }), { status: 200 });
     }));
 
     render(<Board projectId="prj1" />);
