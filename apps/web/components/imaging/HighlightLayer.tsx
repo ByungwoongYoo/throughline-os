@@ -63,6 +63,18 @@ export function HighlightLayer({
   scanId, verdict, view, marks, width, height, drawable = false, onDrawn,
 }: HighlightLayerProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  /*
+   * The stroke lives in a ref and is mirrored into state only so the canvas
+   * repaints.
+   *
+   * Reading it from state in `finish` looked equivalent and was not: pointer
+   * moves and the release can arrive in one task — browsers coalesce moves, and
+   * any synthetic or injected input does it too — and React batches the updates,
+   * so the handler saw an empty stroke and silently dropped the mark. Silently
+   * is the problem: the researcher drew a region and nothing appeared, with no
+   * error anywhere.
+   */
+  const points = useRef<Point[]>([]);
   const [stroke, setStroke] = useState<Point[]>([]);
   const drawing = useRef(false);
 
@@ -79,12 +91,13 @@ export function HighlightLayer({
   const finish = useCallback(() => {
     if (!drawing.current) return;
     drawing.current = false;
-    const points = thin(stroke);
+    const drawn = thin(points.current);
+    points.current = [];
     setStroke([]);
     // Two points are a tap, not a region. Emitting one would put a mark
     // somewhere the researcher did not mean to leave one.
-    if (points.length >= 3) onDrawn?.(points);
-  }, [stroke, onDrawn]);
+    if (drawn.length >= 3) onDrawn?.(drawn);
+  }, [onDrawn]);
 
   return (
     <div className="hl-wrap" style={{ width, height }}>
@@ -99,14 +112,17 @@ export function HighlightLayer({
           if (!drawable) return;
           const box = event.currentTarget.getBoundingClientRect();
           drawing.current = true;
-          setStroke([{ x: event.clientX - box.left, y: event.clientY - box.top }]);
+          points.current = [
+            { x: event.clientX - box.left, y: event.clientY - box.top }];
+          setStroke(points.current);
           (event.target as Element).setPointerCapture?.(event.pointerId);
         }}
         onPointerMove={(event) => {
           if (!drawing.current) return;
           const box = event.currentTarget.getBoundingClientRect();
-          setStroke((held) => [...held,
-            { x: event.clientX - box.left, y: event.clientY - box.top }]);
+          points.current = [...points.current,
+            { x: event.clientX - box.left, y: event.clientY - box.top }];
+          setStroke(points.current);
         }}
         onPointerUp={finish}
         onPointerLeave={finish}

@@ -35,6 +35,7 @@ import {
 import { describeReview, review } from "@/lib/imaging/phi";
 import { NiftiError, openNifti } from "@/lib/imaging/nifti";
 import { DicomError, openDicomSeries, readDicom } from "@/lib/imaging/dicom";
+import { scanHandle } from "@/lib/imaging/identity";
 
 /**
  * A volume with a blob in it, at a given size and offset.
@@ -119,6 +120,12 @@ export function CaseCompare({ standalone = false }: { standalone?: boolean }) {
   const [opened, setOpened] = useState<OpenScan[]>([]);
   const [problems, setProblems] = useState<string[]>([]);
   const [author, setAuthor] = useState("");
+  /*
+   * The case's machine-local handle, computed here because hashing is async and
+   * the workspace is not. Only DICOM yields one: a NIfTI carries no series UID,
+   * so marks on a NIfTI last as long as the tab and the interface says so.
+   */
+  const [handle, setHandle] = useState<string | null>(null);
 
   const open = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -174,8 +181,19 @@ export function CaseCompare({ standalone = false }: { standalone?: boolean }) {
       for (const [key, group] of bySeries) {
         const label = key.split("|")[0] || `${group.length} slices`;
         try {
-          const { grid, study } = await openDicomSeries(group, label);
+          const { grid, study, header } = await openDicomSeries(group, label);
           loaded.push({ grid, study });
+          /*
+           * The first series ever opened is the case, and the only one marks
+           * attach to. Decided inside the setter rather than by reading
+           * `opened`, which this callback captured when it was created — a
+           * second batch would have seen a stale zero there and taken the
+           * handle away from the case the marks belong to.
+           */
+          if (loaded.length === 1) {
+            const computed = await scanHandle(header);
+            setHandle((held) => held ?? computed);
+          }
         } catch (error) {
           failed.push(`${label}: ${
             error instanceof DicomError ? error.message : "could not be read."}`);
@@ -282,6 +300,7 @@ export function CaseCompare({ standalone = false }: { standalone?: boolean }) {
         received={caseScan ?? received}
         library={caseScan ? rest : library}
         author={author.trim() || "unattributed"}
+        handle={handle}
       />
     </div>
   );

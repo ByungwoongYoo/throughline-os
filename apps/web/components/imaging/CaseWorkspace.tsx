@@ -43,6 +43,7 @@ import { Highlight, Point, inOrder, reach } from "@/lib/imaging/highlight";
 import {
   describeQuery, describeResult, explainRow, fromCase, run,
 } from "@/lib/imaging/query";
+import { loadMarks, saveMarks } from "@/lib/imaging/marks-store";
 import { HighlightLayer, markFrom } from "./HighlightLayer";
 
 /** A scan the researcher has open: what it is, and the voxels to draw. */
@@ -57,6 +58,15 @@ export type CaseWorkspaceProps = {
   height?: number;
   /** Whose marks these are. Never inferred; a mark with no author is a bug. */
   author?: string;
+  /**
+   * A machine-local handle for the case, from `identity.ts`.
+   *
+   * Null means this case cannot be recognised again — no stable key in the
+   * file, or nowhere to keep a salt — and marks made on it will not come back.
+   * Passed in rather than derived here so the workspace stays synchronous and
+   * the hashing happens where the file is opened.
+   */
+  handle?: string | null;
 };
 
 /** How the four groups are titled, and what each one means. */
@@ -78,6 +88,7 @@ const GROUPS = [
 
 export function CaseWorkspace({
   received, library, width = 420, height = 320, author = "unattributed",
+  handle = null,
 }: CaseWorkspaceProps) {
   /*
    * One view for the whole case. Held here rather than in each volume, because
@@ -121,6 +132,22 @@ export function CaseWorkspace({
 
   const [marks, setMarks] = useState<Highlight[]>([]);
   const [note, setNote] = useState("");
+  /*
+   * Whether what is on screen has been kept. Reported rather than assumed: a
+   * private window has no durable storage, and an interface that implied a save
+   * that did not happen would lose an hour of somebody's reading silently.
+   */
+  const [kept, setKept] = useState<boolean | null>(null);
+
+  // Marks made on this series last time, brought back by its handle.
+  useEffect(() => {
+    setMarks(loadMarks(handle));
+  }, [handle]);
+
+  useEffect(() => {
+    if (marks.length === 0 && kept === null) return;
+    setKept(saveMarks(handle, marks));
+  }, [handle, marks, kept]);
 
   /*
    * The library is narrowed before anything is drawn.
@@ -198,7 +225,7 @@ export function CaseWorkspace({
       </section>
 
       {marks.length > 0 && (
-        <MarkList marks={marks} view={view} verdicts={verdicts}
+        <MarkList marks={marks} view={view} verdicts={verdicts} kept={kept}
                   scanIds={[received.study.id, ...library.map((s) => s.study.id)]}
                   onShow={(mark) => adopt(mark.view)} />
       )}
@@ -391,12 +418,13 @@ function Reasoning({ assessment }: { assessment: Assessment }) {
  * No slide format was invented for it — the marks already carry their view,
  * because §143 required that for them to mean anything at all.
  */
-function MarkList({ marks, view, verdicts, scanIds, onShow }: {
+function MarkList({ marks, view, verdicts, scanIds, onShow, kept }: {
   marks: Highlight[];
   view: ViewState | null;
   verdicts: Map<string, Verdict | null>;
   scanIds: string[];
   onShow: (mark: Highlight) => void;
+  kept: boolean | null;
 }) {
   const scans = scanIds.map((id) => ({ id, verdict: verdicts.get(id) ?? null }));
 
@@ -408,6 +436,16 @@ function MarkList({ marks, view, verdicts, scanIds, onShow }: {
         drawn in — which is what makes it presentable at all, since a region on
         a rotatable volume means nothing without the angle and window it was
         seen at.
+      </p>
+      <p className="case-note">
+        {kept === false
+          ? "These are not being kept: this case records nothing stable to "
+            + "recognise it by, or this browser has nowhere to store them. They "
+            + "will be gone when the tab closes."
+          : "Kept on this machine against a salted hash of the series — nothing "
+            + "stored points at a patient or a study, and the same file opened "
+            + "elsewhere would not find them. Notes are free text, so keep "
+            + "identifiers out of them."}
       </p>
       <ol className="case-marklist">
         {inOrder(marks).map((mark) => {

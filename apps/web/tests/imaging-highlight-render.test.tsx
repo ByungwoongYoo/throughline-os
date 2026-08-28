@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import {
   HighlightLayer, markFrom, paintMarks,
 } from "@/components/imaging/HighlightLayer";
@@ -181,6 +181,33 @@ describe("the layer over a scan", () => {
       fireEvent.pointerMove(layer, { clientX: x, clientY: y });
     }
     fireEvent.pointerUp(layer);
+    expect(onDrawn).toHaveBeenCalledTimes(1);
+    expect(onDrawn.mock.calls[0][0].length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("keeps a stroke whose events all arrive in one batch", () => {
+    /*
+     * Browsers coalesce pointer moves, and injected or synthetic input delivers
+     * a whole stroke in a single task. Holding the points in state meant React
+     * batched the updates and the release handler saw an empty stroke — the
+     * researcher drew a region and nothing appeared, with no error anywhere.
+     *
+     * `act` here is doing the same thing on purpose: one flush for the lot.
+     */
+    const onDrawn = vi.fn();
+    const { getByTestId } = render(
+      <HighlightLayer scanId="case" verdict={null} view={view} marks={[]}
+                      width={200} height={200} drawable onDrawn={onDrawn} />);
+    const layer = getByTestId("highlight-case");
+
+    act(() => {
+      fireEvent.pointerDown(layer, { clientX: 10, clientY: 10 });
+      fireEvent.pointerMove(layer, { clientX: 40, clientY: 10 });
+      fireEvent.pointerMove(layer, { clientX: 40, clientY: 40 });
+      fireEvent.pointerMove(layer, { clientX: 10, clientY: 40 });
+      fireEvent.pointerUp(layer);
+    });
+
     expect(onDrawn).toHaveBeenCalledTimes(1);
     expect(onDrawn.mock.calls[0][0].length).toBeGreaterThanOrEqual(3);
   });

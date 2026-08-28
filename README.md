@@ -42,6 +42,14 @@ both untrustworthy. Scans whose headers cannot answer are neither matched nor
 excluded but counted separately, since a filter reporting twelve matches while
 silently dropping forty unreadable headers is lying by omission.
 
+Marks survive between sessions; scans do not. A mark attaches to a *salted
+hash* of the series UID, computed with a salt that never leaves the machine —
+so reopening the same series brings the marks back, while nothing stored points
+at a patient or a study, and the same file opened elsewhere would not find them.
+They are kept in browser storage rather than the project record, because a mark
+carries free text and free text is the most reliable way an identifier escapes a
+research system.
+
 On top of that spine sits an interpretation layer, whose job is to make the
 system's own record legible to the person using it:
 
@@ -115,7 +123,7 @@ the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **1572 backend tests and 1680 web tests**, with 14 backend
+The current suite is **1572 backend tests and 1703 web tests**, with 14 backend
 skips. Ten carry a reason CI's allowlist recognises — a skip with an
 unrecognised reason fails the build, so the suite cannot quietly shrink. The
 other four are the speech tests, whose reason (`openai-whisper is not
