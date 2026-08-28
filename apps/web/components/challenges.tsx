@@ -21,6 +21,8 @@
  * reader to scan for red rather than to read the sentence.
  */
 
+import { useState } from "react";
+import { ApiError, api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { Empty, Failure, Loading } from "./primitives";
 
@@ -43,6 +45,51 @@ type Challenge = {
 
 type Report = { finding_id: string; challenges: Challenge[]; note: string };
 
+/**
+ * Ask the critic to argue against this finding.
+ *
+ * `POST /findings/{id}/challenge` had no caller, so the empty state below —
+ * *"No critic has run against it yet. That is not the same as it having
+ * survived one."* — was permanently true and nothing could change it. The
+ * screen displayed an adversarial process nobody could start.
+ *
+ * The run happens in a worker, so this polls rather than waiting: the critic
+ * runs several sandboxed analyses and a request that blocked on all of them
+ * would time out long before they finished.
+ */
+function RunChallenge({ findingId, onFinished }: {
+  findingId: string;
+  onFinished: () => void;
+}) {
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    setRunning(true);
+    setError(null);
+    try {
+      await api.post(`/api/findings/${findingId}/challenge`, { confounders: [] });
+      for (let i = 0; i < 20; i += 1) {
+        await new Promise((r) => setTimeout(r, 2000));
+        onFinished();
+      }
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div>
+      <button className="btn" disabled={running} onClick={() => void run()}>
+        {running ? "The critic is working…" : "Argue against this finding"}
+      </button>
+      {error && <div className="notice" role="alert">{error}</div>}
+    </div>
+  );
+}
+
 export function Challenges({ projectId, findingId }: {
   projectId: string;
   findingId: string;
@@ -64,6 +111,7 @@ export function Challenges({ projectId, findingId }: {
         // different and much weaker statement — and conflating the two is how a
         // finding acquires authority it was never given.
         hint="No critic has run against it yet. That is not the same as it having survived one."
+        action={<RunChallenge findingId={findingId} onFinished={reload} />}
       />
     );
   }
@@ -72,6 +120,13 @@ export function Challenges({ projectId, findingId }: {
     <section aria-labelledby="challenges-heading">
       <h2 id="challenges-heading">Challenges</h2>
       <p className="note">{data.note}</p>
+
+      {/* Running it again is legitimate: the evidence behind a finding changes,
+          and a verdict from before that change is a verdict about a different
+          finding. */}
+      <div style={{ marginBottom: 12 }}>
+        <RunChallenge findingId={findingId} onFinished={reload} />
+      </div>
 
       {data.challenges.map((challenge) => (
         <article className="card" key={challenge.id} style={{ marginBottom: 12 }}>

@@ -13,7 +13,8 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { ApiError, api } from "@/lib/api";
 import { Challenges } from "@/components/challenges";
 import * as useApiModule from "@/lib/useApi";
 
@@ -141,5 +142,38 @@ describe("loading and failure", () => {
 
     expect(screen.getByRole("alert")).toBeInTheDocument();
     expect(screen.queryByText(/Nothing has challenged/)).not.toBeInTheDocument();
+  });
+});
+
+describe("starting a challenge", () => {
+  it("offers to run one when nothing has argued against the finding", async () => {
+    /*
+     * The empty state said "no critic has run against it yet — that is not the
+     * same as it having survived one", and nothing could change that. The
+     * screen displayed an adversarial process nobody could start.
+     */
+    serve({ finding_id: "fnd_1", challenges: [], note: "" });
+    render(<Challenges projectId="prj_1" findingId="fnd_1" />);
+    expect(await screen.findByRole("button", { name: /Argue against/ })).toBeTruthy();
+  });
+
+  it("asks the critic to run against this finding", async () => {
+    serve({ finding_id: "fnd_1", challenges: [], note: "" });
+    const post = vi.spyOn(api, "post").mockResolvedValue({ status: "queued" });
+    render(<Challenges projectId="prj_1" findingId="fnd_1" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Argue against/ }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith(
+      "/api/findings/fnd_1/challenge", { confounders: [] }));
+  });
+
+  it("says what the server said when the critic cannot be started", async () => {
+    serve({ finding_id: "fnd_1", challenges: [], note: "" });
+    vi.spyOn(api, "post").mockRejectedValue(
+      new ApiError(404, "Finding not found."));
+    render(<Challenges projectId="prj_1" findingId="fnd_1" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Argue against/ }));
+    expect(await screen.findByRole("alert")).toBeTruthy();
   });
 });

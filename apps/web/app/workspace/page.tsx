@@ -37,6 +37,7 @@ import { Deviations } from "@/components/deviations";
 import { Harvest } from "@/components/harvest";
 import { LibraryNote } from "@/components/librarynote";
 import { ForkLineage } from "@/components/forklineage";
+import { FindingStanding } from "@/components/lifecycle";
 import { sessionId } from "@/lib/session";
 
 type AuthStatus = { needs_setup: boolean; authenticated: boolean; user: { display_name: string } | null };
@@ -447,6 +448,13 @@ function Workspace({ user }: { user: SignedInUser }) {
             ? <>
                 <EvidenceGraphView findingId={selection.id}
                                    onOpenAnalysis={select("analysis")} />
+                {/*
+                  Directly under the evidence, because the evidence is what
+                  decides whether it may move at all: anything past candidate
+                  is a claim about the world and the domain refuses it without
+                  something attached.
+                */}
+                <FindingStanding findingId={selection.id} />
                 {/*
                   Below the evidence, deliberately. The case for a finding is
                   what a researcher came to read; the case against it is what

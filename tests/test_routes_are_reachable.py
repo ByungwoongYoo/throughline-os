@@ -91,13 +91,6 @@ WITHOUT_A_CLIENT = {
 
     # Findings: the interface reaches these through project-scoped paths
     # (`/projects/{id}/findings/...`) and never through the bare ones.
-    "/api/findings/*":
-        "The interface reads findings through the project-scoped list.",
-    "/api/findings/*/challenge":
-        "The interface posts challenges to "
-        "`/projects/{id}/findings/{id}/challenges` instead.",
-    "/api/findings/*/transition":
-        "Nothing moves a finding between states from the interface.",
     "/api/discoveries/*":
         "The interface reads the project-scoped discoveries list and never a "
         "single discovery.",
