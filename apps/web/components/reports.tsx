@@ -155,7 +155,18 @@ function CitationHealth({ state }: { state: ApiState<CitationReport> }) {
 // Detail
 // ---------------------------------------------------------------------------
 
-export function ReportDetail({ artifactId }: { artifactId: string }) {
+export function ReportDetail({ artifactId, onOpenArtifact }: {
+  artifactId: string;
+  /**
+   * Where to send the reader once a talk exists.
+   *
+   * Supplied rather than optional-and-ignored: without it, re-cutting a report
+   * would create a second document and leave the reader on the first, with no
+   * way to reach the thing they just made. That is the shape of dead surface
+   * this codebase keeps producing.
+   */
+  onOpenArtifact: (artifactId: string) => void;
+}) {
   const { data, error, loading, reload } = useApi<Artifact>(`/api/artifacts/${artifactId}`);
   const [busy, setBusy] = useState<string | null>(null);
   const [failure, setFailure] = useState<unknown>(null);
@@ -179,6 +190,29 @@ export function ReportDetail({ artifactId }: { artifactId: string }) {
     }
   }
 
+  /**
+   * Re-cut this report as a talk.
+   *
+   * §75: a presentation is the same evidence at a different length, so it is
+   * derived from the report rather than assembled again — the slides and the
+   * paper end up referencing the same analysis runs, and re-running an
+   * analysis moves both. Two documents assembled separately drift into two
+   * accounts of one result.
+   */
+  async function recut() {
+    setBusy("talk");
+    setFailure(null);
+    try {
+      const talk = await api.post<{ artifact_id: string }>(
+        `/api/artifacts/${artifactId}/presentation`);
+      onOpenArtifact(talk.artifact_id);
+    } catch (err) {
+      setFailure(err);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   if (error) return <Failure error={error} retry={reload} />;
   if (loading || !data) return <Loading rows={5} label="Resolving every value in the report" />;
 
@@ -193,6 +227,26 @@ export function ReportDetail({ artifactId }: { artifactId: string }) {
       </div>
 
       <IntegrityPanel integrity={data.integrity} />
+
+      {/*
+        Offered on a report and not on a talk: a presentation re-cut from a
+        presentation would be a copy, and the route derives slides from a
+        report's findings.
+      */}
+      {data.artifact_type === "report" && (
+        <div className="card">
+          <h2>As a talk</h2>
+          <p style={{ marginTop: 0 }}>
+            The same evidence at a different length. The slides reference the
+            same analysis runs as this report, so re-running one moves both —
+            rather than leaving two accounts of one result.
+          </p>
+          <button className="btn" disabled={busy !== null}
+                  onClick={() => void recut()}>
+            {busy === "talk" ? "Cutting…" : "Re-cut as a talk"}
+          </button>
+        </div>
+      )}
 
       <div className="card">
         <h2>Export</h2>

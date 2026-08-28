@@ -123,8 +123,6 @@ WITHOUT_A_CLIENT = {
         "no caller.",
     "POST /api/projects/*/synthesis/key-points":
         "No interface requests key points.",
-    "POST /api/artifacts/*/presentation":
-        "Nothing turns an artifact into a presentation from the interface.",
 
     # Interpretation.
     "POST /api/projects/*/exploration/tests":

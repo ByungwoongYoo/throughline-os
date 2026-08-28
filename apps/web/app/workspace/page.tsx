@@ -488,7 +488,8 @@ function Workspace({ user }: { user: SignedInUser }) {
         )}
         {section === "reports" && (
           selection?.kind === "artifact"
-            ? <ReportDetail artifactId={selection.id} />
+            ? <ReportDetail artifactId={selection.id}
+                            onOpenArtifact={select("artifact")} />
             : <>
                 {/*
                   Above the list, for the same reason the withdrawal notice sits
