@@ -172,10 +172,22 @@ describe("what to build next", () => {
      * proposition from adding one chart, and only the count makes that visible.
      */
     const order = buildOrder();
-    expect(order.length).toBeGreaterThan(0);
     for (let i = 1; i < order.length; i += 1) {
       expect(order[i - 1].unlocks).toBeGreaterThanOrEqual(order[i].unlocks);
     }
+  });
+
+  it("is empty exactly when no primitive is missing", () => {
+    /*
+     * This used to assert the order was non-empty, which was true while
+     * renderers were outstanding and became wrong the moment the last one
+     * landed. The property that holds in both states is the agreement between
+     * the two: an empty build order and a catalogue with nothing marked
+     * `primitive-missing` are the same claim, and if they ever disagree one of
+     * them is lying about what can be drawn.
+     */
+    const missing = CATALOGUE.filter((v) => v.status === "primitive-missing");
+    expect(buildOrder().length === 0).toBe(missing.length === 0);
   });
 
   it("agrees with what unlockedBy reports for each primitive", () => {

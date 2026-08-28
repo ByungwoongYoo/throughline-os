@@ -84,19 +84,25 @@ system's own record legible to the person using it:
   blank, because the system knows what changed and only the researcher knows
   why.
 
-The spatial layer has started to render rather than only being catalogued.
+The spatial layer renders rather than being catalogued.
 `apps/web/lib/charts3d/registry.ts` names all 238 visualizations the brief lists
-and records which of them anything can actually draw — **195 today, against 86
-at the start of the wave**. Five primitives account for all 109 of that
-difference, because a named visualization is a configuration of a primitive
-rather than a chart of its own: `network` unlocked 35, `glyphs` 26 (vector and
-tensor fields), `volume` 20 (voxel grids — five further volume entries still
-want somebody else's DICOM or NIfTI reader, and the registry keeps that apart
-from a missing renderer because the costs differ in kind), `lines` 17 (orbits,
-flight paths, trajectories and streamlines) and `isosurface` 11 (spheres,
-tori, hyperboloids, molecular orbitals, tumour margins — and a decision
-boundary, which in three inputs is a shell rather than a height field). What is
-still absent is named the same way: `bars` (4).
+and records which of them anything can actually draw — **199 today, against 86
+at the start of the wave, and no primitive left unwritten**. Six primitives
+account for all 113 of that difference, because a named visualization is a
+configuration of a primitive rather than a chart of its own: `network` unlocked
+35, `glyphs` 26 (vector and tensor fields), `volume` 20 (voxel grids), `lines`
+17 (orbits, flight paths, trajectories and streamlines), `isosurface` 11
+(spheres, tori, molecular orbitals, tumour margins — and a decision boundary,
+which in three inputs is a shell rather than a height field) and `bars` 4. The
+remaining 39 need somebody else's reader — DICOM, NIfTI, Mol\*, a CAD kernel —
+which the registry keeps apart from a missing renderer because the costs differ
+in kind.
+
+`bars` is the one §10 warns against, and it is built to say so: all four of its
+entries are *framed* rather than inherently spatial, so the chart measures what
+depth costs it — how many bars are hidden behind others, and how much taller the
+near row reads for the same value — and puts both in the caption. At the default
+view of a 5×5 grid that is three hidden and 56% of stretch.
 
 Each of those charts states what it is hiding, which for a spatial chart is not
 a courtesy. Depth buys occlusion, so a volume reports how many voxels fall below
@@ -104,7 +110,7 @@ the window, how many sit inside it but too faint for a pixel to show, and what
 the sampling stride was; a field says how many arrows were shortened to fit and
 to read those by colour instead; a set of paths says where the measurements had
 holes in them, because a line drawn across a gap is a confident claim about
-ground nothing was recorded on. `/charts-3d` draws all five from synthetic data,
+ground nothing was recorded on. `/charts-3d` draws all six from synthetic data,
 with one hand driving whichever chart it is over — which is where `bounds()` is
 actually used rather than merely implemented.
 
@@ -133,7 +139,7 @@ the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **1579 backend tests and 1703 web tests**, with 14 backend
+The current suite is **1579 backend tests and 1744 web tests**, with 14 backend
 skips. Ten carry a reason CI's allowlist recognises — a skip with an
 unrecognised reason fails the build, so the suite cannot quietly shrink. The
 other four are the speech tests, whose reason (`openai-whisper is not

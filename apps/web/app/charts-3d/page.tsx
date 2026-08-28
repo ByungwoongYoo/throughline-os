@@ -30,6 +30,7 @@ import { Field3D } from "@/components/charts/Field3D";
 import { VoxelVolume } from "@/components/charts/VoxelVolume";
 import { Lines3D } from "@/components/charts/Lines3D";
 import { Isosurface3D } from "@/components/charts/Isosurface3D";
+import { Bars3D } from "@/components/charts/Bars3D";
 import { SpatialControl } from "@/components/spatial/SpatialControl";
 import { VisualizationController } from "@/lib/spatial/commands";
 import { Graph } from "@/lib/charts3d/network";
@@ -137,6 +138,7 @@ export default function Charts3DPage() {
   const network = useRef<VisualizationController | null>(null);
   const trails = useRef<VisualizationController | null>(null);
   const shell = useRef<VisualizationController | null>(null);
+  const columns = useRef<VisualizationController | null>(null);
   const field = useRef<VisualizationController | null>(null);
   const volume = useRef<VisualizationController | null>(null);
   const [addressing, setAddressing] = useState<string>("—");
@@ -154,7 +156,7 @@ export default function Charts3DPage() {
    * promises — and the smaller, truer one is what a reader is checking here.
    */
   const onDemand = drawableOnDemand();
-  const byPrimitive = (["network", "glyphs", "volume", "lines", "isosurface"] as const)
+  const byPrimitive = (["network", "glyphs", "volume", "lines", "isosurface", "bars"] as const)
     .map((p) => `${drawnBy(p).length} ${p}`)
     .join(", ");
 
@@ -200,7 +202,7 @@ export default function Charts3DPage() {
         </p>
         <SpatialControl
           controllerRef={network}
-          alsoControls={[field, volume, trails, shell]}
+          alsoControls={[field, volume, trails, shell, columns]}
           label="the spatial charts"
           onActiveTarget={(read) => {
             const active = read();
@@ -211,6 +213,7 @@ export default function Charts3DPage() {
               : active === volume.current ? "the density volume"
               : active === trails.current ? "the streamlines"
               : active === shell.current ? "the isosurface"
+              : active === columns.current ? "the bars"
               : "—");
           }}
         />
@@ -240,6 +243,27 @@ export default function Charts3DPage() {
           paths={streams}
           controllerRef={trails}
           caption="The same vortex, integrated into paths rather than sampled into arrows."
+        />
+      </section>
+
+      <section>
+        <h2>Bars, and why this one argues against itself</h2>
+        <p>
+          The only primitive here that §10 warns against. Every one of its four
+          catalogue entries is <em>framed</em> rather than inherently spatial —
+          the third axis is the room, not the data — so the chart measures what
+          the depth costs it and says so: how many bars are hidden behind
+          others, and how much taller the near row reads for the same value.
+          Turn it and both numbers change.
+        </p>
+        <Bars3D
+          bars={Array.from({ length: 5 }, (_, r) =>
+            Array.from({ length: 5 }, (_, c) => ({
+              row: r, column: c,
+              value: 20 + 30 * Math.exp(-((r - 2) ** 2 + (c - 2) ** 2) / 4),
+            }))).flat()}
+          controllerRef={columns}
+          caption="A synthetic 5×5 grid, peaked in the middle."
         />
       </section>
 

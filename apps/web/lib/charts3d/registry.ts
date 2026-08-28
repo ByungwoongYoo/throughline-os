@@ -161,11 +161,11 @@ export const CATALOGUE: Visualization[] = [
   { name: "3D wireframe", primitive: "surface", needs: "grid", spatial: "inherently", status: "configuration", family: "Core", note: "The surface drawn as edges rather than faces." },
   { name: "3D contour", primitive: "surface", needs: "grid", spatial: "framed", status: "configuration", family: "Core", note: "Level curves of the same height field." },
   { name: "3D filled contour", primitive: "surface", needs: "grid", spatial: "framed", status: "configuration", family: "Core" },
-  { name: "3D bar", primitive: "bars", needs: "series", spatial: "framed", status: "primitive-missing", family: "Core" },
-  { name: "3D column", primitive: "bars", needs: "series", spatial: "framed", status: "primitive-missing", family: "Core" },
+  { name: "3D bar", primitive: "bars", needs: "series", spatial: "framed", status: "configuration", family: "Core" },
+  { name: "3D column", primitive: "bars", needs: "series", spatial: "framed", status: "configuration", family: "Core" },
   { name: "3D area", primitive: "surface", needs: "series", spatial: "framed", status: "configuration", family: "Core" },
   { name: "3D ribbon", primitive: "surface", needs: "series", spatial: "framed", status: "configuration", family: "Core", note: "One narrow surface per series, offset in depth." },
-  { name: "3D waterfall", primitive: "bars", needs: "series", spatial: "framed", status: "primitive-missing", family: "Core" },
+  { name: "3D waterfall", primitive: "bars", needs: "series", spatial: "framed", status: "configuration", family: "Core" },
 
   // 2. Mathematical ---------------------------------------------------------
   { name: "Function surface", primitive: "surface", needs: "grid", spatial: "inherently", status: "built", family: "Mathematical", note: "z = f(x,y) sampled onto a lattice." },
@@ -222,7 +222,7 @@ export const CATALOGUE: Visualization[] = [
   { name: "PET volume", primitive: "volume", needs: "voxels", spatial: "inherently", status: "specialist", family: "Volume", viewer: "niivue", note: "The same NIfTI path as MRI. A dynamic series opens at its first frame, and the viewer says which frame that is; choosing another is not exposed." },
 
   // 5. Statistical ----------------------------------------------------------
-  { name: "3D histogram", primitive: "bars", needs: "grid", spatial: "framed", status: "primitive-missing", family: "Statistical" },
+  { name: "3D histogram", primitive: "bars", needs: "grid", spatial: "framed", status: "configuration", family: "Statistical" },
   { name: "Probability distribution", primitive: "surface", needs: "grid", spatial: "inherently", status: "built", family: "Statistical" },
   { name: "Multivariate distribution", primitive: "surface", needs: "grid", spatial: "inherently", status: "built", family: "Statistical" },
   { name: "Gaussian surface", primitive: "surface", needs: "grid", spatial: "inherently", status: "built", family: "Statistical" },
