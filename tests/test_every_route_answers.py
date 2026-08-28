@@ -70,10 +70,16 @@ SKIP = {"/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"}
 
 
 def _paths(project_id: str = "prj_smoke") -> list[str]:
+    from apiroutes import walk
+
     from throughline_api.app import app
 
     found = []
-    for route in app.routes:
+    # Descends into included routers. Walking `app.routes` flatly skipped all
+    # nineteen routes of `interpretation.py`, so none of them was ever asked
+    # whether it answers — and the emptiness guard below passed the whole time,
+    # because it checks that the number is large rather than that it is right.
+    for route in walk(app.routes):
         methods = getattr(route, "methods", set())
         path = getattr(route, "path", "")
         if "GET" not in methods or path in SKIP:
@@ -148,3 +154,7 @@ def test_the_route_list_is_not_silently_empty():
     broke rather than that the API shrank.
     """
     assert len(_paths()) > 40
+    # Large is not the same as right: sixty is comfortably over forty whether
+    # or not the nineteen nested routes are among them.
+    assert any("/contradictions" in p for p in _paths())
+    assert any("/deviations" in p for p in _paths())

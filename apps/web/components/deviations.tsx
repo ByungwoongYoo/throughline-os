@@ -31,6 +31,7 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { Empty, Failure, Loading } from "./primitives";
+import { Preregister } from "./preregister";
 
 type Deviation = { field: string; registered: unknown; executed: unknown };
 
@@ -96,6 +97,10 @@ export function Deviations({ projectId }: { projectId: string }) {
         // Not a complaint. A reader of the write-up should know these results
         // were exploratory, and the only way that happens is somebody saying so.
         hint={data.note}
+        // Until this existed the empty state was permanent: the screen reported
+        // departures from registrations nothing could create, and told the
+        // researcher their work was exploratory with no way to change it.
+        action={<Preregister projectId={projectId} onRegistered={reload} />}
       />
     );
   }
@@ -103,6 +108,10 @@ export function Deviations({ projectId }: { projectId: string }) {
   return (
     <section aria-labelledby="deviations-heading" style={{ marginTop: 20 }}>
       <h3 id="deviations-heading" className="eyebrow">Plan against practice</h3>
+
+      <div style={{ marginBottom: 14 }}>
+        <Preregister projectId={projectId} onRegistered={reload} />
+      </div>
       <p style={{ fontSize: 13, margin: "0 0 14px", color: "var(--ink-faint)" }}>
         {data.note}
       </p>

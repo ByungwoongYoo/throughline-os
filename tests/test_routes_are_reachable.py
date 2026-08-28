@@ -39,7 +39,7 @@ import pytest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "api" / "src"))
 
-from throughline_api.app import app  # noqa: E402
+from apiroutes import api_leaves  # noqa: E402
 
 #: Routes with no caller in the interface, and why.
 #:
@@ -140,6 +140,23 @@ WITHOUT_A_CLIENT = {
         "that is waiting and releases it, which is what a person needs; the "
         "run's own page would be a debugging view.",
 
+    # Interpretation. These were invisible to this audit until discovery
+    # learned to descend into included routers — `include_router` does not
+    # flatten, so all nineteen were skipped and thirteen paths the interface
+    # calls were reported as calling nothing.
+    "/api/projects/*/exploration/tests":
+        "POST. Looks are recorded by the server as they happen rather than "
+        "reported by the client, so nothing in the interface posts one.",
+    "/api/projects/*/exports/recheck":
+        "POST. The exports screen reads staleness; nothing asks for it to be "
+        "recomputed on demand.",
+    "/api/projects/*/artifacts/*/staleness":
+        "GET, for one artifact. The exports screen reads the project-wide "
+        "list instead.",
+    "/api/projects/*/deviations/*":
+        "GET, for one registration. The deviations screen shows every "
+        "registration at once, so nothing fetches one on its own.",
+
     "/api/speech/transcribe":
         "Voice input runs in the browser; nothing posts audio to the server, "
         "which is the more private arrangement and may be the right one.",
@@ -173,15 +190,18 @@ def shape(path: str) -> str:
 
 
 def api_routes() -> dict[str, set[str]]:
-    """Every `/api` route the app serves, discovered from the app itself."""
+    """
+    Every `/api` route the app serves, discovered from the app itself.
+
+    Discovery descends into included routers. Reading `.path` off each entry of
+    `app.routes` misses every route reached through `include_router`, which is
+    nineteen of them here — see `tests/apiroutes.py`.
+    """
     found: dict[str, set[str]] = {}
-    for route in app.routes:
-        path = getattr(route, "path", None)
-        if not path or not path.startswith("/api"):
-            continue
+    for route in api_leaves():
         for method in getattr(route, "methods", None) or {"GET"}:
             if method not in ("HEAD", "OPTIONS"):
-                found.setdefault(shape(path), set()).add(method)
+                found.setdefault(shape(route.path), set()).add(method)
     return found
 
 
@@ -277,7 +297,23 @@ def test_the_route_scan_finds_routes():
     passes by having nothing to check.
     """
     routes = api_routes()
-    assert len(routes) > 100, f"only found {len(routes)} routes"
+    assert len(routes) > 125, f"only found {len(routes)} routes"
+
+
+def test_the_discovery_finds_nested_routes():
+    """
+    The failure this file could not see. `include_router` does not flatten, so
+    walking `app.routes` and reading `.path` skipped all nineteen routes of
+    `interpretation.py` — and the audit reported thirteen paths the interface
+    calls as calling nothing, while an entire feature area went unaudited.
+
+    A count alone would not catch it: the old guard asserted the number was
+    large, and sixty is large whether or not nineteen are missing.
+    """
+    paths = set(api_routes())
+    assert "/api/projects/*/contradictions" in paths
+    assert "/api/projects/*/analyses/*/lineage" in paths
+    assert "/api/projects/*/deviations" in paths
 
 
 def test_the_interface_scan_finds_calls():
