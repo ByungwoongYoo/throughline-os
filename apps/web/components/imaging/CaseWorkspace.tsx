@@ -37,8 +37,10 @@ import { VoxelVolume } from "@/components/charts/VoxelVolume";
 import { Grid } from "@/lib/charts3d/voxels";
 import { Study, evidenceStrength } from "@/lib/imaging/study";
 import {
-  Assessment, assess, describePartition, partition, permitsComparison,
+  Assessment, Verdict, assess, describePartition, partition, permitsComparison,
 } from "@/lib/imaging/comparability";
+import { Highlight, Point, inOrder, reach } from "@/lib/imaging/highlight";
+import { HighlightLayer, markFrom } from "./HighlightLayer";
 
 /** A scan the researcher has open: what it is, and the voxels to draw. */
 export type OpenScan = { study: Study; grid: Grid };
@@ -50,6 +52,8 @@ export type CaseWorkspaceProps = {
   library: OpenScan[];
   width?: number;
   height?: number;
+  /** Whose marks these are. Never inferred; a mark with no author is a bug. */
+  author?: string;
 };
 
 /** How the four groups are titled, and what each one means. */
@@ -70,7 +74,7 @@ const GROUPS = [
 ] as const;
 
 export function CaseWorkspace({
-  received, library, width = 420, height = 320,
+  received, library, width = 420, height = 320, author = "unattributed",
 }: CaseWorkspaceProps) {
   /*
    * One view for the whole case. Held here rather than in each volume, because
@@ -112,9 +116,30 @@ export function CaseWorkspace({
       else controllers.current.delete(id);
     }, []);
 
+  const [marks, setMarks] = useState<Highlight[]>([]);
+  const [note, setNote] = useState("");
+
   const groups = useMemo(
     () => partition(received.study, library.map((s) => s.study)),
     [received, library]);
+
+  /** Each scan's verdict against the case, for deciding where marks may go. */
+  const verdicts = useMemo(() => {
+    const map = new Map<string, Verdict | null>();
+    for (const key of ["comparable", "afterHarmonization", "uncertain",
+                       "refused"] as const) {
+      for (const entry of groups[key]) {
+        map.set(entry.study.id, entry.assessment.verdict);
+      }
+    }
+    return map;
+  }, [groups]);
+
+  const record = useCallback((points: Point[]) => {
+    if (!view) return;
+    setMarks((held) => [...held,
+      markFrom(received.study.id, points, view, author, note.trim())]);
+  }, [view, received.study.id, author, note]);
 
   const byId = useMemo(() => {
     const map = new Map<string, OpenScan>();
@@ -132,8 +157,27 @@ export function CaseWorkspace({
           different windows are two different pictures.
         </p>
         <ScanPanel scan={received} width={width} height={height}
-                   onView={adopt} register={register} />
+                   onView={adopt} register={register}
+                   verdict={null} view={view} marks={marks}
+                   drawable onDrawn={record} />
+
+        <label className="case-noteinput">
+          What is being marked
+          <input
+            type="text"
+            aria-label="What is being marked"
+            value={note}
+            placeholder="the researcher's own words — never filled in for them"
+            onChange={(event) => setNote(event.target.value)}
+          />
+        </label>
       </section>
+
+      {marks.length > 0 && (
+        <MarkList marks={marks} view={view} verdicts={verdicts}
+                  scanIds={[received.study.id, ...library.map((s) => s.study.id)]}
+                  onShow={(mark) => adopt(mark.view)} />
+      )}
 
       <p className="case-summary">{describePartition(groups)}</p>
 
@@ -157,7 +201,9 @@ export function CaseWorkspace({
                       * part of this screen that is hardest to get elsewhere.
                       */}
                     <ScanPanel scan={scan} width={width} height={height}
-                               onView={adopt} register={register} />
+                               onView={adopt} register={register}
+                               verdict={assessment.verdict} view={view}
+                               marks={marks} />
                     <Reasoning assessment={assessment} />
                   </div>
                 );
@@ -178,10 +224,16 @@ export function CaseWorkspace({
   );
 }
 
-function ScanPanel({ scan, width, height, onView, register }: {
+function ScanPanel({ scan, width, height, onView, register, verdict, view,
+                    marks, drawable, onDrawn }: {
   scan: OpenScan; width: number; height: number;
   onView: (view: ViewState) => void;
   register: (id: string, controller: VisualizationController | null) => void;
+  verdict: Verdict | null;
+  view: ViewState | null;
+  marks: Highlight[];
+  drawable?: boolean;
+  onDrawn?: (points: Point[]) => void;
 }) {
   const ref = useRef<VisualizationController | null>(null);
   const id = scan.study.id;
@@ -207,14 +259,32 @@ function ScanPanel({ scan, width, height, onView, register }: {
           read from the file
         </span>
       </figcaption>
-      <VoxelVolume
-        grid={scan.grid}
-        width={width}
-        height={height}
-        controllerRef={ref}
-        onViewChange={onView}
-        caption=""
-      />
+      {/*
+        * The drawing surface sits over the volume rather than inside it. The
+        * volume owns the camera and the window; the layer owns the marks, and
+        * neither needs to know how the other works — which is what lets a mark
+        * be echoed onto a different volume unchanged.
+        */}
+      <div className="case-stack" style={{ width, height }}>
+        <VoxelVolume
+          grid={scan.grid}
+          width={width}
+          height={height}
+          controllerRef={ref}
+          onViewChange={onView}
+          caption=""
+        />
+        <HighlightLayer
+          scanId={id}
+          verdict={verdict}
+          view={view}
+          marks={marks}
+          width={width}
+          height={height}
+          drawable={drawable}
+          onDrawn={onDrawn}
+        />
+      </div>
     </figure>
   );
 }
@@ -253,6 +323,54 @@ function Reasoning({ assessment }: { assessment: Assessment }) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+/**
+ * The marks, in the order they were made.
+ *
+ * This is the presentation: each row restores the exact camera and window the
+ * mark was drawn in, so walking the list is walking the case as it was read.
+ * No slide format was invented for it — the marks already carry their view,
+ * because §143 required that for them to mean anything at all.
+ */
+function MarkList({ marks, view, verdicts, scanIds, onShow }: {
+  marks: Highlight[];
+  view: ViewState | null;
+  verdicts: Map<string, Verdict | null>;
+  scanIds: string[];
+  onShow: (mark: Highlight) => void;
+}) {
+  const scans = scanIds.map((id) => ({ id, verdict: verdicts.get(id) ?? null }));
+
+  return (
+    <section className="case-marks">
+      <h2>Marks <span className="case-count">{marks.length}</span></h2>
+      <p className="case-note">
+        In the order they were made. Selecting one restores the view it was
+        drawn in — which is what makes it presentable at all, since a region on
+        a rotatable volume means nothing without the angle and window it was
+        seen at.
+      </p>
+      <ol className="case-marklist">
+        {inOrder(marks).map((mark) => {
+          const spread = reach(mark, scans, view);
+          return (
+            <li key={mark.id}>
+              <button type="button" onClick={() => onShow(mark)}>
+                {mark.note || "(no description)"}
+              </button>
+              <span className="case-note">
+                {mark.by} · shown on {spread.shown}
+                {spread.withheld > 0
+                  && `, withheld from ${spread.withheld}`}
+                {spread.stale && " · the view has moved since"}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
   );
 }
 

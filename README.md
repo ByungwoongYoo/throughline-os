@@ -15,6 +15,17 @@ provenance intact. Five of the six comparison verbs are wired with real refusal
 taxonomies — a comparison the system declines to make is a first-class answer,
 not an error.
 
+That vocabulary now covers images as well. **Scan ↔ scan** compares a received
+case against the scans a researcher already holds, and sorts them by whether
+they *may* be compared rather than by how much they resemble it: appearance in
+medical imaging is dominated by acquisition rather than by pathology, so a list
+ordered by resemblance is mostly a list of scans taken on the same machine. It
+partitions and never ranks — an ordered list of similar cases is a differential
+diagnosis whatever it is labelled. NIfTI files are read in the browser and never
+persisted, identifiers are never written into the project, and a region marked
+on the case is echoed only onto scans the verdict permits, because drawing it
+elsewhere would assert a correspondence that does not exist.
+
 On top of that spine sits an interpretation layer, whose job is to make the
 system's own record legible to the person using it:
 
@@ -88,7 +99,7 @@ the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **1558 backend tests and 1573 web tests**, with 14 backend
+The current suite is **1572 backend tests and 1633 web tests**, with 14 backend
 skips. Ten carry a reason CI's allowlist recognises — a skip with an
 unrecognised reason fails the build, so the suite cannot quietly shrink. The
 other four are the speech tests, whose reason (`openai-whisper is not

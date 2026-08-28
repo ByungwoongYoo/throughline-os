@@ -217,7 +217,7 @@ export function VoxelVolume({
       dirtyRef.current = true;
     },
   }), [rotate, nearest, volume, at, width, height, onSelect, settings,
-       moveWindow]);
+       moveWindow, announce]);
 
   useEffect(() => { dirtyRef.current = true; }, [volume, selected]);
 

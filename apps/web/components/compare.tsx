@@ -21,6 +21,7 @@ import { ApiState } from "@/lib/useApi";
 import { Empty, Failure, Loading } from "./primitives";
 import { ClaimTest } from "./claimtest";
 import { Consistency } from "./consistency";
+import { CaseCompare } from "@/components/imaging/CaseCompare";
 import { Reconcile } from "./reconcile";
 import { Synthesis } from "./synthesis";
 import { DatasetSynthesis, ImageComparison } from "./multicompare";
@@ -68,7 +69,7 @@ export function Compare({ projectId, sources }: {
   // would teach the researcher that they are different features.
   const [verb, setVerb] =
     useState<"datasets" | "claim" | "papers" | "many" | "manydata" | "images"
-             | "findings">("datasets");
+             | "findings" | "scans">("datasets");
   const [left, setLeft] = useState<string | null>(null);
   const [right, setRight] = useState<string | null>(null);
   const [assessment, setAssessment] = useState<Assessment | null>(null);
@@ -117,7 +118,8 @@ export function Compare({ projectId, sources }: {
          ["many", "Several papers"],
          ["manydata", "Several datasets"],
          ["images", "Figures"],
-         ["findings", "Finding ↔ finding"]] as const).map(([id, label]) => (
+         ["findings", "Finding ↔ finding"],
+         ["scans", "Scan ↔ scan"]] as const).map(([id, label]) => (
         <button
           key={id}
           role="tab"
@@ -130,6 +132,25 @@ export function Compare({ projectId, sources }: {
       ))}
     </div>
   );
+
+  if (verb === "scans") {
+    /*
+     * The one verb whose objects are not in the project.
+     *
+     * Every other tab compares things the database holds. Scans are read in the
+     * browser and never persisted — that is the privacy position, not an
+     * unfinished feature — so this tab renders the same component the standalone
+     * route does, and that component says so rather than letting the familiar
+     * surround imply the files have been taken in.
+     */
+    return (
+      <>
+        <h1>Compare</h1>
+        {tabs}
+        <CaseCompare />
+      </>
+    );
+  }
 
   if (verb === "claim") {
     return (
