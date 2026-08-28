@@ -202,3 +202,31 @@ export function unitScale(values: number[]): (value: number) => number {
   if (!Number.isFinite(span) || span === 0) return () => 0;
   return (value: number) => ((value - lo) / span) * 2 - 1;
 }
+
+/**
+ * Whether a screen point lies inside a lasso.
+ *
+ * Ray casting: count how many polygon edges a ray to the left crosses, and an
+ * odd count means inside. Standard, and correct for a self-intersecting lasso
+ * as well, which a hand-drawn one frequently is.
+ *
+ * **This lives here because it had six copies.** Every 3D chart carried its
+ * own, five of them byte-identical and the sixth the same formula rearranged.
+ * Nothing had diverged yet, and that is the whole point of moving it: a lasso
+ * is one gesture in one command architecture, and the moment two charts answer
+ * it differently the difference shows up as a chart that "feels wrong" rather
+ * than as a failing test.
+ */
+export function insidePolygon(polygon: Array<{ x: number; y: number }>,
+                              point: { x: number; y: number }): boolean {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
+    const a = polygon[i];
+    const b = polygon[j];
+    const straddles = (a.y > point.y) !== (b.y > point.y);
+    if (!straddles) continue;
+    const crossing = a.x + ((point.y - a.y) / (b.y - a.y)) * (b.x - a.x);
+    if (point.x < crossing) inside = !inside;
+  }
+  return inside;
+}

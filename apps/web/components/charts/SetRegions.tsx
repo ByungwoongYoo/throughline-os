@@ -96,8 +96,17 @@ export function SetRegions({
   width?: number;
 }) {
   const hoverUI = useChartHover();
-  const hit = null;
   const rows = useMemo(() => intersections(sets, members), [sets, members]);
+  /*
+   * The row under the pointer.
+   *
+   * This was `const hit = null`, with the tooltip mounted below and given
+   * `rows={[]}`. Hovering therefore dimmed the other combinations and reported
+   * nothing — on a chart whose entire content is how many items fall in each
+   * combination. The highlight worked, which is what made it look finished.
+   */
+  const hit = rows.find((r) => r.key === hoverUI.hovered) ?? null;
+  const named = new Map(sets.map((s) => [s.id, s.label]));
   const peak = max(rows, (r) => r.count) ?? 0;
   const height = M.top + M.bottom + rows.length * ROW;
   const scale = scaleLinear().domain([0, peak || 1]).range([0, BARS]);
@@ -202,7 +211,23 @@ export function SetRegions({
         a truthful size.
       </figcaption>
 
-      <ChartTooltip pointer={hoverUI.pointer} rows={[]} />
+      <ChartTooltip
+        pointer={hoverUI.pointer}
+        title={hit ? hit.sets.map((id) => named.get(id) ?? id).join(" and ")
+                   : undefined}
+        rows={hit
+          ? [{
+              label: itemLabel,
+              /*
+               * An empty combination is a finding, not a missing value: those
+               * rows are enumerated on purpose so that "no item is in both of
+               * these" can be read. `0` beside a count reads as absence of
+               * data, so it is said in words instead.
+               */
+              value: hit.count === 0 ? "none in common" : readable(hit.count),
+            }]
+          : []}
+      />
 
       <ChartTable
         highlightId={hoverUI.hovered}

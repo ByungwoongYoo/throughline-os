@@ -33,7 +33,7 @@ import {
   ScreenPoint, TargetRef, ViewState, VisualizationController,
 } from "@/lib/spatial/commands";
 import {
-  Camera, DEFAULT_CAMERA, resetCamera, rotateCamera, toCanvas, zoomCamera,
+  Camera, DEFAULT_CAMERA, insidePolygon, resetCamera, rotateCamera, toCanvas, zoomCamera,
 } from "@/lib/charts/scene3d";
 import { isZoomWheel, wheelZoomFactor } from "@/lib/charts/wheel";
 import {
@@ -355,18 +355,6 @@ function within(volume: Volume, at: (s: Splat) => ScreenPoint,
   return found;
 }
 
-/** Whether a point is inside a polygon. Ray casting, like the ink lasso. */
-function insidePolygon(polygon: ScreenPoint[], point: ScreenPoint): boolean {
-  let inside = false;
-  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
-    const a = polygon[i], b = polygon[j];
-    const straddles = (a.y > point.y) !== (b.y > point.y);
-    if (!straddles) continue;
-    const crossing = a.x + ((point.y - a.y) / (b.y - a.y)) * (b.x - a.x);
-    if (point.x < crossing) inside = !inside;
-  }
-  return inside;
-}
 
 /**
  * Colour for a value's place in the window.

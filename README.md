@@ -139,7 +139,7 @@ the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **1670 backend tests and 1827 web tests**, with 14 backend
+The current suite is **1670 backend tests and 1845 web tests**, with 14 backend
 skips. Ten carry a reason CI's allowlist recognises — a skip with an
 unrecognised reason fails the build, so the suite cannot quietly shrink. The
 other four are the speech tests, whose reason (`openai-whisper is not

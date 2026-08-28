@@ -23,7 +23,7 @@
  * thing a heatmap must get right.
  */
 
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo } from "react";
 import { ChartTable } from "./ChartTable";
 import { ChartTooltip, readable, useChartHover } from "./interaction";
 

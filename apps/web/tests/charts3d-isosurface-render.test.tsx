@@ -18,7 +18,7 @@ import { Surface, extractSurface } from "@/lib/charts3d/isosurface";
 import { Grid, gridFromFunction } from "@/lib/charts3d/voxels";
 import { VisualizationController } from "@/lib/spatial/commands";
 
-type Call = { op: string; args: number[]; fill: string };
+type Call = { op: string; args: number[]; fill: string; width: number };
 
 function recordingCanvas() {
   const calls: Call[] = [];
@@ -29,6 +29,9 @@ function recordingCanvas() {
       op,
       args: args.filter((a): a is number => typeof a === "number"),
       fill: String(context.fillStyle),
+      // Captured because "a stroke happened" does not distinguish the picked
+      // facet's outline from the hairline every facet already gets.
+      width: Number(context.lineWidth),
     });
   };
   Object.assign(context, {
@@ -43,6 +46,9 @@ function recordingCanvas() {
 }
 
 const SIZE = { width: 400, height: 300 };
+
+/** Let the chart's paint loop run one frame. */
+const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
 const sphere = (n = 14): Grid =>
   gridFromFunction((x, y, z) => Math.sqrt(x * x + y * y + z * z), n,
                    { min: -1.5, max: 1.5 });
@@ -323,5 +329,193 @@ describe("what the reader is told and can change", () => {
   it("says the level is outside the data rather than showing a blank", () => {
     const { container } = render(<Isosurface3D grid={sphere(8)} level={99} />);
     expect(container.textContent).toContain("outside it entirely");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Picking things on the surface (§189)
+//
+// There was no selection at all: `select` returned a target and recorded
+// nothing, `focus` and `deselect` were empty functions, and `selectRegion` and
+// `withinPolygon` returned `[]` whatever they were given. A hand that could
+// rotate this chart could not pick anything on it, while every other chart in
+// the same gallery answered the same commands — the single command
+// architecture failing quietly on one implementation.
+// ---------------------------------------------------------------------------
+
+describe("selecting on the surface", () => {
+  it("finds facets inside a lasso", () => {
+    const ref = createRef<VisualizationController>();
+    render(<Isosurface3D grid={sphere(10)} level={1.0} controllerRef={ref} />);
+
+    // A polygon covering the whole canvas: everything drawn is inside it.
+    const whole = [
+      { x: -1e4, y: -1e4 }, { x: 1e4, y: -1e4 },
+      { x: 1e4, y: 1e4 }, { x: -1e4, y: 1e4 },
+    ];
+    const all = ref.current!.withinPolygon(whole);
+    expect(all.length).toBeGreaterThan(0);
+
+    // And a polygon covering nothing finds nothing, or the test above would
+    // pass for a function that returns everything regardless.
+    expect(ref.current!.withinPolygon([
+      { x: -1e4, y: -1e4 }, { x: -9e3, y: -1e4 },
+      { x: -9e3, y: -9e3 }, { x: -1e4, y: -9e3 },
+    ])).toEqual([]);
+  });
+
+  it("selects a smaller region than the whole", () => {
+    // The measured property, rather than assuming a radius picks a subset:
+    // a circle around the centre must find some facets and not all of them.
+    const ref = createRef<VisualizationController>();
+    render(<Isosurface3D grid={sphere(10)} level={1.0} controllerRef={ref} />);
+
+    const { width, height } = ref.current!.viewport();
+    const centre = { x: width / 2, y: height / 2 };
+    const near = ref.current!.selectRegion(centre, 30);
+    const far = ref.current!.selectRegion(centre, 1e4);
+
+    expect(near.length).toBeGreaterThan(0);
+    expect(near.length).toBeLessThan(far.length);
+  });
+
+  it("draws the facet a person picked, rather than only recording it", () => {
+    /*
+     * The failure this nearly shipped as. The first fix gave the chart a
+     * `selected` state and wired `focus`, `select` and `deselect` to set it —
+     * and never painted it. That is the same defect one layer down: the
+     * command stopped being ignored and started being answered invisibly,
+     * which from the researcher's side is the same thing.
+     *
+     * A recording canvas, so what is asserted is the drawing rather than the
+     * state behind it. The picked facet is stroked a second time, in its own
+     * colour and at a heavier width, because one facet of a fine mesh is a few
+     * pixels across and a different fill is not findable.
+     */
+    const surface = extractSurface(sphere(8), 1.0);
+    expect(surface.triangles.length).toBeGreaterThan(3);
+
+    const plain = recordingCanvas();
+    paintSurface(plain.canvas, surface, DEFAULT_CAMERA, SIZE, null);
+    const picked = recordingCanvas();
+    paintSurface(picked.canvas, surface, DEFAULT_CAMERA, SIZE, 3);
+
+    const strokes = (r: { calls: Call[] }) =>
+      r.calls.filter((c) => c.op === "stroke");
+    expect(strokes(picked)).toHaveLength(strokes(plain).length + 1);
+
+    // And it is heavier than the seam-hiding hairline, or it is invisible.
+    const hairline = Math.max(...strokes(plain).map((c) => c.width));
+    const heaviest = Math.max(...strokes(picked).map((c) => c.width));
+    expect(heaviest).toBeGreaterThan(hairline);
+  });
+
+  it("draws nothing extra when the picked facet is not on this surface", () => {
+    const surface = extractSurface(sphere(8), 1.0);
+    const plain = recordingCanvas();
+    paintSurface(plain.canvas, surface, DEFAULT_CAMERA, SIZE, null);
+    const absent = recordingCanvas();
+    paintSurface(absent.canvas, surface, DEFAULT_CAMERA, SIZE, 999999);
+
+    const count = (r: { calls: Call[] }) =>
+      r.calls.filter((c) => c.op === "stroke").length;
+    expect(count(absent)).toBe(count(plain));
+  });
+
+  it("keeps the facet already picked when asked to focus a missing one", async () => {
+    /*
+     * What the bounds check is for. Without it `focus` would replace a
+     * selection the person made with an index that draws nothing, so a bad
+     * argument would silently clear their pick rather than being ignored.
+     */
+    /*
+     * The component's own canvas, not a separate one painted by hand. An
+     * earlier version of this test called `paintSurface` directly after
+     * focusing the component, which observes nothing about the component at
+     * all — it passed whether or not the guard existed.
+     */
+    const recorder = recordingCanvas();
+    const context = recorder.canvas.getContext("2d");
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockReturnValue(context as unknown as CanvasRenderingContext2D);
+
+    const ref = createRef<VisualizationController>();
+    render(<Isosurface3D grid={sphere(8)} level={1.0} controllerRef={ref} />);
+
+    const heavy = () => recorder.calls.filter(
+      (c) => c.op === "stroke" && c.width > 1).length;
+
+    await act(async () => { ref.current!.focus("2"); await frame(); });
+    const afterPicking = heavy();
+    expect(afterPicking).toBeGreaterThan(0);
+
+    /*
+     * Rotating forces the next repaint, which is what makes the two cases
+     * differ at all: ignoring the bad argument changes no state and therefore
+     * repaints nothing, so counting frames straight after the call gives the
+     * same number either way. What separates them is whether the *next* frame
+     * still draws the outline.
+     */
+    /*
+     * Two acts, not one. Putting the focus and the rotate together let the
+     * animation frame paint before React had committed the state change, so
+     * the frame still carried the previous selection and the count rose either
+     * way — the test passed whether or not the guard existed. Committing
+     * first, then forcing a repaint, is what separates the two.
+     */
+    await act(async () => { ref.current!.focus("999999"); });
+    await act(async () => { ref.current!.rotate(4, 0); await frame(); });
+    expect(heavy()).toBeGreaterThan(afterPicking);
+
+    // And deselecting really does stop drawing it, or the assertion above
+    // would hold for a chart that ignored every command equally.
+    await act(async () => { ref.current!.deselect(); });
+    await act(async () => { ref.current!.rotate(4, 0); await frame(); });
+    const afterClearing = heavy();
+    await act(async () => { ref.current!.rotate(4, 0); await frame(); });
+    expect(heavy()).toBe(afterClearing);
+  });
+
+  it("ignores a focus on a facet that does not exist", () => {
+    const ref = createRef<VisualizationController>();
+    render(<Isosurface3D grid={sphere(8)} level={1.0} controllerRef={ref} />);
+    for (const bad of ["-1", "999999", "not a number", ""]) {
+      expect(() => act(() => { ref.current!.focus(bad); })).not.toThrow();
+    }
+  });
+
+  it("reports the facet in front when one point is picked", () => {
+    /*
+     * A region and a point mean different things and the rules differ on
+     * purpose. A point names one place, so the far wall of a closed shell
+     * under the cursor is not it; a region is an area of interest, and
+     * dropping the far side would under-report what was enclosed.
+     */
+    const ref = createRef<VisualizationController>();
+    render(<Isosurface3D grid={sphere(10)} level={1.0} controllerRef={ref} />);
+    const { width, height } = ref.current!.viewport();
+    const centre = { x: width / 2, y: height / 2 };
+
+    const picked = ref.current!.select(centre);
+    expect(picked).not.toBeNull();
+
+    /*
+     * A region matches facets whose *centre* falls inside it, which is the
+     * rule every other chart here uses — a bar by its top, a voxel by its
+     * splat centre. So a radius smaller than the spacing between facet centres
+     * finds none even where a facet covers the pixel, and that is consistency
+     * rather than a miss: one gesture must mean the same thing on every chart.
+     *
+     * Measured rather than assumed. This test first asserted that a 2px region
+     * around a picked point contains at least that facet, which is false for a
+     * centroid rule and was the test being wrong about correct code.
+     */
+    expect(ref.current!.selectRegion(centre, 2)).toEqual([]);
+
+    const wide = ref.current!.selectRegion(centre, 60);
+    expect(wide.length).toBeGreaterThan(0);
+    // A closed shell has facets on the far side too, and a region keeps them:
+    // it encloses an area of interest rather than naming one visible place.
+    expect(wide.length).toBeGreaterThan(1);
   });
 });

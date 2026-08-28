@@ -34,8 +34,7 @@ import {
 } from "react";
 import { ScreenPoint, TargetRef, VisualizationController } from "@/lib/spatial/commands";
 import {
-  Camera, DEFAULT_CAMERA, DEPTH_RANGE, project, resetCamera, rotateCamera,
-  zoomCamera,
+  Camera, DEFAULT_CAMERA, DEPTH_RANGE, insidePolygon, project, resetCamera, rotateCamera, zoomCamera,
 } from "@/lib/charts/scene3d";
 import { extent } from "d3-array";
 import { scaleLinear } from "d3-scale";
@@ -809,25 +808,3 @@ export function Volume({
 }
 
 
-/**
- * Ray casting, with the polygon implicitly closed.
- *
- * Lives beside the chart that uses it rather than in a shared utility, because
- * the *other* implementation — in `lib/ink/stroke` — works on stroke points in
- * whatever space the stroke was drawn in. Two callers, two coordinate systems,
- * one algorithm: sharing it would mean a signature that hides which space it is
- * operating in, and that ambiguity is precisely what the rotation-units bug was.
- */
-function insidePolygon(polygon: Array<{ x: number; y: number }>,
-                       point: { x: number; y: number }): boolean {
-  let inside = false;
-  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
-    const a = polygon[i];
-    const b = polygon[j];
-    if ((a.y > point.y) !== (b.y > point.y)
-        && point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x) {
-      inside = !inside;
-    }
-  }
-  return inside;
-}

@@ -42,6 +42,24 @@ export type FlowNode = {
 
 export type FlowLink = { source: string; target: string; value: number };
 
+/**
+ * How much passes through one node.
+ *
+ * The larger of what arrives and what leaves, rather than their sum: a node in
+ * the middle of a flow would otherwise report double its own throughput, and a
+ * reader comparing a middle node with an endpoint would be comparing two
+ * different quantities.
+ */
+export function flowThrough(links: FlowLink[], id: string): number {
+  let incoming = 0;
+  let outgoing = 0;
+  for (const link of links) {
+    if (link.target === id) incoming += link.value;
+    if (link.source === id) outgoing += link.value;
+  }
+  return Math.max(incoming, outgoing);
+}
+
 type Laid = {
   id: string; label: string; index: number;
   x0: number; x1: number; y0: number; y1: number;
@@ -280,7 +298,20 @@ export function Ribbon({
         )}
       </figcaption>
 
-      <ChartTooltip pointer={hoverUI.pointer} title={hit?.label} rows={hit ? [{ label: "id", value: hit.id }] : []} />
+      {/*
+        * The flow through the hovered node, not its id. A tooltip reporting
+        * `id: cohort_a` tells a reader something they can see on the axis, and
+        * this file's own rule for a node label is "never a raw column name" —
+        * which the identifier is. The number they cannot see is how much goes
+        * through it.
+        */}
+      <ChartTooltip
+        pointer={hoverUI.pointer}
+        title={hit?.label}
+        rows={hit
+          ? [{ label: "total flow", value: readable(flowThrough(links, hit.id)) }]
+          : []}
+      />
 
       <ChartTable
         highlightId={hoverUI.hovered}

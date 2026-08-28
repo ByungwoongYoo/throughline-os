@@ -34,7 +34,7 @@ import {
 } from "react";
 import { ScreenPoint, TargetRef, VisualizationController } from "@/lib/spatial/commands";
 import {
-  Camera, DEFAULT_CAMERA, resetCamera, rotateCamera, toCanvas, zoomCamera,
+  Camera, DEFAULT_CAMERA, insidePolygon, resetCamera, rotateCamera, toCanvas, zoomCamera,
 } from "@/lib/charts/scene3d";
 import { isZoomWheel, wheelZoomFactor } from "@/lib/charts/wheel";
 import { Grid } from "@/lib/charts3d/voxels";
@@ -104,6 +104,28 @@ export function Isosurface3D({
     onLevelChange?.(next);
   }, [onLevelChange]);
 
+  /*
+   * Which facet is selected, if any.
+   *
+   * There was no selection at all: `select` returned a target and recorded
+   * nothing, `focus` and `deselect` were empty functions, and `selectRegion`
+   * and `withinPolygon` returned `[]` whatever they were given. So a hand that
+   * could rotate this chart could not pick anything on it, while every other
+   * chart in the same gallery answered the same commands — which is exactly
+   * the single command architecture failing quietly on one implementation.
+   */
+  const [selected, setSelected] = useState<number | null>(null);
+  /*
+   * Mirrored into a ref because the paint loop is started once and closes over
+   * what it can see. Reading `selected` from the loop's closure would paint
+   * whatever was selected when the effect ran, which is `null` for ever.
+   */
+  const selectedRef = useRef<number | null>(null);
+  useEffect(() => {
+    selectedRef.current = selected;
+    dirtyRef.current = true;
+  }, [selected]);
+
   /** Which facet a pointer is over. The nearest one, not the first found. */
   const nearest = useCallback((point: ScreenPoint): TargetRef | null => {
     const camera = cameraRef.current;
@@ -124,16 +146,51 @@ export function Isosurface3D({
     return best;
   }, [surface, width, height]);
 
+  /**
+   * Every facet whose centre falls inside a region.
+   *
+   * Unlike `nearest`, this does *not* keep only the facet in front. A point
+   * names one place, so reporting the far wall of a shell under the cursor
+   * would name somewhere the reader cannot see. A region is an area of
+   * interest rather than a click, and dropping the far side of a shell from it
+   * would under-report what was enclosed — the two rules differ because the
+   * gestures mean different things.
+   */
+  const within = useCallback((inside: (p: ScreenPoint) => boolean): TargetRef[] => {
+    const camera = cameraRef.current;
+    const found: TargetRef[] = [];
+    surface.triangles.forEach((t, index) => {
+      const a = toCanvas(t.a, camera, width, height);
+      const b = toCanvas(t.b, camera, width, height);
+      const c = toCanvas(t.c, camera, width, height);
+      const centre = { x: (a.x + b.x + c.x) / 3, y: (a.y + b.y + c.y) / 3 };
+      if (inside(centre)) {
+        found.push({ id: String(index), label: `facet ${index + 1}`, datum: t });
+      }
+    });
+    return found;
+  }, [surface, width, height]);
+
   useImperativeHandle(controllerRef, (): VisualizationController => ({
     rotate,
     zoom: (factor) => { zoomCamera(cameraRef.current, factor); dirtyRef.current = true; },
     pan: () => {},
     hover: (point) => nearest(point),
-    select: (point) => nearest(point),
-    selectRegion: () => [],
-    withinPolygon: () => [],
-    focus: () => {},
-    deselect: () => {},
+    select: (point) => {
+      const target = nearest(point);
+      setSelected(target ? Number(target.id) : null);
+      return target;
+    },
+    selectRegion: (point, radius) => within(
+      (p) => Math.hypot(p.x - point.x, p.y - point.y) <= radius),
+    withinPolygon: (polygon) => within((p) => insidePolygon(polygon, p)),
+    focus: (objectId) => {
+      const index = Number(objectId);
+      if (!Number.isInteger(index) || index < 0
+          || index >= surface.triangles.length) return;
+      setSelected(index);
+    },
+    deselect: () => setSelected(null),
     resetView: () => {
       resetCamera(cameraRef.current);
       // The level is part of the view: a reader who has narrowed to one shell
@@ -165,7 +222,13 @@ export function Isosurface3D({
       moveLevel(state.level);
       dirtyRef.current = true;
     },
-  }), [rotate, nearest, width, height, at, level, moveLevel]);
+    /*
+     * `within` and the surface belong here. Without them the handle keeps the
+     * closure it was built with, so after the level moves — which rebuilds the
+     * surface entirely — a lasso would test against the shell that is no
+     * longer on screen, and `focus` would bound-check against its facet count.
+     */
+  }), [rotate, nearest, within, surface, width, height, at, level, moveLevel]);
 
   useEffect(() => { dirtyRef.current = true; }, [surface]);
 
@@ -178,7 +241,7 @@ export function Isosurface3D({
       if (dirtyRef.current) {
         dirtyRef.current = false;
         paintSurface(canvasRef.current, surface, cameraRef.current,
-                     { width, height });
+                     { width, height }, selectedRef.current);
       }
       handle = requestAnimationFrame(tick);
     };
@@ -297,6 +360,8 @@ export function paintSurface(
   surface: Surface,
   camera: Camera,
   size: { width: number; height: number },
+  /** Index of the facet a person picked, drawn so they can see which. */
+  selected: number | null = null,
 ): void {
   if (!canvas) return;
   const context = canvas.getContext("2d");
@@ -311,15 +376,15 @@ export function paintSurface(
    * and reads as a wireframe tangle rather than as a solid.
    */
   const facets = surface.triangles
-    .map((t) => {
+    .map((t, index) => {
       const a = toCanvas(t.a, camera, width, height);
       const b = toCanvas(t.b, camera, width, height);
       const c = toCanvas(t.c, camera, width, height);
-      return { t, a, b, c, depth: (a.depth + b.depth + c.depth) / 3 };
+      return { t, index, a, b, c, depth: (a.depth + b.depth + c.depth) / 3 };
     })
     .sort((p, q) => p.depth - q.depth);
 
-  for (const { t, a, b, c } of facets) {
+  for (const { t, index, a, b, c } of facets) {
     context.save();
     context.fillStyle = facetColour(t.n);
     /*
@@ -338,6 +403,21 @@ export function paintSurface(
     context.closePath();
     context.fill();
     context.stroke();
+    /*
+     * The picked facet outlined on top of its own fill.
+     *
+     * One facet of a fine mesh is a few pixels across, so a different fill
+     * colour is not findable — the outline is what a person can actually see.
+     * Drawn after the fill and in the painter's own back-to-front order, so a
+     * selected facet on the far side stays behind the near ones rather than
+     * appearing to float in front of the shell.
+     */
+    if (index === selected) {
+      context.strokeStyle = "var(--accent, #d84315)";
+      context.strokeStyle = "#d84315";
+      context.lineWidth = 2;
+      context.stroke();
+    }
     context.restore();
   }
 }
