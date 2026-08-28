@@ -1,0 +1,368 @@
+"use client";
+
+/**
+ * Paths drawn in space (§9 lines).
+ *
+ * The renderer for the seventeen catalogue entries that share the `lines`
+ * primitive — planetary, satellite and asteroid orbits, flight paths,
+ * spacecraft trajectories, robot arm motion, neural pathways, blood vessel
+ * networks, a training trajectory through parameter space, streamlines through
+ * a field, and the research timeline tunnel.
+ *
+ * **Every segment is sorted separately, not every path.** A trajectory is not
+ * at one depth: an orbit passes in front of the body it circles and then
+ * behind it, and a path sorted as a unit is drawn entirely in front or
+ * entirely behind — so the orbit either floats over the thing it orbits or
+ * hides beneath it, and in both cases the reader is looking at a picture of
+ * the sort rather than of the motion. Splitting into segments costs an
+ * allocation per frame and buys the one cue that makes a closed path legible.
+ *
+ * **Direction is drawn, because a path has an order and a line does not.** The
+ * stroke ramps from faint at the start to solid at the end. An arrowhead per
+ * path would put one mark at one place; a ramp is readable everywhere along
+ * it, survives the path leaving the frame, and adds no clutter to a bundle of
+ * two hundred trajectories.
+ *
+ * **A gap is never joined.** `preparePaths` has already split a path wherever
+ * its data was missing, and this file draws the runs separately. That is the
+ * whole reason the runs exist, and the temptation it removes — flattening them
+ * into one polyline — would draw a straight chord across ground nothing was
+ * measured on.
+ */
+
+import {
+  useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
+} from "react";
+import { ScreenPoint, TargetRef, VisualizationController } from "@/lib/spatial/commands";
+import {
+  Camera, DEFAULT_CAMERA, resetCamera, rotateCamera, toCanvas, zoomCamera,
+} from "@/lib/charts/scene3d";
+import { isZoomWheel, wheelZoomFactor } from "@/lib/charts/wheel";
+import {
+  DEFAULT_PATHS, Path, PathSettings, Paths, Polyline, describePaths,
+  preparePaths,
+} from "@/lib/charts3d/paths";
+import { categorical } from "@/lib/tokens";
+
+export type Lines3DProps = {
+  paths: Path[];
+  settings?: PathSettings;
+  width?: number;
+  height?: number;
+  controllerRef?: React.RefObject<VisualizationController | null>;
+  onSelect?: (target: TargetRef | null) => void;
+  caption?: string;
+};
+
+/** How near a pointer must be, in pixels, to count as on a path. */
+const PICK_RADIUS = 10;
+
+export function Lines3D({
+  paths, settings = DEFAULT_PATHS, width = 720, height = 520, controllerRef,
+  onSelect, caption,
+}: Lines3DProps) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const cameraRef = useRef<Camera>({ ...DEFAULT_CAMERA });
+  const dirtyRef = useRef(true);
+  const hoveredRef = useRef<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+
+  /*
+   * Prepared once per set of paths. Simplification and normalisation are
+   * decisions about the data rather than the camera, and re-simplifying on
+   * every rotation would let points appear and vanish as the reader turned the
+   * scene — indistinguishable from the trajectory changing.
+   */
+  const prepared: Paths = useMemo(
+    () => preparePaths(paths, settings), [paths, settings]);
+
+  /** Which path a pointer is on, measured to the line rather than to a point. */
+  const nearest = useCallback((point: ScreenPoint): TargetRef | null => {
+    const camera = cameraRef.current;
+    let best: TargetRef | null = null;
+    let bestGap = PICK_RADIUS;
+
+    for (const line of prepared.lines) {
+      for (const run of line.runs) {
+        const screen = run.map((p) => toCanvas(p, camera, width, height));
+        const ends = line.closed && screen.length > 2
+          ? [...screen, screen[0]] : screen;
+        for (let i = 1; i < ends.length; i += 1) {
+          const gap = distanceToSegment(point, ends[i - 1], ends[i]);
+          // `<=` so a later path wins a tie: it is the one drawn on top, and
+          // selecting the one behind picks something the reader cannot see.
+          if (gap > bestGap) continue;
+          bestGap = gap;
+          best = { id: line.id, label: line.label ?? line.id, datum: line };
+        }
+      }
+    }
+    return best;
+  }, [prepared, width, height]);
+
+  const rotate = useCallback((dx: number, dy: number) => {
+    rotateCamera(cameraRef.current, dx, dy);
+    dirtyRef.current = true;
+  }, []);
+
+  useImperativeHandle(controllerRef, (): VisualizationController => ({
+    rotate,
+    zoom: (factor) => {
+      zoomCamera(cameraRef.current, factor);
+      dirtyRef.current = true;
+    },
+    // Not offered rather than stubbed: this centres a unit cube and there is
+    // nothing off-frame to pan toward.
+    pan: () => {},
+    hover: (point) => {
+      const target = nearest(point);
+      if ((target?.id ?? null) !== hoveredRef.current) {
+        hoveredRef.current = target?.id ?? null;
+        dirtyRef.current = true;
+      }
+      return target;
+    },
+    select: (point) => {
+      const target = nearest(point);
+      setSelected(target?.id ?? null);
+      onSelect?.(target);
+      return target;
+    },
+    selectRegion: (point, radius) => within(
+      prepared, cameraRef.current, width, height,
+      (p) => Math.hypot(p.x - point.x, p.y - point.y) <= radius),
+    withinPolygon: (polygon) => within(
+      prepared, cameraRef.current, width, height,
+      (p) => insidePolygon(polygon, p)),
+    focus: (objectId) => {
+      // Ignored rather than stored when it names no path here, so the caption
+      // cannot claim a selection nothing can be highlighted for.
+      if (!prepared.lines.some((l) => l.id === objectId)) return;
+      setSelected(objectId);
+    },
+    deselect: () => setSelected(null),
+    resetView: () => { resetCamera(cameraRef.current); dirtyRef.current = true; },
+    viewport: () => ({ width, height }),
+    bounds: () => {
+      const box = canvasRef.current?.getBoundingClientRect();
+      // A canvas not yet laid out measures zero, which is not a position.
+      if (!box || box.width === 0 || box.height === 0) return null;
+      return { x: box.left, y: box.top, width: box.width, height: box.height };
+    },
+    viewState: () => ({ yaw: cameraRef.current.yaw,
+                        pitch: cameraRef.current.pitch,
+                        zoom: cameraRef.current.zoom }),
+    restoreViewState: (state) => {
+      // All three or none. A partial restore puts the scene somewhere the
+      // researcher has never been, which is worse than not moving at all.
+      if (typeof state.yaw !== "number" || typeof state.pitch !== "number"
+          || typeof state.zoom !== "number") return;
+      cameraRef.current.yaw = state.yaw;
+      cameraRef.current.pitch = state.pitch;
+      cameraRef.current.zoom = state.zoom;
+      dirtyRef.current = true;
+    },
+  }), [rotate, nearest, prepared, width, height, onSelect]);
+
+  useEffect(() => { dirtyRef.current = true; }, [prepared, selected]);
+
+  useEffect(() => {
+    if (typeof requestAnimationFrame === "undefined") return;
+    let running = true;
+    let handle = 0;
+    const tick = () => {
+      if (!running) return;
+      if (dirtyRef.current) {
+        dirtyRef.current = false;
+        paintLines(canvasRef.current, prepared, cameraRef.current,
+                   { width, height }, selected, hoveredRef.current);
+      }
+      handle = requestAnimationFrame(tick);
+    };
+    handle = requestAnimationFrame(tick);
+    return () => { running = false; cancelAnimationFrame(handle); };
+  }, [prepared, width, height, selected]);
+
+  const dragging = useRef<{ x: number; y: number } | null>(null);
+
+  return (
+    <figure className="chart">
+      <canvas
+        ref={canvasRef}
+        width={width}
+        height={height}
+        data-testid="lines-3d"
+        style={{ width: "100%", maxWidth: width, touchAction: "none" }}
+        onPointerDown={(event) => {
+          dragging.current = { x: event.clientX, y: event.clientY };
+          (event.target as Element).setPointerCapture?.(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          const from = dragging.current;
+          if (!from) return;
+          rotate(event.clientX - from.x, event.clientY - from.y);
+          dragging.current = { x: event.clientX, y: event.clientY };
+        }}
+        onPointerUp={() => { dragging.current = null; }}
+        onWheel={(event) => {
+          if (!isZoomWheel(event)) return;
+          event.preventDefault();
+          zoomCamera(cameraRef.current, wheelZoomFactor(event.deltaY));
+          dirtyRef.current = true;
+        }}
+      />
+      <figcaption className="chart-caption">
+        {caption ? `${caption} ` : ""}
+        {describePaths(prepared)}
+        {selected && (
+          <> Selected: {prepared.lines.find((l) => l.id === selected)?.label
+                        ?? selected}.</>
+        )}
+      </figcaption>
+    </figure>
+  );
+}
+
+function within(prepared: Paths, camera: Camera, width: number, height: number,
+                inside: (p: ScreenPoint) => boolean): TargetRef[] {
+  const found: TargetRef[] = [];
+  for (const line of prepared.lines) {
+    // A path counts if any of its points is inside: a lasso round part of a
+    // trajectory is asking for that trajectory, not for the fragment.
+    const any = line.runs.some((run) => run.some(
+      (p) => inside(toCanvas(p, camera, width, height))));
+    if (any) found.push({ id: line.id, label: line.label ?? line.id, datum: line });
+  }
+  return found;
+}
+
+/** Whether a point is inside a polygon. Ray casting, like the ink lasso. */
+function insidePolygon(polygon: ScreenPoint[], point: ScreenPoint): boolean {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
+    const a = polygon[i], b = polygon[j];
+    const straddles = (a.y > point.y) !== (b.y > point.y);
+    if (!straddles) continue;
+    const crossing = a.x + ((point.y - a.y) / (b.y - a.y)) * (b.x - a.x);
+    if (point.x < crossing) inside = !inside;
+  }
+  return inside;
+}
+
+/** Distance from a point to a segment on screen. Clamped to the endpoints. */
+function distanceToSegment(p: ScreenPoint, a: ScreenPoint, b: ScreenPoint): number {
+  const vx = b.x - a.x, vy = b.y - a.y;
+  const wx = p.x - a.x, wy = p.y - a.y;
+  const vv = vx * vx + vy * vy;
+  const t = vv > 0 ? Math.max(0, Math.min(1, (wx * vx + wy * vy) / vv)) : 0;
+  return Math.hypot(wx - t * vx, wy - t * vy);
+}
+
+/** The colour a path is drawn in. Grouped paths share one; others cycle. */
+export function pathColour(line: Polyline, index: number): string {
+  const key = line.group ?? line.id;
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i += 1) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return line.group
+    ? categorical[Math.abs(h) % categorical.length]
+    : categorical[index % categorical.length];
+}
+
+/**
+ * One frame of the paths.
+ *
+ * Exported for the same reason `paintNetwork` and `paintVolume` are: a draw
+ * loop reachable only through an animation frame is one no test ever runs, and
+ * the per-segment depth ordering is the thing here that is either right or
+ * silently wrong.
+ */
+export function paintLines(
+  canvas: HTMLCanvasElement | null,
+  prepared: Paths,
+  camera: Camera,
+  size: { width: number; height: number },
+  selected: string | null,
+  hovered: string | null,
+): void {
+  if (!canvas) return;
+  const context = canvas.getContext("2d");
+  if (!context) return;
+
+  const { width, height } = size;
+  context.clearRect(0, 0, width, height);
+
+  /*
+   * Every segment of every path, collected and then sorted together.
+   *
+   * Sorting whole paths would draw an orbit entirely in front of or entirely
+   * behind the body it circles. `depth` is larger when nearer, so this
+   * ascends: farthest first.
+   */
+  type Piece = {
+    from: { x: number; y: number };
+    to: { x: number; y: number };
+    depth: number;
+    colour: string;
+    /** How far along the path this segment sits, 0..1. Drives the ramp. */
+    along: number;
+    id: string;
+  };
+  const pieces: Piece[] = [];
+
+  prepared.lines.forEach((line, index) => {
+    const colour = pathColour(line, index);
+    for (const run of line.runs) {
+      const screen = run.map((p) => ({
+        ...toCanvas(p, camera, width, height),
+      }));
+      // A closed path joins its last point to its first. `preparePaths` has
+      // already refused to close anything that was broken by missing data.
+      const ends = line.closed && screen.length > 2
+        ? [...screen, screen[0]] : screen;
+      for (let i = 1; i < ends.length; i += 1) {
+        pieces.push({
+          from: ends[i - 1],
+          to: ends[i],
+          depth: (ends[i - 1].depth + ends[i].depth) / 2,
+          colour,
+          along: ends.length > 1 ? i / (ends.length - 1) : 1,
+          id: line.id,
+        });
+      }
+    }
+  });
+
+  pieces.sort((a, b) => a.depth - b.depth);
+
+  for (const piece of pieces) {
+    const isSelected = piece.id === selected;
+    const isHovered = piece.id === hovered;
+    context.save();
+    /*
+     * Fainter at the start, solid at the end. A path has an order and a line
+     * does not, so without this a trajectory and its reverse are the same
+     * picture.
+     *
+     * **The floor is 0.55, not 0.** Ramping from near-transparent reads
+     * beautifully on paper and vanishes on this interface's near-black
+     * background: at 0.19 the first half of every trajectory painted 3305
+     * pixels that could not be seen at all. The ramp only has to be *ordered*
+     * to convey direction — it does not have to reach zero, and reaching zero
+     * costs the beginning of the path, which is where a trajectory starts and
+     * therefore where a reader looks first.
+     */
+    const emphasis = isSelected ? 1 : isHovered ? 0.9 : 0.8;
+    context.globalAlpha = (0.55 + 0.45 * piece.along) * emphasis;
+    context.strokeStyle = isSelected ? "rgba(20,67,184,1)" : piece.colour;
+    context.lineWidth = isSelected ? 2.6 : isHovered ? 2 : 1.6;
+    context.lineCap = "round";
+    context.beginPath();
+    context.moveTo(piece.from.x, piece.from.y);
+    context.lineTo(piece.to.x, piece.to.y);
+    context.stroke();
+    context.restore();
+  }
+}

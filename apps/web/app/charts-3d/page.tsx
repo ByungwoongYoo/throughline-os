@@ -28,11 +28,13 @@ import Link from "next/link";
 import { Network3D } from "@/components/charts/Network3D";
 import { Field3D } from "@/components/charts/Field3D";
 import { VoxelVolume } from "@/components/charts/VoxelVolume";
+import { Lines3D } from "@/components/charts/Lines3D";
 import { SpatialControl } from "@/components/spatial/SpatialControl";
 import { VisualizationController } from "@/lib/spatial/commands";
 import { Graph } from "@/lib/charts3d/network";
 import { Sample, sampleFunction } from "@/lib/charts3d/field";
 import { Grid, gridFromFunction } from "@/lib/charts3d/voxels";
+import { Path, nearestSampler, streamline } from "@/lib/charts3d/paths";
 import { SpecialistMount } from "@/components/specialist/mount";
 import {
   CATALOGUE, available, drawableOnDemand, drawnBy,
@@ -102,8 +104,37 @@ function densityVolume(): Grid {
   }, 26, { min: -1, max: 1 }, "mg/cm³");
 }
 
+/**
+ * Streamlines through the same vortex the field above draws.
+ *
+ * Deliberately the same flow: an arrow field and a set of streamlines are two
+ * readings of one thing, and seeing them side by side is what shows that the
+ * arrows are samples of the paths rather than a different measurement. One
+ * seed is placed at the centre, where the flow stalls — so the caption has a
+ * real stagnation point to report rather than a tidy set of loops.
+ */
+function vortexStreamlines(): Path[] {
+  const samples = vortexFlow();
+  const at = nearestSampler(samples, 0.4);
+  const seeds = [
+    { x: 0.7, y: 0, z: -0.6 }, { x: 0.45, y: 0, z: 0 },
+    { x: 0.9, y: 0, z: 0.6 }, { x: 0.2, y: 0, z: 0.3 },
+    { x: 0, y: 0, z: 0 },
+  ];
+  return seeds.map((seed, i) => {
+    const line = streamline(at, seed);
+    return {
+      id: `stream-${i}`,
+      label: `Seed ${i + 1} — ${line.ended}`,
+      group: line.ended,
+      points: line.points,
+    };
+  });
+}
+
 export default function Charts3DPage() {
   const network = useRef<VisualizationController | null>(null);
+  const trails = useRef<VisualizationController | null>(null);
   const field = useRef<VisualizationController | null>(null);
   const volume = useRef<VisualizationController | null>(null);
   const [addressing, setAddressing] = useState<string>("—");
@@ -111,6 +142,7 @@ export default function Charts3DPage() {
   const graph = useMemo(citationNetwork, []);
   const flow = useMemo(vortexFlow, []);
   const density = useMemo(densityVolume, []);
+  const streams = useMemo(vortexStreamlines, []);
 
   const drawable = available().length;
   /*
@@ -120,7 +152,7 @@ export default function Charts3DPage() {
    * promises — and the smaller, truer one is what a reader is checking here.
    */
   const onDemand = drawableOnDemand();
-  const byPrimitive = (["network", "glyphs", "volume"] as const)
+  const byPrimitive = (["network", "glyphs", "volume", "lines"] as const)
     .map((p) => `${drawnBy(p).length} ${p}`)
     .join(", ");
 
@@ -166,7 +198,7 @@ export default function Charts3DPage() {
         </p>
         <SpatialControl
           controllerRef={network}
-          alsoControls={[field, volume]}
+          alsoControls={[field, volume, trails]}
           label="the spatial charts"
           onActiveTarget={(read) => {
             const active = read();
@@ -175,6 +207,7 @@ export default function Charts3DPage() {
               : active === network.current ? "the citation network"
               : active === field.current ? "the flow field"
               : active === volume.current ? "the density volume"
+              : active === trails.current ? "the streamlines"
               : "—");
           }}
         />
@@ -195,6 +228,15 @@ export default function Charts3DPage() {
           samples={flow}
           controllerRef={field}
           caption="A vortex about the z axis, synthetic."
+        />
+      </section>
+
+      <section>
+        <h2>Streamlines</h2>
+        <Lines3D
+          paths={streams}
+          controllerRef={trails}
+          caption="The same vortex, integrated into paths rather than sampled into arrows."
         />
       </section>
 

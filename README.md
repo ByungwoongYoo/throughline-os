@@ -51,22 +51,25 @@ system's own record legible to the person using it:
 
 The spatial layer has started to render rather than only being catalogued.
 `apps/web/lib/charts3d/registry.ts` names all 238 visualizations the brief lists
-and records which of them anything can actually draw — **167 today, against 86
-at the start of the wave**. Three primitives account for all 81 of that
+and records which of them anything can actually draw — **184 today, against 86
+at the start of the wave**. Four primitives account for all 98 of that
 difference, because a named visualization is a configuration of a primitive
 rather than a chart of its own: `network` unlocked 35, `glyphs` 26 (vector and
-tensor fields) and `volume` 20 (voxel grids — five further volume entries still
+tensor fields), `volume` 20 (voxel grids — five further volume entries still
 want somebody else's DICOM or NIfTI reader, and the registry keeps that apart
-from a missing renderer because the costs differ in kind). What is still absent
-is named the same way: `lines` (17), `isosurface` (11) and `bars` (4).
+from a missing renderer because the costs differ in kind) and `lines` 17
+(orbits, flight paths, trajectories and streamlines). What is still absent is
+named the same way: `isosurface` (11) and `bars` (4).
 
 Each of those charts states what it is hiding, which for a spatial chart is not
 a courtesy. Depth buys occlusion, so a volume reports how many voxels fall below
 the window, how many sit inside it but too faint for a pixel to show, and what
 the sampling stride was; a field says how many arrows were shortened to fit and
-to read those by colour instead. `/charts-3d` draws all three from synthetic
-data, with one hand driving whichever chart it is over — which is where
-`bounds()` is actually used rather than merely implemented.
+to read those by colour instead; a set of paths says where the measurements had
+holes in them, because a line drawn across a gap is a confident claim about
+ground nothing was recorded on. `/charts-3d` draws all four from synthetic data,
+with one hand driving whichever chart it is over — which is where `bounds()` is
+actually used rather than merely implemented.
 
 The flat charts became interactive in the same wave: hover emphasis, a tooltip
 carrying the real value in the reader's units rather than in pixels, and
@@ -83,7 +86,7 @@ the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **1489 backend tests and 1439 web tests**, with 13 backend
+The current suite is **1572 backend tests and 1493 web tests**, with 13 backend
 skips. Nine carry a reason CI's allowlist recognises — a skip with an
 unrecognised reason fails the build, so the suite cannot quietly shrink. The
 other four are the speech tests, whose reason (`openai-whisper is not
