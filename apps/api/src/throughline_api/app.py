@@ -1413,6 +1413,7 @@ def fetch_paper_pdf(payload: PaperPdfRequest,
 def list_artifacts(project_id: str,
                    user: dict = Depends(current_user)) -> list[dict[str, Any]]:
     """Every report and presentation in this project, newest first."""
+    scoped_project(project_id, user)
     with transaction() as cur:
         cur.execute(
             """
@@ -1439,6 +1440,7 @@ def draft_artifact(project_id: str, payload: DraftRequest,
     connection, its validation report and the runs behind them, so every
     sentence in the result is traceable to something that was computed.
     """
+    scoped_project(project_id, user)
     with transaction() as cur:
         try:
             artifact_id = authoring.draft_from_connection(
@@ -1464,6 +1466,13 @@ def draft_presentation(artifact_id: str,
         row = cur.fetchone()
         if not row:
             raise HTTPException(404, "There is no such report.")
+        # Every other artifact route checks this and this one did not, so a
+        # second account could re-cut somebody else's report and leave the
+        # slides inside their project. `draft_presentation_from_report` looks
+        # like it guards the boundary — it refuses a report from a different
+        # project — but it was handed the report's *own* project_id, so the
+        # comparison was against itself and could never fail.
+        scoped_project(row["project_id"], user)
         try:
             new_id = authoring.draft_presentation_from_report(
                 cur, project_id=row["project_id"], report_id=artifact_id)
@@ -1557,6 +1566,7 @@ def check_artifact_citations(artifact_id: str,
 def verify_citations(project_id: str,
                      user: dict = Depends(current_user)) -> dict[str, Any]:
     """Which citations in this project still resolve (§73)."""
+    scoped_project(project_id, user)
     with transaction() as cur:
         return citations.verify_project(cur, project_id)
 
@@ -1574,6 +1584,7 @@ def verify_citations(project_id: str,
 def read_board(project_id: str,
                user: dict = Depends(current_user)) -> dict[str, Any]:
     """Everything on this project's board, bottom to top."""
+    scoped_project(project_id, user)
     with transaction() as cur:
         return {"placements": board.for_project(cur, project_id=project_id)}
 
@@ -1582,6 +1593,7 @@ def read_board(project_id: str,
 def board_available(project_id: str,
                     user: dict = Depends(current_user)) -> dict[str, Any]:
     """What this project has that is not on the board yet."""
+    scoped_project(project_id, user)
     with transaction() as cur:
         return {"objects": board.available(cur, project_id=project_id)}
 
@@ -1595,6 +1607,7 @@ def place_on_board(project_id: str, payload: PlacementRequest,
     position repeatedly, and the same object at the same place is the same
     board however many times it is said.
     """
+    scoped_project(project_id, user)
     with transaction() as cur:
         try:
             return board.place(
@@ -1609,6 +1622,7 @@ def place_on_board(project_id: str, payload: PlacementRequest,
 def raise_on_board(project_id: str, object_id: str,
                    user: dict = Depends(current_user)) -> dict[str, Any]:
     """Bring a card above everything else."""
+    scoped_project(project_id, user)
     with transaction() as cur:
         try:
             return {"z": board.bring_to_front(
@@ -1627,6 +1641,7 @@ def take_off_board(project_id: str, object_id: str,
     off the board now" and "it was never on it" are different answers to
     somebody who believes they just removed something.
     """
+    scoped_project(project_id, user)
     with transaction() as cur:
         removed = board.remove(cur, project_id=project_id, object_id=object_id)
     if not removed:
@@ -1643,6 +1658,7 @@ def keep_mark(project_id: str, payload: MarkRequest,
     everything written on it — an annotation that does not survive being closed
     is a demonstration of one.
     """
+    scoped_project(project_id, user)
     with transaction() as cur:
         try:
             return marks.record(
@@ -1669,6 +1685,7 @@ def rub_out_mark(project_id: str, mark_id: str,
     Scoped by project as well as id: an identifier is not an authorisation, and
     a mark id kept from another workspace should delete nothing.
     """
+    scoped_project(project_id, user)
     with transaction() as cur:
         removed = marks.remove(cur, mark_id=mark_id, project_id=project_id)
     if not removed:
@@ -1686,6 +1703,7 @@ def keep_excerpt(project_id: str, payload: ExcerptRequest,
     defaults. An excerpt that could not say where it came from would sit on the
     board looking exactly like one that could.
     """
+    scoped_project(project_id, user)
     with transaction() as cur:
         try:
             return excerpts.record(
@@ -1709,6 +1727,7 @@ def keep_excerpt(project_id: str, payload: ExcerptRequest,
 def list_excerpts(project_id: str,
                   user: dict = Depends(current_user)) -> dict[str, Any]:
     """Everything taken from papers in this project, newest first."""
+    scoped_project(project_id, user)
     with transaction() as cur:
         return {"excerpts": excerpts.for_project(cur, project_id=project_id)}
 

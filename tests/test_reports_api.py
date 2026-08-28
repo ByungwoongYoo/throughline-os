@@ -372,12 +372,31 @@ class TestDraftingFromAConnection:
         assert rendered.status_code == 200
         assert rendered.json()["byte_size"] > 0
 
-    def test_a_connection_from_another_project_is_refused(
+    def test_a_project_that_is_not_yours_is_not_found(
             self, client, workspace, tested_connection):
-        # An identifier is not an authorisation. Drafting across projects would
-        # put one researcher's evidence into another's paper.
+        """
+        An identifier is not an authorisation.
+
+        This expected 400 and now gets 404, because the refusal moved earlier:
+        the route used to let the request through and rely on the domain
+        noticing that the connection belonged elsewhere, and it now asks first
+        whether the caller owns the project at all. 404 rather than 403 —
+        whether a project exists is itself something only its owner is entitled
+        to know. See `tests/test_project_isolation.py`.
+        """
         response = client.post(
             "/api/projects/prj_somewhere_else/artifacts/draft",
+            json={"connection_id": tested_connection})
+        assert response.status_code == 404
+
+    def test_a_connection_from_another_of_your_own_projects_is_refused(
+            self, client, workspace, tested_connection):
+        # The case the check above no longer reaches: the caller owns both
+        # projects, so ownership is not the question — drafting across them
+        # would still put one piece of research's evidence into another's paper.
+        other = client.post("/api/projects", json={"name": "Elsewhere"}).json()["id"]
+        response = client.post(
+            f"/api/projects/{other}/artifacts/draft",
             json={"connection_id": tested_connection})
         assert response.status_code == 400
 
