@@ -3751,6 +3751,27 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .board-remove:focus-visible { opacity: 1; }
 .board-remove:hover { background: rgba(120,130,150,0.18); }
 
+/*
+ * What is behind a card, beside the board rather than over it.
+ *
+ * Over the board would cover the arrangement the panel is describing, and the
+ * arrangement is the reason somebody is on this screen.
+ */
+.board-detail {
+  position: absolute; top: 0; right: 0; bottom: 0; width: min(360px, 40vw);
+  overflow-y: auto; padding: 1rem; z-index: 5;
+  background: var(--paper, #fff);
+  border-left: 1px solid rgba(120,130,150,0.35);
+}
+.board-detail h2 { font-size: 1rem; margin: 0.2rem 0; }
+.board-detail section { margin-top: 1.1rem; }
+.board-impact, .board-mentions { list-style: none; padding: 0; margin: 0.4rem 0 0; }
+.board-impact li, .board-mentions li {
+  padding: 0.4rem 0; border-top: 1px solid rgba(120,130,150,0.2);
+  display: flex; flex-direction: column; gap: 0.15rem;
+}
+.board-mentions p { margin: 0; font-size: 0.85rem; opacity: 0.75; }
+
 @media (prefers-reduced-motion: no-preference) {
   .board-remove { transition: opacity 120ms ease; }
 }

@@ -156,13 +156,14 @@ describe("moving a card", () => {
 describe("a click is not a drag", () => {
   it("raises a card that was pressed and released in place", async () => {
     /*
-     * A press raises rather than opens. There is nowhere in this workspace that
-     * shows a research object on its own yet, and a callback the host cannot
-     * satisfy would be dead surface — a prop declared, threaded through and
-     * never supplied, which this codebase has produced three times already.
+     * A press raises. It now also opens the card beside the board, which it
+     * could not do while nothing in this workspace showed a research object on
+     * its own — the comment here used to say so, and a callback the host
+     * cannot satisfy would have been dead surface.
      *
-     * Raising is also what a board is for: cards overlap, and the one pressed
-     * is the one meant.
+     * Raising stays, because it is what a board is for: cards overlap, and the
+     * one pressed is the one meant. This test is about the raise; the opening
+     * is covered below.
      */
     const raised: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
@@ -533,5 +534,115 @@ describe("taking a card off the board", () => {
 
     // No move was saved, because no drag ever started.
     expect(calls.filter((c) => c.method === "PUT")).toHaveLength(0);
+  });
+});
+
+
+describe("opening a card", () => {
+  function mockOpenable() {
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      const path = String(url);
+      if (path.endsWith("/front")) {
+        return new Response(JSON.stringify({ z: 9 }), { status: 200 });
+      }
+      if (path.includes("/impact")) {
+        return new Response(JSON.stringify({
+          object_id: "obj1", dependent_artifacts: 0, by_type: {},
+          findings_losing_evidence: 0, artifacts: [],
+        }), { status: 200 });
+      }
+      if (path.includes("/mentions")) {
+        return new Response("[]", { status: 200 });
+      }
+      if (init?.method === "DELETE") {
+        return new Response(JSON.stringify({ removed: "obj1" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ placements: CARDS }), { status: 200 });
+    }));
+  }
+
+  /** Press and release in place, which is a press rather than a drag. */
+  async function press(objectId: string) {
+    const element = await card(objectId);
+    fireEvent.pointerDown(element, { clientX: 40, clientY: 40, pointerId: 1 });
+    fireEvent.pointerUp(document.querySelector('[data-testid="board-surface"]')!,
+                        { clientX: 40, clientY: 40, pointerId: 1 });
+  }
+
+  it("shows what is behind the card that was pressed", async () => {
+    mockOpenable();
+    render(<Board projectId="prj_1" />);
+    await press("obj1");
+
+    const panel = await screen.findByRole("complementary",
+      { name: /About Sleep and reaction time/ });
+    expect(panel).toBeTruthy();
+  });
+
+  it("shows nothing until a card is pressed", async () => {
+    mockOpenable();
+    render(<Board projectId="prj_1" />);
+    await card("obj1");
+    expect(screen.queryByRole("complementary")).toBeNull();
+  });
+
+  it("closes when the card it describes is taken off the board", async () => {
+    // Otherwise the panel goes on describing a card that is no longer there.
+    mockOpenable();
+    render(<Board projectId="prj_1" />);
+    await press("obj1");
+    await screen.findByRole("complementary");
+
+    fireEvent.click(screen.getByRole("button",
+      { name: /Take Sleep and reaction time off the board/ }));
+    await waitFor(() => expect(screen.queryByRole("complementary")).toBeNull());
+  });
+
+  it("does not bring the panel back when the card is put back", async () => {
+    /*
+     * The panel closes on removal because it is derived from the cards on the
+     * board — so that much needs no code. What does need code is forgetting
+     * *which* card was open: putting it back would otherwise resurrect a panel
+     * the researcher had already dismissed by taking the card off.
+     */
+    mockOpenable();
+    render(<Board projectId="prj_1" />);
+    await press("obj1");
+    await screen.findByRole("complementary");
+
+    fireEvent.click(screen.getByRole("button",
+      { name: /Take Sleep and reaction time off the board/ }));
+    await waitFor(() => expect(screen.queryByRole("complementary")).toBeNull());
+
+    fireEvent.click(await screen.findByRole("button", { name: /Put it back/ }));
+    await waitFor(() =>
+      expect(document.querySelector('[data-object="obj1"]')).not.toBeNull());
+    expect(screen.queryByRole("complementary")).toBeNull();
+  });
+
+  it("keeps the panel open when a different card is taken off", async () => {
+    mockOpenable();
+    render(<Board projectId="prj_1" />);
+    await press("obj1");
+    await screen.findByRole("complementary");
+
+    fireEvent.click(screen.getByRole("button", { name: /Take Figure 2 off the board/ }));
+    await waitFor(() =>
+      expect(document.querySelector('[data-object="obj2"]')).toBeNull());
+    expect(screen.queryByRole("complementary")).not.toBeNull();
+  });
+
+  it("does not open a card that was dragged rather than pressed", async () => {
+    // A drag is a move. Opening whatever was moved would put a panel over the
+    // board every time somebody tidied it.
+    mockOpenable();
+    render(<Board projectId="prj_1" />);
+    const element = await card("obj1");
+    fireEvent.pointerDown(element, { clientX: 40, clientY: 40, pointerId: 1 });
+    const surface = document.querySelector('[data-testid="board-surface"]')!;
+    fireEvent.pointerMove(surface, { clientX: 300, clientY: 300, pointerId: 1 });
+    fireEvent.pointerUp(surface, { clientX: 300, clientY: 300, pointerId: 1 });
+
+    await waitFor(() => expect(screen.queryByRole("complementary")).toBeNull());
   });
 });

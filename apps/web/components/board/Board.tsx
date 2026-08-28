@@ -34,6 +34,7 @@ import {
   Camera, ORIGIN, WorldPoint, fitTo, isVisible, pan, toWorld, zoomAt,
 } from "@/lib/board/viewport";
 import { Empty, Failure, Loading } from "../primitives";
+import { CardDetail } from "./CardDetail";
 
 export type Placeable = {
   id: string;
@@ -79,6 +80,15 @@ export function Board({ projectId }: { projectId: string }) {
    * ask a researcher to confirm something that costs one press to reverse.
    */
   const [takenOff, setTakenOff] = useState<Placement | null>(null);
+  /*
+   * The card being looked into.
+   *
+   * A press already raises a card, and that stays: cards overlap, and the one
+   * you pressed is the one you meant. It now also selects it, which is what
+   * the raise was always implying — this file used to note that opening a card
+   * was impossible because nothing showed a research object on its own.
+   */
+  const [opened, setOpened] = useState<string | null>(null);
   const surface = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
 
@@ -243,6 +253,7 @@ export function Board({ projectId }: { projectId: string }) {
        * Raising is also what a board is for. Cards overlap, and the one you
        * pressed is the one you meant.
        */
+      setOpened(active.id);
       void api.post(`/api/projects/${projectId}/board/${active.id}/front`)
         .then((result) => {
           const z = (result as { z?: number }).z;
@@ -287,6 +298,8 @@ export function Board({ projectId }: { projectId: string }) {
   const takeOff = useCallback(async (card: Placement) => {
     setCards((current) => current.filter((c) => c.object_id !== card.object_id));
     setTakenOff(card);
+    // Otherwise the panel goes on describing a card that is no longer there.
+    setOpened((current) => (current === card.object_id ? null : current));
     setProblem(null);
     try {
       await api.del(`/api/projects/${projectId}/board/${card.object_id}`);
@@ -316,6 +329,13 @@ export function Board({ projectId }: { projectId: string }) {
       setProblem("That card could not be put back.");
     }
   }, [projectId, takenOff]);
+
+  /*
+   * The opened card, resolved from the cards on the board rather than held as
+   * a copy. A copy would keep describing the version it was taken from after a
+   * move or a raise.
+   */
+  const openedCard = cards.find((c) => c.object_id === opened) ?? null;
 
   /* ---- what to draw ---- */
 
@@ -350,6 +370,16 @@ export function Board({ projectId }: { projectId: string }) {
       </div>
 
       {problem && <p className="board-problem" role="status">{problem}</p>}
+
+      {openedCard && (
+        <CardDetail
+          objectId={openedCard.object_id}
+          title={openedCard.title}
+          objectType={openedCard.object_type}
+          status={openedCard.status}
+          onClose={() => setOpened(null)}
+        />
+      )}
 
       {takenOff && (
         <p className="board-problem" role="status">

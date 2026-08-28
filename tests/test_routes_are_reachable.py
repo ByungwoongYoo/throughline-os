@@ -96,9 +96,6 @@ WITHOUT_A_CLIENT = {
     "GET /api/retrievals/*": "No interface shows a retrieval on its own.",
     "GET /api/validations/*":
         "The interface reads a connection's validations, never one by id.",
-    "GET /api/objects/*/impact": "No interface asks what an object affects.",
-    "GET /api/objects/*/mentions":
-        "No interface asks where an object is mentioned.",
     "GET /api/projects/*/journal":
         "The project-wide journal has no view. The per-object journal does, "
         "and `NodeJournal.tsx` both reads and writes it.",
