@@ -27,6 +27,8 @@
  * somebody believe they had fixed it.
  */
 
+import { useState } from "react";
+import { ApiError, api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { Empty, Failure, Loading } from "./primitives";
 
@@ -60,6 +62,36 @@ export function ExportedDocuments({ projectId, onOpen }: {
   const { data, error, loading, reload } = useApi<Report>(
     `/api/projects/${projectId}/exports`, [projectId],
   );
+  const [recording, setRecording] = useState(false);
+  const [recordError, setRecordError] = useState<string | null>(null);
+  const [recorded, setRecorded] = useState(false);
+
+  /**
+   * Write the verdict onto the documents themselves.
+   *
+   * This screen is already right: the report above is computed on every read.
+   * What was not right is everywhere else — `status` and `stale_reason` are
+   * columns on the artifact, the Reports list and the report header both show
+   * that status, and **nothing had ever written it**, so those badges could
+   * not say a document had drifted however plainly this screen could prove it.
+   *
+   * A button rather than a side effect of loading, because the route is a POST
+   * for a reason: it writes, and a read that quietly changed a document's
+   * status would make opening a report a modification of it.
+   */
+  async function record() {
+    setRecording(true);
+    setRecordError(null);
+    try {
+      await api.post(`/api/projects/${projectId}/exports/recheck`);
+      setRecorded(true);
+      reload();
+    } catch (err) {
+      setRecordError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setRecording(false);
+    }
+  }
 
   if (error) return <Failure error={error} retry={reload} />;
   if (loading || !data) {
@@ -86,6 +118,19 @@ export function ExportedDocuments({ projectId, onOpen }: {
       <p style={{ fontSize: 13, margin: "0 0 16px", color: "var(--ink-faint)" }}>
         {data.note}
       </p>
+
+      <div className="row" style={{ gap: "0.5rem", marginBottom: 14 }}>
+        <button className="btn" disabled={recording} onClick={() => void record()}>
+          {recording ? "Recording…" : "Record this on the documents"}
+        </button>
+        <span style={{ fontSize: 12, color: "var(--ink-faint)" }}>
+          {recorded
+            ? "Recorded. The Reports list now shows it too."
+            : "This page checks on every visit; the Reports list shows what was"
+              + " last recorded."}
+        </span>
+      </div>
+      {recordError && <div className="notice" role="alert">{recordError}</div>}
 
       <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
         {data.drifted.map((document) => (

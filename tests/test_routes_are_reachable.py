@@ -122,9 +122,6 @@ WITHOUT_A_CLIENT = {
     "POST /api/projects/*/exploration/tests":
         "Looks are recorded by the server as they happen rather than reported "
         "by the client.",
-    "POST /api/projects/*/exports/recheck":
-        "The exports screen reads staleness; nothing asks for it to be "
-        "recomputed on demand.",
 
     "POST /api/speech/transcribe":
         "Voice input runs in the browser; nothing posts audio to the server, "

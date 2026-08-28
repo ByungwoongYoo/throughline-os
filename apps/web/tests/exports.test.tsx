@@ -10,9 +10,10 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ExportedDocuments } from "@/components/exports";
 import * as useApiModule from "@/lib/useApi";
+import { ApiError, api } from "@/lib/api";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
@@ -184,5 +185,72 @@ describe("loading and failure", () => {
 
     expect(screen.getByRole("alert")).toBeInTheDocument();
     expect(screen.queryByText(/Exports match the analyses/)).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Recording the verdict on the documents themselves
+//
+// This screen was already right: the report is computed on every read. What
+// was not right is everywhere else — `status` and `stale_reason` are columns
+// on the artifact, the Reports list and the report header both show that
+// status, and nothing had ever written it. Those badges could not report drift
+// however plainly this screen proved it, because the only route that writes
+// them had no caller.
+// ---------------------------------------------------------------------------
+
+describe("recording the verdict", () => {
+  const REPORT = {
+    artifacts: [DRIFTED], drifted: [DRIFTED], unchecked: [],
+    note: "One document has an export that is behind.",
+  };
+
+  it("writes the flags the other screens read", async () => {
+    const reload = vi.fn();
+    serve(REPORT, { reload });
+    const post = vi.spyOn(api, "post").mockResolvedValue({} as never);
+    render(<ExportedDocuments projectId="prj_1" />);
+
+    fireEvent.click(screen.getByRole("button",
+      { name: /Record this on the documents/ }));
+
+    await waitFor(() => expect(post).toHaveBeenCalledWith(
+      "/api/projects/prj_1/exports/recheck"));
+    // And re-reads, so this screen shows what was just written rather than
+    // what it read a moment before.
+    await waitFor(() => expect(reload).toHaveBeenCalled());
+  });
+
+  it("says where the recorded verdict shows up", async () => {
+    /*
+     * The distinction the button exists for: this page is live, the Reports
+     * list is not. Without saying so, pressing it looks like it did nothing —
+     * the screen it was pressed on already said the same thing.
+     */
+    serve(REPORT);
+    vi.spyOn(api, "post").mockResolvedValue({} as never);
+    render(<ExportedDocuments projectId="prj_1" />);
+
+    expect(screen.getByText(/the Reports list shows what was last recorded/))
+      .toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button",
+      { name: /Record this on the documents/ }));
+    expect(await screen.findByText(/The Reports list now shows it too/))
+      .toBeTruthy();
+  });
+
+  it("does not claim to have recorded anything when it failed", async () => {
+    serve(REPORT);
+    vi.spyOn(api, "post").mockRejectedValue(
+      new ApiError(503, "The database is not reachable."));
+    render(<ExportedDocuments projectId="prj_1" />);
+
+    fireEvent.click(screen.getByRole("button",
+      { name: /Record this on the documents/ }));
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toContain("not reachable");
+    expect(screen.queryByText(/now shows it too/)).toBeNull();
   });
 });
