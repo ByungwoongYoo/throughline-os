@@ -339,7 +339,7 @@ def discovery_run(run: dict[str, Any], cur: Any) -> dict[str, Any]:
     Every candidate becomes a real sandboxed analysis run, so a discovered
     connection is traceable to the computation behind it (this rule, this rule).
     """
-    from throughline_domain import analysis, discovery
+    from throughline_domain import analysis, discovery, workflow
 
     discovery_run_id = run["input"]["discovery_run_id"]
     cur.execute("SELECT * FROM discovery_runs WHERE id = %s", (discovery_run_id,))
@@ -352,29 +352,78 @@ def discovery_run(run: dict[str, Any], cur: Any) -> dict[str, Any]:
 
     project_id = record["project_id"]
     version_id = record["dataset_version_id"]
-    cur.execute("UPDATE discovery_runs SET status = 'running', started_at = now() "
-                "WHERE id = %s", (discovery_run_id,))
+    cur.execute("UPDATE discovery_runs SET status = 'running', "
+                "started_at = COALESCE(started_at, now()) WHERE id = %s",
+                (discovery_run_id,))
 
-    plan = discovery.plan_candidates(cur, dataset_version_id=version_id)
-    candidates = plan["candidates"]
+    def sweep() -> dict[str, Any]:
+        """Plan the candidates and test each one in the sandbox."""
+        plan = discovery.plan_candidates(cur, dataset_version_id=version_id)
+        run_ids = []
+        for candidate in plan["candidates"]:
+            created = analysis.create_spec(cur, project_id=project_id, spec={
+                "method": candidate["method"],
+                "dataset_version_ids": [version_id],
+                "variables": candidate["variables"],
+                "method_rationale": candidate["rationale"],
+                "research_question": (f"Is {candidate['left_variable']} associated with "
+                                      f"{candidate['right_variable']}?"),
+            }, actor="system:discovery")
+            analysis_run_id = analysis.create_run(cur, project_id=project_id,
+                                                  spec_id=created["spec_id"])
+            _execute_analysis(cur, analysis_run_id)
+            run_ids.append(analysis_run_id)
+        return {"plan": plan, "analysis_run_ids": run_ids}
 
     # Steps 4–6: one sandboxed analysis per surviving candidate.
-    tested: list[dict[str, Any]] = []
-    for candidate in candidates:
-        created = analysis.create_spec(cur, project_id=project_id, spec={
-            "method": candidate["method"],
-            "dataset_version_ids": [version_id],
-            "variables": candidate["variables"],
-            "method_rationale": candidate["rationale"],
-            "research_question": (f"Is {candidate['left_variable']} associated with "
-                                  f"{candidate['right_variable']}?"),
-        }, actor="system:discovery")
-        analysis_run_id = analysis.create_run(cur, project_id=project_id,
-                                              spec_id=created["spec_id"])
-        _execute_analysis(cur, analysis_run_id)
-        finished = analysis.get_run(cur, analysis_run_id)
-        tested.append({"candidate": candidate, "analysis_run_id": analysis_run_id,
-                       "run": finished})
+    #
+    # Wrapped so it happens once even if the run stops at the gate below and is
+    # resumed after approval. Without that, approving would re-plan and re-test
+    # every candidate — a second sandboxed analysis per pair, and a second set
+    # of `analysis_runs` rows recording work that was already done.
+    # `example.assemble` calls this handler inline as a subroutine, the same way
+    # `_execute_analysis` does, and hands it a run dict with an input and no id.
+    # There is then no workflow run to record steps against and none to resume,
+    # so the sweep simply happens. Recording against the *caller's* run would be
+    # worse than not recording: the steps would attach to a different workflow,
+    # and a gate would halt the worked example on a fresh install.
+    workflow_run_id = run.get("id")
+    swept = (workflow.once(cur, run_id=workflow_run_id, name="test_candidates",
+                           produce=sweep)
+             if workflow_run_id else sweep())
+    plan = swept["plan"]
+    candidates = plan["candidates"]
+    tested: list[dict[str, Any]] = [
+        {"candidate": candidate, "analysis_run_id": analysis_run_id,
+         "run": analysis.get_run(cur, analysis_run_id)}
+        for candidate, analysis_run_id in zip(candidates,
+                                              swept["analysis_run_ids"])
+    ]
+
+    # Everything above this line is reversible: it computed results and wrote
+    # nothing into the project's own record of what is true. Everything below
+    # records connections and promotes the survivors, which is the system
+    # deciding on its own that something is a discovery worth presenting.
+    #
+    # Rule 10 — "AI does not secretly mutate important research state" — is the
+    # reason a researcher can ask to stand between those two halves. It is
+    # asked for per run rather than imposed on every one: gating every sweep by
+    # default would stop the seeded worked example on a fresh install, and
+    # whether an unattended sweep should be allowed to record is a decision for
+    # whoever runs this, not a default worth choosing on their behalf.
+    if workflow_run_id and run["input"].get("hold_before_recording"):
+        completed_now = sum(1 for t in tested
+                            if (t["run"] or {}).get("status") == "completed")
+        workflow.gate(
+            cur, run_id=workflow_run_id, name="record_connections",
+            describes=(
+                f"Record {completed_now} tested "
+                f"{'pair' if completed_now == 1 else 'pairs'} into this project "
+                f"and promote whichever survive correction at FDR "
+                f"{float(record['false_discovery_rate']):.2f}. Nothing has been "
+                f"written to the project yet; the results exist and can be read "
+                f"first."),
+        )
 
     # Step 7: correct across the whole family that was actually run.
     completed = [t for t in tested if t["run"]["status"] == "completed"]

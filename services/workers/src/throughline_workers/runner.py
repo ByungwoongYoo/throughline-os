@@ -3,7 +3,11 @@
 A worker is deliberately dumb: it leases a run, dispatches it to a registered
 handler, and records the outcome. All durability lives in the database, so
 killing this process at any point loses nothing — the lease lapses and another
-worker resumes from the last completed node.
+worker picks the run up.
+
+A handler that reaches an approval gate stops without failing: the run waits in
+`awaiting_approval` until a person releases it, and the steps it finished first
+are committed so that approving does not mean paying for them again.
 """
 
 from __future__ import annotations
@@ -146,7 +150,22 @@ class Worker:
         try:
             with connection() as conn:
                 with conn.cursor() as cur:
-                    output = handler(run, cur) or {}
+                    try:
+                        output = handler(run, cur) or {}
+                    except workflow.AwaitingApproval as gate:
+                        # Caught *inside* the transaction on purpose. Letting it
+                        # escape would roll the connection back, undoing both
+                        # the steps completed before the gate and the record
+                        # that the run is waiting — so the run would be retried
+                        # from the top and stop at the same gate forever, and
+                        # nothing would ever appear on the approval screen.
+                        #
+                        # Not `finish()` either: waiting is not terminal. The
+                        # run is already in `awaiting_approval` and stays there
+                        # until a person releases it.
+                        log.info("run %s waiting for approval of %s",
+                                 run_id, gate.node_name)
+                        return
                     workflow.finish(
                         cur, run_id=run_id, state=WorkflowState.COMPLETED, output=output
                     )

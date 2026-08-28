@@ -21,6 +21,7 @@ import { Section } from "./Shell";
 import { PlainSummary, ResultCard } from "./ResultCard";
 import { Empty, Failure, Loading, Meter, Num, Stat, Status } from "./primitives";
 import { RecordFinding } from "./recordfinding";
+import { Approvals } from "./approvals";
 
 // ---------------------------------------------------------------------------
 // Overview (§70)
@@ -477,6 +478,20 @@ export function Discover({ projectId, sources, onSelectConnection, startWith, on
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [reused, setReused] = useState<string | null>(null);
+  /*
+   * Whether to stop the sweep before it writes anything into the project.
+   *
+   * Rule 10 — "AI does not secretly mutate important research state." The
+   * tests run either way; what waits is the half that records connections and
+   * promotes the survivors, so the results can be read before they become part
+   * of the project's record rather than after.
+   *
+   * Off by default, and that is a decision rather than an oversight: a sweep
+   * that stops on a fresh install leaves a new researcher looking at an empty
+   * table wondering what went wrong.
+   */
+  const [hold, setHold] = useState(false);
+  const [approvals, setApprovals] = useState(0);
 
   const datasets = (sources.data ?? []).filter((s) => s.dataset);
 
@@ -509,7 +524,8 @@ export function Discover({ projectId, sources, onSelectConnection, startWith, on
         // of everything else looked at in this sitting. Null in a private
         // window, where storage is refused — the run is then its own family,
         // which is what happened before any of this existed.
-        { dataset_version_id: versionId, force, session_id: sessionId() },
+        { dataset_version_id: versionId, force, session_id: sessionId(),
+          hold_before_recording: hold },
       );
       // §123 — if the server declined to start a second run, say so. A button
       // that appears to work and quietly does nothing is worse than an error.
@@ -521,6 +537,10 @@ export function Discover({ projectId, sources, onSelectConnection, startWith, on
       for (let i = 0; i < 16; i++) {
         await new Promise((r) => setTimeout(r, 2000));
         connections.reload();
+        // A held run records nothing, so the connections table stays empty on
+        // purpose. Without this the sweep would look like one that found
+        // nothing, and the thing actually waiting would be off screen.
+        if (hold) setApprovals((n) => n + 1);
       }
     } catch (err) {
       setError(err);
@@ -540,6 +560,12 @@ export function Discover({ projectId, sources, onSelectConnection, startWith, on
 
       {error ? <Failure error={error} /> : null}
 
+      <Approvals
+        key={approvals}
+        projectId={projectId}
+        onReleased={() => connections.reload()}
+      />
+
       {reused && (
         <div className="notice" role="status">
           <span>{reused}</span>
@@ -557,6 +583,20 @@ export function Discover({ projectId, sources, onSelectConnection, startWith, on
 
       {datasets.length === 0 && (
         <Empty title="No dataset to search" hint="Discovery needs tabular data. Add a CSV or spreadsheet." />
+      )}
+
+      {datasets.length > 0 && (
+        <label className="row" style={{ gap: "0.5rem", alignItems: "center" }}>
+          <input
+            type="checkbox"
+            checked={hold}
+            onChange={(event) => setHold(event.target.checked)}
+          />
+          <span>
+            Show me the results before anything is recorded. The tests still
+            run; nothing enters the project until you release it.
+          </span>
+        </label>
       )}
 
       {datasets.map((source) => (

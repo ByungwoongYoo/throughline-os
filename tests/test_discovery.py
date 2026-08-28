@@ -424,3 +424,147 @@ def test_an_empty_or_wholly_untested_family_is_not_an_error():
     rows = discovery.benjamini_hochberg([None, None])
     assert [row["q_value"] for row in rows] == [None, None]
     assert not any(row["survives"] for row in rows)
+
+
+# ---------------------------------------------------------------------------
+# The researcher standing in front of the recording step (Rule 10)
+#
+# "AI does not secretly mutate important research state." A sweep tests every
+# pair it can and then writes connections into the project and promotes the
+# survivors — the system deciding on its own that something is a discovery
+# worth presenting. A researcher can ask to see the results before that
+# happens.
+#
+# It is asked for per run rather than imposed on all of them: gating every
+# sweep by default would stop the seeded worked example on a fresh install, and
+# whether an unattended sweep may record is a decision for whoever runs this.
+# ---------------------------------------------------------------------------
+
+
+def _connections(project_id: str) -> int:
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) n FROM connections WHERE project_id = %s",
+                    (project_id,))
+        return cur.fetchone()["n"]
+
+
+def _analysis_runs(project_id: str) -> int:
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) n FROM analysis_runs WHERE project_id = %s",
+                    (project_id,))
+        return cur.fetchone()["n"]
+
+
+def test_a_held_sweep_tests_everything_but_records_nothing():
+    user_id, project_id, version_id = _project_with_csv(_signal_csv())
+    try:
+        with connection() as conn, conn.cursor() as cur:
+            run_id = discovery.create_run(cur, project_id=project_id,
+                                          dataset_version_id=version_id, fdr=0.05)
+            workflow.enqueue(
+                cur, workflow_name="discovery.run", project_id=project_id,
+                payload={"discovery_run_id": run_id,
+                         "hold_before_recording": True},
+                idempotency_key=f"discovery:{run_id}")
+        _drain()
+
+        # The work happened: every pair was tested in the sandbox.
+        assert _analysis_runs(project_id) > 0
+        # Nothing entered the project's own record of what is true.
+        assert _connections(project_id) == 0
+
+        with connection() as conn, conn.cursor() as cur:
+            waiting = workflow.awaiting_approval(cur, project_id=project_id)
+        assert len(waiting) == 1
+        assert waiting[0]["node_name"] == "record_connections"
+        # The person deciding is told what they are releasing, in their terms.
+        assert "into this project" in waiting[0]["describes"]
+        assert "0.05" in waiting[0]["describes"]
+    finally:
+        _cleanup(user_id)
+
+
+def test_approving_records_the_results_without_testing_them_again():
+    """
+    The expensive half must not be repeated. Re-running the sweep would create
+    a second sandboxed analysis for every pair, and the connections would then
+    point at runs that are not the ones the researcher was shown.
+    """
+    user_id, project_id, version_id = _project_with_csv(_signal_csv())
+    try:
+        with connection() as conn, conn.cursor() as cur:
+            run_id = discovery.create_run(cur, project_id=project_id,
+                                          dataset_version_id=version_id, fdr=0.05)
+            wf_run_id = workflow.enqueue(
+                cur, workflow_name="discovery.run", project_id=project_id,
+                payload={"discovery_run_id": run_id,
+                         "hold_before_recording": True},
+                idempotency_key=f"discovery:{run_id}")
+        _drain()
+        tested_once = _analysis_runs(project_id)
+        assert tested_once > 0
+
+        with connection() as conn, conn.cursor() as cur:
+            assert workflow.approve_node(cur, run_id=wf_run_id,
+                                         node_name="record_connections",
+                                         actor=user_id) is True
+        _drain()
+
+        assert _connections(project_id) > 0
+        assert _analysis_runs(project_id) == tested_once
+
+        with connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT status FROM discovery_runs WHERE id = %s", (run_id,))
+            assert cur.fetchone()["status"] == "complete"
+            assert workflow.awaiting_approval(cur, project_id=project_id) == []
+    finally:
+        _cleanup(user_id)
+
+
+def test_a_sweep_nobody_held_records_as_it_always_did():
+    """
+    The default is unchanged, which is the point of asking per run. A test that
+    only proved the gate works would not notice it had been switched on for
+    everybody.
+    """
+    user_id, project_id, version_id = _project_with_csv(_signal_csv())
+    try:
+        record = _discover(project_id, version_id)
+        assert record["status"] == "complete"
+        assert _connections(project_id) > 0
+        with connection() as conn, conn.cursor() as cur:
+            assert workflow.awaiting_approval(cur, project_id=project_id) == []
+    finally:
+        _cleanup(user_id)
+
+
+def test_discovery_runs_inline_for_a_caller_that_has_no_workflow_run():
+    """
+    `example.assemble` calls this handler as a subroutine and hands it a run
+    dict with an input and no id, the same way `_execute_analysis` does. Making
+    the sweep record steps against `run["id"]` broke that with a `KeyError` —
+    and the only thing that caught it was the worked example, two suites away
+    from anything about discovery.
+
+    Recording against the caller's run instead would be worse than not
+    recording: the steps would attach to a different workflow, and a gate would
+    halt the seeded example on a fresh install.
+    """
+    from throughline_workers.handlers import discovery_run
+
+    user_id, project_id, version_id = _project_with_csv(_signal_csv())
+    try:
+        with connection() as conn, conn.cursor() as cur:
+            run_id = discovery.create_run(cur, project_id=project_id,
+                                          dataset_version_id=version_id, fdr=0.05)
+            # No "id": there is no workflow run behind this call.
+            result = discovery_run({"input": {"discovery_run_id": run_id}}, cur)
+
+        assert result["status"] == "complete"
+        assert _connections(project_id) > 0
+        with connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) n FROM workflow_nodes")
+            # Nothing was recorded against a run that does not exist.
+            assert workflow.awaiting_approval(cur, project_id=project_id) == []
+    finally:
+        _cleanup(user_id)

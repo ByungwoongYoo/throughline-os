@@ -117,3 +117,86 @@ def test_idempotent_enqueue_across_processes(committed_project):
 
     Worker(worker_id="w1").run_once()
     assert Worker(worker_id="w1").run_once() is False
+
+
+# ---------------------------------------------------------------------------
+# Approval gates through the real worker loop (§36, Rule 10)
+# ---------------------------------------------------------------------------
+
+
+def test_a_gate_stops_the_worker_without_failing_the_run(committed_project):
+    """
+    Waiting is not failing. Treating a gate as an error would retry it, burn
+    the run's attempts, and eventually mark permanently failed a run whose only
+    problem is that nobody has looked at it yet.
+    """
+    @REGISTRY.register("test.gated")
+    def gated(run: dict[str, Any], cur: Any) -> dict[str, Any]:
+        workflow.gate(cur, run_id=run["id"], name="record",
+                      describes="Record 4 tested pairs into this project.")
+        return {"recorded": True}
+
+    run_id = _enqueue(committed_project, "test.gated")
+    assert Worker(worker_id="w1").run_once() is True
+
+    run = _run(run_id)
+    assert run["state"] == str(WorkflowState.AWAITING_APPROVAL)
+    assert run["error"] is None
+    assert run["attempts"] == 1
+    # And it stays put: nothing picks it up again on its own.
+    assert Worker(worker_id="w2").run_once() is False
+
+
+def test_work_done_before_a_gate_survives_the_stop(committed_project):
+    """
+    The reason `AwaitingApproval` is caught inside the transaction rather than
+    outside it. Letting it escape rolls the connection back, which throws away
+    both the completed steps and the record that the run is waiting — so the
+    run would be retried from the top, stop at the same gate forever, and never
+    appear on the approval screen.
+
+    Counted rather than asserted structurally: the handler records how many
+    times it actually did the expensive step.
+    """
+    done: list[int] = []
+
+    @REGISTRY.register("test.expensive_then_gated")
+    def expensive(run: dict[str, Any], cur: Any) -> dict[str, Any]:
+        workflow.once(cur, run_id=run["id"], name="sweep",
+                      produce=lambda: (done.append(1), {"tested": 4})[1])
+        workflow.gate(cur, run_id=run["id"], name="record",
+                      describes="Record 4 tested pairs into this project.")
+        return {"recorded": True}
+
+    run_id = _enqueue(committed_project, "test.expensive_then_gated")
+    assert Worker(worker_id="w1").run_once() is True
+    assert done == [1]
+
+    with connection() as conn, conn.cursor() as cur:
+        assert workflow.approve_node(cur, run_id=run_id, node_name="record",
+                                     actor="researcher") is True
+
+    assert Worker(worker_id="w1").run_once() is True
+    run = _run(run_id)
+    assert run["state"] == str(WorkflowState.COMPLETED)
+    assert run["output"] == {"recorded": True}
+    # The expensive step was not paid for twice.
+    assert done == [1]
+
+
+def test_a_waiting_run_is_findable_by_the_person_who_must_approve_it(
+        committed_project):
+    @REGISTRY.register("test.findable")
+    def findable(run: dict[str, Any], cur: Any) -> dict[str, Any]:
+        workflow.gate(cur, run_id=run["id"], name="record",
+                      describes="Record 4 tested pairs into this project.")
+        return {}
+
+    run_id = _enqueue(committed_project, "test.findable")
+    Worker(worker_id="w1").run_once()
+
+    with connection() as conn, conn.cursor() as cur:
+        waiting = workflow.awaiting_approval(cur, project_id=committed_project)
+
+    assert [w["run_id"] for w in waiting] == [run_id]
+    assert waiting[0]["describes"].startswith("Record 4 tested pairs")

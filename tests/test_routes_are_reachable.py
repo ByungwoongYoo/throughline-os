@@ -136,12 +136,12 @@ WITHOUT_A_CLIENT = {
     "/api/artifacts/*/presentation":
         "Nothing turns an artifact into a presentation from the interface.",
 
-    # Workflows.
+    # Workflows. `.../approve` used to be here, with the note that workflow
+    # nodes waited for an approval nothing could give. It has a client now.
     "/api/workflows/*":
-        "No interface opens a workflow.",
-    "/api/workflows/*/nodes/*/approve":
-        "Workflow nodes wait for an approval nothing can give — the step this "
-        "product is built around, with no button attached to it.",
+        "No interface opens a whole run. The approval screen shows the step "
+        "that is waiting and releases it, which is what a person needs; the "
+        "run's own page would be a debugging view.",
 
     "/api/speech/transcribe":
         "Voice input runs in the browser; nothing posts audio to the server, "

@@ -41,6 +41,23 @@ class CostLimitExceeded(WorkflowError):
     """ — a workflow node carries a cost limit and must respect it."""
 
 
+class AwaitingApproval(WorkflowError):
+    """
+    Raised by `gate()` to stop a run at a step a person has not released.
+
+    **This is not a failure**, and the difference matters at both ends. The
+    runner must not retry it, must not mark the run failed, and must let the
+    transaction commit — the work done before the gate has to survive, or
+    approving would mean paying for all of it again. A run stopped here is
+    waiting, and waiting is the feature.
+    """
+
+    def __init__(self, run_id: str, node_name: str) -> None:
+        super().__init__(f"Run {run_id} is waiting for approval of {node_name}")
+        self.run_id = run_id
+        self.node_name = node_name
+
+
 def enqueue(
     cur,
     *,
@@ -213,18 +230,175 @@ def fail_node(cur, *, run_id: str, node_name: str, error: str) -> None:
     )
 
 
-def approve_node(cur, *, run_id: str, node_name: str, actor: str) -> None:
-    """ — human approval releases a gated node."""
+def approve_node(cur, *, run_id: str, node_name: str, actor: str) -> bool:
+    """
+    Release a gated node — §36/LAW 4. False means there was nothing to release.
+
+    **The `requires_approval` and state conditions are load-bearing.** Without
+    them this statement approved any node of the run by name, whatever it was
+    doing: approving a step that had already completed reset it to `queued`,
+    which un-finished work that was done, and approving a name no node has
+    matched nothing while still answering as though it had. Both were reachable
+    the moment anything could call this, which until now nothing could.
+    """
     cur.execute(
-        "UPDATE workflow_nodes SET approved_by = %s, approved_at = now(), state = %s "
-        "WHERE run_id = %s AND node_name = %s",
-        (actor, str(WorkflowState.QUEUED), run_id, node_name),
+        "UPDATE workflow_nodes SET approved_by = %s, approved_at = now(), "
+        "state = %s WHERE run_id = %s AND node_name = %s "
+        "AND requires_approval AND state = %s RETURNING id",
+        (actor, str(WorkflowState.QUEUED), run_id, node_name,
+         str(WorkflowState.AWAITING_APPROVAL)),
     )
+    if cur.fetchone() is None:
+        return False
     cur.execute(
         "UPDATE workflow_runs SET state = %s, run_after = now(), updated_at = now() "
         "WHERE id = %s AND state = %s",
         (str(WorkflowState.QUEUED), run_id, str(WorkflowState.AWAITING_APPROVAL)),
     )
+    return True
+
+
+def _node(cur, *, run_id: str, name: str,
+          requires_approval: bool = False,
+          describes: str = "") -> dict[str, Any]:
+    """
+    Fetch this run's node by name, creating it if the run has none yet.
+
+    Nodes are created on first encounter rather than declared up front at
+    `enqueue()`. That is deliberate: a handler knows what its steps are, the
+    route that queued the run does not, and requiring the caller to list them
+    is why the node layer went unused for as long as it did. Every real
+    `enqueue()` in this system passes no nodes at all.
+    """
+    cur.execute(
+        "SELECT * FROM workflow_nodes WHERE run_id = %s AND node_name = %s "
+        "FOR UPDATE", (run_id, name))
+    node = cur.fetchone()
+    if node:
+        return node
+
+    # Appended in the order the handler reaches them, which is the order they
+    # ran — so `sequence` still reads as the shape of the run afterwards.
+    cur.execute(
+        "SELECT COALESCE(MAX(sequence), -1) + 1 AS next FROM workflow_nodes "
+        "WHERE run_id = %s", (run_id,))
+    sequence = cur.fetchone()["next"]
+    cur.execute(
+        """
+        INSERT INTO workflow_nodes
+            (id, run_id, node_name, sequence, state, input, requires_approval)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        RETURNING *
+        """,
+        (new_id("wfn"), run_id, name, sequence, str(WorkflowState.QUEUED),
+         {"describes": describes} if describes else {}, requires_approval),
+    )
+    return cur.fetchone()
+
+
+def gate(cur, *, run_id: str, name: str, describes: str) -> None:
+    """
+    Hold the run here until a person releases it — §36/LAW 4.
+
+    Returns normally once approved. Otherwise it records the wait and raises
+    `AwaitingApproval`, which the worker treats as a stop rather than a
+    failure.
+
+    **`describes` is required, and is the whole point of the gate.** An
+    approval screen that says only "approve node 3" produces a rubber stamp;
+    the person releasing an irreversible step has to be told what it will do,
+    in their own terms, at the moment they decide. It is stored on the node so
+    the interface shows what the worker meant rather than what a page author
+    guessed later.
+    """
+    if not describes.strip():
+        raise WorkflowError("A gate must describe what it is asking to release")
+
+    node = _node(cur, run_id=run_id, name=name, requires_approval=True,
+                 describes=describes)
+
+    if node["approved_at"]:
+        # Released. Marked completed so the wait stops being reported, and so
+        # a later pass through the same gate does not ask twice.
+        cur.execute(
+            "UPDATE workflow_nodes SET state = %s, finished_at = now() "
+            "WHERE id = %s", (str(WorkflowState.COMPLETED), node["id"]))
+        return
+
+    cur.execute(
+        "UPDATE workflow_nodes SET state = %s, input = %s WHERE id = %s",
+        (str(WorkflowState.AWAITING_APPROVAL), {"describes": describes},
+         node["id"]))
+    cur.execute(
+        "UPDATE workflow_runs SET state = %s, lease_owner = NULL, "
+        "lease_expires_at = NULL, updated_at = now() WHERE id = %s",
+        (str(WorkflowState.AWAITING_APPROVAL), run_id))
+    raise AwaitingApproval(run_id, name)
+
+
+def once(cur, *, run_id: str, name: str, produce) -> dict[str, Any]:
+    """
+    Do a step, or return what it produced the first time.
+
+    This is what makes a gate affordable. A run resumed after approval starts
+    its handler again from the top, so without this every step before the gate
+    would be paid for twice — and for a step that spends money on a model, or
+    writes rows, twice is not merely slower but wrong.
+
+    `produce` returns a JSON-serialisable dict, because the answer is stored on
+    the node and has to survive the restart this exists for.
+    """
+    node = _node(cur, run_id=run_id, name=name)
+    if node["state"] == str(WorkflowState.COMPLETED):
+        return dict(node["output"] or {})
+
+    cur.execute(
+        "UPDATE workflow_nodes SET state = %s, attempts = attempts + 1, "
+        "started_at = COALESCE(started_at, now()) WHERE id = %s",
+        (str(WorkflowState.RUNNING), node["id"]))
+    output = produce() or {}
+    cur.execute(
+        "UPDATE workflow_nodes SET state = %s, output = %s, finished_at = now() "
+        "WHERE id = %s", (str(WorkflowState.COMPLETED), output, node["id"]))
+    return output
+
+
+def awaiting_approval(cur, *, project_id: str) -> list[dict[str, Any]]:
+    """
+    Every run in this project stopped at a gate, with the step it is stopped
+    at.
+
+    Without this there is no way to find a waiting run: `GET /api/workflows/
+    {run_id}` needs an id nothing hands out, so the approval that releases an
+    irreversible step could only be given by someone who already knew the id
+    of the run they were looking for.
+    """
+    cur.execute(
+        """
+        SELECT r.id AS run_id, r.workflow_name, r.project_id, r.created_at,
+               r.updated_at, r.input AS run_input,
+               n.node_name, n.input AS node_input, n.sequence
+        FROM workflow_runs r
+        JOIN workflow_nodes n ON n.run_id = r.id
+        WHERE r.project_id = %s
+          AND r.state = %s
+          AND n.state = %s
+        ORDER BY r.updated_at
+        """,
+        (project_id, str(WorkflowState.AWAITING_APPROVAL),
+         str(WorkflowState.AWAITING_APPROVAL)),
+    )
+    return [
+        {
+            "run_id": row["run_id"],
+            "workflow_name": row["workflow_name"],
+            "node_name": row["node_name"],
+            "describes": (row["node_input"] or {}).get("describes", ""),
+            "waiting_since": row["updated_at"],
+            "created_at": row["created_at"],
+        }
+        for row in cur.fetchall()
+    ]
 
 
 def record_cost(cur, *, run_id: str, usd: float) -> None:

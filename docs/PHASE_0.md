@@ -31,8 +31,18 @@ PostgreSQL.**
   list rather than creating an unexplained artifact.
 - **LAW 3** — `findings.transition` raises `EvidenceRequired` for any promotion
   past CANDIDATE without linked evidence.
-- **LAW 4** — `workflow.start_node` halts a run at `awaiting_approval` and only a
-  `POST /api/workflows/{id}/nodes/{name}/approve` releases it.
+- **LAW 4** — `workflow.gate` halts a run at `awaiting_approval` and only a
+  `POST /api/workflows/{id}/nodes/{name}/approve` releases it, given from the
+  approval screen on the discovery view.
+
+  This line used to name `start_node`, and it was true of the engine and false
+  of the system. `start_node` halts a run whose node carries
+  `requires_approval` — and nothing ever created one: no caller passed `nodes=`
+  to `enqueue`, nothing outside `workflow.py` called `start_node`, and no route
+  listed what was waiting, so the approve endpoint needed a run id nothing
+  handed out. The law was recorded as enforced while being enforceable by
+  nothing. A researcher now asks for the hold per sweep, and the gate is
+  reached, described and released through the interface.
 - **LAW 5** — lineage edges (`visualizes`, `communicates`) mean a slide still
   resolves to the dataset behind it.
 - **LAW 2** — *not yet enforceable.* It requires the Phase 2 sandbox. No LLM runs

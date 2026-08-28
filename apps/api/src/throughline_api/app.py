@@ -2745,6 +2745,11 @@ class DiscoveryRequest(BaseModel):
     #: Optional: without it the run is its own family, which is what happened
     #: before this existed.
     session_id: str | None = None
+    #: Stop the sweep before it records anything into the project, and wait for
+    #: a person — Rule 10. The tests still run; what waits is the part that
+    #: writes connections and promotes the survivors, so the results can be read
+    #: before they become part of the project's record rather than after.
+    hold_before_recording: bool = False
 
 
 
@@ -2801,9 +2806,12 @@ def start_discovery(project_id: str, payload: DiscoveryRequest,
                                       fdr=payload.false_discovery_rate,
                                       session_id=payload.session_id)
         workflow.enqueue(cur, workflow_name="discovery.run", project_id=project_id,
-                         payload={"discovery_run_id": run_id},
+                         payload={"discovery_run_id": run_id,
+                                  "hold_before_recording":
+                                      payload.hold_before_recording},
                          idempotency_key=f"discovery:{run_id}")
-    return {"discovery_run_id": run_id, "status": "queued", "reused": False}
+    return {"discovery_run_id": run_id, "status": "queued", "reused": False,
+            "will_wait_for_approval": payload.hold_before_recording}
 
 
 @app.get("/api/discoveries/{run_id}")
@@ -3731,6 +3739,21 @@ def get_workflow(run_id: str, user: dict = Depends(current_user)) -> dict[str, A
         return run
 
 
+@app.get("/api/projects/{project_id}/workflows/awaiting-approval")
+def workflows_awaiting_approval(project_id: str,
+                                user: dict = Depends(current_user)) -> list[dict[str, Any]]:
+    """
+    The work in this project that has stopped and is waiting for a person.
+
+    Without this the approval that releases a gated step could only be given by
+    someone who already knew the id of the run they were looking for — and
+    nothing hands that id out. An approval nobody can find is not a control.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        return workflow.awaiting_approval(cur, project_id=project_id)
+
+
 @app.post("/api/workflows/{run_id}/nodes/{node_name}/approve")
 def approve_workflow_node(run_id: str, node_name: str,
                           user: dict = Depends(current_user)) -> dict[str, Any]:
@@ -3741,7 +3764,15 @@ def approve_workflow_node(run_id: str, node_name: str,
             raise HTTPException(404, "Workflow run not found.")
         if run["project_id"]:
             scoped_project(run["project_id"], user)
-        workflow.approve_node(cur, run_id=run_id, node_name=node_name, actor=user["id"])
+        released = workflow.approve_node(cur, run_id=run_id, node_name=node_name,
+                                         actor=user["id"])
+        if not released:
+            # Answering 200 here would report an approval that did not happen —
+            # for a step that had already run, for a name no node has, or for a
+            # second click on a button someone pressed twice.
+            raise HTTPException(
+                409, f"There is no step named {node_name!r} waiting for "
+                     f"approval on this run.")
         return workflow.get_run(cur, run_id)
 
 
