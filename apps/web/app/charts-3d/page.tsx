@@ -29,6 +29,7 @@ import { Network3D } from "@/components/charts/Network3D";
 import { Field3D } from "@/components/charts/Field3D";
 import { VoxelVolume } from "@/components/charts/VoxelVolume";
 import { Lines3D } from "@/components/charts/Lines3D";
+import { Isosurface3D } from "@/components/charts/Isosurface3D";
 import { SpatialControl } from "@/components/spatial/SpatialControl";
 import { VisualizationController } from "@/lib/spatial/commands";
 import { Graph } from "@/lib/charts3d/network";
@@ -135,6 +136,7 @@ function vortexStreamlines(): Path[] {
 export default function Charts3DPage() {
   const network = useRef<VisualizationController | null>(null);
   const trails = useRef<VisualizationController | null>(null);
+  const shell = useRef<VisualizationController | null>(null);
   const field = useRef<VisualizationController | null>(null);
   const volume = useRef<VisualizationController | null>(null);
   const [addressing, setAddressing] = useState<string>("—");
@@ -152,7 +154,7 @@ export default function Charts3DPage() {
    * promises — and the smaller, truer one is what a reader is checking here.
    */
   const onDemand = drawableOnDemand();
-  const byPrimitive = (["network", "glyphs", "volume", "lines"] as const)
+  const byPrimitive = (["network", "glyphs", "volume", "lines", "isosurface"] as const)
     .map((p) => `${drawnBy(p).length} ${p}`)
     .join(", ");
 
@@ -198,7 +200,7 @@ export default function Charts3DPage() {
         </p>
         <SpatialControl
           controllerRef={network}
-          alsoControls={[field, volume, trails]}
+          alsoControls={[field, volume, trails, shell]}
           label="the spatial charts"
           onActiveTarget={(read) => {
             const active = read();
@@ -208,6 +210,7 @@ export default function Charts3DPage() {
               : active === field.current ? "the flow field"
               : active === volume.current ? "the density volume"
               : active === trails.current ? "the streamlines"
+              : active === shell.current ? "the isosurface"
               : "—");
           }}
         />
@@ -237,6 +240,17 @@ export default function Charts3DPage() {
           paths={streams}
           controllerRef={trails}
           caption="The same vortex, integrated into paths rather than sampled into arrows."
+        />
+      </section>
+
+      <section>
+        <h2>Isosurface</h2>
+        <Isosurface3D
+          grid={density}
+          level={40}
+          controllerRef={shell}
+          caption={"The same density field as below, cut at one value instead "
+                   + "of accumulated through."}
         />
       </section>
 
