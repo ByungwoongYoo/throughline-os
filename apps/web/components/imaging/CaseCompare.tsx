@@ -34,6 +34,7 @@ import {
 } from "@/lib/imaging/study";
 import { describeReview, review } from "@/lib/imaging/phi";
 import { NiftiError, openNifti } from "@/lib/imaging/nifti";
+import { DicomError, openDicomSeries, readDicom } from "@/lib/imaging/dicom";
 
 /**
  * A volume with a blob in it, at a given size and offset.
@@ -121,9 +122,20 @@ export function CaseCompare({ standalone = false }: { standalone?: boolean }) {
 
   const open = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
+    const chosen = Array.from(files);
     const loaded: OpenScan[] = [];
     const failed: string[] = [];
-    for (const file of Array.from(files)) {
+
+    /*
+     * A NIfTI is one file and a DICOM *series* is many, so they cannot be
+     * treated the same way. Selecting three hundred slices and getting three
+     * hundred one-slice "scans" would be useless; grouping them by series is
+     * the whole difference between opening a case and opening a directory.
+     */
+    const nifti = chosen.filter((f) => /\.nii(\.gz)?$/i.test(f.name));
+    const rest = chosen.filter((f) => !/\.nii(\.gz)?$/i.test(f.name));
+
+    for (const file of nifti) {
       try {
         const { grid, study } = await openNifti(file);
         loaded.push({ grid, study });
@@ -137,6 +149,40 @@ export function CaseCompare({ standalone = false }: { standalone?: boolean }) {
           error instanceof NiftiError ? error.message : "could not be read."}`);
       }
     }
+
+    if (rest.length > 0) {
+      /*
+       * Grouped by SeriesInstanceUID would be exact; grouped by what the header
+       * says the series is, plus its geometry, is what these files carry
+       * reliably. Slices that disagree about their size are refused downstream
+       * rather than padded, so a wrong grouping fails loudly instead of
+       * producing a volume with somebody else's slices in it.
+       */
+      const bySeries = new Map<string, File[]>();
+      for (const file of rest) {
+        try {
+          const slice = readDicom(await file.arrayBuffer());
+          const key = [slice.header.SeriesDescription ?? "",
+                       slice.header.Modality ?? "",
+                       slice.rows, slice.columns].join("|");
+          bySeries.set(key, [...(bySeries.get(key) ?? []), file]);
+        } catch (error) {
+          failed.push(`${file.name}: ${
+            error instanceof DicomError ? error.message : "could not be read."}`);
+        }
+      }
+      for (const [key, group] of bySeries) {
+        const label = key.split("|")[0] || `${group.length} slices`;
+        try {
+          const { grid, study } = await openDicomSeries(group, label);
+          loaded.push({ grid, study });
+        } catch (error) {
+          failed.push(`${label}: ${
+            error instanceof DicomError ? error.message : "could not be read."}`);
+        }
+      }
+    }
+
     setOpened((held) => [...held, ...loaded]);
     setProblems(failed);
   }, []);
@@ -186,21 +232,24 @@ export function CaseCompare({ standalone = false }: { standalone?: boolean }) {
       <section className="case-open">
         <h2>Open your own scans</h2>
         <p className="case-note">
-          NIfTI (<code>.nii</code>, <code>.nii.gz</code>). Read in this browser —
-          not uploaded. The first file becomes the case and the rest are compared
-          against it, so open the new case first and your research images after.
+          NIfTI (<code>.nii</code>, <code>.nii.gz</code>) or a DICOM series —
+          select every slice and they are grouped into one volume. Read in this
+          browser, not uploaded. The first scan opened becomes the case and the
+          rest are compared against it, so open the new case first and your
+          research images after.
         </p>
         <p className="case-note">
-          A DICOM series needs the imaging viewer pack rather than this reader:
-          hundreds of files and a dozen transfer syntaxes are a library&apos;s job,
-          and handling only the uncompressed ones would open a quarter of what
-          people have and fail confusingly on the rest.
+          DICOM headers are read whatever the file; pixels only when they are
+          stored uncompressed. A compressed series is still <em>judged</em> for
+          comparability — the header is all that takes — and declined for
+          display, naming its transfer syntax, because a wrong codec produces an
+          image that looks like a scan.
         </p>
         <input
           type="file"
           aria-label="Open NIfTI scans"
           multiple
-          accept=".nii,.nii.gz,application/gzip"
+          accept=".nii,.nii.gz,.dcm,.dicom,.ima,application/gzip,application/dicom"
           onChange={(event) => { void open(event.target.files); }}
         />
         <label className="case-noteinput">
@@ -222,8 +271,9 @@ export function CaseCompare({ standalone = false }: { standalone?: boolean }) {
           <p className="case-note">
             {opened.length} opened. A NIfTI records geometry but not modality,
             sequence or contrast phase — those are in the DICOM it was converted
-            from — so most pairs will come back as <em>cannot be judged</em>.
-            That is the file being honest, not the comparison failing.
+            from — so pairs of NIfTIs come back as <em>cannot be judged</em>.
+            That is the file being honest, not the comparison failing. DICOM
+            carries all four, so a series gets an actual verdict.
           </p>
         )}
       </section>
