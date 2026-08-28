@@ -26,13 +26,13 @@ The consequences were not symmetrical, and both were bad:
 So discovery recurses, and `test_the_discovery_finds_nested_routes` fails if a
 nested route is ever missed again.
 
-**Known limit: the reachability audit compares paths, not methods.** Callers are
-found by scanning the interface for `/api/...` strings, and a string carries no
-verb — so a path whose GET is called and whose POST is not counts as reached.
-`/projects/{id}/vocabulary` is exactly that today: the variables screen reads it,
-and nothing proposes an alias by hand. Closing this means knowing which verb each
-call site uses, which the scan cannot see without parsing the surrounding call.
-Recorded here rather than left to be found as a surprise later.
+That limit is closed: the audit now compares `"METHOD /api/path"` rather than
+paths alone. It used to scan for `/api/...` strings, which carry no verb, so a
+path whose GET was called and whose POST was not counted as reached — eleven
+routes were behind that, several of them the writing half of a screen that could
+only read. What remains is narrower and stated where it lives: a call whose path
+is built somewhere the scan cannot follow is `unresolved`, and a route on such a
+path is treated as reached rather than reported as an orphan on a guess.
 """
 
 from __future__ import annotations

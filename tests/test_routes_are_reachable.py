@@ -50,95 +50,99 @@ from apiroutes import api_leaves  # noqa: E402
 #: difference between a known gap and an invisible one.
 WITHOUT_A_CLIENT = {
     # Reached by something other than the interface.
-    "/api/health":
+    "GET /api/health":
         "Polled by the Dockerfile HEALTHCHECK and by CI's container job, which "
         "is the point of it — a health endpoint a person has to open is not "
         "doing its job.",
 
     # Optional Neo4j analytics. These answer 503 with a reason wherever the
     # projection is not configured, and no page offers them at all.
-    "/api/projects/*/graph-projection":
+    "POST /api/projects/*/graph-projection":
         "Graph analytics have no interface. The projection must be built "
         "before the four routes below answer, and nothing builds it.",
-    "/api/projects/*/graph/centrality":
-        "Graph analytics have no interface.",
-    "/api/projects/*/graph/communities":
-        "Graph analytics have no interface.",
-    "/api/projects/*/graph/path":
-        "Graph analytics have no interface.",
-    "/api/projects/*/graph/reachable":
-        "Graph analytics have no interface.",
+    "GET /api/projects/*/graph/centrality": "Graph analytics have no interface.",
+    "GET /api/projects/*/graph/communities": "Graph analytics have no interface.",
+    "GET /api/projects/*/graph/path": "Graph analytics have no interface.",
+    "GET /api/projects/*/graph/reachable": "Graph analytics have no interface.",
 
-    # Server-side halves of features whose interface reads but never writes.
-    "/api/projects/*/board/*":
-        "DELETE. The board can add a card and bring one to the front; it has "
-        "no way to remove one.",
-    "/api/projects/*/objects":
-        "POST. The interface opens an object and asks questions about it, but "
-        "never creates one.",
-    "/api/projects/*/journal":
-        "No journal view exists.",
-    "/api/projects/*/objects/*/journal":
-        "No journal view exists.",
+    # The writing half of a screen that can only read. This class was invisible
+    # until the scan learned to read verbs.
+    "POST /api/projects/*/findings/*/library-note":
+        "The note is displayed and cannot be written: `librarynote.tsx` reads "
+        "it and posts nothing.",
+    "POST /api/projects/*/consistency":
+        "The consistency screen reads the latest sweep; nothing starts one.",
+    "POST /api/projects/*/vocabulary":
+        "The variables screen decides the aliases the system proposes; nothing "
+        "proposes one by hand, which would need a canonical variable id no "
+        "route hands out.",
+    "POST /api/projects/*/objects":
+        "The interface opens an object and asks questions about it, but never "
+        "creates one.",
+    "DELETE /api/projects/*/board/*":
+        "The board can add a card and bring one to the front; it has no way to "
+        "remove one.",
 
-    # Findings: the interface reaches these through project-scoped paths
-    # (`/projects/{id}/findings/...`) and never through the bare ones.
-    "/api/discoveries/*":
+    # The reading half of a screen that only writes — the same gap mirrored.
+    "GET /api/projects/*/compatibility":
+        "The compare screen posts a pair and shows the answer; nothing reads a "
+        "stored assessment back.",
+    "GET /api/sources/*/claims":
+        "`claimtest.tsx` posts to locate claims and renders the response; "
+        "nothing reads them again afterwards.",
+    "GET /api/sources/*/extract":
+        "`synthesis.tsx` posts to extract and renders the response; nothing "
+        "reads a stored extraction.",
+
+    # Read-side routes the existing screens cover another way.
+    "GET /api/discoveries/*":
         "The interface reads the project-scoped discoveries list and never a "
         "single discovery.",
-    "/api/retrievals/*":
-        "No interface shows a retrieval on its own.",
-    "/api/validations/*":
+    "GET /api/retrievals/*": "No interface shows a retrieval on its own.",
+    "GET /api/validations/*":
         "The interface reads a connection's validations, never one by id.",
-    "/api/objects/*/impact":
-        "No interface asks what an object affects.",
-    "/api/objects/*/mentions":
+    "GET /api/objects/*/impact": "No interface asks what an object affects.",
+    "GET /api/objects/*/mentions":
         "No interface asks where an object is mentioned.",
+    "GET /api/projects/*/journal":
+        "The project-wide journal has no view. The per-object journal does, "
+        "and `NodeJournal.tsx` both reads and writes it.",
+    "GET /api/projects/*/artifacts/*/staleness":
+        "For one artifact. The exports screen reads the project-wide list.",
+    "GET /api/projects/*/deviations/*":
+        "For one registration. The deviations screen shows every registration "
+        "at once.",
+    "GET /api/visuals/*":
+        "Export creates a figure and downloads it in one pass, so nothing "
+        "reloads one afterwards.",
+    "PATCH /api/visuals/*":
+        "Nothing edits a stored figure's spec; a saved-figures list is what "
+        "would, and there is not one yet.",
+    "GET /api/workflows/*":
+        "No interface opens a whole run. The approval screen shows the step "
+        "that is waiting and releases it, which is what a person needs.",
 
     # Analyses.
-    "/api/projects/*/analyses":
-        "POST. Analyses are started from the connection screens, which post "
+    "POST /api/projects/*/analyses":
+        "Analyses are started from the connection screens, which post "
         "elsewhere; nothing posts here.",
-    "/api/projects/*/reconcile":
+    "POST /api/projects/*/reconcile":
         "The interface calls `/projects/{id}/reconcile-papers`; this one has "
         "no caller.",
-    "/api/projects/*/synthesis/key-points":
+    "POST /api/projects/*/synthesis/key-points":
         "No interface requests key points.",
-
-    # Visuals. Three of these five had no client at all until the Figures
-    # screen was routed through them; what is left is the reading half.
-    "/api/visuals/*":
-        "GET and PATCH. Export creates a figure and downloads it in one pass, "
-        "so nothing reloads one afterwards or edits its spec. A saved-figures "
-        "list is what would call these, and there is not one yet.",
-    "/api/artifacts/*/presentation":
+    "POST /api/artifacts/*/presentation":
         "Nothing turns an artifact into a presentation from the interface.",
 
-    # Workflows. `.../approve` used to be here, with the note that workflow
-    # nodes waited for an approval nothing could give. It has a client now.
-    "/api/workflows/*":
-        "No interface opens a whole run. The approval screen shows the step "
-        "that is waiting and releases it, which is what a person needs; the "
-        "run's own page would be a debugging view.",
-
-    # Interpretation. These were invisible to this audit until discovery
-    # learned to descend into included routers — `include_router` does not
-    # flatten, so all nineteen were skipped and thirteen paths the interface
-    # calls were reported as calling nothing.
-    "/api/projects/*/exploration/tests":
-        "POST. Looks are recorded by the server as they happen rather than "
-        "reported by the client, so nothing in the interface posts one.",
-    "/api/projects/*/exports/recheck":
-        "POST. The exports screen reads staleness; nothing asks for it to be "
+    # Interpretation.
+    "POST /api/projects/*/exploration/tests":
+        "Looks are recorded by the server as they happen rather than reported "
+        "by the client.",
+    "POST /api/projects/*/exports/recheck":
+        "The exports screen reads staleness; nothing asks for it to be "
         "recomputed on demand.",
-    "/api/projects/*/artifacts/*/staleness":
-        "GET, for one artifact. The exports screen reads the project-wide "
-        "list instead.",
-    "/api/projects/*/deviations/*":
-        "GET, for one registration. The deviations screen shows every "
-        "registration at once, so nothing fetches one on its own.",
 
-    "/api/speech/transcribe":
+    "POST /api/speech/transcribe":
         "Voice input runs in the browser; nothing posts audio to the server, "
         "which is the more private arrangement and may be the right one.",
 }
@@ -170,7 +174,7 @@ def shape(path: str) -> str:
     return "/" + "/".join(out)
 
 
-def api_routes() -> dict[str, set[str]]:
+def api_routes() -> set[str]:
     """
     Every `/api` route the app serves, discovered from the app itself.
 
@@ -178,98 +182,165 @@ def api_routes() -> dict[str, set[str]]:
     `app.routes` misses every route reached through `include_router`, which is
     nineteen of them here — see `tests/apiroutes.py`.
     """
-    found: dict[str, set[str]] = {}
+    found: set[str] = set()
     for route in api_leaves():
         for method in getattr(route, "methods", None) or {"GET"}:
             if method not in ("HEAD", "OPTIONS"):
-                found.setdefault(shape(route.path), set()).add(method)
+                found.add(f"{method} {shape(route.path)}")
     return found
 
 
-def called_by_the_interface(root: pathlib.Path | None = None) -> set[str]:
-    """
-    Every `/api` path the interface names.
+#: How the interface issues a request, and the verb each one means.
+_VERBS = {"get": "GET", "getForBytes": "GET", "post": "POST",
+          "postForBytes": "POST", "upload": "POST", "put": "PUT",
+          "patch": "PATCH", "del": "DELETE"}
+_CALL = re.compile(
+    r"\b(useApi|api\.(get|post|put|patch|del|upload|postForBytes|getForBytes)"
+    r"|fetch)\s*[<(]")
+_LITERAL = re.compile(r"[\"'`](/api/[^\"'`\s?]*)")
+_BASE = re.compile(r"const\s+(\w+)\s*=\s*[\"'`](/api/[^\"'`]*)[\"'`]")
+_INTERP = re.compile(r"[\"'`]\$\{(\w+)\}([^\"'`\s?]*)")
+_METHOD_OPT = re.compile(r"method:\s*[\"'](\w+)[\"']")
 
-    Sources only. A path that appears exclusively in a test is not reachable by
-    anyone, and counting it here would make this file agree with itself.
+#: How far after a call to look for its path. A call and its argument are on
+#: the same line or the next few; beyond that the match would belong to the
+#: following call.
+_WINDOW = 400
+
+
+def called_by_the_interface(root: pathlib.Path | None = None
+                            ) -> tuple[set[str], set[str]]:
     """
-    called: set[str] = set()
+    What the interface calls, as `"METHOD /api/path"`, and what it names
+    without a verb anybody can determine.
+
+    **The verb matters, and reading it took a second pass.** The first version
+    of this scan searched for `/api/...` strings, which carry no method — so a
+    path whose GET was called and whose POST was not counted as reached. Eleven
+    routes were hiding behind that, several of them the writing half of a screen
+    that could only read: the interface displays a library note and cannot write
+    one, reads a consistency sweep and cannot start one.
+
+    A path is only attributed a method when its literal sits inside a call. The
+    rest are returned separately as *unresolved*: `views.tsx` builds its search
+    path in a `const` with a ternary and passes the variable, and guessing a
+    verb there would invent an orphan. Unresolved paths are treated as reached
+    by any method, which is exactly what this file did for every path before.
+
+    Sources only. A path named in a test is reachable by nobody.
+    """
+    known: set[str] = set()
+    unresolved: set[str] = set()
+
     for file in (root or ROOT / "apps" / "web").rglob("*.ts*"):
         text = str(file)
         if "node_modules" in text or "/tests/" in text:
             continue
-        for match in re.finditer(r"[\"'`](/api/[^\"'`\s?]*)",
-                                 file.read_text(errors="ignore")):
-            called.add(shape(match.group(1)))
-    return called
+        # The client itself, where `fetch(path)` is the plumbing rather than a
+        # call to a particular route.
+        if file.name in ("api.ts", "useApi.ts"):
+            continue
+
+        source = file.read_text(errors="ignore")
+        bases = dict(_BASE.findall(source))
+        consumed: set[int] = set()
+
+        for call in _CALL.finditer(source):
+            window = source[call.start():call.start() + _WINDOW]
+            kind = call.group(1)
+            if kind == "useApi":
+                method = "GET"
+            elif kind == "fetch":
+                option = _METHOD_OPT.search(window)
+                method = option.group(1).upper() if option else "GET"
+            else:
+                method = _VERBS[call.group(2)]
+
+            literal = _LITERAL.search(window)
+            if literal:
+                known.add(f"{method} {shape(literal.group(1))}")
+                consumed.add(call.start() + literal.start(1))
+                continue
+            # A path built from a `const` base in the same file.
+            interpolated = _INTERP.search(window)
+            if interpolated and interpolated.group(1) in bases:
+                known.add(f"{method} "
+                          f"{shape(bases[interpolated.group(1)] + interpolated.group(2))}")
+
+        for literal in _LITERAL.finditer(source):
+            if literal.start(1) not in consumed:
+                unresolved.add(shape(literal.group(1)))
+
+    return known, unresolved
 
 
-def audit(routes: dict[str, set[str]], called: set[str],
+def audit(routes: set[str], called: set[str], unresolved: set[str],
           recorded: dict[str, str]) -> dict[str, list[str]]:
     """
-    Compare the three sets. Pure, so it can be tested against a broken system
-    rather than only against this one.
+    Compare the sets. Pure, so it can be tested against a broken system rather
+    than only against this one.
 
     That distinction is the whole reason this function exists separately. Run
     against the live app the three checks below currently find nothing, which
     is the point — but it also means deleting any of them changes no result,
     and a test that cannot fail is the thing this file was written to catch.
-    Mutation-testing found exactly that: three checks could be removed
-    outright with the suite still green.
+    Mutation-testing found exactly that: three checks could be removed outright
+    with the suite still green.
+
+    `unresolved` holds paths the interface names without a verb anybody can
+    determine. A route on such a path counts as reached, because the
+    alternative is to invent an orphan out of a scan that could not read the
+    call.
     """
+    def reached(entry: str) -> bool:
+        return entry in called or entry.split(" ", 1)[1] in unresolved
+
     return {
-        "orphans": sorted(set(routes) - called - set(recorded)),
-        "stale": sorted(set(recorded) & called),
-        "gone": sorted(set(recorded) - set(routes)),
+        "orphans": sorted(r for r in routes
+                          if not reached(r) and r not in recorded),
+        "stale": sorted(r for r in recorded if reached(r)),
+        "gone": sorted(r for r in recorded if r not in routes),
     }
 
 
 def test_audit_names_a_route_nobody_calls():
-    found = audit({"/api/a": {"GET"}, "/api/b": {"GET"}}, {"/api/a"}, {})
-    assert found["orphans"] == ["/api/b"]
+    found = audit({"GET /api/a", "POST /api/b"}, {"GET /api/a"}, set(), {})
+    assert found["orphans"] == ["POST /api/b"]
+
+
+def test_audit_separates_the_verbs_of_one_path():
+    """
+    The gap this file had until the scan learned to read verbs: a path whose
+    GET was called and whose POST was not counted as fully reached.
+    """
+    found = audit({"GET /api/a", "POST /api/a"}, {"GET /api/a"}, set(), {})
+    assert found["orphans"] == ["POST /api/a"]
 
 
 def test_audit_accepts_a_route_that_is_recorded():
-    found = audit({"/api/b": {"GET"}}, set(), {"/api/b": "no interface yet"})
+    found = audit({"POST /api/b"}, set(), set(), {"POST /api/b": "no interface"})
+    assert found["orphans"] == []
+
+
+def test_audit_does_not_invent_an_orphan_from_a_path_it_could_not_read():
+    """
+    `views.tsx` builds its search path in a `const` with a ternary and passes
+    the variable. The scan cannot name a verb there, and guessing one would
+    report a route nobody can see as unreachable.
+    """
+    found = audit({"GET /api/a", "POST /api/a"}, set(), {"/api/a"}, {})
     assert found["orphans"] == []
 
 
 def test_audit_names_an_entry_that_has_gained_a_client():
-    found = audit({"/api/b": {"GET"}}, {"/api/b"}, {"/api/b": "no interface"})
-    assert found["stale"] == ["/api/b"]
+    found = audit({"POST /api/b"}, {"POST /api/b"}, set(),
+                  {"POST /api/b": "no interface"})
+    assert found["stale"] == ["POST /api/b"]
 
 
 def test_audit_names_an_entry_for_a_route_that_is_gone():
-    found = audit({}, set(), {"/api/removed": "no interface"})
-    assert found["gone"] == ["/api/removed"]
-
-
-def test_a_parameter_matches_any_value():
-    assert shape("/api/projects/{project_id}/board") == "/api/projects/*/board"
-    assert shape("/api/projects/${projectId}/board") == "/api/projects/*/board"
-
-
-def test_an_interpolated_suffix_is_not_a_parameter():
-    """
-    `.../library-note${query}` is one segment carrying a query string, not a
-    path parameter. Turning it into a wildcard stops it matching the route it
-    plainly calls, and the route is then reported as reachable by nobody.
-    """
-    assert (shape("/api/projects/${id}/findings/${f}/library-note${query}")
-            == "/api/projects/*/findings/*/library-note")
-
-
-def test_a_test_is_not_a_client(tmp_path):
-    """
-    The distinction the whole file rests on: a path named only by a test is a
-    path no person can reach. Checked against a fabricated tree, because the
-    real one may happen not to contain such a path — and then this would pass
-    without exercising the rule.
-    """
-    (tmp_path / "tests").mkdir()
-    (tmp_path / "page.tsx").write_text('fetch("/api/real")')
-    (tmp_path / "tests" / "a.test.ts").write_text('fetch("/api/only-in-a-test")')
-    assert called_by_the_interface(tmp_path) == {"/api/real"}
+    found = audit(set(), set(), set(), {"GET /api/removed": "no interface"})
+    assert found["gone"] == ["GET /api/removed"]
 
 
 def test_the_route_scan_finds_routes():
@@ -291,20 +362,48 @@ def test_the_discovery_finds_nested_routes():
     A count alone would not catch it: the old guard asserted the number was
     large, and sixty is large whether or not nineteen are missing.
     """
-    paths = set(api_routes())
-    assert "/api/projects/*/contradictions" in paths
-    assert "/api/projects/*/analyses/*/lineage" in paths
-    assert "/api/projects/*/deviations" in paths
+    paths = api_routes()
+    assert "GET /api/projects/*/contradictions" in paths
+    assert "GET /api/projects/*/analyses/*/lineage" in paths
+    assert "GET /api/projects/*/deviations" in paths
 
 
 def test_the_interface_scan_finds_calls():
     """The same vacuity, in the other direction."""
-    called = called_by_the_interface()
+    called, _ = called_by_the_interface()
     assert len(called) > 50, f"only found {len(called)} calls"
 
 
+def test_the_scan_reads_the_verb_of_a_call():
+    """
+    What the string scan could not do. Without this the methods could all
+    collapse to one and every comparison would still pass.
+    """
+    called, _ = called_by_the_interface()
+    assert "GET /api/projects/*/variables" in called
+    assert "POST /api/variable-mappings/*/decide" in called
+    assert "DELETE /api/projects/*/marks/*" in called
+
+
+def test_a_test_is_not_a_client(tmp_path):
+    """
+    The distinction the whole file rests on: a path named only by a test is a
+    path no person can reach. Checked against a fabricated tree, because the
+    real one may happen not to contain such a path — and then this would pass
+    without exercising the rule.
+    """
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "page.tsx").write_text('api.get("/api/real")')
+    (tmp_path / "tests" / "a.test.ts").write_text('api.get("/api/only-in-a-test")')
+
+    called, unresolved = called_by_the_interface(tmp_path)
+    assert called == {"GET /api/real"}
+    assert unresolved == set()
+
+
 def test_every_route_is_reachable_or_recorded():
-    orphans = audit(api_routes(), called_by_the_interface(),
+    called, unresolved = called_by_the_interface()
+    orphans = audit(api_routes(), called, unresolved,
                     WITHOUT_A_CLIENT)["orphans"]
     assert not orphans, (
         "these routes have no caller in the interface and no entry in "
@@ -319,7 +418,8 @@ def test_no_recorded_route_has_quietly_gained_a_client():
     since been wired up leaves behind an entry saying it is unreachable, and
     the ledger stops describing the system.
     """
-    fixed = audit(api_routes(), called_by_the_interface(),
+    called, unresolved = called_by_the_interface()
+    fixed = audit(api_routes(), called, unresolved,
                   WITHOUT_A_CLIENT)["stale"]
     assert not fixed, (
         "these are called by the interface now, so remove their entries from "
@@ -328,7 +428,8 @@ def test_no_recorded_route_has_quietly_gained_a_client():
 
 
 def test_no_recorded_route_has_been_deleted():
-    gone = audit(api_routes(), called_by_the_interface(),
+    called, unresolved = called_by_the_interface()
+    gone = audit(api_routes(), called, unresolved,
                  WITHOUT_A_CLIENT)["gone"]
     assert not gone, (
         "these entries name routes that no longer exist:\n  " + "\n  ".join(gone)
