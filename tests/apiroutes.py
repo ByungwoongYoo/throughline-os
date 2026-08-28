@@ -25,6 +25,14 @@ The consequences were not symmetrical, and both were bad:
 
 So discovery recurses, and `test_the_discovery_finds_nested_routes` fails if a
 nested route is ever missed again.
+
+**Known limit: the reachability audit compares paths, not methods.** Callers are
+found by scanning the interface for `/api/...` strings, and a string carries no
+verb — so a path whose GET is called and whose POST is not counts as reached.
+`/projects/{id}/vocabulary` is exactly that today: the variables screen reads it,
+and nothing proposes an alias by hand. Closing this means knowing which verb each
+call site uses, which the scan cannot see without parsing the surrounding call.
+Recorded here rather than left to be found as a surprise later.
 """
 
 from __future__ import annotations

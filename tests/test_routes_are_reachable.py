@@ -80,14 +80,6 @@ WITHOUT_A_CLIENT = {
         "No journal view exists.",
     "/api/projects/*/objects/*/journal":
         "No journal view exists.",
-    "/api/projects/*/vocabulary":
-        "No vocabulary view exists.",
-    "/api/vocabulary/*/decide":
-        "No vocabulary view exists, so nothing can decide a term.",
-    "/api/variable-mappings/*/decide":
-        "Mappings are proposed by ingestion and decided by nobody.",
-    "/api/dataset-versions/*/propose-labels":
-        "No interface asks for label proposals.",
 
     # Findings: the interface reaches these through project-scoped paths
     # (`/projects/{id}/findings/...`) and never through the bare ones.

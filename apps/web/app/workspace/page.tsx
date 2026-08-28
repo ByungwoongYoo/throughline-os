@@ -38,6 +38,7 @@ import { Harvest } from "@/components/harvest";
 import { LibraryNote } from "@/components/librarynote";
 import { ForkLineage } from "@/components/forklineage";
 import { FindingStanding } from "@/components/lifecycle";
+import { Variables } from "@/components/variables";
 import { sessionId } from "@/lib/session";
 
 type AuthStatus = { needs_setup: boolean; authenticated: boolean; user: { display_name: string } | null };
@@ -411,6 +412,7 @@ function Workspace({ user }: { user: SignedInUser }) {
                 />
               </>
         )}
+        {section === "variables" && <Variables projectId={project.id} />}
         {section === "search" && <Search projectId={project.id} />}
         {section === "discover" && (
           selection?.kind === "connection"

@@ -24,7 +24,7 @@ import {
 
 export type Section =
   | "board"
-  | "overview" | "sources" | "search"
+  | "overview" | "sources" | "variables" | "search"
   | "discover" | "compare" | "patterns" | "connections" | "findings"
   | "analyses" | "graph" | "embedding"
   | "reports" | "figures" | "gallery" | "notebook" | "literature"
@@ -45,6 +45,13 @@ const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; 
       { id: "board", label: "Workboard" },
       { id: "overview", label: "Overview" },
       { id: "sources", label: "Sources", count: "sources" },
+      /*
+       * Beside Sources, because that is what it is about: what the columns of
+       * the data mean. Approving a label is also the only way any chart in
+       * this system stops being titled `resistance_pct`, and until this screen
+       * existed nothing could approve one.
+       */
+      { id: "variables", label: "Variables" },
       { id: "search", label: "Search" },
       { id: "literature", label: "Find papers" },
       { id: "datasearch", label: "Find data" },
@@ -116,6 +123,10 @@ type CountMap = { sources: number; connections: number; findings: number;
  */
 const ICONS: Record<Section, (p: { size?: number }) => ReactElement> = {
   board: IconGallery, overview: IconOverview, sources: IconSources,
+  // Reuses the sources glyph: variables are what the sources turned out to
+  // contain, and a second glyph for the same idea makes a sidebar harder to
+  // scan rather than easier.
+  variables: IconSources,
   search: IconSearch,
   literature: IconLiterature, datasearch: IconData, discover: IconDiscover,
   compare: IconCompare, patterns: IconPatterns, connections: IconConnections,
