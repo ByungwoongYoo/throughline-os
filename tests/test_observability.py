@@ -164,6 +164,36 @@ def _queue(cur, *, state, run_after_seconds_ago=0, heartbeat_seconds_ago=None,
     return run_id
 
 
+@pytest.fixture(autouse=True)
+def _leave_the_queue_as_it_was_found():
+    """Remove the rows these tests have to commit.
+
+    `observability.health()` opens its own connection, so a run written inside
+    the rolled-back `cur` transaction is invisible to it — these tests commit,
+    deliberately, and the commit defeats the rollback that keeps every other
+    test in this suite isolated.
+
+    What survives is a `system.echo` run in state `running` with an expired
+    lease and **no project**, which is the worst possible shape to leave
+    behind. `claim_next` treats an expired lease as a worker that died and
+    hands the run to the next caller; and because `workflow_runs.project_id` is
+    nullable, deleting a project cascades to nothing, so the tidy-up every
+    other file does by deleting its user never touches it.
+
+    The cost was paid by whoever ran next: `test_workflow.py` and
+    `test_worker_durability.py` assert that the run they get back is the run
+    they queued, and this one is older, so `ORDER BY created_at` hands it over
+    first. Four tests plus one, all correct, all failing. It stayed hidden
+    because in declaration order a file in between happens to drain the queue
+    with a real worker; shuffle the file order and nothing does.
+    """
+    yield
+    from throughline_domain.db import connection
+
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM workflow_runs")
+
+
 def test_a_stalled_queue_is_reported_rather_than_reading_as_healthy(cur):
     """
     The failure this exists for. With the database up and no worker running,
