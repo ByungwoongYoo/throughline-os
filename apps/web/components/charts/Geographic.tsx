@@ -83,11 +83,18 @@ export function Geographic({
   /** Countries as GeoJSON. Converted from the bundled topology by the caller. */
   world: FeatureCollection<Geometry, { name?: string }>;
   /**
-   * "rate" shades each country by value ÷ denominator.
-   * "count" draws proportional circles instead — shading a count maps
-   * population, not the variable.
+   * How the number relates to the place, which decides how it may be drawn.
+   *
+   * - `"rate"` shades by value ÷ denominator: a count made comparable.
+   * - `"count"` draws proportional circles — shading a count maps population,
+   *   not the variable.
+   * - `"intensive"` shades the value directly. A mean, a percentage or a
+   *   concentration is *already* per-something, so dividing it again would be
+   *   wrong and drawing it as circle area would read as a total. This is what
+   *   a summarised measurement per place actually is, and without it such a
+   *   value had to borrow one of the other two and misdescribe itself.
    */
-  measure: "rate" | "count";
+  measure: "rate" | "count" | "intensive";
   valueLabel: string;
   perLabel?: string;
   title?: string;
@@ -159,6 +166,9 @@ export function Geographic({
           `${title ?? "Map"}. ${valueLabel} for ${withData.length} countries, `
           + (measure === "rate"
              ? `shaded as a rate per ${perLabel}. `
+             : measure === "intensive"
+             ? `shaded directly, because ${valueLabel} is already a per-unit `
+               + `quantity. `
              : `drawn as circles whose area is the count. `)
           + `${undrawn} countries have no data and are hatched.`}
       >
@@ -241,7 +251,7 @@ export function Geographic({
 
         {/* Legend. A choropleth without one is a picture. */}
         <g transform={`translate(${width - 190},${height - 34})`}>
-          {measure === "rate" ? (
+          {measure !== "count" ? (
             <>
               {Array.from({ length: 20 }, (_, i) => (
                 <rect key={i} x={i * 8} y={0} width={8} height={9}
@@ -253,7 +263,9 @@ export function Geographic({
               <text x={160} y={22} textAnchor="end" className="chart-tick numeric">
                 {(hi ?? 0).toFixed(1)}
               </text>
-              <text x={0} y={-5} className="chart-tick">per {perLabel}</text>
+              <text x={0} y={-5} className="chart-tick">
+                {measure === "rate" ? `per ${perLabel}` : valueLabel}
+              </text>
             </>
           ) : (
             [0.25, 1].map((f, i) => (
@@ -276,6 +288,14 @@ export function Geographic({
             {valueLabel} per {perLabel}, shaded. A rate rather than a count,
             because shading a count shades population: a larger or more
             populous country has more of nearly everything.
+          </>
+        ) : measure === "intensive" ? (
+          <>
+            {valueLabel}, shaded directly. It is already a per-unit quantity —
+            a mean, a share or a concentration — so it is comparable between
+            places without a denominator, and dividing it by one again would
+            describe nothing. Shading is honest here for the same reason it is
+            dishonest for a count.
           </>
         ) : (
           <>

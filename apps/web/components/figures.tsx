@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { AnalysisRunRow } from "@/lib/api";
+import { AnalysisRunRow, DatasetColumn } from "@/lib/api";
 import { nameOf } from "./analyses";
 import { ApiState, useApi } from "@/lib/useApi";
 // Aliased: Matrix exports a `Cell` too, and its shape is row/column/value
@@ -24,6 +24,7 @@ import { Density, DensityCurve } from "./charts/Density";
 import { Empty, Failure, Loading } from "./primitives";
 import { SavedFigures } from "./savedfigures";
 import { PublishFigure } from "./publish";
+import { MapView, mappable } from "./mapview";
 
 type Recommendation = {
   visual_type: string;
@@ -128,7 +129,7 @@ export function Figures({ projectId, runs }: {
   runs: ApiState<AnalysisRunRow[]>;
 }) {
   const [chosen, setChosen] = useState<string | null>(null);
-  const [view, setView] = useState<"one" | "all" | "matrix" | "spread">("all");
+  const [view, setView] = useState<"one" | "all" | "matrix" | "spread" | "map">("all");
   const [column, setColumn] = useState<string | null>(null);
   const matrix = useApi<{ cells: Cell[]; variables: string[]; note: string }>(
     `/api/projects/${projectId}/correlation-matrix`);
@@ -136,6 +137,18 @@ export function Figures({ projectId, runs }: {
     `/api/projects/${projectId}/estimates?limit=30`);
   const variables = useApi<{ labels: Record<string, string> }>(
     `/api/projects/${projectId}/variables`);
+
+  /*
+   * The profiled schema of the project's dataset, so the screen can tell
+   * whether there is anywhere to draw before offering to draw it.
+   */
+  const sources = useApi<Array<{ dataset?: { dataset_version_id: string } | null }>>(
+    `/api/projects/${projectId}/sources`);
+  const versionId = (sources.data ?? []).find((s) => s.dataset)
+    ?.dataset?.dataset_version_id ?? null;
+  const columns = useApi<DatasetColumn[]>(
+    versionId ? `/api/dataset-versions/${versionId}/columns` : null, [versionId]);
+  const placeColumn = mappable(columns.data ?? []).place;
 
   /*
    * A run that has not finished has no estimate and no points, and a picker
@@ -191,6 +204,16 @@ export function Figures({ projectId, runs }: {
                 onClick={() => setView("one")}>
           One relationship
         </button>
+        {/*
+          Offered only when there is a column of places. A map button on a
+          dataset with nowhere to draw is a control that can only disappoint.
+        */}
+        {placeColumn && (
+          <button className="btn" aria-current={view === "map"}
+                  onClick={() => setView("map")}>
+            Where it was measured
+          </button>
+        )}
       </div>
 
       {view === "all" && (
@@ -201,6 +224,10 @@ export function Figures({ projectId, runs }: {
 
       {view === "spread" && (
         <SpreadView projectId={projectId} column={column} onColumn={setColumn} />
+      )}
+
+      {view === "map" && (
+        <MapView versionId={versionId} columns={columns.data ?? []} />
       )}
 
       {view === "one" && (

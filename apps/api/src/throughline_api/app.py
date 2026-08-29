@@ -33,6 +33,7 @@ from throughline_domain import (
 )
 from throughline_visual.prepare import prepare as visual_prepare
 from throughline_visual.renderers import publication as publication_render
+from throughline_schemas.words import counted
 from throughline_visual.spec import ResearchVisualSpec
 from throughline_domain import secrets as domain_secrets
 from throughline_domain import settings as domain_settings
@@ -3270,6 +3271,130 @@ def test_claim(project_id: str, payload: ClaimTestRequest,
                 source_id=payload.claim.source_id)
         except claim_test.ClaimTestError as exc:
             raise HTTPException(400, str(exc)) from exc
+
+
+@app.get("/api/dataset-versions/{version_id}/by-place")
+def values_by_place(version_id: str, place: str = Query(...),
+                    value: str = Query(...),
+                    user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    One measurement summarised per place, ready to be drawn on a map.
+
+    The profiler has always recognised a geography column — `country`, `iso3`,
+    `region` and the rest get `semantic_type: "geography"` at ingestion — and
+    nothing in the product has ever used it for anything but choosing a
+    statistical test. A dataset that knows where its rows are was drawn only as
+    scatter and bars.
+
+    **The mean, and the count it rests on.** A single number per country hides
+    how much is behind it: eight rows and eight hundred shade identically. So
+    `n` travels with every place and the table under the map shows it.
+
+    **Places that could not be recognised are returned, not dropped.** A
+    choropleth is believed, and a country missing from it reads as *no data
+    there* rather than *we did not understand the name*. `places.resolve_all`
+    reports both halves and this hands the second one back so the interface can
+    say it.
+    """
+    import numpy as np
+    import pandas as pd
+
+    from throughline_domain import places as place_codes
+    from throughline_ingestion.datasets import read_dataset
+
+    with transaction() as cur:
+        cur.execute(
+            "SELECT d.project_id FROM dataset_versions dv "
+            "JOIN datasets d ON d.id = dv.dataset_id WHERE dv.id = %s", (version_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Dataset version not found.")
+        project_id = scoped_project(row["project_id"], user)
+
+        cur.execute(
+            "SELECT name, semantic_type FROM dataset_columns "
+            "WHERE dataset_version_id = %s AND name = ANY(%s)",
+            (version_id, [place, value]))
+        columns = {c["name"]: c["semantic_type"] for c in cur.fetchall()}
+        for name in (place, value):
+            if name not in columns:
+                raise HTTPException(
+                    404, f"No column {name!r} in this dataset version.")
+        if columns[place] != "geography":
+            # Refused rather than attempted. Any column of strings can be put
+            # through a country lookup, and most of them will match nothing —
+            # producing an empty map that looks like missing data.
+            raise HTTPException(
+                409,
+                f"{place!r} is profiled as {columns[place]!r}, not geography, so "
+                "it is not a column of places.")
+
+        cur.execute(
+            """
+            SELECT f.storage_key, f.filename FROM dataset_versions dv
+            JOIN datasets d ON d.id = dv.dataset_id
+            JOIN sources s ON s.id = d.source_id
+            JOIN files f ON f.id = s.file_id
+            WHERE dv.id = %s
+            """,
+            (version_id,),
+        )
+        located = cur.fetchone()
+        labels = harmonize.labels(cur, project_id)
+
+    if not located:
+        raise HTTPException(409, "The file behind this dataset version is gone.")
+
+    frame, _ = read_dataset(storage.path_for(located["storage_key"]),
+                            suffix=Path(located["filename"] or "").suffix.lower())
+    for name in (place, value):
+        if name not in frame.columns:
+            raise HTTPException(409, f"{name!r} is not in the file any more.")
+
+    numbers = pd.to_numeric(frame[value], errors="coerce")
+    usable = pd.DataFrame({"place": frame[place].astype(str), "value": numbers})
+    usable = usable[usable["value"].notna()]
+    if usable.empty:
+        raise HTTPException(
+            409, f"No usable numbers in {value!r}, so there is nothing to map.")
+
+    resolution = place_codes.resolve_all(list(usable["place"].unique()))
+    matched = resolution["matched"]
+
+    drawn = []
+    for raw, group in usable.groupby("place"):
+        found = matched.get(str(raw))
+        if not found:
+            continue
+        code, canonical = found
+        values = group["value"].to_numpy(dtype=float)
+        drawn.append({
+            "id": code,
+            "label": canonical,
+            "as_written": str(raw),
+            "value": float(np.mean(values)),
+            "n": int(values.size),
+        })
+    drawn.sort(key=lambda p: p["value"], reverse=True)
+
+    unmatched = list(resolution["unmatched"])
+    return {
+        "place_column": place,
+        "value_column": value,
+        "value_label": labels.get(value, value),
+        "places": drawn,
+        # Said rather than implied by an absence on the map.
+        "unmatched": unmatched,
+        "note": (
+            f"The mean {labels.get(value, value)} of each place, over "
+            f"{counted(int(usable.shape[0]), 'row')}. A mean says nothing about "
+            "how much sits behind it, so each place carries its own count."
+            + (f" {counted(len(unmatched), 'place')} could not be recognised and "
+               f"{'is' if len(unmatched) == 1 else 'are'} not drawn: "
+               + ", ".join(unmatched[:8]) + "."
+               if unmatched else "")
+        ),
+    }
 
 
 @app.get("/api/dataset-versions/{version_id}/density")
