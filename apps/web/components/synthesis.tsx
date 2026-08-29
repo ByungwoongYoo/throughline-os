@@ -23,7 +23,7 @@
  * an empty cell throws away the more important one.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Source, api } from "@/lib/api";
 import { Empty, Failure, Loading } from "./primitives";
 
@@ -85,6 +85,12 @@ type KeyPoints = {
   note: string;
 };
 
+/** What a previous reading of one paper found, or that there was none. */
+type Reading =
+  | { state: "read"; fields: Record<string, unknown>; rejected: unknown[];
+      model: string; prompt: string; verification: string }
+  | { state: "unread" };
+
 export function Synthesis({ projectId, sources }: {
   projectId: string;
   sources: Source[];
@@ -93,6 +99,21 @@ export function Synthesis({ projectId, sources }: {
   const [chosen, setChosen] = useState<string[]>([]);
   const [matrix, setMatrix] = useState<Matrix | null>(null);
   const [points, setPoints] = useState<KeyPoints | null>(null);
+  /*
+   * Which of the chosen papers have already been read.
+   *
+   * Asked before comparing rather than discovered afterwards. The table is
+   * built only from verified readings, so an unread paper meant pressing
+   * Compare, being told it failed, and reading it then — while the hint above
+   * the button pointed at a "Read this paper" control that does not exist
+   * until that failure has happened.
+   *
+   * Only the chosen papers are asked about, so this stays bounded by the
+   * selection rather than the project. `GET /sources/{id}/extract` never runs
+   * a model — it returns what a previous reading found, which is the whole
+   * reason it exists.
+   */
+  const [readings, setReadings] = useState<Record<string, Reading>>({});
   /*
    * Kept apart from `error`: the table and the points are two requests, and a
    * failure of the second must not hide the first. A researcher who has the
@@ -108,8 +129,35 @@ export function Synthesis({ projectId, sources }: {
     try {
       await api.post(`/api/sources/${sourceId}/extract?project_id=${projectId}`,
                      {});
+      setReadings((current) => {
+        const next = { ...current };
+        delete next[sourceId];
+        return next;
+      });
     } catch (err) { setError(err); } finally { setBusy(null); }
   }
+
+  useEffect(() => {
+    let live = true;
+    const missing = chosen.filter((id) => !(id in readings));
+    if (missing.length === 0) return;
+
+    void Promise.all(missing.map(async (id) => {
+      try {
+        const stored = await api.get<Omit<Reading & { state: "read" }, "state">>(
+          `/api/sources/${id}/extract?project_id=${projectId}`);
+        return [id, { ...stored, state: "read" as const }] as const;
+      } catch {
+        // A 404 is the ordinary answer for a paper nobody has read, not a
+        // failure worth reporting: it is the question this asks.
+        return [id, { state: "unread" as const }] as const;
+      }
+    })).then((pairs) => {
+      if (live) setReadings((current) => ({ ...current, ...Object.fromEntries(pairs) }));
+    });
+
+    return () => { live = false; };
+  }, [chosen, projectId, readings]);
 
   async function build(ids: string[]) {
     if (ids.length < 2) return;
@@ -177,6 +225,34 @@ export function Synthesis({ projectId, sources }: {
         ))}
       </div>
 
+      {/*
+        What is known about the chosen papers, before the comparison is asked
+        for. An unread paper is the one thing that makes the table refuse, and
+        finding that out by pressing Compare is a round trip for information
+        the system already has.
+      */}
+      {chosen.some((id) => readings[id]?.state === "unread") && (
+        <div className="notice" role="status">
+          <span>
+            Not read yet:{" "}
+            {chosen
+              .filter((id) => readings[id]?.state === "unread")
+              .map((id) => papers.find((p) => p.id === id)?.title ?? id)
+              .join(", ")}
+            . Reading a paper asks a model to read it; what it found is kept, so
+            it is only read once.
+          </span>
+          {chosen
+            .filter((id) => readings[id]?.state === "unread")
+            .map((id) => (
+              <button key={id} className="btn" disabled={busy !== null}
+                      onClick={() => void read(id)}>
+                Read {papers.find((p) => p.id === id)?.title ?? id}
+              </button>
+            ))}
+        </div>
+      )}
+
       <div className="syn-actions">
         <button
           className="nj-primary"
@@ -187,7 +263,8 @@ export function Synthesis({ projectId, sources }: {
             : `Compare ${chosen.length || ""} papers`}
         </button>
         <span className="nb-hint">
-          Papers must be read first — use “Read this paper” if one is missing.
+          The table is built only from verified readings, never from a fresh
+          guess.
         </span>
       </div>
 

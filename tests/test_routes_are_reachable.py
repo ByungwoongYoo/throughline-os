@@ -78,9 +78,6 @@ WITHOUT_A_CLIENT = {
     "GET /api/sources/*/claims":
         "`claimtest.tsx` posts to locate claims and renders the response; "
         "nothing reads them again afterwards.",
-    "GET /api/sources/*/extract":
-        "`synthesis.tsx` posts to extract and renders the response; nothing "
-        "reads a stored extraction.",
 
     # Read-side routes the existing screens cover another way.
     "GET /api/discoveries/*":

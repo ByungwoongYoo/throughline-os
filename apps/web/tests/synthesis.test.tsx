@@ -62,8 +62,26 @@ function serve(over: { points?: unknown; pointsFails?: boolean } = {}) {
   });
 }
 
+/**
+ * What a previous reading of each paper found.
+ *
+ * `GET /sources/{id}/extract` answers 404 for a paper nobody has read, and the
+ * screen asks about the chosen papers before comparing — so every test that
+ * selects a paper reaches this whether it means to or not.
+ */
+function serveReadings(unread: string[] = []) {
+  return vi.spyOn(api, "get").mockImplementation(async (path: string) => {
+    const id = String(path).split("/sources/")[1]?.split("/")[0] ?? "";
+    if (unread.includes(id)) throw new ApiError(404, "This paper has not been read yet.");
+    return { fields: {}, rejected: [], model: "test-model",
+             prompt: "extract v1",
+             verification: "Every field was checked against the paper's text." } as never;
+  });
+}
+
 /** Pick both papers and build the comparison. */
 async function compare() {
+  if (!vi.isMockFunction(api.get)) serveReadings();
   render(<Synthesis projectId="prj_1" sources={PAPERS as never} />);
   for (const title of ["Karim 2019", "Osei 2020"]) {
     await userEvent.click(await screen.findByText(title));
@@ -140,5 +158,79 @@ describe("an absence is not a claim", () => {
     await compare();
 
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+  });
+});
+
+
+describe("knowing what has been read, before comparing", () => {
+  it("names an unread paper without being asked to compare first", async () => {
+    /*
+     * The table is built only from verified readings, so an unread paper is
+     * the one thing that makes it refuse. Discovering that by pressing Compare
+     * is a round trip for something the system already knows — and the hint
+     * above the button used to point at a "Read this paper" control that does
+     * not exist until that failure has happened.
+     */
+    serve();
+    serveReadings(["src_2"]);
+    render(<Synthesis projectId="prj_1" sources={PAPERS as never} />);
+
+    for (const title of ["Karim 2019", "Osei 2020"]) {
+      await userEvent.click(await screen.findByText(title));
+    }
+    expect(await screen.findByText(/Not read yet: Osei 2020/)).toBeTruthy();
+  });
+
+  it("says nothing when every chosen paper has been read", async () => {
+    serve();
+    serveReadings([]);
+    render(<Synthesis projectId="prj_1" sources={PAPERS as never} />);
+
+    for (const title of ["Karim 2019", "Osei 2020"]) {
+      await userEvent.click(await screen.findByText(title));
+    }
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText(/Not read yet/)).toBeNull();
+  });
+
+  it("asks only about the papers that were chosen", async () => {
+    // Bounded by the selection rather than the project: a reading is a request
+    // per paper, and asking about all of them on arrival would be a query
+    // nobody made.
+    serve();
+    const get = serveReadings([]);
+    render(<Synthesis projectId="prj_1" sources={PAPERS as never} />);
+
+    await userEvent.click(await screen.findByText("Karim 2019"));
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(1));
+    expect(String(get.mock.calls[0][0])).toContain("/sources/src_1/extract");
+  });
+
+  it("offers to read the one that is missing", async () => {
+    serve();
+    serveReadings(["src_2"]);
+    const post = vi.spyOn(api, "post");
+    render(<Synthesis projectId="prj_1" sources={PAPERS as never} />);
+
+    for (const title of ["Karim 2019", "Osei 2020"]) {
+      await userEvent.click(await screen.findByText(title));
+    }
+    await userEvent.click(await screen.findByRole("button", { name: /Read Osei 2020/ }));
+
+    await waitFor(() => expect(post).toHaveBeenCalledWith(
+      "/api/sources/src_2/extract?project_id=prj_1", {}));
+  });
+
+  it("says that a reading is kept, so it happens once", async () => {
+    // The cost is a model call, and a researcher deciding whether to press it
+    // needs to know it is not repeated every time they compare.
+    serve();
+    serveReadings(["src_2"]);
+    render(<Synthesis projectId="prj_1" sources={PAPERS as never} />);
+
+    for (const title of ["Karim 2019", "Osei 2020"]) {
+      await userEvent.click(await screen.findByText(title));
+    }
+    expect(await screen.findByText(/it is only read once/)).toBeTruthy();
   });
 });
