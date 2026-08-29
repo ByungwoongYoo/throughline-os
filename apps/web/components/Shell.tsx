@@ -60,7 +60,12 @@ const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; 
   {
     label: "Discover",
     items: [
-      { id: "discover", label: "Discovery map" },
+      /*
+       * "Discovery", matching the screen. The rail said "Discovery map",
+       * which promises a picture; the screen is where a sweep is started and
+       * where its candidates are read.
+       */
+      { id: "discover", label: "Discovery" },
       { id: "compare", label: "Compare" },
       { id: "patterns", label: "Patterns" },
       { id: "connections", label: "Connections", count: "connections" },

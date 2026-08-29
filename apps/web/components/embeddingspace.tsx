@@ -168,7 +168,7 @@ export function EmbeddingSpace({ projectId }: { projectId: string }) {
   if (unavailable) {
     return (
       <section className="es-panel">
-        <h3>Embedding space</h3>
+        <h1>Embedding space</h1>
         <p className="es-unavailable">{unavailable}</p>
       </section>
     );
@@ -177,7 +177,7 @@ export function EmbeddingSpace({ projectId }: { projectId: string }) {
   if (!space) {
     return (
       <section className="es-panel">
-        <h3>Embedding space</h3>
+        <h1>Embedding space</h1>
         <p className="es-loading">Projecting the corpus…</p>
       </section>
     );
@@ -188,7 +188,7 @@ export function EmbeddingSpace({ projectId }: { projectId: string }) {
 
   return (
     <section className="es-panel">
-      <h3>Embedding space</h3>
+      <h1>Embedding space</h1>
 
       {/*
         * Before the chart, deliberately. A caption underneath is read after the

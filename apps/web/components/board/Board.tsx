@@ -399,6 +399,17 @@ export function Board({ projectId }: { projectId: string }) {
 
   return (
     <div className="board-wrap">
+      {/*
+        * Every other section names itself and this one did not, so the screen
+        * §4 calls the central operating surface was the one screen that never
+        * said what it was.
+        */}
+      <h1>Workboard</h1>
+      <p className="lede">
+        The project&rsquo;s objects, arranged. Position is all this remembers —
+        what a card means and how it relates to another lives in the object
+        itself, not in where you put it.
+      </p>
       <div className="board-bar">
         <button type="button" className="nj-primary"
                 onClick={() => setPicking((open) => !open)}>
