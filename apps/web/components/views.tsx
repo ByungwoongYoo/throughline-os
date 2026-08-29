@@ -22,6 +22,7 @@ import { PlainSummary, ResultCard } from "./ResultCard";
 import { Empty, Failure, Loading, Meter, Num, Stat, Status } from "./primitives";
 import { RecordFinding } from "./recordfinding";
 import { Approvals } from "./approvals";
+import { WhatTheSweepDid } from "./sweep";
 
 // ---------------------------------------------------------------------------
 // Overview (§70)
@@ -492,6 +493,8 @@ export function Discover({ projectId, sources, onSelectConnection, startWith, on
    */
   const [hold, setHold] = useState(false);
   const [approvals, setApprovals] = useState(0);
+  /** The sweep just run, so it can account for itself. */
+  const [sweep, setSweep] = useState<string | null>(null);
 
   const datasets = (sources.data ?? []).filter((s) => s.dataset);
 
@@ -518,7 +521,8 @@ export function Discover({ projectId, sources, onSelectConnection, startWith, on
     setError(null);
     setReused(null);
     try {
-      const started = await api.post<{ reused: boolean; note?: string }>(
+      const started = await api.post<{ reused: boolean; note?: string;
+                                       discovery_run_id: string }>(
         `/api/projects/${projectId}/discoveries`,
         // The session travels with the request so the sweep joins the family
         // of everything else looked at in this sitting. Null in a private
@@ -531,9 +535,19 @@ export function Discover({ projectId, sources, onSelectConnection, startWith, on
       // that appears to work and quietly does nothing is worse than an error.
       if (started.reused) {
         setReused(started.note ?? "A run already exists for this dataset version.");
+        setSweep(started.discovery_run_id);
         connections.reload();
         return;
       }
+      /*
+       * Kept, where it used to be discarded.
+       *
+       * The run records what the sweep actually did — how many pairs it
+       * considered, how many it dropped and why, how many it tested — and none
+       * of that was reachable without the id. It is the denominator: a q-value
+       * means nothing without the number of tests it was corrected across.
+       */
+      setSweep(started.discovery_run_id);
       for (let i = 0; i < 16; i++) {
         await new Promise((r) => setTimeout(r, 2000));
         connections.reload();
@@ -617,6 +631,8 @@ export function Discover({ projectId, sources, onSelectConnection, startWith, on
       ))}
 
       {running && <Loading rows={2} label="Generating candidates, running tests, correcting for multiple testing" />}
+
+      {sweep && <WhatTheSweepDid runId={sweep} />}
 
       <ConnectionsTable
         connections={connections.data} error={connections.error}

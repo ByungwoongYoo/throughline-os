@@ -77,9 +77,6 @@ WITHOUT_A_CLIENT = {
     # The reading half of a screen that only writes — the same gap mirrored.
 
     # Read-side routes the existing screens cover another way.
-    "GET /api/discoveries/*":
-        "The interface reads the project-scoped discoveries list and never a "
-        "single discovery.",
     "GET /api/retrievals/*": "No interface shows a retrieval on its own.",
     "GET /api/validations/*":
         "The interface reads a connection's validations, never one by id.",
