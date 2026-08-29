@@ -63,10 +63,17 @@ export function Compare({ projectId, sources }: {
   projectId: string;
   sources: ApiState<Source[]>;
 }) {
-  // Part I has six verbs. Two are built, and they belong on one screen: the
-  // question "can these be compared" is the same question whether the pair is
-  // two datasets or a paper and a dataset, and splitting it across screens
-  // would teach the researcher that they are different features.
+  /*
+   * Part I's six verbs, all of them wired, plus two this product added:
+   * figures, and scan ↔ scan for a received case against a researcher's own
+   * images. They belong on one screen because "can these be compared" is the
+   * same question whether the pair is two datasets, a paper and a dataset, or
+   * two scans — and splitting it would teach the researcher that they are
+   * different features.
+   *
+   * This comment said "two are built" for a long time after six were, which is
+   * the ordinary fate of a count kept in prose beside the thing it counts.
+   */
   const [verb, setVerb] =
     useState<"datasets" | "claim" | "papers" | "many" | "manydata" | "images"
              | "findings" | "scans">("datasets");

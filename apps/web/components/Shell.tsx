@@ -75,7 +75,6 @@ const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; 
     items: [
       { id: "reports", label: "Reports", count: "reports" },
       { id: "figures", label: "Figures", count: "figures" },
-      { id: "gallery", label: "Chart primitives" },
       { id: "notebook", label: "Notebook" },
       /*
        * Beside the notebook, because both are writing — but they are not the
@@ -90,6 +89,23 @@ const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; 
   {
     label: "This machine",
     items: [
+      /*
+       * Moved out of Communicate, where it sat between Figures and Notebook.
+       *
+       * It is the one entry in this navigation that is not a step in research:
+       * it renders every primitive against illustrative data — no project is
+       * involved — so that "it renders" is checkable rather than asserted. That
+       * is a real thing to be able to do, and it is the same kind of thing as
+       * the two pages already filed here: does the camera see my hands, can I
+       * draw in the air, do the charts draw.
+       *
+       * There is also a smaller argument. The Figures screen chooses a chart
+       * from the shape of the data and says why; a gallery invites browsing
+       * charts detached from any data, which is the habit §10 warns against.
+       * Keeping it away from the figure-making surface keeps the two from
+       * reading as alternatives.
+       */
+      { id: "gallery", label: "Chart primitives" },
       { id: "settings", label: "Settings" },
     ],
   },

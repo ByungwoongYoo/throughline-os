@@ -11,7 +11,7 @@ where one can be connected, the interface says so before it is used.
 
 The scientific spine works end to end: a paper goes in, claims come out, a
 dataset tests them, and the result renders as a publication figure with its
-provenance intact. Five of the six comparison verbs are wired with real refusal
+provenance intact. All six of Part I's comparison verbs are wired with real refusal
 taxonomies — a comparison the system declines to make is a first-class answer,
 not an error.
 
