@@ -241,6 +241,60 @@ type ImageResult = {
   checks_run: { shared_region: boolean; note: string | null };
 };
 
+/**
+ * What "nothing was flagged" is allowed to mean.
+ *
+ * This said "Nothing to look at — no pair was found to share pixels beyond
+ * ordinary resemblance", whatever had actually been searched for. The domain
+ * takes care to report which comparisons were available, precisely so that
+ * "absence is never silent": when OpenCV is missing it says shared-region
+ * detection did not run, and that "a panel spliced into part of another figure
+ * would not be found."
+ *
+ * The interface printed that note and then, directly beneath it, a headline
+ * saying there was nothing to look at. The note is the evidence and the
+ * headline is a conclusion the run could not support — and in integrity work
+ * the direction of that error is the one that matters: a reader takes "nothing
+ * to look at" as *these figures are clean*.
+ *
+ * So the headline now says what was searched. A clean result stays a clean
+ * result when everything ran; when something did not, the absence is reported
+ * as an absence.
+ */
+export function NothingFlagged({ checksRun, comparisons }: {
+  checksRun: { shared_region: boolean; note: string | null };
+  comparisons: number;
+}) {
+  if (comparisons === 0) {
+    // No pair was compared, so nothing could have been found. Reporting that
+    // as a clean result would be the emptiest kind of reassurance.
+    return (
+      <Empty
+        title="No pair was compared"
+        hint="Nothing was checked, so nothing here says anything about these images."
+      />
+    );
+  }
+
+  if (checksRun.note) {
+    return (
+      <Empty
+        title="Nothing found by the checks that ran"
+        hint={"Not the same as nothing being there — one of the comparisons "
+              + "did not run, and it is the one that finds a panel reused "
+              + "inside a larger figure."}
+      />
+    );
+  }
+
+  return (
+    <Empty
+      title="Nothing to look at"
+      hint="No pair was found to share pixels beyond ordinary resemblance."
+    />
+  );
+}
+
 export function ImageComparison({ projectId, sources }: {
   projectId: string;
   sources: Source[];
@@ -331,9 +385,9 @@ export function ImageComparison({ projectId, sources }: {
           )}
 
           {result.flagged.length === 0 ? (
-            <Empty
-              title="Nothing to look at"
-              hint="No pair was found to share pixels beyond ordinary resemblance."
+            <NothingFlagged
+              checksRun={result.checks_run}
+              comparisons={result.multiplicity.comparisons}
             />
           ) : (
             <section className="syn-section">
