@@ -76,7 +76,21 @@ export function Overview({ project, map, onGo }: {
       done: findings > 0,
       label: "Record a finding",
       hint: "A finding must carry both the evidence for it and the evidence against it.",
-      go: "findings",
+      /*
+       * To the connections, which is where the recording happens.
+       *
+       * This sent the researcher to the Findings list, which has no way to
+       * record one — deliberately: a finding is recorded *from* a result, and
+       * a bare "new finding" button on a list invites one written from memory
+       * with nothing attached. That argument is right and the placement stays.
+       *
+       * But this list promises to be "the place you start the next step", and
+       * for this step it was the one place the step could not be started. The
+       * Findings empty state even says "validate a connection, then record
+       * what it shows" — accurate instruction, pointing somewhere the reader
+       * had just been sent away from.
+       */
+      go: "connections",
     },
     {
       done: (map.counts.reports ?? 0) > 0,
@@ -1155,7 +1169,27 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding }: {
         projectId={projectId}
         connectionId={connectionId}
         defaultTitle={`${left} tracks ${right}`}
-        validated={(reports.data ?? []).some((r) => r.status === "complete")}
+        /*
+         * Whether a validation *passed*, not whether one finished.
+         *
+         * This read `status === "complete"`, which a report gets whichever way
+         * it went: `validation.py` writes `status='complete'` for both
+         * outcomes and records the verdict in `passed`, with a summary that
+         * begins "Did not pass: " when it failed. So a connection whose
+         * robustness checks *failed* was reported here as validated, and the
+         * caveat below — "this connection has not survived a validation run
+         * yet" — was suppressed for exactly the results that most need it.
+         *
+         * The same screen already prints "violated" for that report a few
+         * lines down, so the two halves disagreed with each other, and the
+         * half that disagreed in the flattering direction was the one sitting
+         * next to the record button — which this file calls the single easiest
+         * place in the product to overclaim.
+         *
+         * `=== true` because `passed` is null while a run is still going, and
+         * a validation in flight has not survived anything yet.
+         */
+        validated={(reports.data ?? []).some((r) => r.passed === true)}
         onRecorded={onRecordFinding}
       />
     </>
