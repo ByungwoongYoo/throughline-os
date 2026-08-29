@@ -46,6 +46,24 @@ _FENCE_NOTE = (
 )
 
 
+#: Ollama serves models that do not run on this machine.
+#:
+#: A model pulled with a `:cloud` tag is executed on ollama.com, and every
+#: passage handed to it leaves the researcher's machine. Ollama reports it from
+#: `/api/tags` beside the local ones and the picker listed them together, so
+#: choosing one looked exactly like choosing a local model — while the README's
+#: guarantee is that *"nothing leaves the machine unless the researcher connects
+#: an external service, and where one can be connected, the interface says so
+#: before it is used."*
+#:
+#: The distinction is drawn on the tag rather than by asking Ollama, because
+#: `/api/tags` does not say where a model runs and a wrong guess here is the
+#: kind that only shows up as data already sent.
+def is_cloud_model(name: str) -> bool:
+    """Whether this model runs somewhere other than this machine."""
+    return name.strip().lower().endswith(":cloud")
+
+
 class OllamaProvider(ModelProvider):
     name = "ollama"
 
@@ -113,6 +131,7 @@ class OllamaProvider(ModelProvider):
                 "parameters": details.get("parameter_size"),
                 "quantization": details.get("quantization_level"),
                 "family": details.get("family"),
+                "runs_here": not is_cloud_model(entry["name"]),
             })
         return sorted(models, key=lambda m: m["name"])
 

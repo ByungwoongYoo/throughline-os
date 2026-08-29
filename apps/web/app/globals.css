@@ -2186,6 +2186,18 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
  * journal has no need of it — there, the object is the page you are on.
  */
 .jr-about { margin: 6px 0 2px; font-size: 12px; }
+
+/*
+ * A model that does not run on this machine, marked on the choice itself.
+ *
+ * Deliberately not styled as a neutral tag: where the data goes is the one
+ * property of a model that cannot be undone after the fact.
+ */
+.set-remote {
+  font-size: 0.72rem; letter-spacing: 0.03em;
+  padding: 0.05rem 0.35rem; border-radius: 3px;
+  border: 1px solid var(--warn, #b45309); color: var(--warn, #b45309);
+}
 .jr-about button {
   background: none; border: 0; padding: 0; cursor: pointer;
   color: var(--accent, inherit); text-decoration: underline;

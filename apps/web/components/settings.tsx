@@ -42,6 +42,15 @@ type Installed = {
   parameters: string | null;
   quantization: string | null;
   family: string | null;
+  /*
+   * Whether this model runs on this machine.
+   *
+   * Ollama serves cloud models — a `:cloud` tag runs on ollama.com — and lists
+   * them from `/api/tags` beside the local ones. The picker showed them
+   * identically, so choosing one looked like choosing a local model while every
+   * passage of a researcher's papers left the machine.
+   */
+  runs_here?: boolean;
 };
 
 type Change = {
@@ -658,6 +667,26 @@ export function Settings() {
       .catch(() => setProjection(null));
   }, []);
 
+  /**
+   * Choose a model, confirming first if it is not this machine.
+   *
+   * The hosted provider already asks, on the grounds that it is "the one
+   * action here that changes where data goes". An Ollama model tagged
+   * `:cloud` changes where data goes just as completely and asked nothing,
+   * because the check was written against the *provider* rather than against
+   * where the model actually runs.
+   */
+  async function chooseModel(model: Installed) {
+    if (model.runs_here === false) {
+      const agreed = window.confirm(
+        `${model.name} runs on ollama.com, not on this machine.\n\n`
+        + "Every passage of every paper this system reads would be sent there, "
+        + "along with the questions asked about them.\n\nUse it anyway?");
+      if (!agreed) return;
+    }
+    await choose(model.name);
+  }
+
   async function choose(name: string) {
     setSaving(name);
     setError(null);
@@ -783,9 +812,15 @@ export function Settings() {
                 className="set-model"
                 data-active={active}
                 disabled={saving !== null}
-                onClick={() => void choose(model.name)}
+                onClick={() => void chooseModel(model)}
               >
                 <span className="set-model-name">{model.name}</span>
+                {model.runs_here === false && (
+                  // On the choice itself, not only in the facts below it: this
+                  // is the one thing about a model that cannot be undone after
+                  // the fact, because by then the text has been sent.
+                  <span className="set-remote">runs on ollama.com</span>
+                )}
                 <span className="set-model-meta numeric">
                   {[model.parameters, model.quantization, gigabytes(model.size_bytes)]
                     .filter(Boolean).join(" · ")}
