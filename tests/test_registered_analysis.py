@@ -29,6 +29,11 @@ from throughline_domain.ids import new_id
 from throughline_schemas.enums import SourceType
 from throughline_workers.runner import Worker
 
+
+def _drain() -> None:
+    while Worker(worker_id="registered-test").run_once():
+        pass
+
 CSV = b"""country,consumption,resistance,gdp
 IND,32.1,41.2,2100
 USA,24.5,30.1,65000
@@ -270,3 +275,185 @@ def test_a_refused_specification_counts_as_no_look(client, workspace):
 
     after = client.get(f"/api/projects/{project_id}/deviations").json()["looks"]
     assert after == before
+
+
+# ---------------------------------------------------------------------------
+# A look learns its p-value
+# ---------------------------------------------------------------------------
+#
+# The analysis is counted when it is *specified*, before the sandbox runs, so
+# the look cannot be un-counted once the number is known. The cost is that it
+# starts with no p-value — and the ledger corrects only tests that have one. A
+# specified analysis therefore counted as a look, sat in `uncorrectable`, and
+# never joined the family. The tests a researcher deliberately chose to run
+# were the only ones escaping correction, in the flattering direction.
+
+def _ledger(client, project_id, session="ses_registered"):
+    return client.get(f"/api/projects/{project_id}/exploration/{session}").json()
+
+
+def test_a_finished_analysis_joins_the_family_it_is_corrected_against(
+        client, workspace):
+    project_id, version_id = workspace
+    _run(client, project_id, version_id)
+
+    before = _ledger(client, project_id)
+    assert before["looks"] == 1
+    # Nothing has run yet, so there is no number to correct.
+    assert before["family_size"] == 0
+    assert before["uncorrectable"] == 1
+
+    _drain()
+
+    after = _ledger(client, project_id)
+    assert after["looks"] == 1
+    assert after["family_size"] == 1, after
+    assert after["uncorrectable"] == 0
+    [row] = after["tests"]
+    assert row["p_value"] is not None
+    assert row["q_value"] is not None
+
+
+def test_the_correction_accounts_for_every_specified_analysis(client, workspace):
+    """
+    The arithmetic the whole ledger exists for. Three looks corrected together
+    is not the same as three looks corrected alone.
+    """
+    project_id, version_id = workspace
+    _run(client, project_id, version_id)
+    _run(client, project_id, version_id,
+         variables={"outcome": "resistance", "predictors": ["gdp"]})
+    _run(client, project_id, version_id,
+         variables={"outcome": "gdp", "predictors": ["consumption"]})
+    _drain()
+
+    report = _ledger(client, project_id)
+
+    assert report["family_size"] == 3, report
+    for row in report["tests"]:
+        assert row["q_value"] is not None, row
+        # Correction can only ever move a p-value away from zero.
+        assert row["q_value"] >= row["p_value"]
+
+
+def test_a_failed_run_stays_uncorrectable_rather_than_inventing_a_number(
+        client, workspace):
+    """
+    It questioned the data and produced no statistic — the same standing as a
+    comparison the system refused. Anything else would be a number nobody
+    computed.
+    """
+    project_id, version_id = workspace
+    # A spec that validates — both columns exist — and then fails in the
+    # sandbox, because a t-test wants two groups and `country` has twelve.
+    # Failing it by hand would skip `record_result`, which is the code under
+    # test here.
+    answer = _run(client, project_id, version_id, method="t_test",
+                  variables={"value": "resistance", "group": "country"})
+    assert answer.status_code == 202, answer.text
+    run_id = answer.json()["analysis_run_id"]
+    _drain()
+
+    assert client.get(f"/api/analyses/{run_id}").json()["status"] == "failed"
+
+    report = _ledger(client, project_id)
+
+    assert report["uncorrectable"] == 1, report
+    assert report["family_size"] == 0
+    [row] = report["tests"]
+    assert row["p_value"] is None
+    assert row["q_value"] is None
+
+
+def test_a_look_with_no_number_is_left_alone_rather_than_written_as_null(
+        client, workspace):
+    """
+    `attach_result` reports that it wrote nothing rather than issuing a write
+    that sets a column to the value it already holds. The distinction matters
+    because the return value is what tells a caller a look was found at all.
+    """
+    from throughline_domain import exploration
+
+    project_id, version_id = workspace
+    run_id = _run(client, project_id, version_id).json()["analysis_run_id"]
+
+    with connection() as conn, conn.cursor() as cur:
+        assert exploration.attach_result(
+            cur, analysis_run_id=run_id, p_value=None) is False
+        assert exploration.attach_result(
+            cur, analysis_run_id=run_id, p_value=0.01) is True
+        assert exploration.attach_result(
+            cur, analysis_run_id="arun_never_existed", p_value=0.01) is False
+
+
+def test_a_look_cannot_acquire_a_second_more_convenient_number(client, workspace):
+    """
+    The guarantee behind writing it once. A look that could be re-recorded
+    could be re-recorded with whichever p-value suited the write-up.
+    """
+    from throughline_domain import exploration
+
+    project_id, version_id = workspace
+    run_id = _run(client, project_id, version_id).json()["analysis_run_id"]
+    _drain()
+
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT p_value FROM exploration_tests WHERE analysis_run_id = %s",
+                    (run_id,))
+        recorded = float(cur.fetchone()["p_value"])
+
+        assert exploration.attach_result(
+            cur, analysis_run_id=run_id, p_value=0.00001) is False
+
+        cur.execute("SELECT p_value FROM exploration_tests WHERE analysis_run_id = %s",
+                    (run_id,))
+        assert float(cur.fetchone()["p_value"]) == recorded
+
+
+def test_a_confirmatory_analysis_is_not_corrected_with_the_exploratory_family(
+        client, workspace):
+    """
+    What the registration buys. It still carries its p-value and still appears
+    in the ledger; it simply is not one of the tests the correction is over.
+    """
+    project_id, version_id = workspace
+    registration = _register(client, project_id)
+    _run(client, project_id, version_id, preregistration_id=registration)
+    _run(client, project_id, version_id,
+         variables={"outcome": "resistance", "predictors": ["gdp"]})
+    _drain()
+
+    report = _ledger(client, project_id)
+
+    assert report["confirmatory"] == 1
+    assert report["family_size"] == 1, report
+    assert report["looks"] == 2
+
+
+def test_a_failed_run_contributes_no_p_value_even_if_it_carries_one(
+        client, workspace):
+    """
+    Pinned directly, because it is true by accident otherwise: a failed run's
+    payload is normally empty, so `result.get("p_value")` returns None whether
+    or not the guard is there. A sandbox that reported a failure *and* a number
+    would then have that number silently join the correction family — a result
+    from a run the system says did not work.
+    """
+    from types import SimpleNamespace
+    from throughline_domain import analysis
+
+    project_id, version_id = workspace
+    run_id = _run(client, project_id, version_id).json()["analysis_run_id"]
+
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT spec_id FROM analysis_runs WHERE id = %s", (run_id,))
+        spec_row = analysis.load_spec(cur, cur.fetchone()["spec_id"])
+        analysis.record_result(
+            cur, run_id=run_id, actor="test", spec_row=spec_row,
+            sandbox=SimpleNamespace(
+                ok=False, policy={}, stderr="it died", duration_ms=5,
+                payload={"result": {"p_value": 0.001}, "error": "it died"}),
+        )
+        cur.execute("SELECT p_value FROM exploration_tests WHERE analysis_run_id = %s",
+                    (run_id,))
+        assert cur.fetchone()["p_value"] is None

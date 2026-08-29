@@ -144,7 +144,8 @@ def _registration(cur, registration_id: str) -> dict[str, Any] | None:
 def record(cur, *, session_id: str, project_id: str, verb: str,
            description: str, p_value: float | None = None,
            preregistration_id: str | None = None,
-           spec_id: str | None = None) -> dict[str, Any]:
+           spec_id: str | None = None,
+           analysis_run_id: str | None = None) -> dict[str, Any]:
     """
     Record one look at the data.
 
@@ -217,11 +218,11 @@ def record(cur, *, session_id: str, project_id: str, verb: str,
         # whose claim was discarded is one nobody can state deliberately later.
         "INSERT INTO exploration_tests(id, session_id, project_id, verb, "
         "description, p_value, preregistration_id, claimed_registration_id, "
-        "spec_id, deviation_note) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING sequence",
+        "spec_id, deviation_note, analysis_run_id) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING sequence",
         (test_id, session_id, project_id, verb, description, p_value,
          preregistration_id if confirmatory else None, claimed,
-         spec_id, None if confirmatory else why))
+         spec_id, None if confirmatory else why, analysis_run_id))
     sequence = cur.fetchone()["sequence"]
 
     # Ordering, not clocks. A registration written in the same transaction as the
@@ -245,6 +246,39 @@ def record(cur, *, session_id: str, project_id: str, verb: str,
 # ---------------------------------------------------------------------------
 # What the session has spent
 # ---------------------------------------------------------------------------
+
+def attach_result(cur, *, analysis_run_id: str,
+                  p_value: float | None) -> bool:
+    """Give a recorded look the p-value its run eventually produced.
+
+    An analysis is counted when it is *specified*, which is the only honest
+    moment: a look recorded after the number exists is one a researcher could
+    decline to record having seen it, and the family would then hold exactly
+    the tests that worked. The cost of that ordering is that the look starts
+    with no p-value, and the ledger corrects only tests that have one — so
+    every specified analysis counted as `uncorrectable` and never joined
+    `family_size`. The tests a researcher deliberately chose to run were the
+    only ones escaping correction, and the error ran in the flattering
+    direction.
+
+    **Written once.** `WHERE p_value IS NULL` is the whole guarantee: a look
+    cannot acquire a second, more convenient number by being re-recorded. A run
+    that failed passes `None` and stays uncorrectable, which is right — it
+    questioned the data and produced no statistic, the same as a comparison the
+    system refused.
+
+    Returns whether a look was updated, so a caller can tell "there was no such
+    look" from "it already had one" only by asking; both are ordinary.
+    """
+    if p_value is None:
+        return False
+    cur.execute(
+        "UPDATE exploration_tests SET p_value = %s "
+        "WHERE analysis_run_id = %s AND p_value IS NULL",
+        (float(p_value), analysis_run_id),
+    )
+    return cur.rowcount > 0
+
 
 def ledger(cur, session_id: str) -> dict[str, Any]:
     """

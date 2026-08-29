@@ -2767,6 +2767,11 @@ def create_analysis(project_id: str, payload: AnalysisSpecRequest,
             p_value=None,
             preregistration_id=payload.preregistration_id,
             spec_id=created["spec_id"],
+            # So the look can learn its p-value when the sandbox finishes. The
+            # ledger corrects only tests that have one, and without this a
+            # specified analysis would count as a look and never join the
+            # family it should be corrected against.
+            analysis_run_id=run_id,
         )
     recorded = look.get("recorded", {})
     return {"analysis_run_id": run_id, "spec_id": created["spec_id"],

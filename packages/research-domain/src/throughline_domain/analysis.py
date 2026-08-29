@@ -387,6 +387,16 @@ def record_result(
              check.get("detail", ""), check.get("severity", "informational")),
         )
 
+    # The look this run was recorded as, now that there is a number to correct.
+    # Counted when the analysis was specified — before the sandbox ran, so it
+    # could not be un-counted once the result was known — and the p-value
+    # arrives here. Imported inside the function because `exploration` imports
+    # `benjamini_hochberg` from `discovery`, which imports this module.
+    from .exploration import attach_result
+
+    attach_result(cur, analysis_run_id=run_id,
+                  p_value=result.get("p_value") if ok else None)
+
     emit(cur, project_id=project_id,
          event_type="AnalysisCompleted" if ok else "AnalysisFailed",
          payload={"run_id": run_id, "method": spec_row["method"], "object_id": object_id})
