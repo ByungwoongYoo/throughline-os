@@ -977,6 +977,36 @@ export function AnalysisDetail({ runId, onMethod }: {
 // Validation (§51)
 // ---------------------------------------------------------------------------
 
+/**
+ * Whether the validation just requested has finished.
+ *
+ * This asked `latest.some((r) => r.status !== "running")` — is *any* report
+ * not running — and the list holds every report a connection has ever had,
+ * newest first. So the second time anybody validated a connection, the old
+ * completed report satisfied it on the first poll: the wait ended after two
+ * seconds, the spinner stopped, and the screen reloaded showing the *previous*
+ * verdict while the new run was still going. A researcher re-checking a result
+ * they had already validated would be shown the earlier answer as the current
+ * one — and if the new run went the other way, they would never see it unless
+ * they reloaded by hand.
+ *
+ * Three cases, all of them ordinary:
+ *
+ *  - a run is going, so a report is still `running` — keep waiting;
+ *  - a report that was not there before has finished — that is the answer;
+ *  - nothing new was queued at all, because the server deduplicates a repeat
+ *    of the same request by idempotency key. Then no new report will ever
+ *    appear, and waiting for one would spin until the timeout. Two polls with
+ *    nothing running is enough to tell that apart from the brief window before
+ *    the worker has written the row.
+ */
+export function settled(
+  before: string[], latest: ValidationReport[], poll: number,
+): boolean {
+  if (latest.some((r) => r.status === "running")) return false;
+  return latest.some((r) => !before.includes(r.id)) || poll >= 2;
+}
+
 export function ConnectionDetail({ connectionId, projectId, onRecordFinding }: {
   connectionId: string;
   projectId: string;
@@ -1015,10 +1045,16 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding }: {
       // The suite runs several sandboxed analyses. Poll for the report rather
       // than for the lifecycle state: a connection that fails validation keeps
       // its state, and watching the state would hang until the timeout.
+      //
+      // Which reports existed *before* this request, because the list keeps
+      // every one of them. Read from the server rather than from `reports.data`
+      // so a stale render cannot make an old report look new.
+      const before = (await api.get<ValidationReport[]>(
+        `/api/connections/${connectionId}/validations`)).map((r) => r.id);
       for (let i = 0; i < 24; i++) {
         await new Promise((r) => setTimeout(r, 2000));
         const latest = await api.get<ValidationReport[]>(`/api/connections/${connectionId}/validations`);
-        if (latest.some((r) => r.status !== "running")) break;
+        if (settled(before, latest, i)) break;
       }
       connections.reload();
       reports.reload();

@@ -21,7 +21,7 @@
 
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ConnectionDetail } from "@/components/views";
+import { ConnectionDetail, settled } from "@/components/views";
 import type { ValidationReport } from "@/lib/api";
 import { api } from "@/lib/api";
 
@@ -120,5 +120,56 @@ describe("whether the result survived", () => {
     render(<ConnectionDetail connectionId="conn_1" projectId="prj_1" />);
 
     await waitFor(() => expect(screen.getByText(/violated/)).toBeTruthy());
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Waiting for the validation that was just asked for
+// ---------------------------------------------------------------------------
+//
+// The wait asked "is any report not running", and the list holds every report
+// a connection has ever had. So the *second* time anybody validated one, the
+// old completed report answered yes on the first poll: two seconds later the
+// spinner stopped and the screen reloaded showing the previous verdict while
+// the new run was still going. If the new run went the other way, nobody would
+// see it without reloading by hand.
+
+const running = (id: string) =>
+  report({ id, status: "running", passed: null, summary: "" });
+const done = (id: string) => report({ id, passed: true });
+
+describe("knowing the new validation has finished", () => {
+  it("keeps waiting while an old report is complete and the new one runs", () => {
+    // The defect, stated directly.
+    expect(settled(["vrep_old"], [running("vrep_new"), done("vrep_old")], 0))
+      .toBe(false);
+  });
+
+  it("does not treat a previous verdict as this one", () => {
+    // Nothing new has appeared yet — the worker has not written the row.
+    expect(settled(["vrep_old"], [done("vrep_old")], 0)).toBe(false);
+  });
+
+  it("finishes when a report that was not there before completes", () => {
+    expect(settled(["vrep_old"], [done("vrep_new"), done("vrep_old")], 0))
+      .toBe(true);
+  });
+
+  it("finishes the first time a connection is validated at all", () => {
+    expect(settled([], [done("vrep_1")], 0)).toBe(true);
+  });
+
+  it("stops waiting for a run the server deduplicated away", () => {
+    /*
+     * A repeat of the same request is deduplicated by idempotency key, so no
+     * new report will ever appear. Waiting for one would spin until the
+     * timeout and then report nothing.
+     */
+    expect(settled(["vrep_old"], [done("vrep_old")], 2)).toBe(true);
+  });
+
+  it("does not call a run deduplicated while it is still going", () => {
+    expect(settled(["vrep_old"], [running("vrep_old")], 9)).toBe(false);
   });
 });
