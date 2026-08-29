@@ -27,6 +27,7 @@
 
 import { useApi } from "@/lib/useApi";
 import { Failure, Loading } from "../primitives";
+import { objectTypeName } from "@/lib/api";
 
 type Impact = {
   object_id: string;
@@ -62,7 +63,7 @@ export function CardDetail({ objectId, title, objectType, status, onClose }: {
     <aside className="board-detail" aria-label={`About ${title}`}>
       <header className="row">
         <div>
-          <span className="board-kind">{objectType}</span>
+          <span className="board-kind">{objectTypeName(objectType)}</span>
           <h2>{title}</h2>
           <span className="board-status">{status}</span>
         </div>
@@ -105,7 +106,7 @@ export function CardDetail({ objectId, title, objectType, status, onClose }: {
               <ul className="board-impact">
                 {impact.data.artifacts.slice(0, 12).map((a) => (
                   <li key={a.id}>
-                    <span className="board-kind">{a.object_type}</span>
+                    <span className="board-kind">{objectTypeName(a.object_type)}</span>
                     <span>{a.title}</span>
                   </li>
                 ))}

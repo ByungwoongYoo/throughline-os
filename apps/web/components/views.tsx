@@ -12,6 +12,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   AnalysisRun, Connection, DatasetColumn, DiscoveryMap, EvidenceGraph, Finding,
+  objectTypeName,
   INGESTION_STAGES, Provenance, SearchResult, Source, ValidationReport, api,
   ingestionStep, isIngesting,
 } from "@/lib/api";
@@ -1347,12 +1348,12 @@ export function ProvenanceChain({ objectId }: { objectId: string }) {
       <h3 className="eyebrow">How was this made?</h3>
       <ul className="chain">
         <li style={{ color: "var(--ink)", fontWeight: 540 }}>
-          {data.artifact.object_type} · {data.artifact.title}
+          {objectTypeName(data.artifact.object_type)} · {data.artifact.title}
         </li>
         {data.ancestors.map((a) => (
           <li key={a.artifact_id}>
             <span className="mono" style={{ color: "var(--ink-faint)" }}>depth {a.depth}</span>{" "}
-            {a.object_type} · {a.title}
+            {objectTypeName(a.object_type)} · {a.title}
           </li>
         ))}
       </ul>

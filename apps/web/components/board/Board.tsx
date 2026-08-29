@@ -35,6 +35,7 @@ import {
 } from "@/lib/board/viewport";
 import { Empty, Failure, Loading } from "../primitives";
 import { CardDetail } from "./CardDetail";
+import { objectTypeName } from "@/lib/api";
 
 export type Placeable = {
   id: string;
@@ -402,7 +403,7 @@ export function Board({ projectId }: { projectId: string }) {
               {offered.data.objects.map((object) => (
                 <li key={object.id}>
                   <button type="button" onClick={() => void add(object)}>
-                    <span className="board-kind">{object.object_type}</span>
+                    <span className="board-kind">{objectTypeName(object.object_type)}</span>
                     <span>{object.title}</span>
                   </button>
                 </li>
@@ -452,7 +453,7 @@ export function Board({ projectId }: { projectId: string }) {
                 width: card.width, height: card.height,
               }}
             >
-              <span className="board-kind">{card.object_type}</span>
+              <span className="board-kind">{objectTypeName(card.object_type)}</span>
               <h3>{card.title}</h3>
               <span className="board-status">{card.status}</span>
               {/*

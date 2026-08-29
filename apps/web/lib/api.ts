@@ -439,3 +439,31 @@ export type CitationReport = {
   by_entailment: Record<string, number>;
   note: string;
 };
+
+/**
+ * What to call a research object on screen.
+ *
+ * The board prints `object_type` straight from the API, and a CSV somebody
+ * uploaded appears there labelled **citation**. That is not a data error: the
+ * domain creates one object per raw source file and gives it `ObjectType
+ * .CITATION`, and `_source_object` is the only place that type is ever
+ * created — so every "citation" in this system is a file the researcher added,
+ * not a reference in a bibliography. The word is internal shorthand that
+ * escaped onto a screen, and a researcher reading "citation" under
+ * `amr_surveillance.csv` has been told something false about their own data.
+ *
+ * Renaming the enum is a migration for a display problem. This is the display.
+ *
+ * The fallback de-underscores rather than inventing a word, so a type added
+ * later reads as itself instead of silently becoming something else.
+ */
+export function objectTypeName(objectType: string): string {
+  const NAMES: Record<string, string> = {
+    citation: "source file",
+    visualization: "figure",
+    dataset_variable: "variable",
+    research_gap: "gap",
+    time_period: "period",
+  };
+  return NAMES[objectType] ?? objectType.replace(/_/g, " ");
+}
