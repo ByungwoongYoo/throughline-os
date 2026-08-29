@@ -44,6 +44,7 @@ import { ScreenPoint, TargetRef, VisualizationController } from "@/lib/spatial/c
 import { isZoomWheel } from "@/lib/charts/wheel";
 import { interpolateYlGnBu } from "d3-scale-chromatic";
 import { ChartTable } from "./ChartTable";
+import { contourSegments, levelsFor } from "@/lib/charts3d/contour";
 
 export type SurfaceObservation = {
   id: string;
@@ -74,8 +75,22 @@ const SUPPORT_RADIUS = 0.18;
 export function Surface({
   grid, observations = [], controllerRef, onSelect, onDetent,
   xLabel, yLabel, zLabel, title, caption, width = 720, height = 520,
+  style = "filled",
 }: {
   grid: SurfaceGrid;
+  /**
+   * How the same numbers are drawn.
+   *
+   * `"filled"` shades each cell — the shape. `"wireframe"` strokes the cells
+   * and fills nothing — the structure, and what a fitted surface's resolution
+   * actually is. `"contour"` draws level curves on the surface — where the
+   * field crosses a value, which is what you read when the question is "how
+   * steep" or "where is the boundary".
+   *
+   * The catalogue names all three and this component drew one, so a reader
+   * asking for a contour plot got a filled surface and no indication of it.
+   */
+  style?: "filled" | "wireframe" | "contour";
   /** What was actually measured. Drawn over the fit, never merged into it. */
   observations?: SurfaceObservation[];
   controllerRef?: React.RefObject<VisualizationController | null>;
@@ -195,18 +210,61 @@ export function Surface({
       context.moveTo(cell.screen[0].x, cell.screen[0].y);
       for (const corner of cell.screen.slice(1)) context.lineTo(corner.x, corner.y);
       context.closePath();
-      context.fillStyle = scene.colourOf(cell.z);
-      // Unsupported cells are drawn faintly. The smoothest part of a fitted
-      // surface is usually the part with no data under it, and a reader has no
-      // way to tell that from the shape alone.
-      context.globalAlpha = cell.supported ? 0.92 : 0.28;
-      context.fill();
-      context.globalAlpha = cell.supported ? 0.5 : 0.2;
-      context.strokeStyle = "rgba(20,30,50,0.55)";
-      context.lineWidth = 0.5;
-      context.stroke();
+
+      if (style === "filled") {
+        context.fillStyle = scene.colourOf(cell.z);
+        // Unsupported cells are drawn faintly. The smoothest part of a fitted
+        // surface is usually the part with no data under it, and a reader has
+        // no way to tell that from the shape alone.
+        context.globalAlpha = cell.supported ? 0.92 : 0.28;
+        context.fill();
+      } else if (style === "contour") {
+        // A wash under the curves, or the levels float with nothing to read
+        // them against — but faint, because the curves are the chart.
+        context.fillStyle = scene.colourOf(cell.z);
+        context.globalAlpha = cell.supported ? 0.16 : 0.06;
+        context.fill();
+      }
+
+      if (style === "wireframe") {
+        // The cell edges carry the value, since nothing is filled.
+        context.globalAlpha = cell.supported ? 0.95 : 0.35;
+        context.strokeStyle = scene.colourOf(cell.z);
+        context.lineWidth = 0.9;
+      } else {
+        context.globalAlpha = cell.supported ? 0.5 : 0.2;
+        context.strokeStyle = "rgba(20,30,50,0.55)";
+        context.lineWidth = 0.5;
+      }
+      if (style !== "contour") context.stroke();
     }
     context.globalAlpha = 1;
+
+    if (style === "contour") {
+      /*
+       * The level curves, on the surface rather than flattened beneath it: a
+       * contour sits at the height it represents, and drawing it flat would
+       * put the line somewhere the field never is.
+       */
+      const heights = grid.z.flat()
+        .filter((v): v is number => v !== null && Number.isFinite(v));
+      const levels = levelsFor(Math.min(...heights), Math.max(...heights));
+      context.lineWidth = 1.4;
+      for (const segment of contourSegments(grid, levels)) {
+        // The same axis order the observations use: screen y carries the
+        // height, screen z the second predictor.
+        const place = (p: { x: number; y: number; z: number }) => ({
+          x: scene.sx(p.x), y: scene.sz(p.z), z: scene.sy(p.y),
+        });
+        const a = toCanvas(place(segment.a), camera, width, height);
+        const b = toCanvas(place(segment.b), camera, width, height);
+        context.beginPath();
+        context.moveTo(a.x, a.y);
+        context.lineTo(b.x, b.y);
+        context.strokeStyle = scene.colourOf(segment.level);
+        context.stroke();
+      }
+    }
 
     // Observations last, over the fit, and never merged into it: the surface is
     // a model and these are the measurements it was fitted to.
@@ -259,7 +317,10 @@ export function Surface({
       settleRef.current = null;
       setHiddenCount(hiddenRef.current);
     }, 120);
-  }, [cells, scene, width, height]);
+    //  and  are read by the contour and wireframe branches, so a
+    // change to either has to repaint — without them a style switch left the
+    // previous drawing on screen.
+  }, [cells, scene, width, height, grid, style]);
 
   useEffect(() => {
     let frame = 0;

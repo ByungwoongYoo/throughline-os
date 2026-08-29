@@ -372,6 +372,35 @@ export function sharesPictureWith(entry: Visualization,
     // nothing between here and the canvas varies by name.
     return other.primitive === entry.primitive
         && other.needs === entry.needs
-        && SHAPES[other.name] === SHAPES[entry.name];
+        && SHAPES[other.name] === SHAPES[entry.name]
+        // Two entries drawn in different styles are two pictures, which is
+        // the whole point of having styles at all.
+        && STYLES[other.name] === STYLES[entry.name];
   });
+}
+
+
+/**
+ * How a named entry is drawn, where the name is about the drawing.
+ *
+ * "3D surface", "3D mesh", "3D wireframe" and "3D contour" are the same
+ * numbers; what separates them is how the cells are stroked, and this codebase
+ * drew one picture for all of them. That was disclosed in the caption — "18
+ * other entries draw this same picture" — which is better than hiding it and
+ * worse than drawing the right one.
+ *
+ * Only the names that genuinely mean a style appear here. A surface whose name
+ * describes a subject rather than a rendering keeps the default, because
+ * inventing a distinction would be the same error in the other direction.
+ */
+export const STYLES: Record<string, "filled" | "wireframe" | "contour"> = {
+  "3D wireframe": "wireframe",
+  "3D mesh": "wireframe",
+  "3D contour": "contour",
+  "3D filled contour": "contour",
+};
+
+/** The style an entry is drawn in. */
+export function styleFor(entry: Visualization): "filled" | "wireframe" | "contour" {
+  return STYLES[entry.name] ?? "filled";
 }

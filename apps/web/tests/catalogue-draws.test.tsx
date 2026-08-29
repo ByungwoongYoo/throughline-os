@@ -18,7 +18,7 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CATALOGUE } from "@/lib/charts3d/registry";
-import { GENERATORS, RENDERED, SHAPES, exampleFor, isDrawable, sharesPictureWith } from "@/lib/charts3d/examples";
+import { GENERATORS, RENDERED, SHAPES, STYLES, exampleFor, isDrawable, sharesPictureWith, styleFor } from "@/lib/charts3d/examples";
 import { CatalogueChart } from "@/components/charts3d/CatalogueChart";
 import { standing } from "@/components/charts3d/CatalogueBrowser";
 
@@ -287,5 +287,57 @@ describe("the data a renderer is handed", () => {
     const arrows = CATALOGUE.find((e) => e.name === "Gradient field")!;
     expect(exampleFor(stream)!.shape).toBe("paths");
     expect(exampleFor(arrows)!.shape).toBe("field");
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Entries that differ by how they are drawn
+// ---------------------------------------------------------------------------
+//
+// "3D surface", "3D mesh", "3D wireframe" and "3D contour" are the same
+// numbers; what separates them is how the cells are stroked. This codebase drew
+// one picture for all of them, and said so in the caption — better than hiding
+// it, worse than drawing the right one.
+
+describe("how a surface is drawn", () => {
+  it("draws a wireframe as edges and a surface as faces", () => {
+    expect(styleFor(CATALOGUE.find((e) => e.name === "3D wireframe")!))
+      .toBe("wireframe");
+    expect(styleFor(CATALOGUE.find((e) => e.name === "3D surface")!))
+      .toBe("filled");
+  });
+
+  it("draws a contour as level curves", () => {
+    expect(styleFor(CATALOGUE.find((e) => e.name === "3D contour")!))
+      .toBe("contour");
+    expect(styleFor(CATALOGUE.find((e) => e.name === "3D filled contour")!))
+      .toBe("contour");
+  });
+
+  it("leaves a surface whose name is a subject in the default style", () => {
+    /*
+     * Only names that genuinely mean a rendering get one. Inventing a
+     * distinction for "Loss landscape" would be the same error in the other
+     * direction as drawing them all alike.
+     */
+    for (const name of ["Loss landscape", "Saddle surface", "3D terrain map"]) {
+      const entry = CATALOGUE.find((e) => e.name === name);
+      if (entry) expect(styleFor(entry), name).toBe("filled");
+    }
+  });
+
+  it("names only entries that exist", () => {
+    const known = new Set(CATALOGUE.map((e) => e.name));
+    expect(Object.keys(STYLES).filter((n) => !known.has(n))).toEqual([]);
+  });
+
+  it("stops counting two styles as the same picture", () => {
+    // The whole point of having styles: a wireframe and a filled surface are
+    // two pictures, and the caption must no longer claim otherwise.
+    const wireframe = CATALOGUE.find((e) => e.name === "3D wireframe")!;
+    const shared = sharesPictureWith(wireframe, CATALOGUE).map((e) => e.name);
+    expect(shared).not.toContain("3D surface");
+    expect(shared).not.toContain("3D contour");
   });
 });

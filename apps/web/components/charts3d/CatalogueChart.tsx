@@ -29,7 +29,7 @@ import { Network3D } from "@/components/charts/Network3D";
 import { Surface } from "@/components/charts/Surface";
 import { Volume } from "@/components/charts/Volume";
 import { VoxelVolume } from "@/components/charts/VoxelVolume";
-import { exampleFor, sharesPictureWith } from "@/lib/charts3d/examples";
+import { exampleFor, sharesPictureWith, styleFor } from "@/lib/charts3d/examples";
 import { CATALOGUE, type Visualization } from "@/lib/charts3d/registry";
 
 export function CatalogueChart({ entry, width = 620, height = 420 }: {
@@ -97,7 +97,7 @@ export function CatalogueChart({ entry, width = 620, height = 420 }: {
     case "surface":
       return data.shape === "grid" ? (
         <Surface grid={data.grid} width={width} height={height}
-                 xLabel="x" yLabel="y" zLabel="z"
+                 xLabel="x" yLabel="y" zLabel="z" style={styleFor(entry)}
                  title={entry.name} caption={caption} />
       ) : null;
 
