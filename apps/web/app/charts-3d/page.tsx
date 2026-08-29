@@ -39,8 +39,10 @@ import { Grid, gridFromFunction } from "@/lib/charts3d/voxels";
 import { Path, nearestSampler, streamline } from "@/lib/charts3d/paths";
 import { SpecialistMount } from "@/components/specialist/mount";
 import {
-  CATALOGUE, available, drawableOnDemand, drawnBy,
+  CATALOGUE, drawableOnDemand, drawnBy,
 } from "@/lib/charts3d/registry";
+import { CatalogueBrowser } from "@/components/charts3d/CatalogueBrowser";
+import { isDrawable } from "@/lib/charts3d/examples";
 
 /**
  * A citation network with real structure.
@@ -148,7 +150,7 @@ export default function Charts3DPage() {
   const density = useMemo(densityVolume, []);
   const streams = useMemo(vortexStreamlines, []);
 
-  const drawable = available().length;
+  const drawable = CATALOGUE.filter(isDrawable).length;
   /*
    * Counted apart from `drawable` on purpose. These need a file from the
    * researcher's disk and a chunk that has not been downloaded yet, so adding
@@ -165,8 +167,19 @@ export default function Charts3DPage() {
       <header>
         <h1>Spatial charts</h1>
         <p>
-          {drawable} of {CATALOGUE.length} catalogued visualizations can be
-          drawn today, from data this system already holds.{" "}
+          {/*
+            * Derived, not asserted. This said `available()` — built *and*
+            * configuration — and configuration means, in the registry's own
+            * words, a configuration "not yet exposed". So the headline counted
+            * 141 things nobody could reach, and nothing in the codebase could
+            * contradict it, because no entry was connected to a renderer.
+            * `isDrawable` asks two questions with answers in the code: is
+            * there a renderer for the primitive, and a shape for what it
+            * consumes.
+            */}
+          {drawable} of {CATALOGUE.length} catalogued visualizations have a
+          renderer here, and every one of them can be drawn from the catalogue
+          below.{" "}
           {onDemand.length > 0 && (
             <>
               A further {onDemand.length} are drawn by a specialist library
@@ -286,6 +299,8 @@ export default function Charts3DPage() {
           caption="A dense core inside a thin shell, synthetic."
         />
       </section>
+
+      <CatalogueBrowser />
 
       {/* Renders nothing at all while no catalogue entry names a viewer. */}
       <SpecialistMount entries={onDemand} />

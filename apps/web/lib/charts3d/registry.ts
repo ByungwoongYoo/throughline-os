@@ -427,6 +427,25 @@ export const CATALOGUE: Visualization[] = [
   { name: "Research timeline tunnel", primitive: "lines", needs: "xyz", spatial: "inherently", status: "configuration", family: "Native" },
   { name: "Simulation chamber", primitive: "volume", needs: "voxels", spatial: "inherently", status: "configuration", family: "Native" },
   { name: "Data universe", primitive: "points", needs: "xyzv", spatial: "inherently", status: "built", family: "Native" },
+  // Named in the brief and absent from the catalogue until now. Each is placed
+  // on the primitive that actually draws it and the shape it actually
+  // consumes, so `isDrawable` decides its standing rather than a status
+  // somebody typed. The ones needing a file or a library say so.
+  { name: "Intersection-of-surfaces", primitive: "surface", needs: "grid", spatial: "inherently", status: "configuration", family: "Mathematical", note: "Two height fields and the curve where they meet." },
+  { name: "Multivariable function plot", primitive: "surface", needs: "grid", spatial: "inherently", status: "configuration", family: "Mathematical", note: "The same z = f(x,y) lattice, named as the brief names it." },
+  { name: "Fluid flow field", primitive: "glyphs", needs: "field", spatial: "inherently", status: "configuration", family: "Fields" },
+  { name: "Ocean-current field", primitive: "glyphs", needs: "field", spatial: "inherently", status: "configuration", family: "Geographic" },
+  { name: "3D probability distribution", primitive: "surface", needs: "grid", spatial: "inherently", status: "configuration", family: "Statistical", note: "A density over two variables, as a height field." },
+  { name: "Multivariate distribution surface", primitive: "surface", needs: "grid", spatial: "inherently", status: "configuration", family: "Statistical" },
+  { name: "Feature cluster space", primitive: "points", needs: "xyzv", spatial: "inherently", status: "configuration", family: "Machine learning" },
+  { name: "3D terrain map", primitive: "surface", needs: "grid", spatial: "inherently", status: "configuration", family: "Geographic", note: "Elevation is a height field, which is what this renderer draws." },
+  { name: "Satellite-orbit paths", primitive: "lines", needs: "xyz", spatial: "inherently", status: "configuration", family: "Astronomy" },
+  { name: "Asteroid-orbit paths", primitive: "lines", needs: "xyz", spatial: "inherently", status: "configuration", family: "Astronomy" },
+  { name: "Flight-path visualization", primitive: "lines", needs: "xyz", spatial: "inherently", status: "configuration", family: "Geographic" },
+  { name: "Gravitational-wave strain", primitive: "surface", needs: "grid", spatial: "inherently", status: "configuration", family: "Astronomy", note: "Strain over a plane, which is a height field." },
+  { name: "Tumour volume", primitive: "volume", needs: "voxels", spatial: "inherently", status: "configuration", family: "Medical", note: "A segmented region inside a scan already loaded as voxels." },
+  { name: "Interactive globe", primitive: "surface", needs: "geometry", spatial: "inherently", status: "needs-library", family: "Geographic", note: "A basemap and a projection, neither of which is here." },
+  { name: "Molecular dynamics trajectory", primitive: "surface", needs: "geometry", spatial: "inherently", status: "needs-library", family: "Chemistry", note: "Mol* draws the frames; the trajectory is the researcher's file." },
 ];
 
 /** Everything that needs a clock rather than a still frame. */

@@ -4108,3 +4108,30 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .case-setaside {
   margin: 6px 0 0 16px; font-size: 12px; color: var(--ink-faint);
 }
+
+/* ---- the spatial catalogue -------------------------------------------- */
+/*
+ * A list of 238 entries with one viewer, rather than 238 canvases: a page that
+ * drew everything at once would hold hundreds of contexts on the laptop this
+ * product is meant to run on.
+ */
+.c3d-catalogue { margin: 32px 0; }
+.c3d-family { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 13px; }
+.c3d-family select { width: auto; min-width: 180px; }
+.c3d-chosen { margin: 12px 0 20px; }
+.c3d-list {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 6px;
+}
+.c3d-list button {
+  width: 100%; text-align: left; display: grid; gap: 2px;
+  padding: 8px 10px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+}
+.c3d-list button:hover { border-color: var(--accent); }
+.c3d-list button[aria-pressed="true"] {
+  border-color: var(--accent); background: var(--hover);
+}
+.c3d-name { font-size: 13px; font-weight: 560; }
+.c3d-meta, .c3d-standing { font-size: 11px; color: var(--ink-faint); }
