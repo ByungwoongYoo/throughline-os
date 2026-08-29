@@ -30,6 +30,19 @@
      appears in more than ~5% of pixels, the design is wrong. */
   --accent:      #2563EB;
   --accent-soft: #DBEAFE;
+  /*
+   * Text drawn *on* the accent.
+   *
+   * Not `--n-0`, which is what this used to be. `--n-0` is the neutral
+   * extreme and flips with the theme — white in light, #0A0C0F in dark —
+   * while `--accent` does not flip at all. So every primary button in the
+   * product was white on blue in light mode and near-black on the same blue
+   * in dark mode: 3.79:1, under the 4.5:1 that normal text needs. It was
+   * legible enough to look deliberate, which is why it survived.
+   *
+   * This belongs to the accent, so it is redefined wherever the accent is.
+   */
+  --on-accent:   #FFFFFF;
 
   /* Semantic — state only, never decoration. */
   --positive: #15803D;
@@ -438,7 +451,7 @@ tbody tr:hover { background: var(--hover); }
 }
 .btn:hover:not(:disabled) { background: var(--hover); border-color: var(--accent); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--n-0); }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .btn-primary:hover:not(:disabled) { filter: brightness(1.1); background: var(--accent); }
 
 input[type="text"], input[type="email"], input[type="password"], textarea, select {
@@ -2233,7 +2246,7 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   border: 1px solid var(--accent);
   border-radius: 7px;
   background: var(--accent);
-  color: var(--n-0);
+  color: var(--on-accent);
   font-size: 13px;
   cursor: pointer;
 }
@@ -3388,6 +3401,8 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
     --ink-soft: var(--n-800);
     --ink: var(--n-900);
     --accent: #1443B8;
+    /* Darker blue, so white stays the readable side. */
+    --on-accent: #FFFFFF;
   }
 
   @media (prefers-color-scheme: dark) {
@@ -3398,6 +3413,10 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
       --ink-soft: var(--n-800);
       --ink: var(--n-900);
       --accent: #7FA8FF;
+      /* This accent is *light*, so the readable side flips: white on it is
+         2.33:1, near-black is over 9:1. The pairing follows the accent, which
+         is the whole reason this is a token of its own. */
+      --on-accent: #0A0C0F;
     }
   }
 
@@ -3734,11 +3753,19 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;
   padding-bottom: 0.75rem;
 }
-.board-bar button {
+/*
+ * The bar's plain buttons are outlines. `.nj-primary` is not one of them, and
+ * this rule used to catch it too: `background: transparent` beat the accent
+ * fill on specificity, leaving `--n-0` text — near black — on the dark panel.
+ * "Put something on the board" rendered as an empty rectangle, which is a
+ * fair description of a board with nothing on it, so it did not look wrong.
+ */
+.board-bar button:not(.nj-primary) {
   padding: 0.3rem 0.65rem; border-radius: 6px; font: inherit; cursor: pointer;
   border: 1px solid rgba(120,130,150,0.4); background: transparent;
 }
 .board-bar button:disabled { opacity: 0.45; cursor: default; }
+.board-bar .nj-primary { margin-left: 0; }
 .board-zoom, .board-count { font-size: 0.85rem; opacity: 0.7; }
 .board-problem { color: rgb(150,40,40); margin: 0 0 0.5rem; }
 
@@ -4015,8 +4042,25 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
    volume: the volume owns the camera, the layer owns the marks, and neither
    needs to know how the other works — which is what lets one mark be echoed
    onto a different volume unchanged. */
+/*
+ * The drawing layer sits over the *image*, not over the whole volume figure.
+ *
+ * `VoxelVolume` renders a figure — canvas, then the Level and Width sliders,
+ * then a caption saying how many voxels were drawn. The stack was given the
+ * canvas's height as a fixed box, so all of that chrome overflowed it and
+ * painted on top of whatever came next: the "what is being marked" field and
+ * the acquisition filter were buried under the sliders and the caption.
+ *
+ * So the box grows with its content, and the overlay is pinned to the plate
+ * instead of to `inset: 0` — `--case-plate` is the canvas height, set beside
+ * the width by whoever sizes the panel. Stretching the overlay over the whole
+ * figure would put a drawing surface on top of the sliders.
+ */
 .case-stack { position: relative; }
-.case-stack > .hl-wrap { position: absolute; inset: 0; }
+.case-stack > .hl-wrap {
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: var(--case-plate, 100%);
+}
 .hl-canvas { display: block; width: 100%; height: 100%; }
 .hl-withheld {
   position: absolute; left: 0; right: 0; bottom: 0; margin: 0;

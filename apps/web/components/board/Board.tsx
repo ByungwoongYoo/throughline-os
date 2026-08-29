@@ -110,16 +110,48 @@ export function Board({ projectId }: { projectId: string }) {
     if (placed.data) setCards(placed.data.placements);
   }, [placed.data]);
 
-  useEffect(() => {
-    const element = surface.current;
-    if (!element || typeof ResizeObserver === "undefined") return;
+  /**
+   * Measure the surface the moment it exists.
+   *
+   * This was an effect with an empty dependency list, which runs once after
+   * the first render — and on that render the component has already returned
+   * `<Loading>`, because the placements are still being fetched. So
+   * `surface.current` was null, the effect took its early return, and never ran
+   * again. `size` stayed `{0, 0}` for the entire life of the board.
+   *
+   * Everything downstream reads that size, and every one of them failed
+   * quietly rather than loudly:
+   *
+   *   - **"Fit to contents" did nothing.** `fitTo` returns the origin for a
+   *     viewport of zero, so the one control that recovers work you have
+   *     scrolled away from moved the camera to where it already was.
+   *   - **"N of N in view" always said everything was in view**, because the
+   *     visibility filter falls back to the whole list when the size is
+   *     unknown. A board showing one card of three insisted all three were on
+   *     screen — so nothing suggested reaching for the button that was broken
+   *     anyway.
+   *   - **Culling never ran**, so the optimisation that keeps a large board
+   *     usable was off, silently, and would have stayed off.
+   *
+   * A callback ref instead: it fires with the node when it attaches and with
+   * null when it leaves, whatever the render order, so nothing depends on
+   * whether the first paint was the loading state.
+   */
+  const observer = useRef<ResizeObserver | null>(null);
+  const attachSurface = useCallback((node: HTMLDivElement | null) => {
+    observer.current?.disconnect();
+    observer.current = null;
+    surface.current = node;
+    if (!node) return;
+
     const measure = () => setSize({
-      width: element.clientWidth, height: element.clientHeight,
+      width: node.clientWidth, height: node.clientHeight,
     });
     measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
+    if (typeof ResizeObserver !== "undefined") {
+      observer.current = new ResizeObserver(measure);
+      observer.current.observe(node);
+    }
   }, []);
 
   /*
@@ -343,8 +375,26 @@ export function Board({ projectId }: { projectId: string }) {
   if (placed.error) return <Failure error={placed.error} />;
   if (placed.loading) return <Loading rows={4} label="Opening the board" />;
 
-  const visible = size.width > 0
+  /*
+   * Two questions, and they do not have the same answer.
+   *
+   * `isVisible` carries a 200px margin so a card being dragged in from
+   * off-screen is already drawn when its edge arrives. That is right for
+   * deciding what to *render*, and wrong for telling a researcher what they
+   * are looking at: a card 200px past the edge of the window counted as "in
+   * view", so a board with three cards and one on screen said "3 of 3 in
+   * view".
+   *
+   * Which is the one sentence that had to be right. The count exists to answer
+   * "where did everything go", and it answered "nowhere, it is all here" while
+   * the window showed one card — so there was no reason to reach for "Fit to
+   * contents", and the board looked simply empty.
+   */
+  const drawn = size.width > 0
     ? cards.filter((c) => isVisible(c, camera, size))
+    : cards;
+  const onScreen = size.width > 0
+    ? cards.filter((c) => isVisible(c, camera, size, 0))
     : cards;
 
   return (
@@ -363,10 +413,10 @@ export function Board({ projectId }: { projectId: string }) {
         <span className="board-zoom numeric">
           {Math.round(camera.zoom * 100)}%
         </span>
-        {/* Drawn from what is on screen rather than from the total, because
-            "where did everything go" is answered by the first number. */}
+        {/* Counted strictly — no render margin — because this is the
+            sentence that answers "where did everything go". */}
         <span className="board-count">
-          {visible.length} of {cards.length} in view
+          {onScreen.length} of {cards.length} in view
         </span>
       </div>
 
@@ -414,7 +464,7 @@ export function Board({ projectId }: { projectId: string }) {
       )}
 
       <div
-        ref={surface}
+        ref={attachSurface}
         className="board-surface"
         data-testid="board-surface"
         onWheel={onWheel}
@@ -443,7 +493,7 @@ export function Board({ projectId }: { projectId: string }) {
             transformOrigin: "0 0",
           }}
         >
-          {visible.map((card) => (
+          {drawn.map((card) => (
             <article
               key={card.object_id}
               data-object={card.object_id}

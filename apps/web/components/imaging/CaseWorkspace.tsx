@@ -349,7 +349,12 @@ function ScanPanel({ scan, width, height, onView, register, verdict, view,
         * neither needs to know how the other works — which is what lets a mark
         * be echoed onto a different volume unchanged.
         */}
-      <div className="case-stack" style={{ width, height }}>
+      {/* The plate height is a custom property rather than the box's own
+          height: the figure inside is taller than its canvas, and pinning
+          the box to the canvas made the sliders overflow onto the fields
+          below. */}
+      <div className="case-stack"
+           style={{ width, "--case-plate": `${height}px` } as React.CSSProperties}>
         <VoxelVolume
           grid={scan.grid}
           width={width}
