@@ -29,8 +29,8 @@ import { Network3D } from "@/components/charts/Network3D";
 import { Surface } from "@/components/charts/Surface";
 import { Volume } from "@/components/charts/Volume";
 import { VoxelVolume } from "@/components/charts/VoxelVolume";
-import { exampleFor } from "@/lib/charts3d/examples";
-import type { Visualization } from "@/lib/charts3d/registry";
+import { exampleFor, sharesPictureWith } from "@/lib/charts3d/examples";
+import { CATALOGUE, type Visualization } from "@/lib/charts3d/registry";
 
 /** Paths for the line renderer, integrated from the same vortex the field uses. */
 function pathsFromField(
@@ -78,8 +78,22 @@ export function CatalogueChart({ entry, width = 620, height = 420 }: {
     );
   }
 
+  /*
+   * What this picture is, and what it is not.
+   *
+   * Several entries share a renderer and a data shape, and this codebase draws
+   * them identically — so the chart says how many, rather than letting a
+   * catalogue of 219 names imply 219 pictures. What separates them is the
+   * styling, which is the honest description of the work that is left.
+   */
+  const shared = sharesPictureWith(entry, CATALOGUE);
   const caption = `${entry.name} — generated data, shown to exercise the `
-    + `${entry.primitive} renderer. Not a measurement.`;
+    + `${entry.primitive} renderer. Not a measurement.`
+    + (shared.length > 0
+       ? ` ${shared.length} other ${shared.length === 1 ? "entry" : "entries"} `
+         + `draw this same picture — they differ by styling, which is not built `
+         + `here yet, not by their data.`
+       : "");
 
   switch (data.shape) {
     case "xyz":

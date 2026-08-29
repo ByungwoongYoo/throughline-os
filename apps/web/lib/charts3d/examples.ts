@@ -61,6 +61,32 @@ function points(withValue: boolean): Generated {
   };
 }
 
+/** A height field z = f(x, y) over a fixed lattice. */
+function heightField(f: (x: number, y: number) => number, span = 3): Generated {
+  const n = 28;
+  const axis = Array.from({ length: n }, (_, i) => -span + i * (2 * span / (n - 1)));
+  return {
+    shape: "grid",
+    grid: { x: axis, y: axis, z: axis.map((y) => axis.map((x) => f(x, y))) },
+  };
+}
+
+/** A scalar sampled through a box, for an isosurface to cut. */
+function scalarField(f: (x: number, y: number, z: number) => number,
+                     span = 2): Generated {
+  const n = 28;
+  const at = (i: number) => -span + i * (2 * span / (n - 1));
+  const values = new Float32Array(n * n * n);
+  for (let k = 0; k < n; k++) {
+    for (let j = 0; j < n; j++) {
+      for (let i = 0; i < n; i++) {
+        values[i + n * (j + n * k)] = f(at(i), at(j), at(k));
+      }
+    }
+  }
+  return { shape: "voxels", grid: { nx: n, ny: n, nz: n, values, units: "" } };
+}
+
 function grid(): Generated {
   const xs = Array.from({ length: 28 }, (_, i) => -3 + i * (6 / 27));
   const ys = Array.from({ length: 28 }, (_, i) => -3 + i * (6 / 27));
@@ -128,6 +154,65 @@ function series(): Generated {
 }
 
 /**
+ * The shape a named entry actually is.
+ *
+ * Keying only on the data shape was wrong, and wrong in the way this codebase
+ * cares about most: every isosurface drew the same gaussian ball, so "Torus",
+ * "Sphere" and "Hyperboloid" produced pixel-identical pictures, and every
+ * height field drew the same saddle, so "Paraboloid" and "Plane" did too. A
+ * chart that draws something other than its own name is not a rough
+ * approximation of the right chart — it is a confident picture of the wrong
+ * one, and a reader has no way to tell.
+ *
+ * So an entry whose name *is* a geometry gets that geometry. Names that
+ * describe a use rather than a shape — "Loss landscape", "Optimization
+ * landscape" — get a surface chosen to suit the use, because there the name
+ * does not pin the geometry and any honest example of the right kind will do.
+ */
+export const SHAPES: Record<string, () => Generated> = {
+  // Height fields, by their defining equation.
+  "Saddle surface": () => heightField((x, y) => x * x - y * y),
+  "Paraboloid": () => heightField((x, y) => x * x + y * y),
+  "Plane": () => heightField((x, y) => 0.6 * x + 0.35 * y),
+  "Regression plane": () => heightField((x, y) => 0.6 * x + 0.35 * y),
+  "Function surface": () => heightField((x, y) => Math.sin(x) * Math.cos(y)),
+  "Multivariable function plot": () =>
+    heightField((x, y) => Math.sin(x) * Math.cos(y)),
+  "Gaussian surface": () => heightField((x, y) => Math.exp(-(x * x + y * y) / 2)),
+  "Kernel density surface": () =>
+    heightField((x, y) => Math.exp(-((x - 1) ** 2 + y * y) / 1.2)
+                        + 0.7 * Math.exp(-((x + 1.2) ** 2 + (y + 1) ** 2) / 0.8)),
+  "3D probability distribution": () =>
+    heightField((x, y) => Math.exp(-(x * x + y * y) / 2) / (2 * Math.PI)),
+  "Multivariate distribution surface": () =>
+    heightField((x, y) => Math.exp(-(x * x + 0.6 * x * y + y * y) / 2)),
+  // A landscape wants several minima, or it says nothing about optimisation.
+  "Optimization landscape": () =>
+    heightField((x, y) => Math.sin(1.4 * x) * Math.cos(1.4 * y) + 0.12 * (x * x + y * y)),
+  "Loss landscape": () =>
+    heightField((x, y) => Math.sin(1.4 * x) * Math.cos(1.4 * y) + 0.12 * (x * x + y * y)),
+  "Hessian": () => heightField((x, y) => x * x - y * y),
+  "3D terrain map": () =>
+    heightField((x, y) => Math.sin(x) * Math.cos(0.8 * y)
+                        + 0.4 * Math.sin(2.3 * x + 1) * Math.cos(1.7 * y)),
+
+  // Implicit surfaces, by the level set the isosurface cuts.
+  "Sphere": () => scalarField((x, y, z) => 100 - 40 * Math.hypot(x, y, z)),
+  "Ellipsoid": () =>
+    scalarField((x, y, z) => 100 - 40 * Math.hypot(x / 1.6, y, z / 0.7)),
+  "Torus": () => scalarField((x, y, z) => {
+    // The distance to a circle of radius R in the z = 0 plane.
+    const R = 1.1, ring = Math.hypot(Math.hypot(x, y) - R, z);
+    return 100 - 90 * ring;
+  }),
+  "Hyperboloid": () =>
+    scalarField((x, y, z) => 100 - 40 * Math.abs(x * x + y * y - z * z - 1)),
+  "Implicit surface": () => scalarField((x, y, z) => 100 - 40 * Math.hypot(x, y, z)),
+  "Constraint surface": () =>
+    scalarField((x, y, z) => 100 - 40 * Math.abs(x + y + z)),
+};
+
+/**
  * The generator for each data shape, or null where none should exist.
  *
  * `geometry` is null on purpose: vertices and faces come from a researcher's
@@ -163,5 +248,44 @@ export function isDrawable(entry: Visualization): boolean {
 export function exampleFor(entry: Visualization): Generated | null {
   const make = GENERATORS[entry.needs];
   if (!make || !RENDERED.has(entry.primitive)) return null;
+
+  // The entry's own geometry when its name names one, and the generic shape
+  // for that data otherwise. Checked against `needs` so a mismatched pairing
+  // cannot hand a renderer the wrong kind of data.
+  const named = SHAPES[entry.name];
+  if (named) {
+    const shaped = named();
+    if (shaped.shape === entry.needs) return shaped;
+  }
   return make();
+}
+
+
+/**
+ * How many other entries draw the same picture as this one.
+ *
+ * 219 entries are drawable and they produce 21 distinct pictures. Much of that
+ * is honest — "3D surface", "3D mesh" and "3D wireframe" *are* the same
+ * numbers, and what separates them is how the quads are stroked. But this
+ * codebase draws them identically, so a catalogue that listed 219 names and
+ * showed 21 pictures would be making the same overstatement its headline used
+ * to make: a count of things that exist, presented as a count of things you
+ * can see.
+ *
+ * So each chart says what it shares. The number is derived, which means it
+ * cannot drift as entries and renderers change, and it points at the work that
+ * is actually left: the styling, not the geometry.
+ */
+export function sharesPictureWith(entry: Visualization,
+                                  catalogue: readonly Visualization[]): Visualization[] {
+  const mine = exampleFor(entry);
+  if (!mine) return [];
+  return catalogue.filter((other) => {
+    if (other.name === entry.name) return false;
+    // Same renderer and same generated data is the same picture, because
+    // nothing between here and the canvas varies by name.
+    return other.primitive === entry.primitive
+        && other.needs === entry.needs
+        && SHAPES[other.name] === SHAPES[entry.name];
+  });
 }

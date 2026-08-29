@@ -18,7 +18,7 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CATALOGUE } from "@/lib/charts3d/registry";
-import { GENERATORS, RENDERED, exampleFor, isDrawable } from "@/lib/charts3d/examples";
+import { GENERATORS, RENDERED, SHAPES, exampleFor, isDrawable, sharesPictureWith } from "@/lib/charts3d/examples";
 import { CatalogueChart } from "@/components/charts3d/CatalogueChart";
 import { standing } from "@/components/charts3d/CatalogueBrowser";
 
@@ -101,5 +101,118 @@ describe("what a reader is promised", () => {
         expect(standing(entry), entry.name).not.toBe("drawable");
       }
     }
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// A chart that draws something other than its own name
+// ---------------------------------------------------------------------------
+//
+// The generators keyed on the *data shape*, so every isosurface drew the same
+// gaussian ball and every height field drew the same saddle: "Torus", "Sphere"
+// and "Hyperboloid" produced pixel-identical pictures, and so did "Paraboloid"
+// and "Plane". That is not a rough approximation of the right chart. It is a
+// confident picture of the wrong one, and a reader has no way to tell.
+
+/** A cheap fingerprint of what a generator produced. */
+function fingerprint(name: string): string {
+  const entry = CATALOGUE.find((e) => e.name === name);
+  if (!entry) return `missing:${name}`;
+  const data = exampleFor(entry);
+  if (!data) return `undrawable:${name}`;
+  if (data.shape === "grid") {
+    return "grid:" + data.grid.z.flat().map((v) => Math.round((v ?? 0) * 100)).join(",");
+  }
+  if (data.shape === "voxels") {
+    let sum = 0, above = 0;
+    for (const v of data.grid.values) { sum += v; if (v > 40) above++; }
+    return `voxels:${Math.round(sum)}:${above}`;
+  }
+  return `other:${data.shape}`;
+}
+
+describe("an entry whose name is a geometry", () => {
+  it("draws that geometry rather than a stand-in", () => {
+    // Every one of these is a different surface. Before, three of them were
+    // the same ball and two were the same saddle.
+    const named = ["Sphere", "Ellipsoid", "Torus", "Hyperboloid",
+                   "Saddle surface", "Paraboloid", "Plane", "Gaussian surface"];
+    const prints = named.map(fingerprint);
+    const distinct = new Set(prints);
+    expect(distinct.size, JSON.stringify(
+      named.map((n, i) => [n, prints[i].slice(0, 24)]))).toBe(named.length);
+  });
+
+  it("gives a torus a hole and a sphere none", () => {
+    /*
+     * The fingerprints being different is necessary and not sufficient — two
+     * wrong shapes also differ. A torus is a ring: its filled region does not
+     * reach its own centre, and a sphere's does.
+     */
+    const torus = CATALOGUE.find((e) => e.name === "Torus")!;
+    const sphere = CATALOGUE.find((e) => e.name === "Sphere")!;
+    const centreOf = (entry: typeof torus) => {
+      const data = exampleFor(entry)!;
+      if (data.shape !== "voxels") throw new Error("expected voxels");
+      const { nx, ny, nz, values } = data.grid;
+      const mid = (n: number) => Math.floor(n / 2);
+      return values[mid(nx) + nx * (mid(ny) + ny * mid(nz))];
+    };
+    // The isosurface is cut at 40.
+    expect(centreOf(sphere), "a sphere is solid at its centre").toBeGreaterThan(40);
+    expect(centreOf(torus), "a torus is empty at its centre").toBeLessThan(40);
+  });
+
+  it("keeps a named shape on the data shape its entry declares", () => {
+    // A named geometry that produced the wrong kind of data would hand a
+    // renderer something it cannot draw, so `exampleFor` falls back instead.
+    for (const [name, make] of Object.entries(SHAPES)) {
+      const entry = CATALOGUE.find((e) => e.name === name);
+      if (!entry) continue;
+      expect(make().shape, `${name} generates the wrong shape for its entry`)
+        .toBe(entry.needs);
+    }
+  });
+
+  it("names only entries that exist", () => {
+    const known = new Set(CATALOGUE.map((e) => e.name));
+    const orphans = Object.keys(SHAPES).filter((n) => !known.has(n));
+    expect(orphans, "these shapes are keyed to no catalogue entry").toEqual([]);
+  });
+});
+
+
+describe("what a picture is shared with", () => {
+  it("says so when other entries draw the same thing", () => {
+    /*
+     * 219 entries are drawable and 21 distinct pictures come out. A catalogue
+     * of 219 names showing 21 pictures, silently, is the same overstatement
+     * the headline used to make.
+     */
+    const surface = CATALOGUE.find((e) => e.name === "3D surface")!;
+    const { container } = render(<CatalogueChart entry={surface} />);
+    expect(container.textContent).toMatch(/draw this same picture/);
+    expect(container.textContent).toMatch(/differ by styling/);
+  });
+
+  it("says nothing of the sort when a picture is the entry's own", () => {
+    // A named geometry has its own shape, so it shares with nothing.
+    const torus = CATALOGUE.find((e) => e.name === "Torus")!;
+    const { container } = render(<CatalogueChart entry={torus} />);
+    expect(container.textContent).not.toMatch(/draw this same picture/);
+  });
+
+  it("never counts an entry as sharing with itself", () => {
+    for (const name of ["3D surface", "Torus", "Citation network"]) {
+      const entry = CATALOGUE.find((e) => e.name === name)!;
+      expect(sharesPictureWith(entry, CATALOGUE).map((e) => e.name))
+        .not.toContain(name);
+    }
+  });
+
+  it("shares nothing for an entry that cannot be drawn", () => {
+    const fromFile = CATALOGUE.find((e) => e.needs === "geometry")!;
+    expect(sharesPictureWith(fromFile, CATALOGUE)).toEqual([]);
   });
 });
