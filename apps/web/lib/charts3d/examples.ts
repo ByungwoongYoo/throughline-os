@@ -34,7 +34,9 @@ export type Generated =
   | { shape: "field"; samples: Array<{ x: number; y: number; z: number; u: number; v: number; w: number }> }
   | { shape: "voxels"; grid: { nx: number; ny: number; nz: number; values: Float32Array; units?: string } }
   | { shape: "graph"; graph: { nodes: Array<{ id: string; label: string; group?: string }>; edges: Array<{ source: string; target: string; weight?: number }> } }
-  | { shape: "series"; bars: Array<{ row: number; column: number; value: number }> };
+  | { shape: "series"; bars: Array<{ row: number; column: number; value: number }> }
+  | { shape: "paths"; paths: Array<{ id: string; label: string; group?: string;
+      points: Array<{ x: number; y: number; z: number; t?: number }> }> };
 
 /** A deterministic pseudo-random source, so a demo is the same every time. */
 function noise(seed: number): () => number {
@@ -142,6 +144,52 @@ function graph(): Generated {
   return { shape: "graph", graph: { nodes, edges } };
 }
 
+/**
+ * Paths, for the renderer that draws lines.
+ *
+ * A curve is not a cloud. Handing the points generator to `Lines3D` would draw
+ * a scatter joined in the order it happened to be generated, which is the
+ * picture "3D line" and "Parametric curve" are least well described by.
+ */
+function curves(): Generated {
+  return {
+    shape: "paths",
+    paths: [0, 1, 2].map((k) => ({
+      id: `curve-${k}`,
+      label: `Curve ${k + 1}`,
+      group: ["one", "two", "three"][k],
+      // A trefoil-ish knot: closed, self-crossing, and unmistakably a curve.
+      points: Array.from({ length: 120 }, (_, i) => {
+        const u = (i / 119) * Math.PI * 2;
+        const r = 1 + 0.28 * Math.cos(3 * u + k);
+        return {
+          x: r * Math.cos(2 * u), y: r * Math.sin(2 * u),
+          z: 0.55 * Math.sin(3 * u + k), t: i,
+        };
+      }),
+    })),
+  };
+}
+
+/** Streamlines through the same vortex the arrow field samples. */
+function streams(): Generated {
+  return {
+    shape: "paths",
+    paths: Array.from({ length: 12 }, (_, k) => {
+      const angle = (k / 12) * Math.PI * 2;
+      let x = 1.6 * Math.cos(angle), y = 1.6 * Math.sin(angle), z = -1.6;
+      const points = [];
+      for (let step = 0; step < 60; step++) {
+        points.push({ x, y, z, t: step });
+        const u = -y, v = x, w = 0.5;
+        const length = Math.hypot(u, v, w) || 1;
+        x += (u / length) * 0.16; y += (v / length) * 0.16; z += (w / length) * 0.09;
+      }
+      return { id: `stream-${k}`, label: `Streamline ${k + 1}`, points };
+    }),
+  };
+}
+
 function series(): Generated {
   return {
     shape: "series",
@@ -245,19 +293,57 @@ export function isDrawable(entry: Visualization): boolean {
 }
 
 /** The data an entry would be drawn from, or null when it cannot be. */
-export function exampleFor(entry: Visualization): Generated | null {
-  const make = GENERATORS[entry.needs];
-  if (!make || !RENDERED.has(entry.primitive)) return null;
-
-  // The entry's own geometry when its name names one, and the generic shape
-  // for that data otherwise. Checked against `needs` so a mismatched pairing
-  // cannot hand a renderer the wrong kind of data.
-  const named = SHAPES[entry.name];
-  if (named) {
-    const shaped = named();
-    if (shaped.shape === entry.needs) return shaped;
+/**
+ * The data a *renderer* needs, which is not always the shape the entry
+ * declares.
+ *
+ * `needs` describes the data a chart consumes in the abstract; `primitive`
+ * names the thing that draws it, and those two disagree more often than they
+ * look like they should. Nineteen entries are `lines` over `xyz` — "3D line",
+ * "3D stem", "Parametric curve", orbits, flight paths — and generating `xyz`
+ * for them produced a point cloud, which the line renderer then joined in
+ * whatever order it was generated. Two more are `surface` over `series`, one
+ * is `bars` over `grid`, one is `surface` over `field`. Twenty-three entries
+ * drawn by the wrong renderer, each of them a confident picture of something
+ * else.
+ *
+ * So the generator follows the renderer. A curve gets a curve, a bar chart
+ * gets bars, and a surface gets a height field, whatever the abstract shape of
+ * the data behind the name.
+ */
+function forPrimitive(entry: Visualization): Generated | null {
+  switch (entry.primitive) {
+    case "lines":
+      // Streamlines when the data is a field, an actual curve otherwise.
+      return entry.needs === "field" ? streams() : curves();
+    case "bars":
+      // Bars over a grid is a 3D histogram: the grid is the binning, and the
+      // bars are the counts.
+      return series();
+    case "surface":
+      if (entry.needs === "geometry") return null;
+      // A ribbon or an area chart is a surface over series, and a streamtube a
+      // surface through a field. Both are height fields once drawn.
+      return SHAPES[entry.name]?.() ?? grid();
+    case "points":
+      return points(entry.needs === "xyzv");
+    case "glyphs":
+      return field();
+    case "isosurface":
+    case "volume":
+      return SHAPES[entry.name]?.() ?? voxels();
+    case "network":
+      return graph();
+    default:
+      return null;
   }
-  return make();
+}
+
+export function exampleFor(entry: Visualization): Generated | null {
+  if (!RENDERED.has(entry.primitive)) return null;
+  // `geometry` still has no generator: vertices and faces come from a file.
+  if (entry.needs === "geometry") return null;
+  return forPrimitive(entry);
 }
 
 

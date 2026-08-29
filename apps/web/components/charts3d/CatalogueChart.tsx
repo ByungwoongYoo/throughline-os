@@ -32,28 +32,6 @@ import { VoxelVolume } from "@/components/charts/VoxelVolume";
 import { exampleFor, sharesPictureWith } from "@/lib/charts3d/examples";
 import { CATALOGUE, type Visualization } from "@/lib/charts3d/registry";
 
-/** Paths for the line renderer, integrated from the same vortex the field uses. */
-function pathsFromField(
-  samples: Array<{ x: number; y: number; z: number; u: number; v: number; w: number }>,
-) {
-  const seeds = samples.filter((_, i) => i % 17 === 0).slice(0, 12);
-  return seeds.map((seed, index) => {
-    const points = [];
-    let { x, y, z } = seed;
-    for (let step = 0; step < 40; step++) {
-      points.push({ x, y, z, t: step });
-      // The same vortex, integrated rather than sampled — which is the whole
-      // difference between an arrow field and a streamline.
-      const u = -y, v = x, w = 0.35 * z;
-      const length = Math.hypot(u, v, w) || 1;
-      x += (u / length) * 0.18;
-      y += (v / length) * 0.18;
-      z += (w / length) * 0.18;
-    }
-    return { id: `path-${index}`, label: `Path ${index + 1}`, points };
-  });
-}
-
 export function CatalogueChart({ entry, width = 620, height = 420 }: {
   entry: Visualization;
   width?: number;
@@ -95,42 +73,65 @@ export function CatalogueChart({ entry, width = 620, height = 420 }: {
          + `here yet, not by their data.`
        : "");
 
-  switch (data.shape) {
-    case "xyz":
-    case "xyzv":
-      return (
+  /*
+   * Dispatched on the renderer the entry names, not on the shape of its data.
+   * The two disagree for twenty-three entries — "3D line" is `lines` over
+   * `xyz`, "3D histogram" is `bars` over `grid` — and switching on the shape
+   * sent every one of them to the wrong renderer.
+   */
+  switch (entry.primitive) {
+    case "points":
+      return data.shape === "xyz" || data.shape === "xyzv" ? (
         <Volume points={data.points} width={width} height={height}
                 xLabel="x" yLabel="y" zLabel="z"
                 valueLabel={data.shape === "xyzv" ? "value" : undefined}
                 title={entry.name} caption={caption} />
-      );
-    case "grid":
-      return (
+      ) : null;
+
+    case "lines":
+      return data.shape === "paths" ? (
+        <Lines3D paths={data.paths} width={width} height={height}
+                 caption={caption} />
+      ) : null;
+
+    case "surface":
+      return data.shape === "grid" ? (
         <Surface grid={data.grid} width={width} height={height}
                  xLabel="x" yLabel="y" zLabel="z"
                  title={entry.name} caption={caption} />
-      );
-    case "field":
-      return entry.primitive === "lines"
-        ? <Lines3D paths={pathsFromField(data.samples)} width={width}
-                   height={height} caption={caption} />
-        : <Field3D samples={data.samples} width={width} height={height}
-                   caption={caption} />;
-    case "voxels":
-      return entry.primitive === "isosurface"
-        ? <Isosurface3D grid={data.grid} level={40} width={width}
-                        height={height} caption={caption} />
-        : <VoxelVolume grid={data.grid} width={width} height={height}
-                       caption={caption} />;
-    case "graph":
-      return (
-        <Network3D graph={data.graph} width={width} height={height}
-                   caption={caption} />
-      );
-    case "series":
-      return (
+      ) : null;
+
+    case "bars":
+      return data.shape === "series" ? (
         <Bars3D bars={data.bars} width={width} height={height}
                 caption={caption} />
-      );
+      ) : null;
+
+    case "glyphs":
+      return data.shape === "field" ? (
+        <Field3D samples={data.samples} width={width} height={height}
+                 caption={caption} />
+      ) : null;
+
+    case "isosurface":
+      return data.shape === "voxels" ? (
+        <Isosurface3D grid={data.grid} level={40} width={width}
+                      height={height} caption={caption} />
+      ) : null;
+
+    case "volume":
+      return data.shape === "voxels" ? (
+        <VoxelVolume grid={data.grid} width={width} height={height}
+                     caption={caption} />
+      ) : null;
+
+    case "network":
+      return data.shape === "graph" ? (
+        <Network3D graph={data.graph} width={width} height={height}
+                   caption={caption} />
+      ) : null;
+
+    default:
+      return null;
   }
 }

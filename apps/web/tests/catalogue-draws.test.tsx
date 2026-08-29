@@ -216,3 +216,76 @@ describe("what a picture is shared with", () => {
     expect(sharesPictureWith(fromFile, CATALOGUE)).toEqual([]);
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// The renderer an entry names is the renderer that draws it
+// ---------------------------------------------------------------------------
+//
+// `needs` describes the data a chart consumes; `primitive` names the thing that
+// draws it, and the two disagree more often than they look like they should.
+// Generation keyed on the shape, so nineteen `lines` entries over `xyz` — "3D
+// line", "3D stem", "Parametric curve", orbits, flight paths — were handed a
+// point cloud and drawn as a scatter. Two `surface` entries over `series` were
+// drawn as bars, one `bars` entry over `grid` as a surface, and a streamtube as
+// arrows. Twenty-three confident pictures of the wrong chart.
+
+/** What each renderer can actually consume. */
+const ACCEPTS: Record<string, string[]> = {
+  points: ["xyz", "xyzv"],
+  lines: ["paths"],
+  surface: ["grid"],
+  bars: ["series"],
+  glyphs: ["field"],
+  isosurface: ["voxels"],
+  volume: ["voxels"],
+  network: ["graph"],
+};
+
+describe("the data a renderer is handed", () => {
+  it("is a shape that renderer can draw, for every entry", () => {
+    const wrong: string[] = [];
+    for (const entry of CATALOGUE) {
+      const data = exampleFor(entry);
+      if (!data) continue;
+      if (!(ACCEPTS[entry.primitive] ?? []).includes(data.shape)) {
+        wrong.push(`${entry.name}: ${entry.primitive} was given ${data.shape}`);
+      }
+    }
+    expect(wrong, wrong.slice(0, 6).join("; ")).toEqual([]);
+  });
+
+  it("gives the line renderer curves rather than a cloud", () => {
+    /*
+     * The failure that made "3D line" a scatter. A curve is not a set of
+     * points: joining a cloud in generation order draws the picture the name
+     * describes least well.
+     */
+    const line = CATALOGUE.find((e) => e.name === "3D line")!;
+    const data = exampleFor(line)!;
+    expect(data.shape).toBe("paths");
+    if (data.shape !== "paths") return;
+    expect(data.paths.length).toBeGreaterThan(0);
+    expect(data.paths[0].points.length).toBeGreaterThan(20);
+  });
+
+  it("gives a histogram bars, though its data is a grid", () => {
+    const histogram = CATALOGUE.find((e) => e.name === "3D histogram")!;
+    expect(histogram.needs).toBe("grid");
+    expect(exampleFor(histogram)!.shape).toBe("series");
+  });
+
+  it("gives an area chart a surface, though its data is a series", () => {
+    const area = CATALOGUE.find((e) => e.name === "3D area")!;
+    expect(area.needs).toBe("series");
+    expect(exampleFor(area)!.shape).toBe("grid");
+  });
+
+  it("gives streamlines paths and an arrow field vectors", () => {
+    // Both are `field` data; they are different pictures of it.
+    const stream = CATALOGUE.find((e) => e.name === "Streamline")!;
+    const arrows = CATALOGUE.find((e) => e.name === "Gradient field")!;
+    expect(exampleFor(stream)!.shape).toBe("paths");
+    expect(exampleFor(arrows)!.shape).toBe("field");
+  });
+});

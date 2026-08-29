@@ -474,13 +474,31 @@ export function Surface({
 
       <figcaption className="chart-caption">
         {caption}{" "}
-        <strong>This surface is a fit, not data.</strong> It shows what the model
-        predicts at points nobody measured; the {observations.length} observations
-        it was fitted to are drawn on top.{" "}
-        {hiddenCount > 0
-          ? <><strong>{hiddenCount} of them are behind the surface right now.</strong>{" "}
-              Rotate to see them.</>
-          : "No observations are hidden behind the surface right now."}{" "}
+        {/*
+          * "A fit, not data" is the right warning for a fitted response
+          * surface, and it was printed whether or not anything had been
+          * fitted. A surface drawn from a function — or from a grid a caller
+          * simply had — was announced as a model of measurements that do not
+          * exist, alongside "the 0 observations it was fitted to are drawn on
+          * top". The warning is the important half, so it stays exactly as it
+          * was wherever there is a fit to warn about.
+          */}
+        {observations.length > 0 ? (
+          <>
+            <strong>This surface is a fit, not data.</strong> It shows what the
+            model predicts at points nobody measured; the {observations.length}{" "}
+            observations it was fitted to are drawn on top.{" "}
+            {hiddenCount > 0
+              ? <><strong>{hiddenCount} of them are behind the surface right now.</strong>{" "}
+                  Rotate to see them.</>
+              : "No observations are hidden behind the surface right now."}{" "}
+          </>
+        ) : (
+          <>
+            No observations are drawn on this surface, so it is the height field
+            it was given rather than a model fitted to measurements.{" "}
+          </>
+        )}
         Faint cells have no observation near them — the smoothest part of a
         fitted surface is usually the part with no data under it. The three axes
         are scaled independently, so distances along different axes are not
