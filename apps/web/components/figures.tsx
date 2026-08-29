@@ -11,7 +11,8 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { Connection } from "@/lib/api";
+import { AnalysisRunRow } from "@/lib/api";
+import { nameOf } from "./analyses";
 import { ApiState, useApi } from "@/lib/useApi";
 // Aliased: Matrix exports a `Cell` too, and its shape is row/column/value
 // rather than x/y/count.
@@ -64,9 +65,67 @@ type EstimatePayload = {
   excluded_without_estimate?: number;
 };
 
-export function Figures({ projectId, connections }: {
+/**
+ * Which two columns a figure is drawn against.
+ *
+ * Taken from the run's own recommendation, which is where it has always been:
+ * the spec carries an encoding per axis, with the field it plots. This screen
+ * read `connection.left_variable` instead, and so could only draw an analysis
+ * that a discovery sweep had turned into a connection — the run-keyed routes
+ * behind the figure (`/visual-recommendation`, `/points`) never needed one.
+ *
+ * A specified analysis belongs to no connection, so every figure on this screen
+ * was unreachable for it, and the empty state said to run discovery as though
+ * that were the only way to produce something plottable.
+ */
+export function axisFields(
+  recommendation: Recommendation, run: AnalysisRunRow,
+): { x: string; y: string } {
+  const named = Object.values(run.variables ?? {})
+    .flatMap((v) => (Array.isArray(v) ? v.map(String) : typeof v === "string" ? [v] : []));
+  return {
+    x: recommendation.spec.x?.field || run.left_variable || named[0] || "x",
+    y: recommendation.spec.y?.field || run.right_variable || named[1] || "y",
+  };
+}
+
+/**
+ * An axis label: what a human approved it should be called, then what the
+ * figure's own spec calls it, then the raw column name.
+ *
+ * The canonical label comes first because it is the one a person chose, and a
+ * figure that disagreed with the rest of the project about a variable's name
+ * would be the figure that goes into the paper.
+ */
+export function axisLabel(
+  field: string, labels: Record<string, string>, encoding?: { label?: string },
+): string {
+  return labels[field] ?? (encoding?.label || field);
+}
+
+/**
+ * What to call a run in the picker, in the project's own words for its columns.
+ *
+ * `nameOf` already answers "what is this run" for the analyses list; this adds
+ * the canonical labels a human approved, so the two screens cannot disagree
+ * about what a variable is called.
+ */
+export function figureName(
+  run: AnalysisRunRow, labels: Record<string, string>,
+): string {
+  if (run.left_variable && run.right_variable) {
+    return `${labels[run.left_variable] ?? run.left_variable} × `
+         + `${labels[run.right_variable] ?? run.right_variable}`;
+  }
+  return nameOf(run)
+    .split(" · ")
+    .map((name) => labels[name] ?? name)
+    .join(" · ");
+}
+
+export function Figures({ projectId, runs }: {
   projectId: string;
-  connections: ApiState<Connection[]>;
+  runs: ApiState<AnalysisRunRow[]>;
 }) {
   const [chosen, setChosen] = useState<string | null>(null);
   const [view, setView] = useState<"one" | "all" | "matrix" | "spread">("all");
@@ -78,21 +137,25 @@ export function Figures({ projectId, connections }: {
   const variables = useApi<{ labels: Record<string, string> }>(
     `/api/projects/${projectId}/variables`);
 
-  const withRuns = (connections.data ?? []).filter((c) => c.analysis_run_id);
-  const active = chosen ?? withRuns[0]?.id ?? null;
-  const connection = withRuns.find((c) => c.id === active) ?? null;
+  /*
+   * A run that has not finished has no estimate and no points, and a picker
+   * entry that can only ever say "no plottable values" is worse than no entry.
+   */
+  const plottable = (runs.data ?? []).filter((r) => r.estimate !== null);
+  const active = chosen ?? plottable[0]?.id ?? null;
+  const run = plottable.find((r) => r.id === active) ?? null;
 
   const recommendation = useApi<Recommendation>(
-    connection?.analysis_run_id
-      ? `/api/analyses/${connection.analysis_run_id}/visual-recommendation` : null);
+    run ? `/api/analyses/${run.id}/visual-recommendation` : null, [run?.id]);
 
-  if (connections.loading) return <Loading rows={4} label="Reading analyses" />;
-  if (!withRuns.length) {
+  if (runs.loading) return <Loading rows={4} label="Reading analyses" />;
+  if (!plottable.length) {
     return (
       <>
         <h1>Figures</h1>
         <Empty title="Nothing to plot yet"
-               hint="Run discovery — every tested relationship can be drawn." />
+               hint={"Run discovery to search for relationships, or specify "
+                     + "an analysis yourself — either one can be drawn."} />
       </>
     );
   }
@@ -143,12 +206,10 @@ export function Figures({ projectId, connections }: {
       {view === "one" && (
       <>
       <div className="fig-picker">
-        {withRuns.slice(0, 8).map((c) => (
-          <button key={c.id} className="btn" aria-current={c.id === active}
-                  onClick={() => setChosen(c.id)}>
-            {labels[c.left_variable] ?? c.left_variable}
-            {" × "}
-            {labels[c.right_variable] ?? c.right_variable}
+        {plottable.slice(0, 8).map((r) => (
+          <button key={r.id} className="btn" aria-current={r.id === active}
+                  onClick={() => setChosen(r.id)}>
+            {figureName(r, labels)}
           </button>
         ))}
       </div>
@@ -157,8 +218,8 @@ export function Figures({ projectId, connections }: {
         <Failure error={recommendation.error} retry={recommendation.reload} />
       )}
       {recommendation.loading && <Loading rows={4} label="Choosing the figure" />}
-      {connection && recommendation.data && (
-        <Figure connection={connection} recommendation={recommendation.data}
+      {run && recommendation.data && (
+        <Figure run={run} recommendation={recommendation.data}
                 labels={labels} projectId={projectId} />
       )}
       </>
@@ -384,15 +445,15 @@ function ForestView({ state }: { state: ApiState<EstimatePayload> }) {
   );
 }
 
-function Figure({ connection, recommendation, labels, projectId }: {
-  connection: Connection;
+function Figure({ run, recommendation, labels, projectId }: {
+  run: AnalysisRunRow;
   recommendation: Recommendation;
   labels: Record<string, string>;
   projectId: string;
 }) {
   const svgHost = useRef<HTMLDivElement>(null);
-  const points = useApi<Points>(
-    `/api/analyses/${connection.analysis_run_id}/points`);
+  const points = useApi<Points>(`/api/analyses/${run.id}/points`, [run.id]);
+  const fields = axisFields(recommendation, run);
 
   const data: Datum[] = useMemo(() => {
     const p = points.data;
@@ -428,14 +489,14 @@ function Figure({ connection, recommendation, labels, projectId }: {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${connection.left_variable}-${connection.right_variable}.svg`;
+    link.download = `${fields.x}-${fields.y}.svg`;
     link.click();
     URL.revokeObjectURL(url);
-  }, [connection]);
+  }, [fields]);
 
   const mark = MARK_FOR[recommendation.visual_type] ?? "point";
-  const xLabel = labels[connection.left_variable] ?? connection.left_variable;
-  const yLabel = labels[connection.right_variable] ?? connection.right_variable;
+  const xLabel = axisLabel(fields.x, labels, recommendation.spec.x);
+  const yLabel = axisLabel(fields.y, labels, recommendation.spec.y);
 
   if (points.error) return <Failure error={points.error} retry={points.reload} />;
   if (points.loading) return <Loading rows={4} label="Reading the plotted values" />;
@@ -518,7 +579,7 @@ function Figure({ connection, recommendation, labels, projectId }: {
         */}
       <PublishFigure
         projectId={projectId}
-        analysisRunId={connection.analysis_run_id!}
+        analysisRunId={run.id}
         spec={recommendation.spec as unknown as Record<string, unknown>}
       />
 

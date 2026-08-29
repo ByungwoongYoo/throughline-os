@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import {
-  ArtifactSummary, Capabilities, Connection, DiscoveryMap, Finding, Project, Source, api,
+  AnalysisRunRow, ArtifactSummary, Capabilities, Connection, DiscoveryMap,
+  Finding, Project, Source, api,
 } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { Centered, Failure, Loading } from "@/components/primitives";
@@ -40,7 +41,7 @@ import { ForkLineage } from "@/components/forklineage";
 import { FindingStanding } from "@/components/lifecycle";
 import { Journal } from "@/components/journal";
 import { Variables } from "@/components/variables";
-import { AnalysisList } from "@/components/analyses";
+import { AnalysisList, PlainReading } from "@/components/analyses";
 import { sessionId } from "@/lib/session";
 
 type AuthStatus = { needs_setup: boolean; authenticated: boolean; user: { display_name: string } | null };
@@ -222,6 +223,14 @@ function Workspace({ user }: { user: SignedInUser }) {
 
   const map = useApi<DiscoveryMap>(projectId ? `/api/projects/${projectId}/discovery-map` : null);
   const sources = useApi<Source[]>(projectId ? `/api/projects/${projectId}/sources` : null);
+  /*
+   * Every analysis in the project, not only the ones discovery turned into a
+   * connection. The Figures screen draws a run, and a run a researcher
+   * specified belongs to no connection.
+   */
+  const analyses = useApi<AnalysisRunRow[]>(
+    projectId ? `/api/projects/${projectId}/analyses?limit=200` : null,
+    [projectId]);
   const connections = useApi<Connection[]>(
     projectId ? `/api/projects/${projectId}/connections?limit=200` : null);
   const findings = useApi<Finding[]>(projectId ? `/api/projects/${projectId}/findings` : null);
@@ -477,6 +486,12 @@ function Workspace({ user }: { user: SignedInUser }) {
             ? <>
                 <AnalysisDetail runId={selection.id} onMethod={setRunMethod} />
                 {/*
+                  The plain reading was reachable only through a connection,
+                  so an analysis a researcher specified had no legible version
+                  of itself at all.
+                */}
+                <PlainReading runId={selection.id} />
+                {/*
                   Beneath the run, because the branch is context for the number
                   above it. Renders nothing at all for an original analysis with
                   no variants, which is most of them — a panel that appears on
@@ -544,7 +559,7 @@ function Workspace({ user }: { user: SignedInUser }) {
         {section === "datasearch" && <DataSearch />}
 
         {section === "figures" && (
-          <Figures projectId={project.id} connections={connections} />
+          <Figures projectId={project.id} runs={analyses} />
         )}
       </Shell>
 

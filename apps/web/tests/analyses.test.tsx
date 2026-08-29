@@ -14,9 +14,9 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { AnalysisList, ORIGIN_NOTE, nameOf } from "@/components/analyses";
+import { AnalysisList, ORIGIN_NOTE, PlainReading, nameOf } from "@/components/analyses";
 import type { AnalysisRunRow } from "@/lib/api";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 
 function run(over: Partial<AnalysisRunRow> = {}): AnalysisRunRow {
   return {
@@ -173,5 +173,82 @@ describe("an empty project", () => {
     expect(await screen.findByText(/No analyses yet/)).toBeTruthy();
     expect(screen.getByText(/or specify one yourself/)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Specify an analysis/ })).toBeTruthy();
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// The plain reading
+// ---------------------------------------------------------------------------
+//
+// `GET /analyses/{id}/plain-summary` is keyed on the run, but the only caller
+// was `ResultCard`, which needs a connection. The one feature whose job is to
+// make a result legible to someone who does not read confidence intervals was
+// unreachable for an analysis a researcher specified.
+
+const READING = {
+  headline: "Antibiotic use tracks resistance across these countries.",
+  what_it_means: "Where more antibiotics are used, more resistance is carried.",
+  how_confident: "Strong, and it survived the checks that were run.",
+  causal_reading: "This is an observational comparison between countries.",
+  design: { description: "Cross-sectional, one year.",
+            permits_causal_language: false },
+};
+
+describe("reading a result in plain words", () => {
+  it("asks for the run it was given, with no connection involved", async () => {
+    const get = vi.spyOn(api, "get").mockResolvedValue(READING as never);
+    render(<PlainReading runId="arun_7" />);
+    await waitFor(() => expect(get)
+      .toHaveBeenCalledWith("/api/analyses/arun_7/plain-summary"));
+  });
+
+  it("shows the reading and what it means", async () => {
+    vi.spyOn(api, "get").mockResolvedValue(READING as never);
+    render(<PlainReading runId="arun_1" />);
+    expect(await screen.findByText(/tracks resistance across these countries/))
+      .toBeTruthy();
+    expect(screen.getByText(/more resistance is carried/)).toBeTruthy();
+  });
+
+  it("says whether the design permits causal language", async () => {
+    /*
+     * The sentence a summary is most likely to be quoted out of is the causal
+     * one, so whether the design supports it is not a detail below the fold.
+     */
+    vi.spyOn(api, "get").mockResolvedValue(READING as never);
+    render(<PlainReading runId="arun_1" />);
+    expect(await screen.findByText(/observational comparison/)).toBeTruthy();
+    expect(screen.getByText(/does not support causal language/)).toBeTruthy();
+  });
+
+  it("does not warn about causal language when the design permits it", async () => {
+    vi.spyOn(api, "get").mockResolvedValue({
+      ...READING,
+      design: { description: "A randomised trial.",
+                permits_causal_language: true } } as never);
+    render(<PlainReading runId="arun_1" />);
+    await screen.findByText(/A randomised trial/);
+    expect(screen.queryByText(/does not support causal language/)).toBeNull();
+  });
+
+  it("reports a run that cannot be summarised in the server's own words", async () => {
+    /*
+     * 409 covers two states a researcher can act on — no model configured on
+     * this machine, and a run that has not finished. Both are facts, and
+     * "That did not work" is not what either of them means.
+     */
+    vi.spyOn(api, "get").mockRejectedValue(
+      new ApiError(409, "No model is configured, so nothing can be written."));
+    render(<PlainReading runId="arun_1" />);
+
+    expect(await screen.findByText(/No model is configured/)).toBeTruthy();
+    expect(screen.queryByText(/That did not work/)).toBeNull();
+  });
+
+  it("still reports a real failure as one", async () => {
+    vi.spyOn(api, "get").mockRejectedValue(new ApiError(500, "boom"));
+    render(<PlainReading runId="arun_1" />);
+    expect(await screen.findByText(/That did not work/)).toBeTruthy();
   });
 });

@@ -17,8 +17,9 @@
  * flattering one.
  */
 
-import { AnalysisRunRow } from "@/lib/api";
+import { AnalysisRunRow, ApiError } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
+import { PlainSummary } from "./ResultCard";
 import { Empty, Failure, Loading, Num, Status } from "./primitives";
 import { RunAnalysis } from "./runanalysis";
 
@@ -120,5 +121,67 @@ export function AnalysisList({ projectId, onSelect }: {
         </div>
       ))}
     </>
+  );
+}
+
+
+/**
+ * The plain-language reading of one run.
+ *
+ * `GET /analyses/{id}/plain-summary` is keyed on the run and has always been,
+ * but the only thing that asked for it was `ResultCard`, which needs a
+ * connection. So the one feature whose whole job is to make a result legible
+ * to someone who does not read confidence intervals was reachable exactly when
+ * a discovery sweep had produced the result — and unreachable for an analysis
+ * a researcher specified, which is the case where they are most likely to be
+ * showing it to somebody else.
+ *
+ * The card is not reused: it takes a connection, and inventing one to satisfy
+ * a prop would put a fabricated q-value on screen.
+ *
+ * **A refusal is shown in the server's own words.** The route answers 409 for
+ * two states a researcher can act on — no model is configured on this machine,
+ * and the run has not finished — and both are facts rather than failures.
+ * Restating them here would let the two drift, and "That did not work" is not
+ * what either of them means.
+ */
+export function PlainReading({ runId }: { runId: string }) {
+  const { data, error, loading, reload } = useApi<PlainSummary>(
+    `/api/analyses/${runId}/plain-summary`, [runId]);
+
+  if (loading) return <Loading rows={2} label="Reading the result in plain words" />;
+
+  if (error) {
+    if (error instanceof ApiError && error.status === 409) {
+      return <p className="note" role="status">{error.message}</p>;
+    }
+    return <Failure error={error} retry={reload} />;
+  }
+  if (!data) return null;
+
+  return (
+    <section aria-labelledby="plain-heading" style={{ marginTop: 18 }}>
+      <h2 id="plain-heading" className="eyebrow">In plain words</h2>
+      <p style={{ fontWeight: 530 }}>{data.headline}</p>
+      <p>{data.what_it_means}</p>
+      <p className="note">{data.how_confident}</p>
+
+      {/*
+        Kept beside the reading rather than below the fold. The sentence a
+        summary is most likely to be quoted out of is the causal one, and
+        whether the design permits that language is not a detail of it.
+      */}
+      <h3 className="eyebrow">Does this say anything caused anything</h3>
+      <p>{data.causal_reading}</p>
+      {data.design && (
+        <p className="note">
+          {data.design.description}
+          {data.design.permits_causal_language
+            ? ""
+            : " — which does not support causal language, whatever the size of "
+              + "the effect."}
+        </p>
+      )}
+    </section>
   );
 }
