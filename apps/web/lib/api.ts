@@ -364,6 +364,15 @@ export type Provenance = {
   artifact: { id: string; object_type: string; title: string; created_at: string };
   direct_inputs: Array<{ source_artifact_id: string; lineage_type: string }>;
   ancestors: Array<{ artifact_id: string; depth: number; object_type: string; title: string }>;
+  /*
+   * Whether the chain is derived, starts here, or was never written down.
+   * Decided by the domain, which owns the list of types that enter a project
+   * from outside — an interface deciding it needs its own copy of that list,
+   * and the copy that drifts is the one that starts calling a finding a
+   * source. Optional because an older server does not send it, and the screen
+   * says less rather than guessing.
+   */
+  origin?: "derived" | "uploaded" | "unrecorded";
 };
 
 // --- Phase 5: communication (§79) and citation integrity (§58) -------------

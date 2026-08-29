@@ -93,3 +93,71 @@ def test_provenance_chain_answers_how_was_this_made(cur, project):
     assert chain["artifact"]["id"] == analysis
     assert chain["direct_inputs"][0]["source_artifact_id"] == dataset
     assert chain["direct_inputs"][0]["lineage_type"] == "calculated_from"
+
+
+# ---------------------------------------------------------------------------
+# An empty chain is not one thing
+# ---------------------------------------------------------------------------
+#
+# The screen that reads a chain said "This is a source artifact — nothing was
+# derived to make it" whenever the ancestor list came back empty. An analysis
+# whose lineage edges were never written looks identical from there, so the
+# sentence reported the record as *complete* rather than *missing* — a
+# provenance claim with nothing behind it, in the flattering direction, on the
+# one screen whose whole job is not to flatter.
+#
+# The distinction is made here because the vocabulary lives here. An interface
+# deciding it needs its own copy of which object types enter a project from
+# outside, and the copy that drifts is the one that starts calling a finding a
+# source.
+
+
+def test_a_chain_with_ancestors_is_derived():
+    assert lineage.origin_of("analysis", 2) == "derived"
+
+
+def test_a_paper_with_no_ancestors_is_where_the_chain_starts():
+    # It came in from outside. Nothing made it inside the project, and saying
+    # so is a fact rather than an absence.
+    assert lineage.origin_of("paper", 0) == "uploaded"
+    assert lineage.origin_of("dataset", 0) == "uploaded"
+
+
+def test_a_derived_type_with_no_ancestors_is_unrecorded_not_a_source():
+    """
+    The defect this exists to end. An analysis is made from a dataset by
+    construction, so an empty chain under one means the derivation was never
+    written down — the opposite of "nothing was derived to make it".
+    """
+    assert lineage.origin_of("analysis", 0) == "unrecorded"
+    assert lineage.origin_of("finding", 0) == "unrecorded"
+    assert lineage.origin_of("visualization", 0) == "unrecorded"
+
+
+def test_an_unknown_type_is_not_assumed_to_be_a_source():
+    """
+    A type nobody has classified is not evidence that a chain is complete.
+    Defaulting the other way would recreate the original claim for every type
+    added later.
+    """
+    assert lineage.origin_of("something_new", 0) == "unrecorded"
+
+
+def test_the_provenance_payload_says_which_of_the_three_it_is(cur, project):
+    dataset = _obj(cur, project, "amr.csv", ObjectType.DATASET)
+    analysis = _obj(cur, project, "correlation", ObjectType.ANALYSIS,
+                    derived_from=[dataset], lineage_type=LineageType.CALCULATED_FROM)
+    orphan = _obj(cur, project, "an analysis nobody explained", ObjectType.ANALYSIS)
+
+    assert lineage.provenance_chain(cur, analysis)["origin"] == "derived"
+    assert lineage.provenance_chain(cur, dataset)["origin"] == "uploaded"
+    assert lineage.provenance_chain(cur, orphan)["origin"] == "unrecorded"
+
+
+def test_the_root_types_are_the_ones_that_enter_from_outside():
+    """
+    Pinned so that adding a type to this set is a deliberate act. Every member
+    is a claim that an artifact of that kind needs no explanation, and a wrong
+    member is a permanently unnoticed provenance hole.
+    """
+    assert {str(t) for t in lineage.ROOT_TYPES} == {"paper", "dataset"}

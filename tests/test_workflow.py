@@ -18,7 +18,7 @@ def test_idempotency_key_prevents_duplicate_runs(cur, project):
     assert cur.fetchone()["n"] == 1
 
 
-def test_claim_is_exclusive(cur, project):
+def test_claim_is_exclusive(empty_queue, cur, project):
     run_id = workflow.enqueue(cur, workflow_name="ingest", project_id=project)
     claimed = workflow.claim_next(cur, worker_id="worker-a")
     assert claimed["id"] == run_id
@@ -26,7 +26,7 @@ def test_claim_is_exclusive(cur, project):
     assert workflow.claim_next(cur, worker_id="worker-b") is None
 
 
-def test_expired_lease_is_reclaimed_after_a_worker_dies(cur, project):
+def test_expired_lease_is_reclaimed_after_a_worker_dies(empty_queue, cur, project):
     """§37 — state must survive a worker restart."""
     run_id = workflow.enqueue(cur, workflow_name="ingest", project_id=project)
     workflow.claim_next(cur, worker_id="worker-a", lease_seconds=60)
@@ -42,7 +42,7 @@ def test_expired_lease_is_reclaimed_after_a_worker_dies(cur, project):
     assert reclaimed["attempts"] == 2
 
 
-def test_heartbeat_only_extends_your_own_lease(cur, project):
+def test_heartbeat_only_extends_your_own_lease(empty_queue, cur, project):
     run_id = workflow.enqueue(cur, workflow_name="ingest", project_id=project)
     workflow.claim_next(cur, worker_id="worker-a")
     assert workflow.heartbeat(cur, run_id=run_id, worker_id="worker-a") is True
@@ -81,7 +81,7 @@ def test_approval_gate_halts_the_run_until_a_human_acts(cur, project):
     assert run["nodes"][0]["approved_by"] == "researcher"
 
 
-def test_retries_are_bounded_then_the_run_fails(cur, project):
+def test_retries_are_bounded_then_the_run_fails(empty_queue, cur, project):
     run_id = workflow.enqueue(cur, workflow_name="ingest", project_id=project, max_attempts=2)
     workflow.claim_next(cur, worker_id="w")
     assert workflow.reschedule(cur, run_id=run_id, delay_seconds=0, error="timeout") is True

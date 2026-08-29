@@ -52,7 +52,7 @@ def _run(run_id: str) -> dict[str, Any]:
         return workflow.get_run(cur, run_id)
 
 
-def test_worker_completes_a_queued_run(committed_project):
+def test_worker_completes_a_queued_run(empty_queue, committed_project):
     run_id = _enqueue(committed_project, "system.echo", payload={"hello": "world"})
     assert Worker(worker_id="w1").run_once() is True
 
@@ -61,7 +61,7 @@ def test_worker_completes_a_queued_run(committed_project):
     assert run["output"] == {"echo": {"hello": "world"}}
 
 
-def test_run_survives_a_worker_that_dies_mid_flight(committed_project):
+def test_run_survives_a_worker_that_dies_mid_flight(empty_queue, committed_project):
     """The decisive Phase 0 property: a killed worker loses no work."""
     crashed: list[str] = []
 

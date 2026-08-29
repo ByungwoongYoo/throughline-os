@@ -114,6 +114,35 @@ def cur():
 
 
 @pytest.fixture()
+def empty_queue():
+    """A workflow queue holding nothing but what the test puts in it.
+
+    `claim_next` and `Worker.run_once` take the next claimable run in the whole
+    table, not the next one belonging to the caller. Several tests assert that
+    what came back is the run they just enqueued — which is only true while
+    nothing else is queued, and nothing made that true. It held by accident of
+    declaration order: run the same files in a different order and a run
+    committed by an earlier file is claimed instead, so
+    `claimed["id"] == run_id` fails on a worker that is behaving correctly.
+
+    Found by running the suite with the file order shuffled: one seed failed
+    `test_worker_completes_a_queued_run`, another failed four tests in
+    `test_workflow.py`, and the default order passes every time.
+
+    Committed on its own connection, because the tests that need it most run a
+    real `Worker` in a separate connection that cannot see an open
+    transaction's deletes. This is the test database — `_empty_every_table`
+    above refuses to run anywhere else — and emptying a queue between tests is
+    what a session-scoped clean start already does once.
+    """
+    from throughline_domain.db import connection
+
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM workflow_runs")
+    yield
+
+
+@pytest.fixture()
 def project(cur) -> str:
     from throughline_domain.ids import new_id
 

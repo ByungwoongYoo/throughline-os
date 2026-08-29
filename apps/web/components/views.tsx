@@ -1286,9 +1286,52 @@ export function ProvenanceChain({ objectId }: { objectId: string }) {
           </li>
         ))}
       </ul>
-      {data.ancestors.length === 0 && (
-        <p className="note">This is a source artifact — nothing was derived to make it.</p>
-      )}
+      {data.ancestors.length === 0 && <EmptyChain origin={data.origin} />}
     </div>
+  );
+}
+
+/**
+ * What an empty chain means — which is not one thing.
+ *
+ * This said "This is a source artifact — nothing was derived to make it" for
+ * *any* empty ancestor list. An analysis whose lineage edges were never written
+ * looks exactly the same from here, and that sentence reports the record as
+ * complete rather than missing: it is a provenance claim the screen had no
+ * basis for, in the flattering direction, on the one screen whose whole job is
+ * not to flatter.
+ *
+ * The distinction comes from the server, which owns the list of object types
+ * that enter a project from outside.
+ */
+export function EmptyChain({ origin }: { origin?: string }) {
+  if (origin === "uploaded") {
+    return (
+      <p className="note">
+        The chain starts here — this came into the project from outside rather
+        than being made from something in it.
+      </p>
+    );
+  }
+  if (origin === "unrecorded") {
+    return (
+      <p className="notice" role="status">
+        {/*
+          A gap, and it reads as one. Something made this, and what made it was
+          not written down — so this is a question about the record, not an
+          answer about the artifact.
+        */}
+        Nothing is recorded as having made this. Something did: an artifact of
+        this kind is derived from something else, so the chain was not written
+        down rather than being empty.
+      </p>
+    );
+  }
+  // An older server sends no origin. Saying which of the two this is would be
+  // a guess, and guessing wrong is how the original sentence got here.
+  return (
+    <p className="note">
+      No derivation is recorded for this artifact.
+    </p>
   );
 }

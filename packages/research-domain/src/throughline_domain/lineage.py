@@ -11,13 +11,44 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Sequence
 
-from throughline_schemas.enums import LineageType
+from throughline_schemas.enums import LineageType, ObjectType
 
 from .ids import new_id
 
 
 class LineageError(RuntimeError):
     pass
+
+
+#: Object types that enter a project from outside rather than being made inside
+#: it. Everything else is derived from something, so an empty chain under any
+#: other type is a gap in the record and not a fact about the artifact.
+#:
+#: Declared here rather than in the interface. The screen that reads a chain
+#: used to assert "this is a source artifact — nothing was derived to make it"
+#: for *any* empty ancestor list, which is a provenance claim it had no basis
+#: for: an analysis whose lineage edges were never written looks identical, and
+#: the sentence reports the record as complete rather than missing. That is the
+#: flattering direction, in the one screen whose whole job is not to flatter.
+ROOT_TYPES = frozenset({ObjectType.PAPER, ObjectType.DATASET})
+
+
+def origin_of(object_type: str, ancestor_count: int) -> str:
+    """Whether a chain is derived, a root, or simply not recorded.
+
+    Three answers, because there are three cases and the last two look the same
+    from the ancestor list alone:
+
+    * ``derived`` — something was recorded as making this.
+    * ``uploaded`` — it is a paper or a dataset, so the chain legitimately
+      starts here.
+    * ``unrecorded`` — it is neither, and nothing explains it. The honest
+      reading is that the derivation was never written down, which a reader has
+      to be told rather than left to infer from an empty list.
+    """
+    if ancestor_count > 0:
+        return "derived"
+    return "uploaded" if object_type in ROOT_TYPES else "unrecorded"
 
 
 def add_edge(
@@ -161,8 +192,14 @@ def provenance_chain(cur, artifact_id: str) -> dict[str, Any]:
         """,
         (artifact_id,),
     )
+    direct_inputs = list(cur.fetchall())
+    chain = ancestors(cur, artifact_id)
     return {
         "artifact": node,
-        "direct_inputs": list(cur.fetchall()),
-        "ancestors": ancestors(cur, artifact_id),
+        "direct_inputs": direct_inputs,
+        "ancestors": chain,
+        # Said by the side that knows the vocabulary. An interface deciding
+        # this for itself needs its own copy of which types are roots, and the
+        # copy that drifts is the one that starts calling a finding a source.
+        "origin": origin_of(str(node["object_type"]), len(chain)),
     }
