@@ -67,3 +67,111 @@ def test_every_listed_model_says_where_it_runs():
     with patch("urllib.request.urlopen", return_value=_Response(payload)):
         for model in OllamaProvider().installed():
             assert "runs_here" in model
+
+
+# ---------------------------------------------------------------------------
+# What Ollama said, rather than a guess at why
+# ---------------------------------------------------------------------------
+
+
+class _HttpError(Exception):
+    """Enough of `urllib.error.HTTPError` to drive the message."""
+
+    def __init__(self, code: int, reason: str, body: bytes) -> None:
+        super().__init__(reason)
+        self.code = code
+        self.reason = reason
+        self._body = body
+
+    def read(self) -> bytes:
+        return self._body
+
+
+def test_a_refusal_is_reported_in_ollamas_words():
+    """
+    `HTTPError` subclasses `URLError`, so a response with a status code was
+    caught by the same branch as a dead socket and reported as "Ollama is not
+    reachable — start it with `ollama serve`". Pointing this installation at a
+    cloud model returned 402 and said exactly that, about a server that had
+    been running the whole time.
+    """
+    from throughline_model.ollama import _what_ollama_said
+
+    said = _what_ollama_said("glm-5.3-flash:cloud", _HttpError(
+        402, "Payment Required",
+        b'{"error":"this model requires a subscription, upgrade at '
+        b'https://ollama.com/upgrade"}'))
+
+    assert "402" in said
+    assert "requires a subscription" in said
+    assert "ollama.com/upgrade" in said
+    # And never the advice that sends somebody to fix the thing that is fine.
+    assert "ollama serve" not in said
+
+
+def test_a_cloud_refusal_says_where_the_account_lives():
+    # 402 on a local model is a different problem from 402 on a cloud one, and
+    # only the second is about an account somewhere else.
+    from throughline_model.ollama import _what_ollama_said
+
+    cloud = _what_ollama_said("glm-5.3-flash:cloud",
+                              _HttpError(402, "Payment Required", b"{}"))
+    local = _what_ollama_said("qwen2.5:7b-instruct",
+                              _HttpError(500, "Server Error", b"{}"))
+    assert "ollama.com" in cloud
+    assert "ollama.com" not in local
+
+
+def test_a_body_that_is_not_json_is_still_passed_on():
+    # Better the raw text than nothing: the point is the server's own words.
+    from throughline_model.ollama import _what_ollama_said
+
+    said = _what_ollama_said("mistral", _HttpError(503, "Unavailable",
+                                                   b"model is loading"))
+    assert "model is loading" in said
+
+
+def test_an_unreadable_body_still_names_the_status():
+    from throughline_model.ollama import _what_ollama_said
+
+    class _Unreadable(_HttpError):
+        def read(self):  # noqa: D102
+            raise OSError("connection reset")
+
+    said = _what_ollama_said("mistral", _Unreadable(500, "Server Error", b""))
+    assert "500" in said and "Server Error" in said
+
+
+def test_a_status_code_does_not_read_as_a_dead_server():
+    """
+    The routing, not just the wording.
+
+    Every test above calls the message directly, which proves nothing about
+    which branch an HTTP error lands in — and that was the bug: `HTTPError`
+    subclasses `URLError`, so a 402 was handled as a socket failure. Removing
+    the fix leaves these passing unless something drives the real path.
+    """
+    import io
+    import urllib.error
+    from unittest.mock import patch
+
+    from throughline_model.ollama import ModelUnavailable, OllamaProvider
+    from throughline_model.schemas import PlainSummary
+
+    refusal = urllib.error.HTTPError(
+        "http://127.0.0.1:11434/api/chat", 402, "Payment Required", {},
+        io.BytesIO(b'{"error":"this model requires a subscription"}'))
+
+    with patch("urllib.request.urlopen", side_effect=refusal):
+        try:
+            OllamaProvider(model="glm-5.3-flash:cloud").generate_structured(
+                schema=PlainSummary, instructions="hello",
+                prompt_name="p", prompt_version=1)
+        except ModelUnavailable as raised:
+            said = str(raised)
+        else:  # pragma: no cover - the call must not succeed
+            raise AssertionError("a 402 was not reported at all")
+
+    assert "402" in said
+    assert "requires a subscription" in said
+    assert "ollama serve" not in said

@@ -46,6 +46,39 @@ _FENCE_NOTE = (
 )
 
 
+def _what_ollama_said(model: str, exc: "urllib.error.HTTPError") -> str:
+    """
+    Report the answer Ollama gave, rather than guessing at the cause.
+
+    `HTTPError` is a subclass of `URLError`, so a response with a status code
+    was caught by the same branch as a dead socket and reported as *"Ollama is
+    not reachable — start it with `ollama serve`"*. That is false whenever the
+    server answered, and it is exactly what a cloud model produces: pointing
+    this installation at `glm-5.3-flash:cloud` returned **402 Payment
+    Required**, and the researcher was told to start a server that had been
+    running the whole time.
+
+    §104's rule is the server's own words, never "something went wrong". The
+    body carries them here — Ollama puts the reason in JSON — so it is read and
+    passed on.
+    """
+    try:
+        body = exc.read().decode("utf-8", "replace")[:400].strip()
+    except Exception:  # noqa: BLE001 — a body that cannot be read is not the story
+        body = ""
+    said = ""
+    if body:
+        try:
+            said = str(json.loads(body).get("error") or "").strip()
+        except Exception:  # noqa: BLE001 — not JSON, so the text itself will do
+            said = body
+    return (f"Ollama answered {exc.code} for {model!r}"
+            + (f": {said}" if said else f" ({exc.reason})")
+            + (". A `:cloud` model runs on ollama.com and needs an account "
+               "there with credit." if model.strip().lower().endswith(":cloud")
+               else ""))
+
+
 #: Ollama serves models that do not run on this machine.
 #:
 #: A model pulled with a `:cloud` tag is executed on ollama.com, and every
@@ -85,6 +118,12 @@ class OllamaProvider(ModelProvider):
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            # Ollama answered. Telling somebody to start a server that is
+            # already running sends them to fix the one thing that is not
+            # wrong — and this is the branch a cloud model lands in, where the
+            # answer is usually about the account rather than the machine.
+            raise ModelUnavailable(_what_ollama_said(self.model, exc)) from exc
         except urllib.error.URLError as exc:
             raise ModelUnavailable(
                 f"Ollama is not reachable at {self.host}. Start it with `ollama serve`. "
