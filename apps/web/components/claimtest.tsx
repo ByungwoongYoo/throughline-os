@@ -20,6 +20,15 @@ import { VerdictBody, VerdictCard } from "./Verdict";
 
 type Claim = {
   claim_id?: string;
+  /*
+   * Which model read it, and at which prompt version. Two readings of one
+   * paper can disagree — a different model, or the same model at a different
+   * prompt, locates different claims — and when they do the disagreement has
+   * to be attributable rather than argued about.
+   */
+  model?: string;
+  prompt_name?: string;
+  prompt_version?: number;
   statement: string;
   exposure: string;
   outcome: string;
@@ -62,11 +71,57 @@ export function ClaimTest({ projectId, sources }: {
   const [claim, setClaim] = useState<Claim | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  /** Whether what is on screen came from the record rather than a fresh read. */
+  const [fromRecord, setFromRecord] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
+  /**
+   * Show what this paper already says, reading it only if nobody has.
+   *
+   * Selecting a paper used to re-read it every time, which cost a model call
+   * per selection and — the part that matters — could quietly change the
+   * claims a comparison already rested on. `GET /sources/{id}/claims` exists
+   * for exactly this and had no caller: *"reading the record and re-reading
+   * the paper are different acts, and only one of them can change what every
+   * downstream comparison rests on."*
+   *
+   * A paper nobody has read is still read on selection: there is nothing to
+   * show, and reading it is plainly what the researcher meant by choosing it.
+   */
   async function locate(sourceId: string) {
     setPaper(sourceId);
     setLocated(null); setClaim(null); setResult(null); setError(null);
+    setFromRecord(false);
+    setBusy("Looking at what this paper already says");
+    try {
+      const stored = await api.get<{ source_id: string; claims: Claim[] }>(
+        `/api/sources/${sourceId}/claims?project_id=${projectId}`);
+      if (stored.claims.length > 0) {
+        const first = stored.claims[0];
+        setLocated({
+          source_title: papers.find((p) => p.id === sourceId)?.title ?? sourceId,
+          claims: stored.claims,
+          note: "Read once already. These are the claims that reading found.",
+          model: first.model ?? "",
+          prompt: first.prompt_name
+            ? `${first.prompt_name} v${first.prompt_version ?? "?"}`
+            : "",
+        });
+        setFromRecord(true);
+        return;
+      }
+    } catch {
+      // No record is the ordinary answer for a paper nobody has read. Fall
+      // through and read it, rather than reporting the absence as a failure.
+    } finally { setBusy(null); }
+
+    await read(sourceId);
+  }
+
+  /** Read the paper with a model. The act that can change what is recorded. */
+  async function read(sourceId: string) {
+    setError(null);
+    setFromRecord(false);
     setBusy("Reading the paper");
     try {
       setLocated(await api.post<Located>(
@@ -127,6 +182,27 @@ export function ClaimTest({ projectId, sources }: {
       {located && located.claims.length > 0 && (
         <section className="ct-claims">
           <h3 className="eyebrow">What this paper asserts</h3>
+
+          {fromRecord && (
+            /*
+             * Said before the claims, because it changes how they are read:
+             * these are a record of one reading, not a fresh opinion, and the
+             * model that produced them is part of what they are.
+             */
+            <p className="note">
+              Read once already{located.model ? ` by ${located.model}` : ""}
+              {located.prompt ? ` (${located.prompt})` : ""}. Reading it again
+              can locate different claims — a different model, or the same one
+              at a different prompt, does — and anything already tested against
+              these rested on this reading.{" "}
+              <button type="button" className="btn"
+                      disabled={busy !== null || !paper}
+                      onClick={() => void read(paper!)}>
+                Read it again
+              </button>
+            </p>
+          )}
+
           {located.claims.map((c, i) => (
             <article
               key={c.claim_id ?? i}

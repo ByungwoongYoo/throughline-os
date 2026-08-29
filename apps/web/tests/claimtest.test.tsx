@@ -11,8 +11,8 @@
  * whether the paper's words are ever paraphrased.
  */
 
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/api", () => ({
   api: { get: vi.fn(), post: vi.fn() },
@@ -102,5 +102,116 @@ describe("located claims", () => {
     screen.getByText("consumption_resistance.md").click();
 
     expect(await screen.findByText(/No testable claim found/)).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Reading the record before re-reading the paper
+//
+// Selecting a paper used to re-read it every time — a model call per
+// selection, and, the part that matters, a reading that can quietly change the
+// claims a comparison already rested on. `GET /sources/{id}/claims` exists for
+// exactly this and had no caller: "reading the record and re-reading the paper
+// are different acts, and only one of them can change what every downstream
+// comparison rests on."
+// ---------------------------------------------------------------------------
+
+const STORED_CLAIM = {
+  claim_id: "clm_1",
+  statement: "Higher consumption is associated with higher resistance.",
+  exposure: "consumption_ddd",
+  outcome: "resistance_pct",
+  direction: "positive",
+  claimed_design: "cross-sectional",
+  model: "claude-3",
+  prompt_name: "locate_claims",
+  prompt_version: 4,
+};
+
+async function pick() {
+  render(<ClaimTest projectId="prj" sources={[paper, dataset]} />);
+  const choice = await screen.findByText("consumption_resistance.md");
+  fireEvent.click(choice);
+}
+
+describe("what the paper already says", () => {
+  beforeEach(() => { vi.mocked(api.get).mockReset(); vi.mocked(api.post).mockReset(); });
+
+  it("shows the recorded claims without asking a model", async () => {
+    vi.mocked(api.get).mockResolvedValue(
+      { source_id: "src_paper", claims: [STORED_CLAIM] } as never);
+    await pick();
+
+    expect(await screen.findByText(/Higher consumption is associated/)).toBeTruthy();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it("names the model that read it, because two readings can disagree", async () => {
+    /*
+     * A different model, or the same one at a different prompt, locates
+     * different claims. When two readings disagree the difference has to be
+     * attributable rather than argued about.
+     */
+    vi.mocked(api.get).mockResolvedValue(
+      { source_id: "src_paper", claims: [STORED_CLAIM] } as never);
+    await pick();
+
+    // In the note about the record specifically: the model is shown elsewhere
+    // too, and matching either would not prove this reading was attributed.
+    const note = (await screen.findByText(/Read once already/)).closest("p")!;
+    expect(note.textContent).toContain("claude-3");
+    expect(note.textContent).toContain("locate_claims v4");
+  });
+
+  it("says what re-reading would cost, beside the button that does it", async () => {
+    // Not that it costs money — that anything already tested against these
+    // claims rested on this reading.
+    vi.mocked(api.get).mockResolvedValue(
+      { source_id: "src_paper", claims: [STORED_CLAIM] } as never);
+    await pick();
+
+    expect(await screen.findByText(/rested on this reading/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Read it again/ })).toBeTruthy();
+  });
+
+  it("re-reads only when asked", async () => {
+    vi.mocked(api.get).mockResolvedValue(
+      { source_id: "src_paper", claims: [STORED_CLAIM] } as never);
+    vi.mocked(api.post).mockResolvedValue(
+      { source_title: "p", claims: [STORED_CLAIM], note: "", model: "claude-3",
+        prompt: "locate_claims v4" } as never);
+    await pick();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Read it again/ }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+      "/api/sources/src_paper/claims?project_id=prj", {}));
+  });
+
+  it("reads a paper nobody has read, without making it a second step", async () => {
+    // There is nothing to show, and reading it is plainly what choosing it
+    // meant.
+    vi.mocked(api.get).mockResolvedValue(
+      { source_id: "src_paper", claims: [] } as never);
+    vi.mocked(api.post).mockResolvedValue(
+      { source_title: "p", claims: [STORED_CLAIM], note: "", model: "claude-3",
+        prompt: "locate_claims v4" } as never);
+    await pick();
+
+    await waitFor(() => expect(api.post).toHaveBeenCalled());
+    // And it is not then labelled as a record of an earlier reading.
+    expect(screen.queryByText(/Read once already/)).toBeNull();
+  });
+
+  it("reads the paper when there is no record to read", async () => {
+    // A 404 is the ordinary answer for a paper nobody has read, not a failure
+    // worth showing.
+    vi.mocked(api.get).mockRejectedValue(new Error("404"));
+    vi.mocked(api.post).mockResolvedValue(
+      { source_title: "p", claims: [STORED_CLAIM], note: "", model: "m",
+        prompt: "p v1" } as never);
+    await pick();
+
+    await waitFor(() => expect(api.post).toHaveBeenCalled());
+    expect(screen.queryByText(/could not/i)).toBeNull();
   });
 });
