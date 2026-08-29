@@ -107,11 +107,22 @@ export function Status({ value }: { value: string }) {
   return <span className={`status status-${value}`}>{value.replace(/_/g, " ")}</span>;
 }
 
-export function Stat({ label, value }: { label: string; value: number | string }) {
+export function Stat({ label, one, value }: {
+  label: string;
+  /**
+   * What to call it when there is exactly one.
+   *
+   * Optional because several of these count nothing — "evidence quality" and
+   * "version" are not quantities — but where it is given, one is never
+   * described in the plural.
+   */
+  one?: string;
+  value: number | string;
+}) {
   return (
     <div className="stat">
       <b>{value}</b>
-      <span>{label}</span>
+      <span>{value === 1 && one ? one : label}</span>
     </div>
   );
 }
@@ -123,11 +134,21 @@ export function Stat({ label, value }: { label: string; value: number | string }
  * are different facts and a scan of the strip should tell them apart without
  * reading. It is still the digit, never an absence.
  */
-export function Meter({ label, value }: { label: string; value: number }) {
+export function Meter({ label, one, value }: {
+  label: string;
+  /**
+   * The singular. Required rather than derived, because deriving it is wrong
+   * on the first label anybody tries: dropping the "s" from "Analyses" gives
+   * "Analyse". A project with one dataset read "1 Datasets" on the screen a
+   * researcher opens first.
+   */
+  one: string;
+  value: number;
+}) {
   return (
     <div className="meter" data-zero={value === 0}>
       <b>{value}</b>
-      <span>{label}</span>
+      <span>{value === 1 ? one : label}</span>
     </div>
   );
 }

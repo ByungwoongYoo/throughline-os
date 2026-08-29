@@ -35,6 +35,7 @@ of which model ran, presented as a property of the corpus.
 from __future__ import annotations
 
 from typing import Any
+from throughline_schemas.words import counted
 
 #: More than a researcher can read, and enough that the shape is real. Beyond
 #: this the SVD cost grows without the picture improving: a scatter of 20,000
@@ -101,7 +102,7 @@ def project(cur, project_id: str, *, limit: int = MAX_POINTS) -> dict[str, Any]:
 
     if len(rows) < MIN_POINTS:
         raise EmbeddingSpaceUnavailable(
-            f"This project has {len(rows)} embedded passage(s). At least "
+            f"This project has {counted(len(rows), 'embedded passage')}. At least "
             f"{MIN_POINTS} are needed before a projection means anything — "
             "below that the picture is a property of the arithmetic rather "
             "than of the corpus.")

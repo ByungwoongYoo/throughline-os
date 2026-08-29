@@ -2915,7 +2915,7 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 
 .pm { position: relative; display: inline-flex; }
 .pm-trigger {
-  display: inline-flex; align-items: center; gap: 8px;
+  display: inline-flex; align-items: center; gap: 8px; min-width: 0;
   padding: 4px 8px 4px 6px; border-radius: 5px;
   border: 1px solid transparent; background: transparent;
   font-size: 13px; font-weight: 600; color: var(--ink);
@@ -2925,7 +2925,26 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 }
 .pm-trigger:hover { background: var(--hover); border-color: var(--line); }
 .pm-trigger[aria-expanded="true"] { background: var(--hover); border-color: var(--line-strong); }
-.pm-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pm-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+           min-width: 0; }
+
+/*
+ * Let a crumb yield.
+ *
+ * `.crumbs` already sets `min-width: 0` on itself, which lets *it* shrink —
+ * but a flex item's own `min-width` defaults to `auto`, so its children still
+ * refuse to go below their content. The project menu is wrapped in a `.pm`
+ * div, and that wrapper was the item that would not give: at 549px the
+ * project name overflowed the crumb strip and rendered underneath the command
+ * bar, overlapping it by 22px.
+ *
+ * It has to be set at every level, and each one alone looks like the fix and
+ * is not: the wrapper is the flex item, so `.pm-trigger` alone changes
+ * nothing; freeing the wrapper alone lets it shrink to 96px while the trigger
+ * inside it stays 205px and overflows anyway. `.pm-name` carries the ellipsis
+ * that the shrinking finally makes use of.
+ */
+.crumbs > * { min-width: 0; }
 /* A live dot, not a logo: it says the workspace is connected and running. */
 .pm-dot {
   width: 7px; height: 7px; border-radius: 50%; flex: none;

@@ -243,7 +243,7 @@ def test_a_question_about_a_selection_tells_the_model_what_was_selected(
                 question="Why are these different?", author="usr_1",
                 selection=_selection())
 
-    assert "The researcher indicated 3 point(s)" in recorder.context
+    assert "The researcher indicated 3 points" in recorder.context
     assert "component 1" in recorder.context
 
 

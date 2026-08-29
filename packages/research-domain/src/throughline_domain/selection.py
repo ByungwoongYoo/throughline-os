@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import math
 from typing import Any
+from throughline_schemas.words import counted
 
 #: Enough for a dense region of a scatter, far short of a whole dataset.
 #: An unbounded selection is a prompt of unbounded size and cost, and a model
@@ -162,7 +163,7 @@ def describe(selection: dict[str, Any]) -> str:
 
     lines = [
         "Selection made in the interface:",
-        f"  The researcher indicated {summary['count']} point(s) in "
+        f"  The researcher indicated {counted(summary['count'], 'point')} in "
         f"{selection['visualization']}.",
         "  This is a set of points somebody pointed at on screen. It is not a "
         "cluster, a group, or a sample: nothing was fitted and no test was run, "

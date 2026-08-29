@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from throughline_schemas.words import counted
 from .verdicts import RunState, Verdict
 
 #: Hamming distance thresholds on a 64-bit perceptual hash.
@@ -374,7 +375,7 @@ def compare_many(images: list[dict[str, Any]]) -> dict[str, Any]:
             "comparisons": len(pairs),
             "flagged": len(flagged),
             "note": (f"{len(images)} images means {len(pairs)} comparisons. "
-                     f"{len(flagged)} pair(s) warrant a look. At this many "
+                     f"{counted(len(flagged), 'pair')} warrant a look. At this many "
                      "comparisons a single hit is not remarkable on its own — "
                      "it is a prompt to open both panels."),
         },

@@ -26,6 +26,7 @@ from throughline_visual.labels import LabelBook
 from throughline_visual.renderers import publication, web
 from throughline_visual.spec import ResearchVisualSpec, VisualData
 
+from throughline_schemas.words import plural
 from .analysis import get_run
 from .db import jsonb
 from .events import audit, emit
@@ -349,7 +350,7 @@ def apply_edit(
     unknown = sorted(set(changes) - _PRESENTATION_FIELDS)
     if unknown:
         raise VisualError(
-            f"Unknown or non-editable field(s): {', '.join(unknown)}. "
+            f"Unknown or non-editable {plural(len(unknown), 'field')}: {', '.join(unknown)}. "
             f"Editable: {', '.join(sorted(_PRESENTATION_FIELDS))}"
         )
 

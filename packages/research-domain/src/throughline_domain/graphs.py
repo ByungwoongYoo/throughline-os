@@ -13,6 +13,7 @@ here is bounded and expands from a focus node outward.
 from __future__ import annotations
 
 from typing import Any, Sequence
+from throughline_schemas.words import counted
 
 #:  — a hard ceiling, not a suggestion.
 MAX_NODES = 300
@@ -274,13 +275,13 @@ def _recommend(counts: dict[str, Any], findings: dict[str, int],
     if not counts["analyses"]:
         return "Run discovery on a dataset to generate candidate relationships."
     if connections.get("exploratory"):
-        return (f"{connections['exploratory']} exploratory connection(s) are awaiting "
+        return (f"{counted(connections['exploratory'], 'exploratory connection')} are awaiting "
                 "robustness validation. Supply candidate confounders and validate them.")
     if connections.get("validated") and not findings:
         return ("Validated connections exist but no findings have been recorded. "
                 "Turn the strongest into a finding with its evidence.")
     if findings.get("candidate"):
-        return f"{findings['candidate']} finding(s) still need evidence before promotion."
+        return f"{counted(findings['candidate'], 'finding')} still need evidence before promotion."
     if findings.get("validated"):
         return "Challenge the validated findings before communicating them."
     return "Review the project's contradictions and gaps."

@@ -18,6 +18,7 @@ from typing import Any, Sequence
 
 from throughline_schemas.enums import LineageType, ObjectType
 
+from throughline_schemas.words import plural
 from .events import audit, emit
 from .ids import new_id
 from .lineage import add_edge
@@ -199,7 +200,7 @@ def validate_spec(cur, *, project_id: str, spec: dict[str, Any]) -> dict[str, An
     unknown = [c for c in _referenced_columns(method, variables) if c not in known]
     if unknown:
         raise SpecInvalid(
-            f"Unknown column(s): {', '.join(unknown)}. "
+            f"Unknown {plural(len(unknown), 'column')}: {', '.join(unknown)}. "
             f"Available: {', '.join(sorted({v['name'] for v in known.values()}))}"
         )
 

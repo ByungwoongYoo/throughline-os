@@ -91,7 +91,7 @@ def test_statistics_are_computed_from_the_points_not_taken_from_the_caller():
     assert "1e+06" not in described and "1000000" not in described
     # x is 0, 1, 2 → mean 1.
     assert "mean 1," in described
-    assert "3 point(s)" in described
+    assert "3 points" in described
 
 
 def test_the_summary_reports_range_rather_than_spread():

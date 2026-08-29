@@ -40,6 +40,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from throughline_schemas.words import counted
 from .verdicts import Verdict
 
 #: Below this a published figure has been through too much compression for the
@@ -293,7 +294,7 @@ def digitise(*, path: str, calibration: Calibration,
             "These values were read from pixels, not measured. The error "
             "propagates into every statistic computed from them and is carried "
             "with the data rather than dropped.",
-        ] + ([f"{len(occluded)} marker(s) overlap another and were left out "
+        ] + ([f"{counted(len(occluded), 'marker')} overlap another and were left out "
               "rather than guessed at."] if occluded else [])
           + (["The uncertainty is large relative to the axis range, so the "
               "ordering of these points is usable and their magnitudes are "

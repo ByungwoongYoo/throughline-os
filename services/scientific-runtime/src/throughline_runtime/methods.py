@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
+from throughline_schemas.words import counted
 from .contract import (
     AssumptionCheck,
     EffectSize,
@@ -122,7 +123,7 @@ def _outliers(series: pd.Series, label: str) -> AssumptionCheck:
         outcome="passed" if count == 0 else "violated",
         description="Interquartile-range outlier scan",
         statistic=float(count),
-        detail=(f"{count} point(s) beyond 1.5×IQR. They are reported, not removed — "
+        detail=(f"{counted(count, 'point')} beyond 1.5×IQR. They are reported, not removed — "
                 "excluding them is a transformation and must be explicit."
                 if count else "No points beyond 1.5×IQR."),
         severity="informational",
@@ -223,7 +224,7 @@ def _correlation(frame: pd.DataFrame, spec: dict[str, Any], kind: str) -> Statis
 
     limitations = ["Correlation is association, not causation."]
     if dropped:
-        limitations.append(f"{dropped} row(s) dropped for missing values in either variable.")
+        limitations.append(f"{counted(dropped, 'row')} dropped for missing values in either variable.")
 
     result = StatisticalResult(
         method=f"{kind}_correlation",
@@ -279,7 +280,8 @@ def linear_regression(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalR
     dropped = len(frame) - len(numeric)
     if len(numeric) <= len(predictor_names) + 1:
         raise AnalysisError(
-            f"{len(numeric)} complete rows cannot fit {len(predictor_names)} predictor(s)."
+            f"{len(numeric)} complete rows cannot fit "
+            f"{counted(len(predictor_names), 'predictor')}."
         )
 
     y = numeric[outcome_name]
@@ -346,7 +348,7 @@ def linear_regression(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalR
     r_squared = float(model.rsquared)
     limitations = ["Regression coefficients are associations, not causal effects."]
     if dropped:
-        limitations.append(f"{dropped} row(s) dropped by listwise deletion.")
+        limitations.append(f"{counted(dropped, 'row')} dropped by listwise deletion.")
 
     return _finalise(StatisticalResult(
         method="linear_regression",

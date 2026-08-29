@@ -37,6 +37,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from throughline_schemas.words import counted
 from .ids import new_id
 
 #: The fields a comparison table can hold. Ordered as a reader scans them:
@@ -227,7 +228,7 @@ def stored(cur, source_id: str) -> dict[str, Any] | None:
     row["prompt"] = f"{row.pop('prompt_name')} v{row.pop('prompt_version')}"
     row["verification"] = (
         "Every field was checked against the paper's text when it was read."
-        + (f" {len(row['rejected'])} sentence(s) failed and were discarded."
+        + (f" {counted(len(row['rejected']), 'sentence')} failed and were discarded."
            if row["rejected"] else ""))
     return row
 

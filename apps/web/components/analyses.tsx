@@ -49,6 +49,44 @@ export function nameOf(run: AnalysisRunRow): string {
   return run.method.replace(/_/g, " ");
 }
 
+/**
+ * The one number a row shows, or where the run has got to.
+ *
+ * Keyed off whether there is a result, not off a status string: `analysis_runs`
+ * finishes as "completed" while `discovery_runs` finishes as "complete", so a
+ * component testing for one word is wrong about the other table.
+ *
+ * But "has a result" is not "has an estimate". An ANOVA, a Kruskal-Wallis and a
+ * chi-square produce no single point estimate — the domain stores `estimate` as
+ * null and `estimate_name` as an empty string — so a first version of this
+ * showed a *completed* ANOVA with a p-value of 0.81 as a status badge reading
+ * "completed", which reads as still working. Half the runs in a real project
+ * looked unfinished.
+ *
+ * So: the estimate when there is one, the p-value when there is not, and the
+ * status only when there is neither — which is what a queued or failed run
+ * actually is.
+ */
+export function Headline({ run }: { run: AnalysisRunRow }) {
+  if (run.estimate !== null) {
+    return (
+      <span className="numeric">
+        {/* `||`, not `??`: the name is stored as "" rather than null for a
+            method that does not name its estimate. */}
+        {run.estimate_name || "estimate"} <Num value={run.estimate} />
+      </span>
+    );
+  }
+  if (run.p_value !== null) {
+    return (
+      <span className="numeric">
+        p <Num value={run.p_value} />
+      </span>
+    );
+  }
+  return <Status value={run.status} />;
+}
+
 export function AnalysisList({ projectId, onSelect }: {
   projectId: string;
   onSelect: (id: string) => void;
@@ -96,19 +134,7 @@ export function AnalysisList({ projectId, onSelect }: {
           </div>
           <div className="row">
             <span className="note">{ORIGIN_NOTE[run.origin] ?? run.origin}</span>
-            {/*
-              Keyed off whether there is a number, not off a status string.
-              `analysis_runs` finishes as "completed" and `discovery_runs`
-              finishes as "complete" — two tables, two words — so a component
-              that tests for one of them is wrong about the other and silently
-              shows a status badge where a result belongs. A run with an
-              estimate has one; a run without says where it is instead.
-            */}
-            {run.estimate !== null ? (
-              <span className="numeric">
-                {run.estimate_name ?? "estimate"} <Num value={run.estimate} />
-              </span>
-            ) : <Status value={run.status} />}
+            <Headline run={run} />
           </div>
           {run.error && (
             /* Dropping failures would make the search look more successful

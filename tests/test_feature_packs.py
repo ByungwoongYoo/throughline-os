@@ -36,11 +36,26 @@ from throughline_domain import extras
 
 @pytest.fixture()
 def client():
-    """Local, like `test_api.py`'s — the API owns its own connections."""
+    """Local, like `test_api.py`'s — the API owns its own connections.
+
+    Signed in, because installing a pack now needs a session. It used to need
+    none: "localhost only" was taken as sufficient, in a docstring that went on
+    to observe that a page in the researcher's own browser satisfies exactly
+    that. Any tab could start a multi-gigabyte download.
+    """
     from throughline_api.app import app
+    from throughline_domain.db import connection
 
     with TestClient(app) as test_client:
+        status = test_client.get("/api/auth/status").json()
+        endpoint = "/api/auth/setup" if status["needs_setup"] else "/api/auth/login"
+        assert test_client.post(endpoint, json={
+            "email": "packs@lab.local", "display_name": "Packs",
+            "password": "correct-horse-battery"}).status_code == 200
         yield test_client
+
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM users WHERE email = %s", ("packs@lab.local",))
 
 ROOT = Path(__file__).resolve().parent.parent
 

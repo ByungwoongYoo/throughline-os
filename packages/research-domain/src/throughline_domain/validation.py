@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Sequence
 
+from throughline_schemas.words import counted
 from .analysis import create_run, create_spec, get_run
 from .ids import new_id
 
@@ -142,7 +143,7 @@ def validate_connection(
         outcome="passed" if not flagged else "noted",
         detail=("No influential points beyond 1.5×IQR."
                 if not flagged else
-                f"{len(flagged)} variable(s) contain outliers; the sensitivity check "
+                f"{counted(len(flagged), 'variable')} contain outliers; the sensitivity check "
                 "below re-runs the analysis without them."),
         evidence={"flagged": [c["name"] for c in flagged]},
     )

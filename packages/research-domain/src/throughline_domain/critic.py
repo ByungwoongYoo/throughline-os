@@ -59,7 +59,7 @@ def challenge_finding(
         "probe": "evidence_present",
         "outcome": "pass" if evidence["total"] else "fail",
         "detail": (f"{evidence['supports']} supporting, {evidence['contradicts']} "
-                   f"contradicting evidence item(s)."),
+                   f"contradicting evidence items."),
     })
 
     # --- Is it contradicted? -------------------------------------------------

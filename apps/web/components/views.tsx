@@ -114,12 +114,12 @@ export function Overview({ project, map, onGo }: {
         is the dashboard reflex this deliberately avoids.
       */}
       <div className="meters">
-        <Meter label="Sources" value={map.counts.sources} />
-        <Meter label="Datasets" value={map.counts.datasets} />
-        <Meter label="Analyses" value={map.counts.analyses} />
-        <Meter label="Connections" value={connections} />
-        <Meter label="Findings" value={findings} />
-        <Meter label="Contradictions" value={map.counts.contradictions} />
+        <Meter label="Sources" one="Source" value={map.counts.sources} />
+        <Meter label="Datasets" one="Dataset" value={map.counts.datasets} />
+        <Meter label="Analyses" one="Analysis" value={map.counts.analyses} />
+        <Meter label="Connections" one="Connection" value={connections} />
+        <Meter label="Findings" one="Finding" value={findings} />
+        <Meter label="Contradictions" one="Contradiction" value={map.counts.contradictions} />
       </div>
 
       <div className="card">
@@ -330,16 +330,16 @@ export function SourceDetail({ projectId, sourceId, onDiscover }: {
 
       {data.paper && (
         <div className="grid-2" style={{ marginBottom: 16 }}>
-          <Stat label="pages" value={data.paper.page_count} />
-          <Stat label="passages indexed" value={data.passage_count ?? 0} />
+          <Stat label="pages" one="page" value={data.paper.page_count} />
+          <Stat label="passages indexed" one="passage indexed" value={data.passage_count ?? 0} />
         </div>
       )}
 
       {data.dataset && (
         <>
           <div className="grid-2" style={{ marginBottom: 16 }}>
-            <Stat label="rows" value={data.dataset.row_count} />
-            <Stat label="columns" value={data.dataset.column_count} />
+            <Stat label="rows" one="row" value={data.dataset.row_count} />
+            <Stat label="columns" one="column" value={data.dataset.column_count} />
             <Stat label="version" value={data.dataset.version} />
           </div>
 

@@ -14,7 +14,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { AnalysisList, ORIGIN_NOTE, PlainReading, nameOf } from "@/components/analyses";
+import { AnalysisList, Headline, ORIGIN_NOTE, PlainReading, nameOf } from "@/components/analyses";
 import type { AnalysisRunRow } from "@/lib/api";
 import { ApiError, api } from "@/lib/api";
 
@@ -129,9 +129,49 @@ describe("what a row says about a run", () => {
       .toBe("kruskal wallis");
   });
 
+  it("shows the p-value of a method that produces no point estimate", async () => {
+    /*
+     * Found by looking at a real project: half its runs were ANOVAs, which
+     * store `estimate` as null and `estimate_name` as "". Keying the row off
+     * the estimate showed a *completed* ANOVA carrying p = 0.81 as a status
+     * badge reading "completed", which reads as still working.
+     */
+    serve([run({ method: "anova", estimate: null, estimate_name: "",
+                 p_value: 0.8076 })]);
+    render(<AnalysisList projectId="prj_1" onSelect={() => {}} />);
+
+    expect(await screen.findByText(/0\.80/)).toBeTruthy();
+    expect(screen.queryByText(/^completed$/)).toBeNull();
+  });
+
+  it("prefers the estimate when a method has one", () => {
+    const { container } = render(<Headline run={run()} />);
+    expect(container.textContent).toContain("r");
+    expect(container.textContent).toContain("0.81");
+  });
+
+  it("does not label an unnamed estimate with an empty string", () => {
+    // `estimate_name` is "" rather than null for a method that does not name
+    // its estimate, which `??` would happily render as nothing at all.
+    const { container } = render(
+      <Headline run={run({ estimate: 2.5, estimate_name: "" })} />);
+    expect(container.textContent).toContain("estimate");
+  });
+
+  it("shows where a run has got to only when it has no result at all", () => {
+    const { container } = render(
+      <Headline run={run({ status: "queued", estimate: null, p_value: null })} />);
+    expect(container.textContent).toMatch(/queued/);
+  });
+
   it("shows a status rather than an estimate while a run is still queued", async () => {
     // An absent estimate is not a zero one, and a zero estimate is a finding.
-    serve([run({ status: "queued", estimate: null, estimate_name: null })]);
+    //
+    // No p-value either: `list_runs` reads both out of the run's result, which
+    // is empty until it finishes, so a queued run carrying a p-value is a
+    // shape the server never produces.
+    serve([run({ status: "queued", estimate: null, estimate_name: null,
+                 p_value: null })]);
     render(<AnalysisList projectId="prj_1" onSelect={() => {}} />);
     await screen.findByText(/consumption × resistance/);
     expect(screen.getByText(/queued/)).toBeTruthy();

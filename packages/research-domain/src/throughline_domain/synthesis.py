@@ -33,6 +33,7 @@ import itertools
 from collections import defaultdict
 from typing import Any
 
+from throughline_schemas.words import counted
 from . import compare, extraction, reconcile
 from .verdicts import Family, Verdict, outcome
 
@@ -432,7 +433,7 @@ def dataset_matrix(cur, *, project_id: str,
             f"{compare.VERDICT_LABEL[ceiling].lower()}. Pooling this set is "
             "limited by that pair however well the others match — a chain is "
             "not as strong as its mean link."
-            + (f" {len(shared)} variable(s) are confirmed present in every "
+            + (f" {counted(len(shared), 'variable')} are confirmed present in every "
                "dataset." if shared else
                " No variable is confirmed present in all of them, so there is "
                "nothing yet that could be pooled.")),

@@ -28,6 +28,7 @@ import re
 from datetime import date
 from typing import Any
 
+from throughline_schemas.words import counted
 from .ids import new_id
 
 #: `[[Target]]` or `[[Target|shown text]]`, the vault convention. Nothing more
@@ -462,7 +463,7 @@ def lint(cur, project_id: str) -> dict[str, Any]:
             "note": row["first_mentioned_in"], "target": row["target"],
             "mentions": row["mentions"],
             "detail": (f"{row['target']!r} is linked from {row['mentions']} "
-                       "place(s) and has never been written."),
+                       "places and has never been written."),
             "why": "A link written before its page exists is how planning looks.",
             "do": f"Write {row['target']!r}, or reword the links if it is not needed.",
         })
@@ -535,7 +536,7 @@ def lint(cur, project_id: str) -> dict[str, Any]:
         "findings": findings,
         "by_kind": by_kind,
         "clean": not findings,
-        "note": (f"{len(findings)} thing(s) to look at across {total} notes. "
+        "note": (f"{counted(len(findings), 'thing')} to look at across {total} notes. "
                  "Nothing has been changed — a stale note may be right and the "
                  "new evidence wrong, and that is not a judgement this can make."
                  if findings else

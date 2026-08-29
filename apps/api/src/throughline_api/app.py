@@ -169,7 +169,8 @@ def scoped_project(project_id: str, user: dict[str, Any]) -> str:
 
 
 @app.post("/api/speech/transcribe")
-async def transcribe_speech(request: Request) -> dict[str, Any]:
+async def transcribe_speech(request: Request,
+                            user: dict = Depends(current_user)) -> dict[str, Any]:
     """Turn recorded audio into timed words, without it leaving the machine.
 
     The body is raw 16 kHz mono float32 — not a container — because the browser
@@ -183,8 +184,10 @@ async def transcribe_speech(request: Request) -> dict[str, Any]:
     shipped once, silently, and will not again. The caller knows when it started
     recording and does the addition.
 
-    Not authenticated, like the rest of the local surface: the API binds to
-    localhost and the whole product is one researcher on one machine.
+    **Signed in**, on the same reasoning as the feature packs: binding to
+    localhost keeps out the network but not the researcher's own browser, and
+    this one loads a speech model and runs it over whatever body arrives. The
+    cookie is `SameSite=strict`, so a cross-origin POST carries no session.
     """
     raw = await request.body()
     try:
@@ -2582,11 +2585,20 @@ def system_launchers() -> dict[str, Any]:
 
 
 @app.post("/api/system/launchers/desktop-entry", status_code=200)
-def install_desktop_entry() -> dict[str, Any]:
+def install_desktop_entry(user: dict = Depends(current_user)) -> dict[str, Any]:
     """Add Throughline to the Linux applications menu.
 
     A POST because it writes a file into the researcher's home directory —
     a small thing, but a thing they should ask for rather than have happen.
+
+    **Signed in, for the same reason.** This took no session and no body, so it
+    was reachable by any page in any tab: a cross-origin form POST needs no
+    preflight, and the side effect lands whether or not the response can be
+    read. `haptics/tap` states that argument in full and defends itself by
+    requiring JSON; this route made the same promise in its first paragraph and
+    kept none of it. The session cookie is `httpOnly` and `SameSite=strict`, so
+    requiring it is what turns "they should ask for it" into something the
+    server actually checks. Every caller is inside the workspace already.
 
     The bytes are written by `throughline_domain.launchers`, which
     `manage.py desktop-entry` also calls, so the button and the command cannot
@@ -2610,8 +2622,13 @@ def system_version() -> dict[str, Any]:
 
 
 @app.post("/api/system/version/check", status_code=200)
-def check_for_updates() -> dict[str, Any]:
+def check_for_updates(user: dict = Depends(current_user)) -> dict[str, Any]:
     """Ask the remote whether anything newer exists — only when asked.
+
+    Signed in, because "only when asked" has to mean asked *by the researcher*.
+    Without a session any page in any tab could make this installation reach
+    out, which is both an outbound request nobody chose and a signal that this
+    machine is running Throughline.
 
     A POST rather than a GET because it reaches the network and writes
     remote-tracking refs; it is an action a person takes, not a fact to be
@@ -2638,7 +2655,7 @@ def pack_state(name: str) -> dict[str, Any]:
 
 
 @app.post("/api/system/packs/{name}/install", status_code=202)
-def install_pack(name: str) -> dict[str, Any]:
+def install_pack(name: str, user: dict = Depends(current_user)) -> dict[str, Any]:
     """Turn a capability on, from the screen that reported it missing.
 
     **202 and not 200.** Some of these are gigabytes — `speech` pulls in torch —
@@ -2653,11 +2670,19 @@ def install_pack(name: str) -> dict[str, Any]:
     the same reasoning `connector-sdk/papers.py` applies to a URL it is asked to
     fetch.
 
-    Not authenticated, like the rest of the local surface: the API binds to
-    localhost and the product is one researcher on one machine. That is the
-    reason this is acceptable and also the reason the allowlist is not optional,
-    because "localhost only" is exactly what a page in the researcher's own
-    browser already satisfies.
+    **Signed in.** This used to say that binding to localhost made
+    authentication unnecessary — and then, in the same breath, that "localhost
+    only" is exactly what a page in the researcher's own browser already
+    satisfies. The second sentence refutes the first: any tab could POST here
+    and start a multi-gigabyte download (`speech` pulls in torch). The
+    allowlist bounds what can be installed, which is why this was survivable,
+    but it does not stop it being started. The session cookie is `httpOnly` and
+    `SameSite=strict` and so is never sent cross-origin, and the only caller is
+    the settings screen inside the workspace.
+
+    The allowlist stays exactly as it was. It defends against a different thing
+    — a path parameter reaching pip — and that argument did not depend on this
+    one.
     """
     if name not in extras.BY_NAME:
         raise HTTPException(status_code=404, detail=f"No feature pack {name!r}.")
