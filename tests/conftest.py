@@ -41,12 +41,57 @@ def _discard_a_half_initialised_cluster() -> None:
     )
 
 
+def _empty_every_table() -> None:
+    """
+    Start each session from an empty database, whatever the last one left.
+
+    Most tests run inside a transaction that is rolled back, but the ones that
+    exercise HTTP go through `TestClient` and commit real rows — and they tidy
+    up in fixtures that only run when a session ends gracefully. A run killed
+    part-way therefore leaves accounts, projects and analyses behind, and the
+    next run inherits them.
+
+    That is not hypothetical. A run interrupted mid-suite left rows that failed
+    six tests in the file that happened to sign in as the same address, and the
+    failures pointed at the tests rather than at the wreckage — the usual shape
+    of contaminated state.
+
+    **It refuses to run anywhere but the test database.** This truncates every
+    table there is, and the one mistake it must never make is doing that to a
+    researcher's project. `THROUGHLINE_HOME` is set to the temp directory at
+    import, above; if anything has changed it since, that is exactly the case
+    where deleting nothing and saying so is the only safe answer.
+    """
+    home = os.environ.get("THROUGHLINE_HOME", "")
+    if Path(home) != _TEST_HOME:
+        raise RuntimeError(
+            f"The tests are pointed at {home!r}, not the test database at "
+            f"{_TEST_HOME}. Refusing to empty it: this clears every table, and "
+            f"a real project directory is not something to guess about.")
+
+    from throughline_domain.db import transaction
+
+    with transaction() as cur:
+        cur.execute(
+            "SELECT tablename FROM pg_tables WHERE schemaname = 'public' "
+            "AND tablename <> 'schema_migrations'")
+        tables = [row["tablename"] for row in cur.fetchall()]
+        if not tables:
+            return
+        # One statement, so foreign keys never see a half-emptied database.
+        # `schema_migrations` is kept: emptying it would re-run every migration
+        # against a schema that already has them.
+        joined = ", ".join(f'"{name}"' for name in tables)
+        cur.execute(f"TRUNCATE {joined} RESTART IDENTITY CASCADE")
+
+
 @pytest.fixture(scope="session", autouse=True)
 def database() -> None:
     from throughline_domain.migrate import migrate
 
     _discard_a_half_initialised_cluster()
     migrate()
+    _empty_every_table()
     yield
     from throughline_domain.db import shutdown
 
