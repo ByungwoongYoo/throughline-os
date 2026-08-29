@@ -36,6 +36,7 @@ import { SpatialControl } from "./spatial/SpatialControl";
 import { VisualizationController } from "@/lib/spatial/commands";
 import { deviceFeedback } from "@/lib/spatial/feedback";
 import { Temporal, TemporalEvent } from "./charts/Temporal";
+import Link from "next/link";
 
 const CORPUS: TreeNode = {
   id: "root", label: "Corpus",
@@ -356,6 +357,19 @@ export function Gallery() {
         type is one of these with different arguments, which is why there are
         fourteen rather than a hundred — one motion language and one set of
         bugs instead of a hundred of each.
+      </p>
+      {/*
+        * Said here because the two catalogues now sit next to each other in
+        * the rail, and a reader meeting both has no way to tell what separates
+        * them: this one is the small set of renderers, that one is the long
+        * list of named charts each renderer can produce. Without the sentence
+        * they read as two galleries of the same thing.
+        */}
+      <p className="lede">
+        These are the renderers. The <Link href="/charts-3d">spatial
+        catalogue</Link> is the other end of the same subject — every named
+        chart this product knows, drawn by whichever of these primitives is
+        right for it.
       </p>
       <p className="gal-note">
         The data below is illustrative and is not a result. Two of these

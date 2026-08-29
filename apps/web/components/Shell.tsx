@@ -123,8 +123,20 @@ const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; 
  * this room, the other is where drawing in the air can be tried. Neither is a
  * step in a piece of research, and filing them between Findings and Reports
  * would say they were.
+ *
+ * The spatial catalogue was a third instance of the same defect, found by a
+ * guard that now walks from the landing page and reports anything nobody can
+ * click to. It belongs here on the same reasoning as the other two: it draws
+ * every catalogued chart against generated shapes so that "this renders" is
+ * checkable rather than asserted, and no project is involved. It is
+ * deliberately not filed beside Figures — the Figures screen chooses a chart
+ * from the shape of the data and says why, and a browsable catalogue sitting
+ * next to it would read as an alternative way of choosing, which is the habit
+ * §10 exists to discourage.
  */
 const MACHINE_PAGES: Array<{ href: string; label: string; note: string }> = [
+  { href: "/charts-3d", label: "Spatial charts",
+    note: "Every catalogued chart, drawn — and what each one cannot show" },
   { href: "/gesture-check", label: "Check hand tracking",
     note: "Does the camera see your hands, and how quickly" },
   { href: "/air-ink", label: "Draw in the air",

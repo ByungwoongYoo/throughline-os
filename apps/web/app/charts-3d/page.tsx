@@ -201,9 +201,13 @@ export default function Charts3DPage() {
           and motion parallax is what makes one legible.
         </p>
         <p>
-          <Link href="/">Back</Link> · <Link href="/gesture-check">
-            Check hand tracking on this machine
-          </Link>
+          {/* Back to the workspace, which is where a reader arrived from.
+              "/" is the page for somebody who does not have an account yet. */}
+          <Link href="/workspace">Back to the workspace</Link> ·{" "}
+          {/* The other half of the same subject: this page lists the named
+              charts, the gallery shows the renderers that draw them. */}
+          <Link href="/workspace">Chart primitives — the renderers behind these</Link>
+          {" "}· <Link href="/gesture-check">Check hand tracking on this machine</Link>
         </p>
       </header>
 
