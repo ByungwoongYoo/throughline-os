@@ -66,7 +66,17 @@ const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; 
       { id: "connections", label: "Connections", count: "connections" },
       { id: "findings", label: "Findings", count: "findings" },
       { id: "analyses", label: "Analyses", count: "analyses" },
-      { id: "graph", label: "Evidence graph" },
+      /*
+       * "Research graph", which is what the screen has always been titled and
+       * what it shows: every object in the project and how they relate.
+       *
+       * It was labelled "Evidence graph", which collided with a different
+       * screen that genuinely is one — the per-finding "why do we believe
+       * this", reached by opening a finding. Two surfaces answering different
+       * questions under one name, and the one in the rail was not the one the
+       * name described.
+       */
+      { id: "graph", label: "Research graph" },
       { id: "embedding", label: "Embedding space" },
     ],
   },

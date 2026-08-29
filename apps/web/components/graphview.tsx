@@ -107,6 +107,18 @@ export function GraphView({ projectId, onSelect }: {
         means similarity, size means how connected something is. Drag a node and the
         neighbourhood responds; double-click to pull in more.
       </p>
+      {/*
+        * Four surfaces in this product are graph-shaped, and each answers a
+        * different question. Saying which costs a line here and saves a
+        * researcher opening all four to find out — the same problem the two
+        * chart catalogues had when they sat next to each other unexplained.
+        */}
+      <p className="note">
+        This one is the whole project. To ask why a finding is believed, open
+        the finding — its evidence graph walks back to the analyses and sources
+        under it. For passages grouped by meaning rather than by link, use the
+        embedding space; for your own writing, the notebook&rsquo;s graph.
+      </p>
 
       <div className="kg-with-panel" data-open={journalOn !== null}>
         <div className="kg-canvas-slot">
