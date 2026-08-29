@@ -40,6 +40,7 @@ import { extent } from "d3-array";
 import { scaleLinear } from "d3-scale";
 import { interpolateYlGnBu } from "d3-scale-chromatic";
 import { ChartTable } from "./ChartTable";
+import { ChartTooltip, Pointer, readable } from "./interaction";
 
 export type Point3D = {
   /** Stable identity. */
@@ -133,6 +134,28 @@ export function Volume({
   const visibleRef = useRef(true);
   const hoveredRef = useRef<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+
+  /**
+   * Which mark is being read, and where to put the readout.
+   *
+   * The chart could already hit-test, highlight and select; what it could not
+   * do was *say what it had hit*. Every other primitive answers that with
+   * `ChartTooltip`, and this is the chart where it matters most: the docstring
+   * above is explicit that a projected position is ambiguous without motion,
+   * so identity is the one thing a reader cannot recover by looking harder.
+   * Highlighting a dot and naming nothing asks them to guess.
+   *
+   * State, where the hover highlight is a ref, and deliberately so: the ref
+   * exists to keep the draw loop off React's render path, and text cannot be
+   * drawn from a ref. The cost is paid only while a mark is under the pointer
+   * — moving across empty space sets nothing, which is the common case and the
+   * one the frame budget cares about.
+   */
+  const [readout, setReadout] = useState<{ id: string; at: Pointer } | null>(null);
+  // Mirrored so the pointer handler can ask "is there one already?" without
+  // clearing it on every move across empty space.
+  const readoutRef = useRef<{ id: string; at: Pointer } | null>(null);
+  readoutRef.current = readout;
   /*
    * The draw loop reads the selection through a ref, not the state.
    *
@@ -655,6 +678,15 @@ export function Volume({
               hoveredRef.current = target?.id ?? null;
               dirtyRef.current = true;
             }
+            // Tracked only while a mark is under the pointer. Following the
+            // cursor across empty space would re-render on every move to
+            // reposition something nobody is looking at.
+            if (target) {
+              setReadout({ id: target.id,
+                           at: { x: event.clientX, y: event.clientY } });
+            } else if (readoutRef.current) {
+              setReadout(null);
+            }
             return;
           }
           rotate(event.clientX - from.x, event.clientY - from.y);
@@ -665,6 +697,7 @@ export function Volume({
             hoveredRef.current = null;
             dirtyRef.current = true;
           }
+          setReadout(null);
         }}
         onPointerUp={(event) => {
           const press = pressRef.current;
@@ -747,9 +780,22 @@ export function Volume({
               setSelected(target?.id ?? null);
               if (target) onDetent?.("select");
               onSelect?.(target);
+              /*
+               * The same readout the pointer gets, over the crosshair rather
+               * than over a cursor that is not there. Without this, aiming and
+               * pressing selects a mark and says nothing about it — which is
+               * the failure this readout exists to fix, reintroduced for
+               * exactly the readers who cannot use a mouse.
+               */
+              const box = event.currentTarget.getBoundingClientRect();
+              setReadout(target
+                ? { id: target.id,
+                    at: { x: box.left + centre.x, y: box.top + centre.y } }
+                : null);
             }
           } else if (event.key === "Escape") {
             setSelected(null);
+            setReadout(null);
             regionRef.current = null;
             dirtyRef.current = true;
             onSelect?.(null);
@@ -798,6 +844,16 @@ export function Volume({
         will answer it more accurately than this will.
       </figcaption>
 
+      {/*
+        * What is under the pointer, as text.
+        *
+        * Positioned in viewport coordinates and pointer-events:none, so it
+        * never sits between the cursor and the mark it names.
+        */}
+      <VolumeReadout
+        readout={readout} points={points}
+        xLabel={xLabel} yLabel={yLabel} zLabel={zLabel} valueLabel={valueLabel} />
+
       <ChartTable
         columns={tableColumns}
         rows={tableRows}
@@ -808,3 +864,53 @@ export function Volume({
 }
 
 
+
+
+/**
+ * The values of the mark being read.
+ *
+ * Split out and exported so the choice of *which* numbers a reader is shown can
+ * be tested without a canvas, a projection or a pointer — happy-dom lays
+ * nothing out and paints nothing, so a hit-test cannot be driven here, but what
+ * the readout says is the part that carries meaning.
+ */
+export function volumeRows(
+  point: Point3D,
+  labels: { x: string; y: string; z: string; value?: string },
+): Array<{ label: string; value: string }> {
+  return [
+    { label: labels.x, value: readable(point.x) },
+    { label: labels.y, value: readable(point.y) },
+    { label: labels.z, value: readable(point.z) },
+    // Only when the chart encodes one. A "Value —" row on a chart with no
+    // value channel invents a variable the reader does not have.
+    ...(labels.value !== undefined && point.value !== undefined
+      ? [{ label: labels.value, value: readable(point.value) }]
+      : []),
+  ];
+}
+
+function VolumeReadout({ readout, points, xLabel, yLabel, zLabel, valueLabel }: {
+  readout: { id: string; at: Pointer } | null;
+  points: Point3D[];
+  xLabel: string;
+  yLabel: string;
+  zLabel: string;
+  valueLabel?: string;
+}) {
+  if (!readout) return null;
+  const point = points.find((p) => p.id === readout.id);
+  // A mark that has gone — the data changed under a held pointer — is not a
+  // mark to describe. An empty tooltip pinned to the cursor would be worse
+  // than none.
+  if (!point) return null;
+
+  return (
+    <ChartTooltip
+      pointer={readout.at}
+      title={point.label}
+      rows={volumeRows(point, { x: xLabel, y: yLabel, z: zLabel,
+                                value: valueLabel })}
+    />
+  );
+}

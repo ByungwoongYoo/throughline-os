@@ -21,6 +21,31 @@ vi.mock("@/lib/api", () => ({
 import { ClaimTest } from "@/components/claimtest";
 import { api } from "@/lib/api";
 
+/*
+ * Reset before every test in this file, not only inside one block.
+ *
+ * The mocks here are module-level and some are set with `mockResolvedValue`
+ * rather than `mockResolvedValueOnce`, so they persist until something clears
+ * them. Only the third block cleared them, and only before its own tests — so
+ * these tests passed because of the order they are written in.
+ *
+ * The failure that hides behind that is specific rather than cosmetic. The
+ * stored-claims block mocks `api.get` to return a recorded reading; with that
+ * mock still installed, the "located claims" tests take the *read the record*
+ * path instead of the *re-read the paper* path, render the stored claim, and
+ * never post at all. Those are two different acts — the whole point of the
+ * block below — so a test that silently exercises the wrong one is worse than
+ * a failing one.
+ *
+ * Reproduced with `--sequence.shuffle.tests --sequence.seed=3`: three failures,
+ * all in "located claims", every one of them the stored reading appearing
+ * where the fresh one belonged.
+ */
+beforeEach(() => {
+  vi.mocked(api.get).mockReset();
+  vi.mocked(api.post).mockReset();
+});
+
 const paper = {
   id: "src_paper", title: "consumption_resistance.md",
   ingestion_status: "ready", dataset: null,
@@ -135,8 +160,6 @@ async function pick() {
 }
 
 describe("what the paper already says", () => {
-  beforeEach(() => { vi.mocked(api.get).mockReset(); vi.mocked(api.post).mockReset(); });
-
   it("shows the recorded claims without asking a model", async () => {
     vi.mocked(api.get).mockResolvedValue(
       { source_id: "src_paper", claims: [STORED_CLAIM] } as never);
