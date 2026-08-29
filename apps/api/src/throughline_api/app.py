@@ -19,7 +19,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from throughline_domain import (
     analysis, auth, claim_test, compare, consistency, critic, discovery,
-    embeddings, events, example, extraction, findings, graph_projection, graphs,
+    embeddings, events, example, exploration, extraction, findings,
+    graph_projection, graphs,
     harmonize, images, interpret, journal, lineage, notebook, objects, observability,
     authoring, board, citations, communication, embedding_space, excerpts, extras,
     haptics,
@@ -2488,6 +2489,13 @@ def capabilities() -> dict[str, Any]:
         "analysis": {
             "sandbox": True,
             "methods": sorted(analysis.SUPPORTED_METHODS),
+            # Which variables each method needs, so an interface can ask for
+            # them without keeping its own copy of this map. "variables" means
+            # something different for a correlation and a regression, and a
+            # second copy in the client is a second thing to keep in step —
+            # the one place that does copy such a map needed a test to stop
+            # the two drifting.
+            "method_variables": analysis.method_variables(),
             # the honest limits of a desktop process sandbox, stored with
             # every run and surfaced here rather than glossed over.
             "isolation": sandbox_policy_report(),
@@ -2696,6 +2704,16 @@ class AnalysisSpecRequest(BaseModel):
     confidence_level: float = Field(default=0.95, gt=0, lt=1)
     parameters: dict[str, Any] = Field(default_factory=dict)
     random_seed: int = 0
+    #: The look this analysis constitutes belongs to a session, so that a
+    #: researcher who sweeps, then specifies two analyses, is corrected across
+    #: all of it rather than across each verb separately. Absent means the run
+    #: stands alone, which is what a script gets.
+    session_id: str | None = None
+    #: Which registered hypothesis this analysis tests, if any. Verified rather
+    #: than believed: `exploration.record` checks that the registration came
+    #: first, is unedited, and — because a spec is named here — that the
+    #: analysis about to run is the analysis that was registered.
+    preregistration_id: str | None = None
 
 
 class ForkRequest(BaseModel):
@@ -2724,8 +2742,55 @@ def create_analysis(project_id: str, payload: AnalysisSpecRequest,
             # the same spec queued twice runs once.
             idempotency_key=f"analysis:{run_id}",
         )
+        """
+        Counted now, before the number exists.
+
+        This is the only honest moment. A look recorded after the result is a
+        look the researcher could decline to record once they had seen it, and
+        the family would then contain exactly the tests that worked. The
+        specification is complete here and the sandbox has not run, so nothing
+        about the outcome can influence whether it counts.
+
+        The same ordering is what makes a claimed registration checkable. The
+        exemption asks whether the registration came first and whether the
+        analysis about to run is the one registered — both are questions about
+        the spec, and both are answerable now.
+        """
+        look = exploration.record(
+            cur, session_id=payload.session_id or run_id,
+            project_id=project_id, verb="analysis",
+            description=f"{payload.method}: "
+                        + ", ".join(f"{role}={value}"
+                                    for role, value in sorted(payload.variables.items())),
+            # There is no p-value yet. A look with nothing to correct is still a
+            # look, and the ledger already handles that for a refused comparison.
+            p_value=None,
+            preregistration_id=payload.preregistration_id,
+            spec_id=created["spec_id"],
+        )
+    recorded = look.get("recorded", {})
     return {"analysis_run_id": run_id, "spec_id": created["spec_id"],
-            "spec_content_hash": created["content_hash"], "status": "queued"}
+            "spec_content_hash": created["content_hash"], "status": "queued",
+            # §104: the server's own words about what this run counts as.
+            # Restating the rule in the interface would let the two disagree,
+            # and the interesting cases are the ones where the exemption was
+            # claimed and refused.
+            "confirmatory": recorded.get("confirmatory", False),
+            "standing": recorded.get("why"),
+            # How many looks this session now carries. The reason a researcher
+            # wants it beside the run they just queued is that it is the number
+            # this result will be corrected against.
+            "looks_this_session": look.get("looks"),
+            "session_note": look.get("note")}
+
+
+@app.get("/api/projects/{project_id}/analyses")
+def list_analyses(project_id: str, limit: int = 200,
+                  user: dict = Depends(current_user)) -> list[dict[str, Any]]:
+    """Every analysis run in the project, whatever produced it."""
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        return analysis.list_runs(cur, project_id, limit=min(max(limit, 1), 500))
 
 
 @app.get("/api/analyses/{run_id}")

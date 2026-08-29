@@ -6,7 +6,7 @@ import {
   ArtifactSummary, Capabilities, Connection, DiscoveryMap, Finding, Project, Source, api,
 } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
-import { Centered, Empty, Failure, Loading } from "@/components/primitives";
+import { Centered, Failure, Loading } from "@/components/primitives";
 import { Crumb, SECTIONS, Section, Shell } from "@/components/Shell";
 import { CommandPalette, buildCommands } from "@/components/CommandPalette";
 import {
@@ -40,6 +40,7 @@ import { ForkLineage } from "@/components/forklineage";
 import { FindingStanding } from "@/components/lifecycle";
 import { Journal } from "@/components/journal";
 import { Variables } from "@/components/variables";
+import { AnalysisList } from "@/components/analyses";
 import { sessionId } from "@/lib/session";
 
 type AuthStatus = { needs_setup: boolean; authenticated: boolean; user: { display_name: string } | null };
@@ -563,33 +564,6 @@ function ConnectionList({ projectId, onSelect }: { projectId: string; onSelect: 
         Every candidate that was tested, with its corrected q-value and lifecycle state.
       </p>
       <ConnectionsTable connections={data} error={error} loading={loading} reload={reload} onSelect={onSelect} />
-    </>
-  );
-}
-
-function AnalysisList({ projectId, onSelect }: { projectId: string; onSelect: (id: string) => void }) {
-  const { data, error, loading, reload } = useApi<Connection[]>(`/api/projects/${projectId}/connections?limit=200`);
-  const runs = (data ?? []).flatMap((c) =>
-    c.analysis_run_id ? [{ ...c, analysis_run_id: c.analysis_run_id }] : []);
-  if (error) return <Failure error={error} retry={reload} />;
-  if (loading) return <Loading rows={4} label="Reading analyses" />;
-  return (
-    <>
-      <h1>Analyses</h1>
-      <p className="lede">
-        Every number here came from a recorded run in the sandbox, reproducible from its
-        stored specification.
-      </p>
-      {runs.length === 0 && <Empty title="No analyses yet" hint="Run discovery to generate them." />}
-      {runs.map((c) => (
-        <div className="card card-tight" key={c.analysis_run_id}
-             style={{ cursor: "pointer" }} onClick={() => onSelect(c.analysis_run_id)}>
-          <div className="row">
-            <span style={{ fontWeight: 530 }}>{c.left_variable} × {c.right_variable}</span>
-            <span className="mono" style={{ color: "var(--ink-faint)" }}>{c.method}</span>
-          </div>
-        </div>
-      ))}
     </>
   );
 }

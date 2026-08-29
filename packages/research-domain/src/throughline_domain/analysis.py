@@ -46,6 +46,27 @@ METHOD_VARIABLES: dict[str, tuple[str, ...]] = {
     "kruskal_wallis": ("value", "group"),
 }
 
+# Roles that name several columns rather than one. `methods.py` reads exactly
+# these two with `list(...)` and every other role as a single name, so an
+# interface offering one box where the executor wants many produces a spec that
+# validates and then fails in the sandbox. Declared here so the interface can be
+# told rather than have to know.
+MULTI_COLUMN_ROLES = frozenset({"columns", "predictors"})
+
+
+def method_variables() -> dict[str, list[dict[str, str]]]:
+    """Each method's variables, and whether each takes one column or several."""
+    return {
+        method: [
+            {"role": role,
+             "takes": "many" if role in MULTI_COLUMN_ROLES else "one"}
+            for role in roles
+        ]
+        for method, roles in sorted(METHOD_VARIABLES.items())
+        if method in SUPPORTED_METHODS
+    }
+
+
 FILTER_OPERATORS = frozenset({"gt", "gte", "lt", "lte", "eq", "ne", "in", "not_null"})
 
 
@@ -393,6 +414,57 @@ def get_run(cur, run_id: str) -> dict[str, Any] | None:
     )
     run["assumption_checks"] = list(cur.fetchall())
     return run
+
+
+def list_runs(cur, project_id: str, limit: int = 200) -> list[dict[str, Any]]:
+    """Every analysis run in a project, newest first.
+
+    The interface listed analyses by reading `connections` and keeping the ones
+    that carried an `analysis_run_id`. That is a list of *discovery's* runs, not
+    of the project's: a run specified by hand belongs to no connection, so it
+    would have been queued, executed, recorded — and never shown. The list has
+    to come from `analysis_runs` for a run to be able to appear in it.
+
+    `origin` is carried because the difference matters when reading. A run that
+    came out of a sweep was corrected inside a family of tests; one a researcher
+    specified stands alone, and one is a fork of another. Reporting all three as
+    an undifferentiated list of numbers would flatten exactly the distinction
+    §47 turns on.
+    """
+    cur.execute(
+        """
+        SELECT r.id, r.status, r.error, r.created_at, r.finished_at,
+               r.forked_from_run_id, r.fork_reason, r.result,
+               s.method, s.variables, s.research_question,
+               c.id AS connection_id, c.left_variable, c.right_variable
+        FROM analysis_runs r
+        JOIN analysis_specs s ON s.id = r.spec_id
+        LEFT JOIN connections c ON c.analysis_run_id = r.id
+        WHERE r.project_id = %s
+        ORDER BY r.created_at DESC, r.id DESC
+        LIMIT %s
+        """,
+        (project_id, limit),
+    )
+    runs = []
+    for row in cur.fetchall():
+        row = dict(row)
+        if row["forked_from_run_id"]:
+            row["origin"] = "fork"
+        elif row["connection_id"]:
+            row["origin"] = "discovery"
+        else:
+            row["origin"] = "specified"
+        result = row.pop("result", None) or {}
+        # Enough to read the row without a second request per run, and no more:
+        # the full result belongs to the detail screen, which shows it beside
+        # the assumption checks that qualify it.
+        row["estimate"] = result.get("estimate")
+        row["estimate_name"] = result.get("estimate_name")
+        row["p_value"] = result.get("p_value")
+        row["sample_size"] = result.get("sample_size")
+        runs.append(row)
+    return runs
 
 
 def compare_runs(cur, run_ids: Sequence[str]) -> dict[str, Any]:

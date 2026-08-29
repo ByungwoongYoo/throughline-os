@@ -193,7 +193,19 @@ export type DiscoveryMap = {
 
 export type Capabilities = {
   retrieval: { lexical: boolean; semantic: boolean; model: string | null; note: string | null };
-  analysis: { sandbox: boolean; methods: string[]; isolation: Record<string, unknown> };
+  analysis: {
+    sandbox: boolean;
+    methods: string[];
+    /*
+     * Which variables each method needs, and whether each takes one column or
+     * several. Served rather than held here: the domain owns the map, and a
+     * copy in the client is a second thing to keep in step. Optional because
+     * an older server does not send it, and a form is better off saying it
+     * cannot ask than guessing the shape.
+     */
+    method_variables?: Record<string, Array<{ role: string; takes: "one" | "many" }>>;
+    isolation: Record<string, unknown>;
+  };
   llm: { configured: boolean; note: string };
 };
 
@@ -286,6 +298,32 @@ export type ValidationReport = {
  * recorded as "confounder not tested", which reads on the report as though the
  * adjustment was considered and skipped.
  */
+/**
+ * A row in the project's list of analysis runs.
+ *
+ * `origin` matters when reading. A run that came out of a sweep was corrected
+ * inside a family of tests; one a researcher specified stands alone; a fork is
+ * a variant of another rather than an independent look.
+ */
+export type AnalysisRunRow = {
+  id: string;
+  status: string;
+  error: string | null;
+  created_at: string;
+  origin: "discovery" | "specified" | "fork";
+  method: string;
+  variables: Record<string, unknown>;
+  research_question: string;
+  fork_reason: string;
+  forked_from_run_id: string | null;
+  left_variable: string | null;
+  right_variable: string | null;
+  estimate: number | null;
+  estimate_name: string | null;
+  p_value: number | null;
+  sample_size: number | null;
+};
+
 export type DatasetColumn = {
   ordinal: number;
   name: string;

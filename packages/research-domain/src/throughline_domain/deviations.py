@@ -113,6 +113,78 @@ def _same_variable(left: str | None, right: str | None,
     return a == b
 
 
+#: Methods whose two quantities are interchangeable. A correlation between
+#: consumption and resistance is the same analysis as one between resistance and
+#: consumption, so calling a swap a deviation would report a difference that
+#: does not exist.
+_SYMMETRIC = frozenset({"pearson_correlation", "spearman_correlation",
+                        "bootstrap_correlation", "chi_square"})
+
+#: Which variable plays the exposure and which the outcome, per method. A
+#: registration is written in a researcher's vocabulary — exposure, outcome,
+#: covariates — and a specification is written in the executor's, which differs
+#: per method. This is the translation between them.
+_QUANTITIES: dict[str, tuple[str, str]] = {
+    "pearson_correlation": ("x", "y"),
+    "spearman_correlation": ("x", "y"),
+    "bootstrap_correlation": ("x", "y"),
+    "chi_square": ("x", "y"),
+    "linear_regression": ("predictors", "outcome"),
+    "t_test": ("group", "value"),
+    "mann_whitney": ("group", "value"),
+    "anova": ("group", "value"),
+    "kruskal_wallis": ("group", "value"),
+}
+
+
+def roles_of(method: str, variables: dict[str, Any]) -> dict[str, Any]:
+    """A specification's variables, in the vocabulary a registration uses.
+
+    This translation was missing, and its absence was invisible. `compare` read
+    `variables["exposure"]` and `variables["covariates"]` — keys that **no
+    method produces**. A regression records `outcome` and `predictors`; a
+    correlation records `x` and `y`. So every field came back as "the analysis
+    does not record an exposure", and a registration naming covariates reported
+    all of them dropped: a guaranteed false deviation, on the one method where
+    adjustment is possible at all.
+
+    Nothing had ever fed a specification to this comparison, which is why a
+    check that could only fail had never failed.
+
+    In a regression the first predictor is the exposure and the rest are the
+    adjustment — the same convention `specification.curve` uses when it walks
+    covariate sets, and the one the interface states when it asks for them.
+
+    `covariates` is `[]` rather than `None` for a method that cannot adjust.
+    That is not missing information: a correlation adjusts for nothing, and a
+    registration promising adjustment has genuinely departed from its plan by
+    running one.
+    """
+    exposure_role, outcome_role = _QUANTITIES.get(method, ("", ""))
+    outcome = variables.get(outcome_role) if outcome_role else None
+
+    if exposure_role == "predictors":
+        predictors = [str(p) for p in (variables.get("predictors") or [])]
+        exposure = predictors[0] if predictors else None
+        covariates: list[str] | None = predictors[1:]
+    elif exposure_role:
+        exposure = variables.get(exposure_role)
+        covariates = []
+    else:
+        # `descriptive` — and any method added without a mapping. Saying
+        # nothing is right: an unmapped method is not evidence of a deviation,
+        # and guessing would manufacture one.
+        return {"exposure": None, "outcome": None, "covariates": None,
+                "symmetric": False}
+
+    return {
+        "exposure": str(exposure) if isinstance(exposure, str) else exposure,
+        "outcome": str(outcome) if isinstance(outcome, str) else outcome,
+        "covariates": covariates,
+        "symmetric": method in _SYMMETRIC,
+    }
+
+
 def compare(cur, *, registration_id: str, spec_id: str) -> dict[str, Any]:
     """
     One registration against one executed analysis.
@@ -151,10 +223,25 @@ def compare(cur, *, registration_id: str, spec_id: str) -> dict[str, Any]:
                          "executed": executed, "state": state,
                          "detail": detail})
 
+    roles = roles_of(spec["method"], variables)
+
     # --- the quantities ----------------------------------------------------
+    #
+    # A symmetric method makes the pair unordered: a correlation of consumption
+    # against resistance is the same analysis either way round, and reporting a
+    # swap as a deviation would name a difference that is not there.
+    swapped = bool(
+        roles["symmetric"]
+        and registration["exposure"] and registration["outcome"]
+        and _same_variable(registration["exposure"], roles["outcome"], canonical)
+        and _same_variable(registration["outcome"], roles["exposure"], canonical)
+    )
+    if swapped:
+        roles = {**roles, "exposure": roles["outcome"], "outcome": roles["exposure"]}
+
     for field, planned in (("exposure", registration["exposure"]),
                            ("outcome", registration["outcome"])):
-        actual = variables.get(field) or variables.get(f"{field}_variable")
+        actual = roles[field]
         if planned is None:
             note(field, None, actual, UNREGISTERED,
                  f"The registration did not name an {field}.")
@@ -189,8 +276,12 @@ def compare(cur, *, registration_id: str, spec_id: str) -> dict[str, Any]:
 
     # --- adjustment --------------------------------------------------------
     planned_covariates = registration["planned_covariates"]
-    actual_covariates = variables.get("covariates") or variables.get("adjusted_for") or []
-    if planned_covariates is None:
+    actual_covariates = roles["covariates"]
+    if actual_covariates is None:
+        note("covariates", planned_covariates, None, UNREGISTERED,
+             "This method does not record an adjustment set, so there is "
+             "nothing to compare.")
+    elif planned_covariates is None:
         note("covariates", None, sorted(actual_covariates), UNREGISTERED,
              "The registration said nothing about adjustment, so there is "
              "nothing to compare. It is not a deviation.")

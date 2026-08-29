@@ -94,10 +94,6 @@ WITHOUT_A_CLIENT = {
         "No interface opens a whole run. The approval screen shows the step "
         "that is waiting and releases it, which is what a person needs.",
 
-    # Analyses.
-    "POST /api/projects/*/analyses":
-        "Analyses are started from the connection screens, which post "
-        "elsewhere; nothing posts here.",
     "POST /api/projects/*/reconcile":
         "Reconciles two *claims*. The screen reconciles two papers, and "
         "`/reconcile-papers` already returns every pair of their claims — so "

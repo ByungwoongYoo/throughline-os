@@ -36,7 +36,21 @@ def project(cur):
     return project_id
 
 
-def spec(cur, project, *, method="spearman", variables=None, filters=None):
+def spec(cur, project, *, method="linear_regression", variables=None, filters=None):
+    """A specification row, in the executor's real vocabulary.
+
+    This helper defaulted to `method="spearman"` — not a method the system has
+    — and its callers wrote `{"exposure": ..., "covariates": [...]}`, which is
+    not a shape any method produces. `compare` read exactly those keys, so the
+    tests and the code agreed about a specification neither would ever meet,
+    and a check that could only ever report a false deviation passed every test
+    in this file: a registered `linear_regression` had all of its covariates
+    reported dropped, on the one method where adjustment is possible at all.
+
+    Nothing fed a specification to the comparison until an analysis could be
+    specified by hand, which is why a check that could only fail had never
+    failed.
+    """
     spec_id = new_id("asp")
     cur.execute(
         "INSERT INTO analysis_specs(id, project_id, analysis_type, method, "
@@ -66,9 +80,8 @@ def test_an_unstated_field_is_unregistered_rather_than_deviated(cur, project):
     predates this code — and a checker that cries wolf is one people switch off.
     """
     registration = registered(cur, project, exposure="consumption", outcome="resistance")
-    analysis = spec(cur, project, variables={"exposure": "consumption",
-                                             "outcome": "resistance",
-                                             "covariates": ["gdp"]})
+    analysis = spec(cur, project, variables={
+        "outcome": "resistance", "predictors": ["consumption", "gdp"]})
 
     report = deviations.compare(cur, registration_id=registration, spec_id=analysis)
 
@@ -130,8 +143,9 @@ def test_a_harmonised_rename_is_not_reported_as_a_change(cur, project):
         (new_id("vmap"), project, column_id, canonical_id, harmonize.APPROVED))
 
     registration = registered(cur, project, exposure="antibiotic_consumption",
-                              method="spearman")
-    analysis = spec(cur, project, variables={"exposure": "ddd"})
+                              method="spearman_correlation")
+    analysis = spec(cur, project, method="spearman_correlation",
+                    variables={"x": "ddd", "y": "resistance"})
 
     report = deviations.compare(cur, registration_id=registration, spec_id=analysis)
 
@@ -146,8 +160,9 @@ def test_an_unapproved_mapping_does_not_excuse_a_change(cur, project):
     let a guess decide whether a researcher deviated from their own plan.
     """
     registration = registered(cur, project, exposure="antibiotic_consumption",
-                              method="spearman")
-    analysis = spec(cur, project, variables={"exposure": "ddd"})
+                              method="spearman_correlation")
+    analysis = spec(cur, project, method="spearman_correlation",
+                    variables={"x": "ddd", "y": "resistance"})
 
     report = deviations.compare(cur, registration_id=registration, spec_id=analysis)
 
@@ -160,9 +175,13 @@ def test_an_unapproved_mapping_does_not_excuse_a_change(cur, project):
 # ---------------------------------------------------------------------------
 
 def test_an_added_covariate_is_material(cur, project):
-    registration = registered(cur, project, method="spearman", covariates=["gdp"])
-    analysis = spec(cur, project, method="spearman",
-                    variables={"covariates": ["gdp", "urbanisation"]})
+    # Adjustment exists only where a method can adjust, and there the
+    # adjustment set is the predictors after the exposure.
+    registration = registered(cur, project, exposure="consumption",
+                              method="linear_regression", covariates=["gdp"])
+    analysis = spec(cur, project, method="linear_regression", variables={
+        "outcome": "resistance",
+        "predictors": ["consumption", "gdp", "urbanisation"]})
 
     report = deviations.compare(cur, registration_id=registration, spec_id=analysis)
 
@@ -174,18 +193,21 @@ def test_an_added_covariate_is_material(cur, project):
 
 def test_reordering_covariates_is_not_a_change(cur, project):
     """A covariate list is a set. Reporting an order change would be noise."""
-    registration = registered(cur, project, method="spearman",
+    registration = registered(cur, project, exposure="consumption",
+                              method="linear_regression",
                               covariates=["gdp", "urbanisation"])
-    analysis = spec(cur, project, method="spearman",
-                    variables={"covariates": ["urbanisation", "gdp"]})
+    analysis = spec(cur, project, method="linear_regression", variables={
+        "outcome": "resistance",
+        "predictors": ["consumption", "urbanisation", "gdp"]})
 
     assert deviations.compare(
         cur, registration_id=registration, spec_id=analysis)["matches_plan"]
 
 
 def test_a_different_method_is_material(cur, project):
-    registration = registered(cur, project, method="spearman")
-    analysis = spec(cur, project, method="pearson")
+    registration = registered(cur, project, method="spearman_correlation")
+    analysis = spec(cur, project, method="pearson_correlation",
+                    variables={"x": "consumption", "y": "resistance"})
 
     report = deviations.compare(cur, registration_id=registration, spec_id=analysis)
     method = next(f for f in report["findings"] if f["field"] == "method")
@@ -194,8 +216,10 @@ def test_a_different_method_is_material(cur, project):
 
 def test_an_exclusion_added_after_the_fact_is_material(cur, project):
     """The oldest degree of freedom in statistics."""
-    registration = registered(cur, project, method="spearman", filters=[])
-    analysis = spec(cur, project, method="spearman",
+    registration = registered(cur, project, method="spearman_correlation",
+                              filters=[])
+    analysis = spec(cur, project, method="spearman_correlation",
+                    variables={"x": "consumption", "y": "resistance"},
                     filters=[{"column": "n", "op": ">=", "value": 30}])
 
     report = deviations.compare(cur, registration_id=registration, spec_id=analysis)
@@ -208,9 +232,10 @@ def test_the_report_never_calls_a_deviation_misconduct(cur, project):
     fail, a reviewer asks for a covariate. A tool that treats every deviation as
     cheating gets closed, and then it catches nothing at all.
     """
-    registration = registered(cur, project, method="spearman", covariates=["gdp"])
-    analysis = spec(cur, project, method="pearson",
-                    variables={"covariates": []})
+    registration = registered(cur, project, exposure="consumption",
+                              method="linear_regression", covariates=["gdp"])
+    analysis = spec(cur, project, method="linear_regression", variables={
+        "outcome": "resistance", "predictors": ["consumption"]})
 
     note = deviations.compare(
         cur, registration_id=registration, spec_id=analysis)["note"].lower()
@@ -227,8 +252,8 @@ def test_comparing_across_projects_is_refused(cur, project):
     cur.execute(
         "INSERT INTO projects(id, owner_user_id, name, research_question) "
         "VALUES (%s, %s, 'Other', 'q')", (other, owner))
-    registration = registered(cur, project, method="spearman")
-    elsewhere = spec(cur, other, method="spearman")
+    registration = registered(cur, project, method="spearman_correlation")
+    elsewhere = spec(cur, other, method="spearman_correlation")
 
     with pytest.raises(ValueError, match="different project"):
         deviations.compare(cur, registration_id=registration, spec_id=elsewhere)
@@ -248,9 +273,11 @@ def test_a_deviating_analysis_loses_the_confirmatory_exemption(cur, project):
     forty-seven variants and claiming the winner as confirmatory passed every
     check, because nothing looked at the content.
     """
-    registration = registered(cur, project, method="spearman", covariates=["gdp"])
-    drifted = spec(cur, project, method="pearson",
-                   variables={"covariates": ["gdp", "urbanisation"]})
+    registration = registered(cur, project, exposure="consumption",
+                              method="linear_regression", covariates=["gdp"])
+    drifted = spec(cur, project, method="linear_regression", variables={
+        "outcome": "resistance",
+        "predictors": ["consumption", "gdp", "urbanisation"]})
 
     result = exploration.record(
         cur, session_id="ses_1", project_id=project, verb="claim_test",
@@ -265,9 +292,10 @@ def test_a_deviating_analysis_loses_the_confirmatory_exemption(cur, project):
 
 def test_the_registered_analysis_keeps_the_exemption(cur, project):
     """The mechanism has to still work, or it is just an obstacle."""
-    registration = registered(cur, project, method="spearman", covariates=["gdp"])
-    as_planned = spec(cur, project, method="spearman",
-                      variables={"covariates": ["gdp"]})
+    registration = registered(cur, project, exposure="consumption",
+                              method="linear_regression", covariates=["gdp"])
+    as_planned = spec(cur, project, method="linear_regression", variables={
+        "outcome": "resistance", "predictors": ["consumption", "gdp"]})
 
     result = exploration.record(
         cur, session_id="ses_2", project_id=project, verb="claim_test",
@@ -284,7 +312,7 @@ def test_a_test_naming_no_analysis_still_works(cur, project):
     keep the behaviour they had, rather than being downgraded for missing a
     check that does not apply to them.
     """
-    registration = registered(cur, project, method="spearman")
+    registration = registered(cur, project, method="spearman_correlation")
 
     result = exploration.record(
         cur, session_id="ses_3", project_id=project, verb="claim_test",
@@ -301,7 +329,7 @@ def test_a_plan_free_registration_says_the_analysis_was_not_checked(cur, project
     that the analysis was not compared.
     """
     registration = registered(cur, project)
-    analysis = spec(cur, project, method="pearson")
+    analysis = spec(cur, project, method="pearson_correlation")
 
     result = exploration.record(
         cur, session_id="ses_4", project_id=project, verb="claim_test",
@@ -324,9 +352,11 @@ def test_a_deviating_test_stays_visible_against_its_registration(cur, project):
     analysis had been *offered* as a test of the plan. A deviation nobody can
     see afterwards is one nobody can state deliberately.
     """
-    registration = registered(cur, project, method="spearman", covariates=["gdp"])
-    drifted = spec(cur, project, method="pearson",
-                   variables={"covariates": ["gdp", "urbanisation"]})
+    registration = registered(cur, project, exposure="consumption",
+                              method="spearman_correlation", covariates=["gdp"])
+    drifted = spec(cur, project, method="linear_regression", variables={
+        "outcome": "resistance",
+        "predictors": ["consumption", "gdp", "urbanisation"]})
     exploration.record(
         cur, session_id="ses_1", project_id=project, verb="claim_test",
         description="with urbanisation added", p_value=0.04,
@@ -343,14 +373,15 @@ def test_a_deviating_test_stays_visible_against_its_registration(cur, project):
 
 
 def test_the_project_report_counts_what_matched_and_what_did_not(cur, project):
-    registration = registered(cur, project, method="spearman", covariates=["gdp"])
-    as_planned = spec(cur, project, method="spearman",
-                      variables={"covariates": ["gdp"]})
-    drifted = spec(cur, project, method="pearson",
-                   variables={"covariates": ["gdp"]})
+    registration = registered(cur, project, exposure="consumption",
+                              method="linear_regression", covariates=["gdp"])
+    as_planned = spec(cur, project, method="linear_regression", variables={
+        "outcome": "resistance", "predictors": ["consumption", "gdp"]})
+    drifted = spec(cur, project, method="pearson_correlation",
+                   variables={"x": "consumption", "y": "resistance"})
 
     for description, analysis in (("as registered", as_planned),
-                                  ("with pearson", drifted)):
+                                  ("with a correlation", drifted)):
         exploration.record(
             cur, session_id="ses_2", project_id=project, verb="claim_test",
             description=description, p_value=0.04,
@@ -366,8 +397,8 @@ def test_a_deleted_spec_does_not_take_the_report_down(cur, project):
     A spec removed since the test ran is not a deviation, and a report that
     raised here would be unreadable exactly when somebody needs it.
     """
-    registration = registered(cur, project, method="spearman")
-    analysis = spec(cur, project, method="spearman")
+    registration = registered(cur, project, method="spearman_correlation")
+    analysis = spec(cur, project, method="spearman_correlation")
     exploration.record(
         cur, session_id="ses_3", project_id=project, verb="claim_test",
         description="ran", p_value=0.04, preregistration_id=registration,
@@ -384,9 +415,11 @@ def test_the_narrative_writes_a_methods_section_from_the_record(cur, project):
     What journals ask for and nobody can produce honestly, because it is written
     months later from memory by the person with the most reason to under-report.
     """
-    registration = registered(cur, project, method="spearman", covariates=["gdp"])
-    drifted = spec(cur, project, method="pearson",
-                   variables={"covariates": ["gdp", "urbanisation"]})
+    registration = registered(cur, project, exposure="consumption",
+                              method="linear_regression", covariates=["gdp"])
+    drifted = spec(cur, project, method="linear_regression", variables={
+        "outcome": "resistance",
+        "predictors": ["consumption", "gdp", "urbanisation"]})
     exploration.record(
         cur, session_id="ses_4", project_id=project, verb="claim_test",
         description="the reported result", p_value=0.04,
@@ -405,8 +438,8 @@ def test_the_narrative_refuses_to_invent_the_reason(cur, project):
     generated explanation would be this software writing the one part of a
     methods section that has to be true.
     """
-    registration = registered(cur, project, method="spearman")
-    drifted = spec(cur, project, method="pearson")
+    registration = registered(cur, project, method="spearman_correlation")
+    drifted = spec(cur, project, method="pearson_correlation")
     exploration.record(
         cur, session_id="ses_5", project_id=project, verb="claim_test",
         description="ran", p_value=0.04, preregistration_id=registration,
@@ -424,3 +457,119 @@ def test_a_project_with_nothing_registered_says_so_rather_than_passing(cur, proj
     assert section["text"] == ""
     assert "no plan to have deviated from" in section["note"]
     assert "exploratory" in section["note"]
+
+
+# ---------------------------------------------------------------------------
+# The translation between two vocabularies
+# ---------------------------------------------------------------------------
+#
+# A registration is written in a researcher's words — exposure, outcome,
+# covariates. A specification is written in the executor's, which differ per
+# method: `outcome`/`predictors` for a regression, `x`/`y` for a correlation,
+# `value`/`group` for a comparison of means. `compare` read `exposure` and
+# `covariates` straight out of the spec, keys **no method produces**, and so
+# reported every quantity as unrecorded and every registered covariate as
+# dropped. Nothing had ever fed it a specification, so a check that could only
+# fail had never failed.
+
+def test_a_regressions_adjustment_is_its_predictors_after_the_exposure():
+    """
+    The convention `specification.curve` already walks and the interface states
+    when it asks for them: the first predictor is the exposure, the rest are
+    the adjustment.
+    """
+    roles = deviations.roles_of("linear_regression", {
+        "outcome": "resistance", "predictors": ["consumption", "gdp", "urban"]})
+
+    assert roles["exposure"] == "consumption"
+    assert roles["outcome"] == "resistance"
+    assert roles["covariates"] == ["gdp", "urban"]
+
+
+def test_a_regression_with_one_predictor_adjusts_for_nothing():
+    roles = deviations.roles_of("linear_regression", {
+        "outcome": "resistance", "predictors": ["consumption"]})
+
+    # Empty, not None: the analysis records an adjustment set and it is empty,
+    # so a registration promising one has genuinely departed from it.
+    assert roles["covariates"] == []
+
+
+def test_a_correlation_adjusts_for_nothing_and_says_so():
+    roles = deviations.roles_of("pearson_correlation",
+                                {"x": "consumption", "y": "resistance"})
+
+    assert roles["exposure"] == "consumption"
+    assert roles["outcome"] == "resistance"
+    assert roles["covariates"] == []
+    assert roles["symmetric"] is True
+
+
+def test_a_comparison_of_means_reads_the_group_as_the_exposure():
+    roles = deviations.roles_of("t_test", {"value": "resistance", "group": "region"})
+
+    assert roles["exposure"] == "region"
+    assert roles["outcome"] == "resistance"
+    assert roles["symmetric"] is False
+
+
+def test_a_method_with_no_mapping_reports_nothing_rather_than_guessing():
+    """An unmapped method is not evidence of a deviation, and inventing one
+    would manufacture the false positive this whole change removes."""
+    roles = deviations.roles_of("descriptive", {"columns": ["a", "b"]})
+
+    assert roles == {"exposure": None, "outcome": None,
+                     "covariates": None, "symmetric": False}
+
+
+def test_every_method_the_system_can_run_is_translated_or_deliberately_not():
+    """
+    The guard against this recurring. A method added to the executor without a
+    mapping here reads as an analysis that records no quantities — which is not
+    a deviation, but it is also not a check.
+    """
+    from throughline_domain import analysis
+
+    unmapped = sorted(set(analysis.SUPPORTED_METHODS)
+                      - set(deviations._QUANTITIES)
+                      # `descriptive` summarises columns. It has no exposure and
+                      # no outcome, so there is nothing to compare a hypothesis
+                      # against, and saying so is the honest answer.
+                      - {"descriptive"})
+    assert not unmapped, (
+        "these methods can run but a registration cannot be checked against "
+        f"them: {unmapped}")
+
+
+def test_swapping_a_correlations_two_variables_is_not_a_deviation(cur, project):
+    """
+    A correlation of consumption against resistance is the same analysis as one
+    of resistance against consumption. Reporting the order as a change would
+    name a difference that does not exist, and a checker that cries wolf is one
+    people switch off.
+    """
+    registration = registered(cur, project, exposure="consumption",
+                              outcome="resistance",
+                              method="pearson_correlation")
+    swapped = spec(cur, project, method="pearson_correlation",
+                   variables={"x": "resistance", "y": "consumption"})
+
+    report = deviations.compare(cur, registration_id=registration, spec_id=swapped)
+
+    assert report["matches_plan"] is True, report["findings"]
+
+
+def test_swapping_the_variables_of_an_asymmetric_method_is_a_deviation(cur, project):
+    """Regressing consumption on resistance is a different question from
+    regressing resistance on consumption."""
+    registration = registered(cur, project, exposure="consumption",
+                              outcome="resistance",
+                              method="linear_regression")
+    backwards = spec(cur, project, method="linear_regression", variables={
+        "outcome": "consumption", "predictors": ["resistance"]})
+
+    report = deviations.compare(cur, registration_id=registration,
+                                spec_id=backwards)
+
+    assert report["matches_plan"] is False
+    assert {f["field"] for f in report["deviations"]} == {"exposure", "outcome"}

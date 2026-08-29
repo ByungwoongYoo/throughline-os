@@ -139,13 +139,16 @@ the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **1752 backend tests and 1951 web tests**, with 14 backend
-skips. Ten carry a reason CI's allowlist recognises — a skip with an
-unrecognised reason fails the build, so the suite cannot quietly shrink. The
-other four are the speech tests, whose reason (`openai-whisper is not
-installed`) was never added to that allowlist, so a dispatched run would fail on
-it; recorded as D030 in `TASKS.md` rather than fixed in passing, because editing
-`ci.yml` is itself a reason to dispatch.
+The current suite is **1794 backend tests and 1990 web tests**.
+
+How many of those skip depends on which optional extras a machine has
+installed, so the number is not fixed and is not claimed as one: on a checkout
+with every extra present it is six, all of them `no Neo4j configured`, and on
+one with none of them it is more. What *is* fixed is that every skip must carry
+a reason CI's allowlist recognises — Neo4j, `cv2`, the local embedding model, or
+`openai-whisper` — because a skip with an unrecognised reason fails the build.
+That is the property worth stating: the suite cannot quietly shrink by skipping
+its way out of a failure.
 
 Those numbers are checked by `tests/test_readme_claims.py`, which collects the
 suite and compares. They were wrong before it existed — the file said 848 and

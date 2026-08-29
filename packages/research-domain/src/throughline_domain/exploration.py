@@ -42,7 +42,7 @@ from .discovery import benjamini_hochberg
 from .ids import new_id
 
 VERBS = ("discovery", "claim_test", "compatibility", "finding_consistency",
-         "paper_reconciliation", "image_similarity")
+         "paper_reconciliation", "image_similarity", "analysis")
 
 DIRECTIONS = ("increase", "decrease", "difference", "no_effect")
 

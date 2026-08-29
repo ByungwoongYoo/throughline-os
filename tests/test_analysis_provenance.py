@@ -329,6 +329,65 @@ def _signed_in_project(client) -> tuple[str, str]:
     return project_id, queued.json()["analysis_run_id"]
 
 
+def test_a_specified_analysis_runs_and_then_appears_in_the_project(client):
+    """
+    The loop the interface could not close.
+
+    Discovery produced analyses and forks branched them; a researcher could
+    register a hypothesis and had no way to run it. The form now posts exactly
+    this payload, so the test is over the whole path: a spec the interface can
+    build is accepted, executed, and listed — the last step being the one that
+    was missing, since the screen listed connections and a specified run belongs
+    to none.
+    """
+    project_id, _ = _signed_in_project(client)
+
+    queued = client.post(f"/api/projects/{project_id}/analyses", json={
+        "method": "linear_regression",
+        "dataset_version_ids": [_version_of(client, project_id)],
+        # A many-column role sent as a list, which is the shape the form builds
+        # and the shape the executor reads. A bare string validates and then
+        # fails in the sandbox as a list of letters.
+        "variables": {"outcome": "resistance_pct",
+                      "predictors": ["consumption_ddd"]},
+        "research_question": "Does consumption explain resistance?",
+        "method_rationale": "Both are continuous and the relationship is linear.",
+    })
+    assert queued.status_code == 202, queued.text
+    run_id = queued.json()["analysis_run_id"]
+    _drain()
+
+    listed = client.get(f"/api/projects/{project_id}/analyses")
+    assert listed.status_code == 200, listed.text
+    rows = {row["id"]: row for row in listed.json()}
+    assert run_id in rows, "a specified run was executed and then not listed"
+
+    row = rows[run_id]
+    assert row["status"] == "completed", row
+    assert row["origin"] == "specified"
+    assert row["estimate"] is not None
+    # The reason is recorded with the run rather than asked for afterwards
+    # (§47), so the run's own screen has something to show.
+    detail = client.get(f"/api/analyses/{run_id}").json()
+    assert detail["method_rationale"].startswith("Both are continuous")
+
+
+def test_a_discovery_run_is_listed_as_one(client):
+    """The distinction the list has to carry: a swept run was corrected inside
+    a family of tests, and a specified one stands alone."""
+    project_id, swept = _signed_in_project(client)
+
+    rows = {r["id"]: r for r in
+            client.get(f"/api/projects/{project_id}/analyses").json()}
+
+    assert rows[swept]["origin"] == "specified"
+
+
+def _version_of(client, project_id: str) -> str:
+    sources = client.get(f"/api/projects/{project_id}/sources").json()
+    return sources[0]["dataset"]["dataset_version_id"]
+
+
 def test_a_branch_taken_over_http_records_what_it_changed_and_why(client):
     project_id, base = _signed_in_project(client)
 
