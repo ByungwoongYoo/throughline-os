@@ -902,6 +902,52 @@ def _result(cur, testability: dict[str, Any], claim: dict[str, Any],
 # Step 0 — locating claims, the only part that needs a model
 # ---------------------------------------------------------------------------
 
+def claims_for(cur, *, project_id: str, source_id: str,
+               limit: int = 40) -> dict[str, Any]:
+    """
+    The claims recorded for a paper, reading it only if none are.
+
+    **Reconciling two papers used to re-read both of them, every time.** That
+    is two model calls per comparison, and — the part that matters — two
+    readings of one paper can disagree, so asking the same question twice could
+    return different verdicts with nothing on screen to say the inputs had
+    changed. `stored_claims` says as much itself: when readings disagree, the
+    disagreement has to be attributable rather than argued about.
+
+    Re-reading stays available and stays deliberate: it is what
+    `locate_claims` is, and the claim-test screen offers it as its own act.
+    Comparing two papers is not a request to re-read them.
+    """
+    cur.execute("SELECT project_id, title FROM sources WHERE id = %s", (source_id,))
+    source = cur.fetchone()
+    if not source:
+        raise ClaimTestError(f"No such source: {source_id}")
+    if source["project_id"] != project_id:
+        raise ClaimTestError("That source belongs to a different project.")
+
+    recorded = stored_claims(cur, source_id)
+    if not recorded:
+        return {**locate_claims(cur, project_id=project_id, source_id=source_id,
+                                limit=limit),
+                "read_now": True}
+
+    first = recorded[0]
+    return {
+        "source_id": source_id,
+        "source_title": source["title"],
+        "claims": recorded,
+        "verdict": None,
+        "note": "",
+        # Whose reading this is. Carried so a caller can say which model
+        # produced the claims it is comparing, rather than implying they came
+        # from whatever model is configured today.
+        "model": first.get("model") or "",
+        "prompt": (f"{first.get('prompt_name')} v{first.get('prompt_version')}"
+                   if first.get("prompt_name") else ""),
+        "read_now": False,
+    }
+
+
 def locate_claims(cur, *, project_id: str, source_id: str,
                   limit: int = 40) -> dict[str, Any]:
     """

@@ -1922,7 +1922,10 @@ def reconcile_papers(project_id: str, payload: ReconcilePapersRequest,
         for side, source_id in (("left", payload.left_source_id),
                                 ("right", payload.right_source_id)):
             try:
-                located[side] = claim_test.locate_claims(
+                # The record, and a reading only if there is none. Comparing
+                # two papers is not a request to re-read them, and re-reading
+                # can change the claims the comparison is about.
+                located[side] = claim_test.claims_for(
                     cur, project_id=project_id, source_id=source_id)
             except claim_test.ClaimTestError as exc:
                 raise HTTPException(400, str(exc)) from exc
@@ -1947,6 +1950,10 @@ def reconcile_papers(project_id: str, payload: ReconcilePapersRequest,
                       "verdict": located["right"].get("verdict")},
             "reconciliations": pairs,
             "model": located["left"]["model"],
+            # Which sides had to be read to answer this, so the interface can
+            # say whether it is comparing a fresh reading or a recorded one.
+            "read_now": [side for side in ("left", "right")
+                         if located[side].get("read_now")],
         }
 
 

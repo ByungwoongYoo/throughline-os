@@ -102,8 +102,10 @@ WITHOUT_A_CLIENT = {
         "Analyses are started from the connection screens, which post "
         "elsewhere; nothing posts here.",
     "POST /api/projects/*/reconcile":
-        "The interface calls `/projects/{id}/reconcile-papers`; this one has "
-        "no caller.",
+        "Reconciles two *claims*. The screen reconciles two papers, and "
+        "`/reconcile-papers` already returns every pair of their claims — so "
+        "the directed question is answered inside the broad one, and a second "
+        "control for it would compute something the reader already has.",
 
     # Interpretation.
     "POST /api/projects/*/exploration/tests":

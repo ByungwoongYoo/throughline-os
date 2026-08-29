@@ -1154,3 +1154,82 @@ def test_claims_are_stored_in_the_order_they_were_read(cur, project, monkeypatch
     stored = claim_test.stored_claims(cur, source_id)
     assert [row["statement"] for row in stored] == ["First.", "Second.", "Third."]
     assert [row["ordinal"] for row in stored] == [0, 1, 2]
+
+
+# ---------------------------------------------------------------------------
+# The record, and a reading only when there is none
+# ---------------------------------------------------------------------------
+
+
+def test_claims_for_reads_a_paper_nobody_has_read(cur, project, monkeypatch):
+    source_id = _paper(cur, project, title="A paper",
+                       passages=["Consumption tracks resistance."])
+    _stub_model(monkeypatch, ["Consumption tracks resistance."])
+
+    answer = claim_test.claims_for(cur, project_id=project, source_id=source_id)
+    assert answer["read_now"] is True
+    assert len(answer["claims"]) == 1
+
+
+def test_claims_for_does_not_read_a_paper_twice(cur, project, monkeypatch):
+    """
+    Reconciling two papers used to re-read both of them, every time.
+
+    Two model calls per comparison — and, the part that matters, two readings
+    of one paper can disagree, so asking the same question twice could return
+    different verdicts with nothing on screen to say the inputs had changed.
+    """
+    source_id = _paper(cur, project, title="A paper",
+                       passages=["Consumption tracks resistance."])
+    _stub_model(monkeypatch, ["Consumption tracks resistance."])
+    claim_test.claims_for(cur, project_id=project, source_id=source_id)
+
+    # A provider that fails the test if it is asked for anything at all.
+    import throughline_model
+
+    class _Refuses:
+        def generate_structured(self, **_kwargs):
+            raise AssertionError("the paper was read a second time")
+
+    monkeypatch.setattr(throughline_model, "provider", _Refuses)
+
+    again = claim_test.claims_for(cur, project_id=project, source_id=source_id)
+    assert again["read_now"] is False
+    assert len(again["claims"]) == 1
+    assert again["source_title"] == "A paper"
+
+
+def test_a_recorded_reading_says_whose_it_was(cur, project, monkeypatch):
+    """
+    Not whatever model is configured today.
+
+    Two readings of one paper can disagree, and when they do the difference has
+    to be attributable — which needs the model that produced *these* claims,
+    not the one that would produce them now.
+    """
+    source_id = _paper(cur, project, title="A paper",
+                       passages=["Consumption tracks resistance."])
+    _stub_model(monkeypatch, ["Consumption tracks resistance."])
+    claim_test.claims_for(cur, project_id=project, source_id=source_id)
+
+    answer = claim_test.claims_for(cur, project_id=project, source_id=source_id)
+    assert answer["model"]
+    assert answer["prompt"]
+
+
+def test_claims_for_refuses_a_paper_from_another_project(cur, project):
+    from throughline_domain.ids import new_id
+
+    other = new_id("prj")
+    cur.execute(
+        "INSERT INTO users(id, email, display_name, password_hash, password_salt) "
+        "VALUES (%s, %s, 'Other', 'x', 'y')", (new_id("usr"), f"{other}@t.local"))
+    cur.execute("SELECT id FROM users ORDER BY created_at DESC LIMIT 1")
+    cur.execute(
+        "INSERT INTO projects(id, owner_user_id, name) "
+        "SELECT %s, id, 'Elsewhere' FROM users ORDER BY created_at DESC LIMIT 1",
+        (other,))
+    source_id = _paper(cur, other, title="Theirs", passages=["Something."])
+
+    with pytest.raises(claim_test.ClaimTestError):
+        claim_test.claims_for(cur, project_id=project, source_id=source_id)
