@@ -108,7 +108,12 @@ export function Reports({ projectId, connections, onSelect }: {
             {artifacts.data.map((artifact) => (
               <tr key={artifact.id} style={{ cursor: "pointer" }}
                   onClick={() => onSelect(artifact.id)}>
-                <td style={{ fontWeight: 530 }}>{artifact.title}</td>
+                <td style={{ fontWeight: 530 }}>
+                  <button type="button" className="pick"
+                          onClick={() => onSelect(artifact.id)}>
+                    {artifact.title}
+                  </button>
+                </td>
                 <td className="mono">{artifact.artifact_type}</td>
                 <td className="numeric" style={{ textAlign: "right" }}>{artifact.block_count}</td>
                 <td className="numeric" style={{ textAlign: "right" }}>{artifact.render_count}</td>

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import pytest
 from throughline_domain import library_note
+from conftest import make_enquiry
 from throughline_domain.ids import new_id
 
 FINDING = {
@@ -205,16 +206,16 @@ def test_provenance_is_reached_through_the_link_that_actually_exists(cur, stored
     assert "may have changed since" in html
 
 
-def test_the_ledger_is_read_for_the_session_that_produced_it(cur, stored):
+def test_the_ledger_is_read_for_the_enquiry_that_produced_it(cur, stored):
     """The two halves joined: the count follows the finding out of the system."""
     from throughline_domain import exploration
 
-    session_id = new_id("ses")
+    enquiry_id = make_enquiry(cur, stored["project"])
     for _ in range(4):
-        exploration.record(cur, session_id=session_id,
+        exploration.record(cur, enquiry_id=enquiry_id,
                            project_id=stored["project"], verb="discovery",
                            description="a sweep", p_value=0.2)
 
     html = library_note.for_finding(cur, finding_id=stored["finding"],
-                                    session_id=session_id)["html"]
+                                    enquiry_id=enquiry_id)["html"]
     assert "4 tests were run" in html

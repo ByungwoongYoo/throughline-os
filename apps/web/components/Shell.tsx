@@ -12,8 +12,16 @@
  * glance, and a nav item that never shows a number teaches nothing.
  */
 
-import { DragEvent, ReactElement, ReactNode, useCallback, useState } from "react";
+import {
+  DragEvent, ReactElement, ReactNode, useCallback, useState, useSyncExternalStore,
+} from "react";
+import { Group, Panel, Separator } from "react-resizable-panels";
 import { DiscoveryMap } from "@/lib/api";
+import {
+  INSPECTOR, INSPECTOR_DEFAULT, INSPECTOR_MAX, INSPECTOR_MIN,
+  RAIL, RAIL_DEFAULT, RAIL_MAX, RAIL_MIN, WORKSPACE,
+  readLayout, writeLayout,
+} from "@/lib/layout";
 import { ThemeToggle } from "./Theme";
 import {
   IconAnalyses, IconCompare, IconConnections, IconData, IconDiscover,
@@ -52,7 +60,16 @@ const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; 
        * existed nothing could approve one.
        */
       { id: "variables", label: "Variables" },
-      { id: "search", label: "Search" },
+      /*
+       * "Search sources", not "Search", because of the two entries directly
+       * below it. Three consecutive search-shaped labels — Search, Find papers,
+       * Find data — and only one of them said what it searched, so the bare one
+       * read as the general case and the other two as special cases of it. They
+       * are not: this one searches the passages already in the project, and the
+       * other two go outside it to find things the project does not have. The
+       * distinction is have-it versus get-it, and the label now carries it.
+       */
+      { id: "search", label: "Search sources" },
       { id: "literature", label: "Find papers" },
       { id: "datasearch", label: "Find data" },
     ],
@@ -193,6 +210,35 @@ const ICONS: Record<Section, (p: { size?: number }) => ReactElement> = {
   settings: IconSettings,
 };
 
+/**
+ * Whether there is room for the context panel at all.
+ *
+ * §117 is desktop-first, and below 1100px the inspector is dropped rather than
+ * crushed — the same threshold the stylesheet used when this was a CSS grid.
+ * It has to be answered in JavaScript now, because a flex panel that is hidden
+ * with CSS still holds its share of the width.
+ *
+ * `useSyncExternalStore` rather than `useEffect`, so React reads the real
+ * viewport on the first client render instead of painting the desktop layout
+ * and correcting it a frame later. The server snapshot is `true` because the
+ * export is prerendered with no viewport to measure, and desktop-first is the
+ * documented default.
+ */
+const WIDE = "(min-width: 1101px)";
+
+function useRoomForInspector(): boolean {
+  return useSyncExternalStore(
+    (notify) => {
+      if (typeof window === "undefined") return () => {};
+      const query = window.matchMedia(WIDE);
+      query.addEventListener("change", notify);
+      return () => query.removeEventListener("change", notify);
+    },
+    () => window.matchMedia(WIDE).matches,
+    () => true,
+  );
+}
+
 export function Shell({
   section, onSection, map, children, inspector, onCommand, projectName, crumbs,
   onDropFiles, projectMenu, accountMenu,
@@ -249,6 +295,11 @@ export function Shell({
     if (event.dataTransfer.files.length) onDropFiles(event.dataTransfer.files);
   }, [onDropFiles]);
 
+  const roomForInspector = useRoomForInspector();
+  // Read once per mount rather than on every render: this is the value the
+  // Group starts from, and re-reading it while dragging would fight the drag.
+  const [saved] = useState(readLayout);
+
   return (
     <div
       className="shell"
@@ -281,6 +332,14 @@ export function Shell({
         {accountMenu}
       </header>
 
+      <Group
+        className="shell-panels"
+        orientation="horizontal"
+        defaultLayout={saved}
+        onLayoutChanged={writeLayout}
+      >
+      <Panel id={RAIL} className="rail-panel"
+             defaultSize={RAIL_DEFAULT} minSize={RAIL_MIN} maxSize={RAIL_MAX}>
       <nav className="rail" aria-label="Sections">
         {GROUPS.map((group) => (
           <div className="rail-group" key={group.label}>
@@ -319,10 +378,38 @@ export function Shell({
         ))}
       </nav>
 
-      {/* `key` restarts the enter transition on navigation, so a view change
-          reads as a change rather than a silent content swap (§116). */}
-      <main className="workspace" key={section}>{children}</main>
-      <aside className="inspector" aria-label="Context inspector">{inspector}</aside>
+      </Panel>
+
+      {/* Named so a screen reader hears what is being resized, not "separator".
+          The library gives it `role="separator"` with the value semantics; the
+          label is ours because only we know what sits on either side. */}
+      <Separator className="shell-divider" aria-label="Resize the navigation" />
+
+      <Panel id={WORKSPACE} className="workspace-panel" minSize={320}>
+        {/* `key` restarts the enter transition on navigation, so a view change
+            reads as a change rather than a silent content swap (§116). */}
+        <main className="workspace" key={section}>{children}</main>
+      </Panel>
+
+      {/*
+        §117 is desktop-first: below 1100px the inspector is dropped rather
+        than crushed. That used to be `display: none` in a media query, which a
+        flex-based panel group cannot use — a hidden panel leaves its share of
+        the width behind as empty space. So the panel is not rendered at all,
+        and the divider with it, which is also the honest version: a divider
+        that resizes nothing is a control that lies.
+      */}
+      {roomForInspector && (
+        <>
+          <Separator className="shell-divider" aria-label="Resize the context panel" />
+          <Panel id={INSPECTOR} className="inspector-panel"
+                 defaultSize={INSPECTOR_DEFAULT}
+                 minSize={INSPECTOR_MIN} maxSize={INSPECTOR_MAX}>
+            <aside className="inspector" aria-label="Context inspector">{inspector}</aside>
+          </Panel>
+        </>
+      )}
+      </Group>
 
       {depth > 0 && (
         <div className="dropzone" aria-hidden>

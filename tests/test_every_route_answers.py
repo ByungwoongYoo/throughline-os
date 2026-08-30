@@ -60,7 +60,7 @@ PLACEHOLDERS = {
     "artifact_id": "art_smoke", "note_id": "note_smoke", "visual_id": "vis_smoke",
     "object_id": "obj_smoke", "version_id": "dsv_smoke", "dataset_id": "dst_smoke",
     "claim_id": "clm_smoke", "contradiction_id": "con_smoke",
-    "session_id": "ses_smoke", "report_id": "vrep_smoke", "image_id": "img_smoke",
+    "enquiry_id": "ses_smoke", "report_id": "vrep_smoke", "image_id": "img_smoke",
     "spec_id": "asp_smoke", "job_id": "job_smoke", "citation_id": "cit_smoke",
 }
 

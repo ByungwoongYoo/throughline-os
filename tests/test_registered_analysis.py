@@ -98,7 +98,6 @@ def _run(client, project_id, version_id, **over):
         "dataset_version_ids": [version_id],
         "variables": {"outcome": "resistance", "predictors": ["consumption", "gdp"]},
         "method_rationale": "Continuous outcome, adjusted for wealth.",
-        "session_id": "ses_registered",
     }
     body.update(over)
     answer = client.post(f"/api/projects/{project_id}/analyses", json=body)
@@ -240,11 +239,18 @@ def test_two_analyses_in_one_session_are_one_family(client, workspace):
     assert second["looks_this_session"] == first["looks_this_session"] + 1
 
 
-def test_a_run_with_no_session_stands_alone(client, workspace):
-    """A script gets its own family rather than joining somebody's tab."""
+def test_a_run_that_asks_to_stand_alone_gets_its_own_family(client, workspace):
+    """A caller that asks to stand alone gets its own family.
+
+    It has to ask now. Omitting the family used to mean isolation, and that
+    worked only while the interface always sent one and a script never did —
+    the server could read the absence as "script". Now that the family is
+    resolved server-side, absence means "the open line of enquiry", and
+    isolation is requested rather than inferred.
+    """
     project_id, version_id = workspace
     _run(client, project_id, version_id)
-    alone = _run(client, project_id, version_id, session_id=None,
+    alone = _run(client, project_id, version_id, stands_alone=True,
                  variables={"outcome": "resistance", "predictors": ["gdp"]}).json()
 
     assert alone["looks_this_session"] == 1
@@ -288,8 +294,19 @@ def test_a_refused_specification_counts_as_no_look(client, workspace):
 # never joined the family. The tests a researcher deliberately chose to run
 # were the only ones escaping correction, in the flattering direction.
 
-def _ledger(client, project_id, session="ses_registered"):
-    return client.get(f"/api/projects/{project_id}/exploration/{session}").json()
+def _ledger(client, project_id, enquiry_id=None):
+    """
+    The ledger for the family these runs actually joined.
+
+    Asks the server which line of enquiry is open rather than naming one, which
+    is the same thing the interface does — and means the helper cannot drift
+    from the resolution rule the way a hardcoded id did.
+    """
+    if enquiry_id is None:
+        enquiry_id = client.get(
+            f"/api/projects/{project_id}/enquiries/current").json()["id"]
+    return client.get(
+        f"/api/projects/{project_id}/exploration/{enquiry_id}").json()
 
 
 def test_a_finished_analysis_joins_the_family_it_is_corrected_against(

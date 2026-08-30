@@ -171,7 +171,15 @@ export function GraphView({ projectId, onSelect }: {
                   onClick={() => {
                     setSelected(node); setJournalOn(node.id); onSelect(node.id);
                   }}>
-                <td>{node.title}</td>
+                <td>
+                  <button type="button" className="pick"
+                          onClick={() => {
+                            setSelected(node); setJournalOn(node.id);
+                            onSelect(node.id);
+                          }}>
+                    {node.title}
+                  </button>
+                </td>
                 <td className="mono">{node.object_type.replace(/_/g, " ")}</td>
                 <td className="numeric" style={{ textAlign: "right" }}>
                   {node.importance}

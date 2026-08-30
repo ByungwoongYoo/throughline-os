@@ -39,7 +39,7 @@ function open() {
 describe("nothing is fetched until asked", () => {
   it("starts closed, so opening a finding does not compose a note", () => {
     serve(null);
-    render(<LibraryNote projectId="prj_1" findingId="fnd_1" sessionId="ses_1" />);
+    render(<LibraryNote projectId="prj_1" findingId="fnd_1" />);
 
     expect(screen.getByRole("button", { name: /Preview this as a library note/ }))
       .toBeInTheDocument();
@@ -50,7 +50,7 @@ describe("nothing is fetched until asked", () => {
 describe("the preview is the note", () => {
   it("renders the composed note rather than a summary of it", () => {
     serve({ finding_id: "fnd_1", html: HTML });
-    render(<LibraryNote projectId="prj_1" findingId="fnd_1" sessionId="ses_1" />);
+    render(<LibraryNote projectId="prj_1" findingId="fnd_1" />);
     open();
 
     expect(screen.getByText("Consumption tracks resistance")).toBeInTheDocument();
@@ -63,7 +63,7 @@ describe("the preview is the note", () => {
      * cannot link back here. Everything needed to judge the claim is inside it.
      */
     serve({ finding_id: "fnd_1", html: HTML });
-    render(<LibraryNote projectId="prj_1" findingId="fnd_1" sessionId="ses_1" />);
+    render(<LibraryNote projectId="prj_1" findingId="fnd_1" />);
     open();
 
     expect(screen.getByText(/24 tests were run/)).toBeInTheDocument();
@@ -80,7 +80,7 @@ describe("the preview is the note", () => {
       html: "<h2>&lt;script&gt;alert(1)&lt;/script&gt;</h2>",
     });
     const { container } = render(
-      <LibraryNote projectId="prj_1" findingId="fnd_1" sessionId="ses_1" />);
+      <LibraryNote projectId="prj_1" findingId="fnd_1" />);
     open();
 
     expect(container.querySelector("script")).toBeNull();
@@ -96,7 +96,7 @@ describe("what is deliberately not offered", () => {
      * no undo.
      */
     serve({ finding_id: "fnd_1", html: HTML });
-    render(<LibraryNote projectId="prj_1" findingId="fnd_1" sessionId="ses_1" />);
+    render(<LibraryNote projectId="prj_1" findingId="fnd_1" />);
     open();
 
     for (const label of [/send/i, /write/i, /export to zotero/i, /save to/i]) {
@@ -106,7 +106,7 @@ describe("what is deliberately not offered", () => {
 
   it("says why, rather than leaving the absence to be noticed", () => {
     serve({ finding_id: "fnd_1", html: HTML });
-    render(<LibraryNote projectId="prj_1" findingId="fnd_1" sessionId="ses_1" />);
+    render(<LibraryNote projectId="prj_1" findingId="fnd_1" />);
     open();
 
     expect(screen.getByText(/never run against a real library/)).toBeInTheDocument();
@@ -117,7 +117,7 @@ describe("what is deliberately not offered", () => {
 describe("failure", () => {
   it("reports it instead of showing an empty note", () => {
     serve(null, { error: new Error("No such finding") });
-    render(<LibraryNote projectId="prj_1" findingId="fnd_1" sessionId="ses_1" />);
+    render(<LibraryNote projectId="prj_1" findingId="fnd_1" />);
     open();
 
     expect(screen.getByRole("alert")).toBeInTheDocument();

@@ -238,11 +238,89 @@ a { color: inherit; }
 
 /* --- app shell (§65) ----------------------------------------------------- */
 
+/* Two rows, one column. The three columns underneath are a resizable panel
+   group now rather than grid tracks, because their widths belong to the
+   researcher: the rail and the inspector were fixed at 232px and 360px, and a
+   long research question or a dense evidence panel had nowhere to go. */
 .shell {
   display: grid;
-  grid-template-columns: var(--rail) minmax(0, 1fr) var(--inspector);
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: 52px minmax(0, 1fr);
   height: 100vh;
+}
+
+.shell-panels { min-height: 0; }
+
+/* The panel wrappers carry no appearance of their own — the rail, workspace
+   and inspector keep every rule they already had. `min-width: 0` on each,
+   because a flex item defaults to `min-width: auto` and refuses to shrink
+   below its content, which is the overlap bug this codebase has now shipped
+   three times. Dragging an edge is exactly the operation that would find it a
+   fourth. */
+.rail-panel, .workspace-panel, .inspector-panel {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.rail-panel > *, .workspace-panel > *, .inspector-panel > * {
+  min-width: 0;
+  /* `min-height: 0` as well, or `overflow-y: auto` on the rail, workspace and
+     inspector never scrolls: a flex child will not shrink below its content
+     height either, so the panel grows instead of the child scrolling. */
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+/* A 1px line that is 9px of target.
+ *
+ * The visible divider stays the hairline the shell already had; the grab area
+ * around it is padding, because a 1px pointer target is a control only a very
+ * steady hand can use. WCAG 2.5.8 asks for 24px, which would put a visible gap
+ * between the panels — so the compromise is a wide-as-possible invisible
+ * target plus full keyboard operation, which is the accessible route that does
+ * not distort the layout. */
+.shell-divider {
+  position: relative;
+  /* `width`, not `flex-basis`.
+   *
+   * The library writes `flex: 0 0 auto` as an *inline* style on the separator,
+   * and an inline declaration beats anything here whatever its specificity —
+   * so `flex: 0 0 9px` was silently discarded and the divider computed to zero
+   * width. It still took focus and still answered the arrow keys, which is why
+   * the keyboard tests passed and why measuring the panels did not show it:
+   * rail 232 + workspace 808 + inspector 360 accounted for the whole 1400px
+   * window with nothing left for the two dividers. There was simply nothing to
+   * put a pointer on, so the mouse could not resize at all.
+   *
+   * With the library's `flex-basis: auto`, the used basis is the width — so
+   * setting `width` gets there without fighting the inline rule. */
+  width: 9px;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: col-resize;
+}
+.shell-divider::after {
+  content: "";
+  position: absolute;
+  inset: 0 4px;
+  background: var(--line);
+  transition: background var(--fast) linear;
+}
+.shell-divider:hover::after,
+.shell-divider[data-separator="active"]::after,
+.shell-divider[data-dragging]::after { background: var(--accent); }
+
+/* Keyboard parity, §30 and Rule 5. A divider that can only be dragged is a
+   control half the users cannot operate, and the library gives it arrow-key
+   resizing — so it needs a focus ring like everything else. */
+.shell-divider:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-divider::after { transition: none; }
 }
 
 .topbar {
@@ -271,7 +349,8 @@ a { color: inherit; }
 }
 
 .rail {
-  border-right: 1px solid var(--line);
+  /* No `border-right`: `.shell-divider` draws that line now, and keeping both
+     put two hairlines and a gap where the shell had one. */
   padding: 14px 0;
   overflow-y: auto;
   background: var(--panel);
@@ -319,7 +398,7 @@ a { color: inherit; }
 }
 
 .inspector {
-  border-left: 1px solid var(--line);
+  /* No `border-left` — see `.rail`. */
   overflow-y: auto;
   padding: 18px 18px 60px;
   background: var(--panel);
@@ -564,11 +643,15 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .stat b { display: block; font-size: 20px; font-weight: 640; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
 .stat span { font-size: 10.5px; color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.07em; }
 
-/* §117 — desktop first; below this the rails stack rather than crush. */
-@media (max-width: 1100px) {
-  .shell { grid-template-columns: var(--rail) minmax(0, 1fr); }
-  .inspector { display: none; }
-}
+/* §117 — desktop first; below this the rails stack rather than crush.
+ *
+ * The inspector is no longer hidden here, and this rule is gone rather than
+ * rewritten. A flex panel hidden with CSS still holds its share of the width,
+ * so below the threshold the panel is not rendered at all — see
+ * `useRoomForInspector` in `Shell.tsx`, which is now the only place the number
+ * lives. Leaving a media query here as well would have been a second copy to
+ * drift. (The `max-width: 1100px` further down is the knowledge-graph panel,
+ * which shares the number and not the meaning.) */
 
 
 /* --- the gate (§115: the entrance may have depth; the instrument may not) - */
@@ -790,15 +873,34 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 
 /* --- command palette ----------------------------------------------------- */
 
-.palette-backdrop {
-  position: fixed; inset: 0;
-  background: rgba(8, 10, 13, 0.42);
-  backdrop-filter: blur(2px);
+/* The palette is a real `<dialog>`, so the overlay is `::backdrop` and the
+ * stacking is the browser's top layer rather than a `z-index` this stylesheet
+ * has to keep winning. The old `.palette-backdrop` div is gone: `aria-modal`
+ * was being asserted on a `<div>` that trapped nothing, and Tab walked out of
+ * the palette into a page the user could no longer see. */
+.palette-dialog {
+  /* The element is the full-screen positioning context; the panel inside it is
+     what has a width. `max-*` and `border` are reset because a `<dialog>`
+     arrives with a UA border and a centred `max-width` of its own. */
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  max-height: 100%;
+  margin: 0;
+  padding: 12vh 16px 0;
+  border: 0;
+  background: transparent;
   display: grid;
   align-items: start;
   justify-items: center;
-  padding-top: 12vh;
-  z-index: 60;
+  overflow: hidden;
+}
+.palette-dialog:not([open]) { display: none; }
+.palette-dialog::backdrop {
+  background: rgba(8, 10, 13, 0.42);
+  backdrop-filter: blur(2px);
 }
 
 .palette {
@@ -1896,7 +1998,25 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 
 /* --- Part I verb tabs ---------------------------------------------------- */
 
-.cmp-verbs { display: flex; gap: 4px; margin: 4px 0 20px; }
+/* Wraps rather than overflowing.
+ *
+ * Compare carries eight of these, and at 900px the last one ("Scan ↔ scan")
+ * rendered 17px past the right edge of the workspace — measured, not guessed.
+ * A flex row with no `wrap` and no `overflow` does not clip or scroll, it just
+ * puts the tab somewhere the column does not reach.
+ *
+ * Wrapping rather than `overflow-x: auto` on purpose: a scrolling strip hides
+ * choices behind an affordance people miss, and these are the *verbs* of the
+ * screen — the whole set should be readable at a glance. Wrapping costs a line
+ * of height and hides nothing. `min-width: 0` because this is itself a flex
+ * item elsewhere and would otherwise refuse to shrink below its content. */
+.cmp-verbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+  margin: 4px 0 20px;
+}
 .cmp-verb {
   padding: 7px 14px;
   border: 1px solid transparent;
@@ -2451,6 +2571,12 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .nb { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 24px; margin-top: 24px; }
 @media (max-width: 900px) { .nb { grid-template-columns: 1fr; } }
 
+/* The one hint in the notebook that had no rule, so it rendered at full body
+   size and full ink beside the button it was qualifying — a caption competing
+   with the control instead of supporting it. Matches `.nj-hint`, which is the
+   same thing one panel over. */
+.nb-hint { font-size: 11px; color: var(--ink-faint); }
+
 .nb-actions { display: flex; gap: 8px; margin-bottom: 16px; }
 .nb-actions button { flex: 1; }
 
@@ -2514,12 +2640,20 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   box-shadow: 0 8px 16px rgba(0,0,0,.06), 0 16px 32px rgba(0,0,0,.12);
   z-index: 20;
 }
-.nb-suggest button {
-  width: 100%; padding: 6px 10px; border: none; border-radius: 6px;
-  background: none; text-align: left; font-size: 13px; color: var(--ink);
+/* The option is the `<li>` now, not a `<button>` inside one.
+ *
+ * A `role="listbox"` owns `option` children directly, and the wrapping
+ * `listitem` was not allowed between them. Nothing here needs to be focusable:
+ * focus stays in the textarea — the researcher is mid-sentence — and the
+ * selection travels by `aria-activedescendant`. */
+.nb-suggest li {
+  padding: 6px 10px; border-radius: 6px;
+  text-align: left; font-size: 13px; color: var(--ink);
   cursor: pointer;
 }
-.nb-suggest button[aria-selected="true"], .nb-suggest button:hover {
+/* `aria-selected` is the real state now rather than a constant, so styling on
+   it finally means something: it used to be hardcoded to the first row. */
+.nb-suggest li[aria-selected="true"], .nb-suggest li:hover {
   background: var(--accent-soft); color: var(--accent);
 }
 .nb-suggest-empty {
@@ -2968,8 +3102,20 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .pm-trigger[aria-expanded="true"] .pm-caret { transform: rotate(180deg); }
 .pm-caret { transition: transform var(--quick) var(--ease-out-quart); }
 
+/* Placement is Radix's, appearance is ours.
+ *
+ * This used to carry `position: absolute; top: calc(100% + 6px); left: 0;
+ * z-index: 60`, which worked because the popup was a child of
+ * `.pm { position: relative }`. It is portalled to `<body>` now — so that it
+ * cannot be clipped by an `overflow` on the topbar and does not have to win a
+ * z-index argument with the rest of the shell — and those four declarations
+ * would fight the transform Radix positions the wrapper with, putting the menu
+ * somewhere it was not asked to go. The 6px gap they encoded is now
+ * `sideOffset={6}` on the Content, which is the same measurement expressed
+ * where the positioning actually happens.
+ *
+ * Everything below is appearance and stays here: Radix ships no styles. */
 .pm-pop {
-  position: absolute; top: calc(100% + 6px); left: 0; z-index: 60;
   width: 340px; padding: 6px;
   background: var(--panel); border: 1px solid var(--line-strong);
   border-radius: 8px;
@@ -3003,7 +3149,23 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   background: none; border: 0; color: var(--ink-faint); border-radius: 5px;
   opacity: 0; transition: opacity var(--fast) linear, color var(--fast) linear;
 }
-.pm-row:hover .pm-del, .pm-del:focus-visible { opacity: 1; }
+/* Revealed on hover, on focus, and on Radix's highlight.
+ *
+ * `:focus-visible` alone was not enough once this became a menu item. Radix
+ * moves focus with a roving tabindex — it calls `.focus()` itself — and a
+ * programmatic focus does not reliably satisfy the browser's `:focus-visible`
+ * heuristic. Measured in the running app: arrowing onto this control left it
+ * focused, correctly labelled "Delete <project>", and at `opacity: 0`. A
+ * keyboard user was being handed an invisible destructive button, which is the
+ * same defect this codebase already fixed once on "Put something on the board".
+ *
+ * `:focus` covers the roving case, and `[data-highlighted]` is the attribute
+ * Radix puts on the active item — kept as well as `:focus`, because the two
+ * come apart when the pointer highlights a row the keyboard has not focused. */
+.pm-row:hover .pm-del,
+.pm-del:focus,
+.pm-del:focus-visible,
+.pm-del[data-highlighted] { opacity: 1; }
 .pm-del:hover { color: var(--danger); background: var(--danger-soft); }
 @media (hover: none) { .pm-del { opacity: 1; } }
 
@@ -3030,8 +3192,12 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 .am-avatar-lg { width: 36px; height: 36px; font-size: 13px; }
+/* Placement is Radix's; see the note on `.pm-pop`. The `top: calc(100% + 8px)`
+   this carried is now `sideOffset={8}` on the Content, and `right: 0` is
+   `align="end"` — the same measurements, expressed where the positioning
+   happens rather than where it used to be inherited from a `position: relative`
+   parent the popup no longer has. */
 .am-pop {
-  position: absolute; top: calc(100% + 8px); right: 0; z-index: 60;
   width: 268px; padding: 6px;
   background: var(--panel); border: 1px solid var(--line-strong);
   border-radius: 8px;
@@ -3042,7 +3208,13 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .am-who b { display: block; font-size: 13px; }
 .am-who em {
   display: block; font-style: normal; font-size: 11.5px; color: var(--ink-faint);
-  overflow: hidden; text-overflow: ellipsis;
+  /* `nowrap` is what makes the ellipsis do anything: without it the text wraps
+     and `overflow: hidden` clips the second line mid-word instead of trimming
+     the first with a marker. This is an email address, so a clip with no
+     ellipsis reads as a shorter address rather than a truncated one — the same
+     shape of quiet lie as a count that overstates. `.pm-row-text em` one panel
+     over already had it. */
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .am-who .badge { margin-top: 5px; }
 .am-note {
@@ -4135,3 +4307,195 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 }
 .c3d-name { font-size: 13px; font-weight: 560; }
 .c3d-meta, .c3d-standing { font-size: 11px; color: var(--ink-faint); }
+
+/* ---------------------------------------------------------------------------
+ * The line of enquiry — the correction family, named and visible.
+ *
+ * A bar rather than a heading, because it carries three things a researcher
+ * acts on: what this question is called, how many looks it holds, and the two
+ * controls that bound it. The family used to be a UUID in `sessionStorage`
+ * with no surface at all.
+ *
+ * `min-width: 0` on the name and on the bar itself. A flex item defaults to
+ * `min-width: auto`, which refuses to shrink below its content — and this
+ * codebase has now shipped that same bug three times (the crumbs, the project
+ * menu, the case stack), each time as text overlapping the control beside it.
+ * A research question is free text and can be long, so this one would have
+ * been the fourth.
+ * ------------------------------------------------------------------------ */
+.enquiry-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  min-width: 0;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* The name is a button because clicking it renames — a control that looks like
+   a label is a control nobody finds, and one that acts without looking
+   actionable is worse. Left-aligned and underlined on hover so it reads as
+   editable rather than as a heading. */
+.enquiry-name {
+  min-width: 0;
+  flex: 1 1 12ch;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 560;
+  color: var(--ink);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 6px;
+  cursor: text;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.enquiry-name:hover { border-color: var(--line); background: var(--hover); }
+
+.enquiry-rename {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 16ch;
+}
+.enquiry-rename input {
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: 14px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.enquiry-count {
+  font-size: 11px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+/* Pushed to the end, but allowed to wrap onto its own line rather than
+   squeezing the name to nothing on a narrow window. */
+.enquiry-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.enquiry-history {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.enquiry-history li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  padding: 7px 10px;
+  background: var(--panel);
+}
+.enquiry-history-name {
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.enquiry-history-looks { font-size: 11px; color: var(--ink-faint); white-space: nowrap; }
+.enquiry-history-why {
+  font-size: 11px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------
+ * A control that looks like the text it wraps.
+ *
+ * Five lists selected their row from an `onClick` on a `<tr>` or a `<div>` —
+ * sources, connections, analysis runs, reports and graph nodes. None of those
+ * elements is focusable and none of the rows held anything that was, so
+ * choosing a source was a thing only a mouse could do. §30 and Rule 5 make
+ * keyboard parity a law here, and this was it failing on the product's most
+ * ordinary action: picking the thing you want to look at.
+ *
+ * The row keeps its click, because taking that away would be a real loss for
+ * everyone using a mouse. What changes is that the title inside it becomes a
+ * genuine button — so there is something to Tab to, something a screen reader
+ * announces as actionable, and something Enter and Space already work on
+ * without a `keydown` handler written by hand.
+ *
+ * It inherits `font`, `color` and `text-align` rather than setting them: the
+ * cells around it are styled in five different ways and the control has to
+ * disappear into whichever one it lands in.
+ * ------------------------------------------------------------------------ */
+.pick {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+.pick:hover { color: var(--accent); }
+/* Visible focus, or the whole exercise is pointless — a keyboard user who
+   cannot see where they are has gained a tab stop and nothing else. */
+.pick:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ---------------------------------------------------------------------------
+ * A wide table scrolls inside its own column, rather than out of it.
+ *
+ * Measured, not anticipated: at a 700px window the Connections table — seven
+ * columns — rendered 49px past the right edge of the workspace, on both
+ * Connections and Discovery. Nothing clipped it and the page did not scroll,
+ * so the last columns were drawn somewhere the column does not reach.
+ *
+ * **A container query, not a media query.** The viewport is the wrong axis.
+ * Since the shell's edges became draggable, the workspace can be narrow on a
+ * very large screen — at 1400px with both panels open it is already 741px, and
+ * a `@media` rule would keep insisting there was room. The workspace already
+ * declares `container: workspace / inline-size`, so the question asked here is
+ * the one that matters: how much room does *this column* have.
+ *
+ * **The wrapper scrolls, not the table.** The first attempt made the table
+ * itself `display: block` with `thead` and `tbody` as separate `display: table`
+ * boxes. It scrolled, and it was wrong: two table boxes size their columns
+ * independently, so the header stopped lining up with the data underneath it.
+ * That slipped past a first check that compared only the leading column, and
+ * was caught by comparing all seven — a header that does not sit above its own
+ * data is worse than the overflow it was fixing.
+ *
+ * So the table stays a table and the element around it scrolls, reached with
+ * `:has(> table)` because these wrappers carry no class of their own. Verified
+ * in the browser at 700px: `display: table`, all seven columns aligned to
+ * within a pixel, wrapper scrolling 729px of content through a 468px column,
+ * and nothing outside the workspace.
+ * ------------------------------------------------------------------------ */
+@container workspace (max-width: 760px) {
+  .workspace *:has(> table) { overflow-x: auto; }
+  /* Without this the table shrinks to the scroller instead of overflowing it,
+     and there is nothing to scroll. */
+  .workspace *:has(> table) > table { min-width: max-content; }
+}

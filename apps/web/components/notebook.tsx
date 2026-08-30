@@ -25,6 +25,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { TabPanel, ViewTabs } from "./ViewTabs";
 import { api } from "@/lib/api";
 import { Empty, Failure, Loading } from "./primitives";
 import { NoteGraph } from "./notegraph";
@@ -203,14 +204,11 @@ export function Notebook({ projectId }: { projectId: string }) {
   if (loading) return <Loading rows={5} label="Opening the notebook" />;
 
   const tabs = (
-    <div className="cmp-verbs" role="tablist" aria-label="Notebook view">
-      {([["pages", "Pages"], ["graph", "Graph"]] as const).map(([id, label]) => (
-        <button key={id} role="tab" aria-selected={view === id}
-                className="cmp-verb" onClick={() => setView(id)}>
-          {label}
-        </button>
-      ))}
-    </div>
+    <ViewTabs
+      name="notebook" label="Notebook view"
+      value={view} onChange={setView}
+      options={[["pages", "Pages"], ["graph", "Graph"]] as const}
+    />
   );
 
   if (view === "graph") {
@@ -218,7 +216,9 @@ export function Notebook({ projectId }: { projectId: string }) {
       <>
         <h1>Notebook</h1>
         {tabs}
-        <NoteGraph projectId={projectId} />
+        <TabPanel name="notebook" value={view}>
+          <NoteGraph projectId={projectId} />
+        </TabPanel>
       </>
     );
   }
@@ -227,236 +227,238 @@ export function Notebook({ projectId }: { projectId: string }) {
     <>
       <h1>Notebook</h1>
       {tabs}
-      <p className="lede">
-        Your own pages, linked by typing. <code>[[</code> links to another note
-        or to anything in this project — a dataset, a paper, a finding. Those
-        links are yours: they are shown as asserted, never as provenance.
-      </p>
+      <TabPanel name="notebook" value={view}>
+        <p className="lede">
+          Your own pages, linked by typing. <code>[[</code> links to another note
+          or to anything in this project — a dataset, a paper, a finding. Those
+          links are yours: they are shown as asserted, never as provenance.
+        </p>
 
-      {error ? <Failure error={error} /> : null}
+        {error ? <Failure error={error} /> : null}
 
-      <div className="nb">
-        <aside className="nb-list">
-          <div className="nb-actions">
-            <button className="nj-primary" onClick={() => void openToday()}>
-              Today
-            </button>
-            <button className="ct-dataset" onClick={() => setNaming(true)}>
-              New note
-            </button>
-          </div>
+        <div className="nb">
+          <aside className="nb-list">
+            <div className="nb-actions">
+              <button className="nj-primary" onClick={() => void openToday()}>
+                Today
+              </button>
+              <button className="ct-dataset" onClick={() => setNaming(true)}>
+                New note
+              </button>
+            </div>
 
-          {naming && (
-            <form
-              className="nb-naming"
-              onSubmit={(event) => { event.preventDefault(); void createNote(); }}
-            >
-              <label htmlFor="nb-new-title" className="eyebrow">
-                What is this note about?
-              </label>
-              <input
-                id="nb-new-title"
-                value={title}
-                autoFocus
-                onChange={(event) => setTitle(event.target.value)}
-                // Escape cancels, which the native prompt did for free and a
-                // hand-rolled field otherwise loses.
-                onKeyDown={(event) => {
-                  if (event.key === "Escape") { setNaming(false); setTitle(""); }
-                }}
+            {naming && (
+              <form
+                className="nb-naming"
+                onSubmit={(event) => { event.preventDefault(); void createNote(); }}
+              >
+                <label htmlFor="nb-new-title" className="eyebrow">
+                  What is this note about?
+                </label>
+                <input
+                  id="nb-new-title"
+                  value={title}
+                  autoFocus
+                  onChange={(event) => setTitle(event.target.value)}
+                  // Escape cancels, which the native prompt did for free and a
+                  // hand-rolled field otherwise loses.
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") { setNaming(false); setTitle(""); }
+                  }}
+                />
+                <div className="row">
+                  <button type="submit" className="nj-primary"
+                          disabled={!title.trim()}>
+                    Create
+                  </button>
+                  <button type="button" className="ct-dataset"
+                          onClick={() => { setNaming(false); setTitle(""); }}>
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {listing?.notes.length === 0 && (
+              <Empty
+                title="Nothing written yet"
+                hint="Open today's page and start typing. Use [[double brackets]] to link to anything in the project."
               />
-              <div className="row">
-                <button type="submit" className="nj-primary"
-                        disabled={!title.trim()}>
-                  Create
-                </button>
-                <button type="button" className="ct-dataset"
-                        onClick={() => { setNaming(false); setTitle(""); }}>
-                  Cancel
-                </button>
-              </div>
-            </form>
-          )}
+            )}
 
-          {listing?.notes.length === 0 && (
-            <Empty
-              title="Nothing written yet"
-              hint="Open today's page and start typing. Use [[double brackets]] to link to anything in the project."
-            />
-          )}
+            <ul className="nb-index">
+              {listing?.notes.map((note) => (
+                <li key={note.id}>
+                  <button
+                    data-open={open?.id === note.id}
+                    onClick={() => void openNote(note.id)}
+                  >
+                    <span className="nb-title">{note.title}</span>
+                    <span className="nb-counts numeric">
+                      {note.link_count > 0 && `→${note.link_count}`}
+                      {note.backlink_count > 0 && ` ←${note.backlink_count}`}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
 
-          <ul className="nb-index">
-            {listing?.notes.map((note) => (
-              <li key={note.id}>
-                <button
-                  data-open={open?.id === note.id}
-                  onClick={() => void openNote(note.id)}
-                >
-                  <span className="nb-title">{note.title}</span>
-                  <span className="nb-counts numeric">
-                    {note.link_count > 0 && `→${note.link_count}`}
-                    {note.backlink_count > 0 && ` ←${note.backlink_count}`}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+            {index && index.entry_points.length > 0 && (
+              <section className="nb-index">
+                <h3 className="eyebrow">Where to start</h3>
+                {/* Ranked by what the notebook itself points at — the
+                    researcher's own judgement, already in the links. */}
+                <ul className="nb-index-hubs">
+                  {index.entry_points.map((hub) => (
+                    <li key={hub.id}>
+                      <button onClick={() => void openNote(hub.id)}>
+                        {hub.title}
+                      </button>
+                      <span className="numeric">{hub.linked_from}</span>
+                    </li>
+                  ))}
+                </ul>
 
-          {index && index.entry_points.length > 0 && (
-            <section className="nb-index">
-              <h3 className="eyebrow">Where to start</h3>
-              {/* Ranked by what the notebook itself points at — the
-                  researcher's own judgement, already in the links. */}
-              <ul className="nb-index-hubs">
-                {index.entry_points.map((hub) => (
-                  <li key={hub.id}>
-                    <button onClick={() => void openNote(hub.id)}>
-                      {hub.title}
-                    </button>
-                    <span className="numeric">{hub.linked_from}</span>
-                  </li>
-                ))}
-              </ul>
+                {index.subjects.length > 0 && (
+                  <>
+                    <h3 className="eyebrow">Written about</h3>
+                    <ul className="nb-index-subjects">
+                      {index.subjects.slice(0, 8).map((subject) => (
+                        <li key={subject.id}>
+                          <b>{subject.title}</b>
+                          <span className="numeric">
+                            {subject.notes} note{subject.notes === 1 ? "" : "s"}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </section>
+            )}
 
-              {index.subjects.length > 0 && (
-                <>
-                  <h3 className="eyebrow">Written about</h3>
-                  <ul className="nb-index-subjects">
-                    {index.subjects.slice(0, 8).map((subject) => (
-                      <li key={subject.id}>
-                        <b>{subject.title}</b>
-                        <span className="numeric">
-                          {subject.notes} note{subject.notes === 1 ? "" : "s"}
+            <section className="nb-lint">
+              <button className="btn" disabled={linting} onClick={async () => {
+                setLinting(true);
+                try {
+                  setLint(await api.get<Lint>(
+                    `/api/projects/${projectId}/notebook/lint`));
+                } finally { setLinting(false); }
+              }}>
+                {linting ? "Checking…" : "Check the notebook"}
+              </button>
+
+              {lint && (
+                <div className="nb-lint-out">
+                  <p className="nb-lint-note">{lint.note}</p>
+                  {lint.findings.map((finding, i) => (
+                    <details key={i} className="nb-lint-item"
+                             data-kind={finding.kind}>
+                      <summary>
+                        <span className="nb-lint-kind">
+                          {finding.kind === "stale_evidence" ? "evidence changed"
+                            : finding.kind === "unwritten_page" ? "not written"
+                            : finding.kind === "isolated" ? "unlinked"
+                            : "no source"}
                         </span>
-                      </li>
-                    ))}
-                  </ul>
-                </>
+                        {finding.detail}
+                      </summary>
+                      {/* Why it matters, then what to do. A lint entry that only
+                          names a problem gets ignored. */}
+                      <p className="nb-lint-why">{finding.why}</p>
+                      <p className="nb-lint-do">{finding.do}</p>
+                    </details>
+                  ))}
+                </div>
               )}
             </section>
-          )}
 
-          <section className="nb-lint">
-            <button className="btn" disabled={linting} onClick={async () => {
-              setLinting(true);
-              try {
-                setLint(await api.get<Lint>(
-                  `/api/projects/${projectId}/notebook/lint`));
-              } finally { setLinting(false); }
-            }}>
-              {linting ? "Checking…" : "Check the notebook"}
-            </button>
-
-            {lint && (
-              <div className="nb-lint-out">
-                <p className="nb-lint-note">{lint.note}</p>
-                {lint.findings.map((finding, i) => (
-                  <details key={i} className="nb-lint-item"
-                           data-kind={finding.kind}>
-                    <summary>
-                      <span className="nb-lint-kind">
-                        {finding.kind === "stale_evidence" ? "evidence changed"
-                          : finding.kind === "unwritten_page" ? "not written"
-                          : finding.kind === "isolated" ? "unlinked"
-                          : "no source"}
+            {listing && listing.unresolved.length > 0 && (
+              // A to-do list the researcher wrote without meaning to.
+              <section className="nb-unresolved">
+                <h3 className="eyebrow">Written about, not yet written</h3>
+                <ul>
+                  {listing.unresolved.map((item) => (
+                    <li key={item.target}>
+                      <b>{item.target}</b>
+                      <span>
+                        {item.mentions} mention{item.mentions === 1 ? "" : "s"}
                       </span>
-                      {finding.detail}
-                    </summary>
-                    {/* Why it matters, then what to do. A lint entry that only
-                        names a problem gets ignored. */}
-                    <p className="nb-lint-why">{finding.why}</p>
-                    <p className="nb-lint-do">{finding.do}</p>
-                  </details>
-                ))}
-              </div>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+          </aside>
+
+          <section className="nb-page">
+            {!open ? (
+              <Empty
+                title="No page open"
+                hint="Open today's page, or pick one from the list."
+              />
+            ) : (
+              <>
+                <header className="nb-head">
+                  <h2>{open.title}</h2>
+                  <span className="nb-saved">
+                    {saving ? "saving…"
+                      : `saved ${new Date(open.updated_at).toLocaleTimeString()}`}
+                  </span>
+                </header>
+
+                <Editor
+                  projectId={projectId}
+                  value={draft}
+                  onChange={setDraft}
+                />
+
+                {open.links.length > 0 && (
+                  <section className="nb-links">
+                    <h3 className="eyebrow">Links from this page</h3>
+                    <ul>
+                      {open.links.map((link, i) => (
+                        <li key={i} data-kind={link.kind}>
+                          {link.note_id ? (
+                            <button onClick={() => void openNote(link.note_id!)}>
+                              {link.title}
+                            </button>
+                          ) : (
+                            <span>{link.title ?? link.target}</span>
+                          )}
+                          <em>
+                            {link.kind === "unresolved"
+                              ? "not written yet"
+                              : link.kind.replace(/_/g, " ")}
+                          </em>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+
+                {open.backlinks.length > 0 && (
+                  <section className="nb-links">
+                    {/* The sentence, not just the title — that is the difference
+                        between a backlink and a folder listing. */}
+                    <h3 className="eyebrow">Mentioned in</h3>
+                    <ul className="nb-mentions">
+                      {open.backlinks.map((mention) => (
+                        <li key={mention.id}>
+                          <button onClick={() => void openNote(mention.id)}>
+                            {mention.title}
+                          </button>
+                          {mention.excerpt && <p>{mention.excerpt}</p>}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+              </>
             )}
           </section>
-
-          {listing && listing.unresolved.length > 0 && (
-            // A to-do list the researcher wrote without meaning to.
-            <section className="nb-unresolved">
-              <h3 className="eyebrow">Written about, not yet written</h3>
-              <ul>
-                {listing.unresolved.map((item) => (
-                  <li key={item.target}>
-                    <b>{item.target}</b>
-                    <span>
-                      {item.mentions} mention{item.mentions === 1 ? "" : "s"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-        </aside>
-
-        <section className="nb-page">
-          {!open ? (
-            <Empty
-              title="No page open"
-              hint="Open today's page, or pick one from the list."
-            />
-          ) : (
-            <>
-              <header className="nb-head">
-                <h2>{open.title}</h2>
-                <span className="nb-saved">
-                  {saving ? "saving…"
-                    : `saved ${new Date(open.updated_at).toLocaleTimeString()}`}
-                </span>
-              </header>
-
-              <Editor
-                projectId={projectId}
-                value={draft}
-                onChange={setDraft}
-              />
-
-              {open.links.length > 0 && (
-                <section className="nb-links">
-                  <h3 className="eyebrow">Links from this page</h3>
-                  <ul>
-                    {open.links.map((link, i) => (
-                      <li key={i} data-kind={link.kind}>
-                        {link.note_id ? (
-                          <button onClick={() => void openNote(link.note_id!)}>
-                            {link.title}
-                          </button>
-                        ) : (
-                          <span>{link.title ?? link.target}</span>
-                        )}
-                        <em>
-                          {link.kind === "unresolved"
-                            ? "not written yet"
-                            : link.kind.replace(/_/g, " ")}
-                        </em>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              )}
-
-              {open.backlinks.length > 0 && (
-                <section className="nb-links">
-                  {/* The sentence, not just the title — that is the difference
-                      between a backlink and a folder listing. */}
-                  <h3 className="eyebrow">Mentioned in</h3>
-                  <ul className="nb-mentions">
-                    {open.backlinks.map((mention) => (
-                      <li key={mention.id}>
-                        <button onClick={() => void openNote(mention.id)}>
-                          {mention.title}
-                        </button>
-                        {mention.excerpt && <p>{mention.excerpt}</p>}
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              )}
-            </>
-          )}
-        </section>
-      </div>
+        </div>
+      </TabPanel>
     </>
   );
 }
@@ -467,13 +469,22 @@ export function Notebook({ projectId }: { projectId: string }) {
  * A plain textarea on purpose: a rich editor would fight the fact that the
  * source of truth is markdown text, and every one of them mangles brackets.
  */
-function Editor({ projectId, value, onChange }: {
+export function Editor({ projectId, value, onChange }: {
   projectId: string;
   value: string;
   onChange: (next: string) => void;
 }) {
   const textarea = useRef<HTMLTextAreaElement>(null);
   const [suggestions, setSuggestions] = useState<string[] | null>(null);
+  /*
+   * Which suggestion Enter would take.
+   *
+   * Reset to 0 every time the list is rebuilt — see `refresh`. Without that it
+   * survives into a shorter list and `suggestions[active]` is `undefined`, so
+   * typing one more character after arrowing down completes `[[undefined]]`
+   * into the researcher's note.
+   */
+  const [active, setActive] = useState(0);
   const [query, setQuery] = useState("");
   const [targets, setTargets] = useState<string[]>([]);
 
@@ -506,6 +517,9 @@ function Editor({ projectId, value, onChange }: {
     const lower = typed.toLowerCase();
     setSuggestions(
       targets.filter((t) => t.toLowerCase().includes(lower)).slice(0, 8));
+    // A new list is a new selection. Keeping the old index would point it at a
+    // different word than the one highlighted a keystroke ago.
+    setActive(0);
   }
 
   function complete(choice: string) {
@@ -538,11 +552,33 @@ function Editor({ projectId, value, onChange }: {
           onChange(event.target.value);
           refresh(event.target.value, event.target.selectionStart);
         }}
+        // The popup is driven from here rather than from the list, because
+        // focus never leaves the textarea — the researcher is mid-sentence, and
+        // moving focus into a suggestion list would take the caret with it.
+        // `aria-activedescendant` below is what lets the selection move while
+        // focus stays put.
+        aria-expanded={suggestions ? suggestions.length > 0 : undefined}
+        aria-controls={suggestions?.length ? "nb-suggest" : undefined}
+        aria-activedescendant={
+          suggestions?.length ? `nb-suggest-${active}` : undefined}
         onKeyDown={(event) => {
           if (!suggestions?.length) return;
+          // Wrapping, like every other list in this interface.
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            setActive((i) => (i + 1) % suggestions.length);
+            return;
+          }
+          if (event.key === "ArrowUp") {
+            event.preventDefault();
+            setActive((i) => (i - 1 + suggestions.length) % suggestions.length);
+            return;
+          }
           if (event.key === "Enter" || event.key === "Tab") {
             event.preventDefault();
-            complete(suggestions[0]);
+            // The highlighted one, not `suggestions[0]`. Completing the first
+            // regardless is what made the other seven mouse-only.
+            complete(suggestions[active]);
           }
           if (event.key === "Escape") setSuggestions(null);
         }}
@@ -550,20 +586,31 @@ function Editor({ projectId, value, onChange }: {
       />
 
       {suggestions && suggestions.length > 0 && (
-        <ul className="nb-suggest" role="listbox">
+        <ul className="nb-suggest" role="listbox" id="nb-suggest"
+            aria-label="Link suggestions">
           {suggestions.map((choice, index) => (
-            <li key={choice}>
-              <button
-                role="option"
-                aria-selected={index === 0}
-                onMouseDown={(event) => {
-                  // mousedown, not click: blur would close the menu first.
-                  event.preventDefault();
-                  complete(choice);
-                }}
-              >
-                {choice}
-              </button>
+            /*
+             * The `<li>` is the option. It used to wrap a `<button role="option">`,
+             * which put a `listitem` between the listbox and the things it owns
+             * — a structure the role does not allow. Nothing here needs to be
+             * focusable: focus stays in the textarea and the selection is
+             * carried by `aria-activedescendant`.
+             */
+            <li
+              key={choice}
+              id={`nb-suggest-${index}`}
+              role="option"
+              // Was hardcoded to `index === 0`, which was a true description of
+              // a broken widget: the first was the only one Enter could reach.
+              aria-selected={index === active}
+              onMouseEnter={() => setActive(index)}
+              onMouseDown={(event) => {
+                // mousedown, not click: blur would close the menu first.
+                event.preventDefault();
+                complete(choice);
+              }}
+            >
+              {choice}
             </li>
           ))}
         </ul>

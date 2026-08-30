@@ -19,6 +19,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { TabPanel, ViewTabs } from "./ViewTabs";
 import { api } from "@/lib/api";
 import { Empty, Failure, Loading } from "./primitives";
 import { VerdictBody, VerdictCard } from "./Verdict";
@@ -113,15 +114,12 @@ export function Patterns({ projectId, datasetVersionId, columns }: {
   }, [projectId]);
 
   const tabs = (
-    <div className="cmp-verbs" role="tablist" aria-label="What to look at">
-      {([["patterns", "Across the project"],
-         ["robustness", "Would it survive?"]] as const).map(([id, label]) => (
-        <button key={id} role="tab" aria-selected={view === id}
-                className="cmp-verb" onClick={() => setView(id)}>
-          {label}
-        </button>
-      ))}
-    </div>
+    <ViewTabs
+      name="patterns" label="What to look at"
+      value={view} onChange={setView}
+      options={[["patterns", "Across the project"],
+                ["robustness", "Would it survive?"]] as const}
+    />
   );
 
   if (view === "robustness") {
@@ -129,11 +127,13 @@ export function Patterns({ projectId, datasetVersionId, columns }: {
       <>
         <h1>Patterns</h1>
         {tabs}
-        <SpecificationCurve
-          projectId={projectId}
-          datasetVersionId={datasetVersionId ?? null}
-          columns={columns ?? []}
-        />
+        <TabPanel name="patterns" value={view}>
+          <SpecificationCurve
+            projectId={projectId}
+            datasetVersionId={datasetVersionId ?? null}
+            columns={columns ?? []}
+          />
+        </TabPanel>
       </>
     );
   }
@@ -148,57 +148,59 @@ export function Patterns({ projectId, datasetVersionId, columns }: {
     <>
       <h1>Patterns</h1>
       {tabs}
-      <p className="lede">
-        What the shape of this project&rsquo;s results looks like taken together.
-        Nothing here is a new test — every number was computed under correction
-        already.
-      </p>
+      <TabPanel name="patterns" value={view}>
+        <p className="lede">
+          What the shape of this project&rsquo;s results looks like taken together.
+          Nothing here is a new test — every number was computed under correction
+          already.
+        </p>
 
-      <Multiplicity context={detected.multiplicity} />
+        <Multiplicity context={detected.multiplicity} />
 
-      {empty ? (
-        <Empty
-          title="Nothing to see yet"
-          hint="Run discovery on a dataset and the patterns across its results will appear here."
-        />
-      ) : (
-        <>
-          {findings.findings.length > 0 && (
-            <section className="pat-section">
-              <h2>Worth your attention</h2>
-              <p className="pat-sub">{findings.note}</p>
-              {findings.findings.map((finding) => (
-                <KeyFindingCard key={finding.connection_id} finding={finding} />
-              ))}
-            </section>
-          )}
-
-          {Object.entries(detected.patterns).map(([group, list]) =>
-            list.length === 0 ? null : (
-              <section className="pat-section" key={group}>
-                <h2>{GROUP_TITLE[group] ?? group.replace(/_/g, " ")}</h2>
-                {list.map((pattern, index) =>
-                  pattern.verdict ? (
-                    // A contradiction is a verdict, not an observation, so it
-                    // renders as one — same card as every other adjudication.
-                    <VerdictCard
-                      key={index}
-                      verdict={pattern.verdict}
-                      subject={<>{pattern.variables.join(" and ")}</>}
-                    />
-                  ) : (
-                    <PatternCard key={index} pattern={pattern} />
-                  ))}
+        {empty ? (
+          <Empty
+            title="Nothing to see yet"
+            hint="Run discovery on a dataset and the patterns across its results will appear here."
+          />
+        ) : (
+          <>
+            {findings.findings.length > 0 && (
+              <section className="pat-section">
+                <h2>Worth your attention</h2>
+                <p className="pat-sub">{findings.note}</p>
+                {findings.findings.map((finding) => (
+                  <KeyFindingCard key={finding.connection_id} finding={finding} />
+                ))}
               </section>
-            ))}
+            )}
 
-          <p className="pat-foot">
-            {detected.connections_examined.toLocaleString()} results examined,{" "}
-            {detected.canonical_coverage.toLocaleString()} of them in confirmed
-            canonical variables. {detected.note}
-          </p>
-        </>
-      )}
+            {Object.entries(detected.patterns).map(([group, list]) =>
+              list.length === 0 ? null : (
+                <section className="pat-section" key={group}>
+                  <h2>{GROUP_TITLE[group] ?? group.replace(/_/g, " ")}</h2>
+                  {list.map((pattern, index) =>
+                    pattern.verdict ? (
+                      // A contradiction is a verdict, not an observation, so it
+                      // renders as one — same card as every other adjudication.
+                      <VerdictCard
+                        key={index}
+                        verdict={pattern.verdict}
+                        subject={<>{pattern.variables.join(" and ")}</>}
+                      />
+                    ) : (
+                      <PatternCard key={index} pattern={pattern} />
+                    ))}
+                </section>
+              ))}
+
+            <p className="pat-foot">
+              {detected.connections_examined.toLocaleString()} results examined,{" "}
+              {detected.canonical_coverage.toLocaleString()} of them in confirmed
+              canonical variables. {detected.note}
+            </p>
+          </>
+        )}
+      </TabPanel>
     </>
   );
 }

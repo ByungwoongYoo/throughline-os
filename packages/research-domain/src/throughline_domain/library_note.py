@@ -182,7 +182,7 @@ def _provenance(provenance: dict[str, Any] | None) -> str:
               "stood then.")
 
 
-def for_finding(cur, *, finding_id: str, session_id: str | None = None
+def for_finding(cur, *, finding_id: str, enquiry_id: str | None = None
                 ) -> dict[str, Any]:
     """
     Assemble the note for a stored finding.
@@ -215,9 +215,9 @@ def for_finding(cur, *, finding_id: str, session_id: str | None = None
     provenance = cur.fetchone()
 
     ledger = None
-    if session_id:
+    if enquiry_id:
         from .exploration import ledger as read_ledger
-        ledger = read_ledger(cur, session_id)
+        ledger = read_ledger(cur, enquiry_id)
 
     return {
         "finding_id": finding_id,

@@ -442,7 +442,7 @@ def discovery_run(run: dict[str, Any], cur: Any) -> dict[str, Any]:
             # rather than forming a family of its own. None when the run came
             # from a script or an older client, and then it is its own family —
             # which is the behaviour that already existed.
-            session_id=record.get("session_id"),
+            enquiry_id=record.get("enquiry_id"),
         )
         connection_ids.append(connection_id)
         # Step 10: only survivors of the correction become exploratory. The rest

@@ -17,9 +17,34 @@
  * **What will be lost is counted before asking.** The confirmation names the
  * sources, analyses and findings that go with it, because "this cannot be
  * undone" does not tell anyone whether they can afford it.
+ *
+ * **The menu behaviour is Radix, not hand-rolled, and that is a correctness
+ * fix rather than a refactor.** This markup declared `role="menu"` and
+ * `role="menuitem"`, which is a promise: a screen reader announces a menu, and
+ * the arrow keys are then expected to move through it. Nothing in this file
+ * handled an arrow key. Focus never entered the popup when it opened and never
+ * returned to the trigger when it closed, so a keyboard user who opened it was
+ * left with focus on the trigger and no way in, and a mouse user who picked a
+ * project lost focus to the body. The row `<div>` sat inside `role="menu"`
+ * carrying no role of its own, which breaks the structure the role requires,
+ * and both the delete and "New project" buttons were unlabelled children of a
+ * menu they were not members of.
+ *
+ * That is this codebase's usual defect wearing accessibility clothes: a claim
+ * the implementation does not support. §30 and Rule 5 make keyboard parity a
+ * law here, and hand-rolled focus management is where it quietly breaks — so
+ * the part that is genuinely hard is delegated to a primitive whose whole job
+ * is getting it right, and the styling stays ours. Every class name below is
+ * unchanged; Radix is unstyled, so it composes with `globals.css` rather than
+ * replacing any of it.
+ *
+ * **The current project is a `menuitemradio`, not a `menuitem`.** The tick was
+ * already saying "one of these is selected"; the role now says it too, so the
+ * announcement matches the picture.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import * as Menu from "@radix-ui/react-dropdown-menu";
+import { useCallback, useState } from "react";
 import { api } from "@/lib/api";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { IconChevronDown, IconCheck, IconPlus, IconTrash } from "./icons";
@@ -69,27 +94,12 @@ export function ProjectMenu({
   const [counts, setCounts] = useState<Counts | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const wrapRef = useRef<HTMLDivElement>(null);
 
   const current = projects.find((p) => p.id === currentId) ?? null;
 
-  // Close on outside click and on Escape — a menu that survives either reads
-  // as broken rather than as persistent.
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (event: MouseEvent) => {
-      if (!wrapRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  // Outside click, Escape, arrow keys, typeahead, focus in and focus back out
+  // are all Radix's now. The hand-rolled version did the first two and none of
+  // the rest, which is why it is gone rather than kept alongside.
 
   /** What this project holds, so the confirmation can be specific. */
   const askDelete = useCallback(async (project: Project) => {
@@ -125,63 +135,94 @@ export function ProjectMenu({
   }
 
   return (
-    <div className="pm" ref={wrapRef}>
-      <button
-        className="pm-trigger"
-        onClick={() => setOpen((o) => !o)}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        title={current ? `${current.name} — switch project` : "Choose a project"}
-      >
-        <span className="pm-dot" aria-hidden />
-        <span className="pm-name">{current?.name ?? "No project"}</span>
-        <IconChevronDown size={14} className="pm-caret" />
-      </button>
+    <>
+      <Menu.Root open={open} onOpenChange={setOpen}>
+        <div className="pm">
+          <Menu.Trigger asChild>
+            <button
+              className="pm-trigger"
+              title={current ? `${current.name} — switch project` : "Choose a project"}
+            >
+              <span className="pm-dot" aria-hidden />
+              <span className="pm-name">{current?.name ?? "No project"}</span>
+              <IconChevronDown size={14} className="pm-caret" />
+            </button>
+          </Menu.Trigger>
 
-      {open && (
-        <div className="pm-pop" role="menu">
-          <div className="pm-list">
-            {projects.length === 0 ? (
-              <p className="pm-empty">No projects yet.</p>
-            ) : (
-              projects.map((project) => (
-                <div key={project.id} className="pm-row"
-                     data-current={project.id === currentId}>
-                  <button
-                    className="pm-pick"
-                    role="menuitem"
-                    onClick={() => { onSelect(project.id); setOpen(false); }}
-                  >
-                    <span className="pm-tick" aria-hidden>
-                      {project.id === currentId && <IconCheck size={14} />}
-                    </span>
-                    <span className="pm-row-text">
-                      <b>{project.name}</b>
-                      {project.research_question && (
-                        <em>{project.research_question.slice(0, 68)}
-                          {project.research_question.length > 68 && "…"}</em>
-                      )}
-                    </span>
-                  </button>
-                  <button
-                    className="pm-del"
-                    onClick={() => void askDelete(project)}
-                    aria-label={`Delete ${project.name}`}
-                    title={`Delete ${project.name}`}
-                  >
-                    <IconTrash size={14} />
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
+          {/*
+            Portalled, so the popup is not clipped by any `overflow` on the
+            topbar and does not have to win a `z-index` argument with the rest of
+            the shell. `sideOffset` keeps the 6px gap the old absolute
+            positioning had, and `collisionPadding` stops it hanging off the
+            bottom of a short window — which the hand-positioned version did.
+          */}
+          <Menu.Portal>
+            <Menu.Content className="pm-pop" align="start" sideOffset={6}
+                          collisionPadding={8}>
+              <div className="pm-list">
+                {projects.length === 0 ? (
+                  <p className="pm-empty">No projects yet.</p>
+                ) : (
+                  <Menu.RadioGroup value={currentId ?? ""} onValueChange={onSelect}>
+                    {projects.map((project) => (
+                      <div key={project.id} className="pm-row"
+                           data-current={project.id === currentId}>
+                        <Menu.RadioItem className="pm-pick" value={project.id}>
+                          {/*
+                            The tick is drawn here rather than in
+                            `Menu.ItemIndicator` so the slot keeps its width on
+                            every row: an indicator that only renders when
+                            checked makes the unselected rows shift left, and the
+                            list jitters as the selection moves.
+                          */}
+                          <span className="pm-tick" aria-hidden>
+                            {project.id === currentId && <IconCheck size={14} />}
+                          </span>
+                          <span className="pm-row-text">
+                            <b>{project.name}</b>
+                            {project.research_question && (
+                              <em>{project.research_question.slice(0, 68)}
+                                {project.research_question.length > 68 && "…"}</em>
+                            )}
+                          </span>
+                        </Menu.RadioItem>
+                        {/*
+                          An `Item` rather than a plain button. Radix moves focus
+                          with a roving tabindex and closes on Tab, so anything
+                          inside the popup that is not an Item cannot be reached
+                          by keyboard at all — which is what this delete control
+                          was before, sitting unreachable inside a `role="menu"`.
+                        */}
+                        <Menu.Item
+                          className="pm-del"
+                          onSelect={(event) => {
+                            // Radix closes on select. The confirmation opens from
+                            // `askDelete`, and letting the menu close underneath
+                            // it first is what returns focus to the trigger — so
+                            // Escape out of the dialog lands somewhere sensible
+                            // instead of on the body.
+                            event.preventDefault();
+                            void askDelete(project);
+                          }}
+                          aria-label={`Delete ${project.name}`}
+                          title={`Delete ${project.name}`}
+                        >
+                          <IconTrash size={14} />
+                        </Menu.Item>
+                      </div>
+                    ))}
+                  </Menu.RadioGroup>
+                )}
+              </div>
 
-          <button className="pm-new" onClick={() => { setOpen(false); onCreate(); }}>
-            <IconPlus size={15} />
-            <span>New project</span>
-          </button>
+              <Menu.Item className="pm-new" onSelect={() => onCreate()}>
+                <IconPlus size={15} />
+                <span>New project</span>
+              </Menu.Item>
+            </Menu.Content>
+          </Menu.Portal>
         </div>
-      )}
+      </Menu.Root>
 
       <ConfirmDialog
         open={Boolean(pendingDelete)}
@@ -215,6 +256,6 @@ export function ProjectMenu({
         onConfirm={() => void confirmDelete()}
         onCancel={() => { if (!busy) { setPendingDelete(null); setError(null); } }}
       />
-    </div>
+    </>
   );
 }

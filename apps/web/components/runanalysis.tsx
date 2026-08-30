@@ -49,7 +49,6 @@
 import { useState } from "react";
 import { ApiError, Capabilities, DatasetColumn, Source, api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
-import { sessionId } from "@/lib/session";
 import { Empty, Failure, Loading } from "./primitives";
 
 /** What the server said about the run it just queued. */
@@ -152,10 +151,9 @@ export function RunAnalysis({ projectId, onQueued }: {
           variables: picked,
           research_question: question,
           method_rationale: rationale,
-          // Specifying an analysis is a look at the data. It joins the session's
-          // family so that a researcher who sweeps and then runs three of these
-          // is corrected across all of it.
-          session_id: sessionId(),
+          // Specifying an analysis is a look at the data. No family is sent:
+          // it joins the project's open line of enquiry, so a researcher who
+          // sweeps and then runs three of these is corrected across all of it.
           preregistration_id: registration || null,
         });
       setMethod(""); setPicked({}); setQuestion(""); setRationale("");

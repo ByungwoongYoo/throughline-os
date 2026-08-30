@@ -277,11 +277,19 @@ describe("a registered hypothesis", () => {
     expect(post.mock.calls[0][1]).toMatchObject({ preregistration_id: null });
   });
 
-  it("joins the session's family rather than standing alone", async () => {
+  it("names no family, so the server decides which one this joins", async () => {
     /*
-     * Without this the correction is wrong in the flattering direction: a
-     * researcher who sweeps and then specifies three analyses would have each
-     * one corrected as though it were the only look they had taken.
+     * The correction still has to be right in the same way: a researcher who
+     * sweeps and then specifies three analyses must have all of it corrected
+     * together, or the flattering direction wins.
+     *
+     * What changed is who decides. This used to send a `session_id` the browser
+     * had minted into `sessionStorage`, which made a *tab* the unit of
+     * correction — invisible to the researcher, split across two windows, and
+     * discarded on close while the looks themselves stayed in the database.
+     * Sending nothing is now the correct request: the server resolves the
+     * project's open line of enquiry, so there is one definition of "the same
+     * sitting" rather than one per client.
      */
     const post = vi.spyOn(api, "post").mockResolvedValue({
       analysis_run_id: "arun_1", confirmatory: false, standing: null,
@@ -296,8 +304,9 @@ describe("a registered hypothesis", () => {
     await userEvent.click(screen.getByRole("button", { name: /Run it/ }));
 
     await waitFor(() => expect(post).toHaveBeenCalled());
-    const sent = post.mock.calls[0][1] as { session_id: string | null };
-    expect(sent.session_id).toMatch(/^ses_/);
+    const sent = post.mock.calls[0][1] as Record<string, unknown>;
+    expect(sent).not.toHaveProperty("session_id");
+    expect(sent).not.toHaveProperty("enquiry_id");
   });
 
   it("says the claim is checked rather than taken on trust", async () => {

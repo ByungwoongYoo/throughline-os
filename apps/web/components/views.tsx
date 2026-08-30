@@ -17,7 +17,6 @@ import {
   ingestionStep, isIngesting,
 } from "@/lib/api";
 import { ApiState, useApi } from "@/lib/useApi";
-import { sessionId } from "@/lib/session";
 import { Section } from "./Shell";
 import { PlainSummary, ResultCard } from "./ResultCard";
 import { Empty, Failure, Loading, Meter, Num, Stat, Status } from "./primitives";
@@ -252,7 +251,11 @@ export function Sources({ sources, onSelect, upload, uploading, uploadError }: {
             {data.map((source) => (
               <tr key={source.id} style={{ cursor: "pointer" }} onClick={() => onSelect(source.id)}>
                 <td>
-                  <div style={{ fontWeight: 540, wordBreak: "break-word" }}>{source.title}</div>
+                  <button type="button" className="pick"
+                          style={{ fontWeight: 540, wordBreak: "break-word" }}
+                          onClick={() => onSelect(source.id)}>
+                    {source.title}
+                  </button>
                   {/* §35 — trust level travels with the source, not in its own column. */}
                   <span className="mono" style={{ color: "var(--ink-faint)" }}>
                     {source.source_type} · {source.trust_level}
@@ -430,10 +433,12 @@ export function Search({ projectId }: { projectId: string }) {
 
   return (
     <>
-      <h1>Search</h1>
+      <h1>Search sources</h1>
       <p className="lede">
-        Keyword and meaning together. Every search is recorded, so an answer built on
-        one can be traced back to the passages it came from.
+        Searches the sources already in this project — keyword and meaning
+        together. Every search is recorded, so an answer built on one can be
+        traced back to the passages it came from. To bring in something the
+        project does not have yet, use Find papers or Find data.
       </p>
 
       <form
@@ -443,7 +448,7 @@ export function Search({ projectId }: { projectId: string }) {
         <input
           type="text" value={query} onChange={(e) => setQuery(e.target.value)}
           placeholder="e.g. how many people took part in the trial"
-          aria-label="Search the corpus"
+          aria-label="Search the sources in this project"
         />
         <button className="btn btn-primary" type="submit" disabled={!query.trim()}>Search</button>
       </form>
@@ -543,7 +548,11 @@ export function Discover({ projectId, sources, onSelectConnection, startWith, on
         // of everything else looked at in this sitting. Null in a private
         // window, where storage is refused — the run is then its own family,
         // which is what happened before any of this existed.
-        { dataset_version_id: versionId, force, session_id: sessionId(),
+        // No family is sent. The server resolves the project's open line of
+        // enquiry, which is the same answer this used to compute from a UUID in
+        // `sessionStorage` — except that it survives the tab and the researcher
+        // can see what it is.
+        { dataset_version_id: versionId, force,
           hold_before_recording: hold },
       );
       // §123 — if the server declined to start a second run, say so. A button
@@ -686,7 +695,10 @@ export function ConnectionsTable({ connections, error, loading, reload, onSelect
           {connections.map((c) => (
             <tr key={c.id} style={{ cursor: "pointer" }} onClick={() => onSelect(c.id)}>
               <td style={{ fontWeight: 530 }}>
-                {c.left_variable} <span style={{ color: "var(--ink-faint)" }}>×</span> {c.right_variable}
+                <button type="button" className="pick"
+                        onClick={() => onSelect(c.id)}>
+                  {c.left_variable} <span style={{ color: "var(--ink-faint)" }}>×</span> {c.right_variable}
+                </button>
               </td>
               <td className="mono">{c.method.replace(/_/g, " ")}</td>
               <td className="numeric" style={{ textAlign: "right" }}><Num value={c.estimate} /></td>

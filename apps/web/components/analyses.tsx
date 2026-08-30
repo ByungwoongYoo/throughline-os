@@ -127,7 +127,11 @@ export function AnalysisList({ projectId, onSelect }: {
         <div className="card card-tight" key={run.id}
              style={{ cursor: "pointer" }} onClick={() => onSelect(run.id)}>
           <div className="row">
-            <span style={{ fontWeight: 530 }}>{nameOf(run)}</span>
+            <button type="button" className="pick"
+                    style={{ fontWeight: 530, width: "auto" }}
+                    onClick={() => onSelect(run.id)}>
+              {nameOf(run)}
+            </button>
             <span className="mono" style={{ color: "var(--ink-faint)" }}>
               {run.method.replace(/_/g, " ")}
             </span>

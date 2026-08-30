@@ -189,7 +189,7 @@ def _shared_provenance(cur, left_source: str, right_source: str,
 
 def reconcile(cur, *, project_id: str, left: dict[str, Any],
               right: dict[str, Any],
-              session_id: str | None = None) -> dict[str, Any]:
+              enquiry_id: str | None = None) -> dict[str, Any]:
     """
     Can these two claims be compared, and if so do they agree?
 
@@ -215,9 +215,9 @@ def reconcile(cur, *, project_id: str, left: dict[str, Any],
         # a look at the data like any other. Recording only the comparisons that
         # produced an answer would report a smaller family than the number of
         # times the papers were actually interrogated.
-        if session_id:
+        if enquiry_id:
             from .exploration import record as record_look
-            record_look(cur, session_id=session_id, project_id=project_id,
+            record_look(cur, enquiry_id=enquiry_id, project_id=project_id,
                         verb="paper_reconciliation",
                         description=(f"{_summary(left).get('title', 'a claim')} "
                                      f"vs {_summary(right).get('title', 'another')}"

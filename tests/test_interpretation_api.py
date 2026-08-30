@@ -73,7 +73,7 @@ ROUTES = [
     ("post", "/api/projects/{p}/preregistrations",
      {"hypothesis": "It rises.", "predicted_direction": "increase"}),
     ("post", "/api/projects/{p}/exploration/tests",
-     {"session_id": "ses_1", "verb": "discovery", "description": "a sweep"}),
+     {"verb": "discovery", "description": "a sweep"}),
     ("get", "/api/projects/{p}/exploration/ses_1", None),
     ("post", "/api/projects/{p}/harvest", {"base_url": "https://example.org/oai"}),
     ("get", "/api/projects/{p}/findings/fnd_1/library-note", None),
@@ -123,7 +123,7 @@ def test_a_recorded_test_answers_with_the_ledger_after_it(client):
     project_id = project(client)
 
     body = client.post(f"/api/projects/{project_id}/exploration/tests", json={
-        "session_id": "ses_a", "verb": "discovery", "description": "sweep",
+        "verb": "discovery", "description": "sweep",
         "p_value": 0.01}).json()
 
     assert body["looks"] == 1
@@ -155,10 +155,10 @@ def test_a_registered_hypothesis_is_excluded_from_the_family(client):
               "predicted_direction": "increase"}).json()
 
     client.post(f"/api/projects/{project_id}/exploration/tests", json={
-        "session_id": "ses_b", "verb": "discovery", "description": "sweep",
+        "verb": "discovery", "description": "sweep",
         "p_value": 0.3})
     body = client.post(f"/api/projects/{project_id}/exploration/tests", json={
-        "session_id": "ses_b", "verb": "claim_test", "description": "the test",
+        "verb": "claim_test", "description": "the test",
         "p_value": 0.04,
         "preregistration_id": registration["id"]}).json()
 
@@ -170,7 +170,7 @@ def test_an_unknown_verb_is_a_bad_request_not_a_crash(client):
     account(client)
     project_id = project(client)
     response = client.post(f"/api/projects/{project_id}/exploration/tests", json={
-        "session_id": "ses_c", "verb": "vibes", "description": "a look"})
+        "verb": "vibes", "description": "a look"})
     assert response.status_code == 400
 
 

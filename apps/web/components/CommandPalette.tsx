@@ -87,6 +87,7 @@ export function CommandPalette({ open, onClose, commands }: {
   }, []);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
 
   const matches = useMemo(() => rank(commands, query), [commands, query]);
 
@@ -105,6 +106,37 @@ export function CommandPalette({ open, onClose, commands }: {
   }, [open, setQueryNow]);
 
   /*
+   * Open and close the element itself, rather than mounting and unmounting it.
+   *
+   * `showModal()` is what puts the palette in the top layer, makes the rest of
+   * the document inert, traps Tab inside it, and hands focus back to whatever
+   * had it when the dialog closes. None of that is available to a `<div>`,
+   * however it is positioned.
+   */
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (open && !dialog.open) dialog.showModal();
+    else if (!open && dialog.open) dialog.close();
+  }, [open]);
+
+  /*
+   * Escape, through the element's own event.
+   *
+   * `preventDefault` because the browser would otherwise close the dialog
+   * directly, leaving React's `open` prop still true and the two out of step —
+   * the palette would be invisible and the parent would think it was showing.
+   * Closing goes through `onClose` so state stays the source of truth.
+   */
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const cancel = (event: Event) => { event.preventDefault(); onClose(); };
+    dialog.addEventListener("cancel", cancel);
+    return () => dialog.removeEventListener("cancel", cancel);
+  }, [onClose]);
+
+  /*
    * Navigation keys are handled on the document, not on the input.
    *
    * Binding them to the input assumes focus landed there, and focus is not
@@ -117,7 +149,9 @@ export function CommandPalette({ open, onClose, commands }: {
   useEffect(() => {
     if (!open) return;
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") { event.preventDefault(); onClose(); return; }
+      // Escape is handled by the dialog's own `cancel` event below, not here.
+      // Preventing the keydown would suppress `cancel` and leave the two
+      // mechanisms disagreeing about whether the palette had closed.
       // Wrap against the live list for the same reason Enter does.
       const count = rank(commands, queryRef.current).length;
       if (event.key === "ArrowDown" || (event.key === "n" && event.ctrlKey)) {
@@ -180,17 +214,38 @@ export function CommandPalette({ open, onClose, commands }: {
       ?.scrollIntoView({ block: "nearest" });
   }, [active]);
 
-  if (!open) return null;
-
   return (
-    <div className="palette-backdrop" onMouseDown={onClose} role="presentation">
-      <div
-        className="palette"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Command bar"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
+    /*
+     * A real `<dialog showModal()>`, not a positioned `<div>`.
+     *
+     * The markup said `role="dialog" aria-modal="true"`, and `aria-modal` is a
+     * promise that everything outside the dialog is inert. Nothing here kept
+     * it: there was no Tab trap, so Tab walked straight out of the palette into
+     * the page behind it and kept going through a rail the user could no longer
+     * see; focus was never returned to whatever opened it; and the background
+     * stayed scrollable and reachable. Assistive technology was being told one
+     * thing while the keyboard did another — the same shape of defect as the
+     * project switcher claiming `role="menu"` and answering no arrow key.
+     *
+     * Native rather than a library, and rather than hand-rolling the trap.
+     * `ConfirmDialog` already makes this argument in this codebase and it holds
+     * here for the same four reasons: the focus trap, the inert background, the
+     * top-layer stacking that no `z-index` can beat, and Escape. Two modal
+     * surfaces, one mechanism.
+     *
+     * `role` and `aria-modal` are dropped rather than kept: a modal `<dialog>`
+     * carries both implicitly, and repeating them by hand is how they drift out
+     * of step with what the element is actually doing.
+     */
+    <dialog
+      ref={dialogRef}
+      className="palette-dialog"
+      aria-label="Command bar"
+      // The backdrop is `::backdrop` now, so a click outside lands on the
+      // dialog element itself rather than on a wrapper.
+      onMouseDown={(event) => { if (event.target === dialogRef.current) onClose(); }}
+    >
+      <div className="palette" onMouseDown={(e) => e.stopPropagation()}>
         <input
           ref={inputRef}
           className="palette-input"
@@ -233,7 +288,7 @@ export function CommandPalette({ open, onClose, commands }: {
           <span>Navigation only — asking questions in words needs a model provider.</span>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }
 

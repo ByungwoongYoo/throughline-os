@@ -287,7 +287,7 @@ def _check_power(left: dict, right: dict) -> Mismatch | None:
 
 def assess_datasets(cur, *, project_id: str, left_version_id: str,
                     right_version_id: str,
-                    session_id: str | None = None) -> dict[str, Any]:
+                    enquiry_id: str | None = None) -> dict[str, Any]:
     """
     Decide whether two datasets can honestly be compared, and record it.
 
@@ -373,13 +373,13 @@ def assess_datasets(cur, *, project_id: str, left_version_id: str,
     assessment_id = cur.fetchone()["id"]
 
     # One look at the data, counted. Optional because only the caller knows
-    # whether this belongs to a researcher's working session; without one the
-    # comparison still happens and simply is not counted. Inventing a session id
+    # whether this belongs to a line of enquiry; without one the
+    # comparison still happens and simply is not counted. Inventing an enquiry
     # here would be worse than not counting — it would create a family of one
     # and report the result as though it were the first thing anybody tried.
-    if session_id:
+    if enquiry_id:
         from .exploration import record as record_look
-        record_look(cur, session_id=session_id, project_id=project_id,
+        record_look(cur, enquiry_id=enquiry_id, project_id=project_id,
                     verb="compatibility",
                     description=f"{left_version_id} vs {right_version_id}",
                     # Deterministic throughout: there is no test statistic to

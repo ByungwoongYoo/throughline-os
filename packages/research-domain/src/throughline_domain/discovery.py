@@ -326,11 +326,11 @@ class IllegalConnectionTransition(DiscoveryError):
 
 
 def create_run(cur, *, project_id: str, dataset_version_id: str, fdr: float = 0.05,
-               session_id: str | None = None) -> str:
+               enquiry_id: str | None = None) -> str:
     """
-    Open a sweep, and remember whose working session it belongs to.
+    Open a sweep, and remember which line of enquiry it belongs to.
 
-    The session is stored rather than passed through, because the sweep does not
+    The enquiry is stored rather than passed through, because the sweep does not
     happen during the request that starts it: this queues a run and returns, and
     a worker records the tested pairs minutes later. By then the request is gone,
     so the run itself is the only place that knowledge can survive.
@@ -338,8 +338,8 @@ def create_run(cur, *, project_id: str, dataset_version_id: str, fdr: float = 0.
     run_id = new_id("disc")
     cur.execute(
         "INSERT INTO discovery_runs(id, project_id, dataset_version_id, "
-        "false_discovery_rate, session_id) VALUES (%s, %s, %s, %s, %s)",
-        (run_id, project_id, dataset_version_id, fdr, session_id),
+        "false_discovery_rate, enquiry_id) VALUES (%s, %s, %s, %s, %s)",
+        (run_id, project_id, dataset_version_id, fdr, enquiry_id),
     )
     return run_id
 
@@ -347,12 +347,12 @@ def create_run(cur, *, project_id: str, dataset_version_id: str, fdr: float = 0.
 def record_connection(
     cur, *, project_id: str, discovery_run_id: str, candidate: dict[str, Any],
     analysis_run_id: str | None, result: dict[str, Any], q_value: float | None,
-    session_id: str | None = None,
+    enquiry_id: str | None = None,
 ) -> str:
     """
     Store one tested pair, and count the look.
 
-    The ledger entry is the point of the `session_id` argument. Correction
+    The ledger entry is the point of the `enquiry_id` argument. Correction
     within a sweep was already right — `benjamini_hochberg` runs across the
     whole candidate family — but a sweep is not the only time the data gets
     interrogated, and a researcher who sweeps, then tests a claim, then checks a
@@ -363,7 +363,7 @@ def record_connection(
     ledger stays empty for the case that produces the most tests by far, and an
     empty ledger reports "not recorded" on every finding — which reads as *this
     does not apply* rather than *nobody counted*. A sweep is a real family on its
-    own; when a wider session id is supplied the sweep joins that instead.
+    own; when a line of enquiry is supplied the sweep joins that instead.
     """
     effect = (result.get("effect_size") or {}) if result else {}
     effect_value = effect.get("value")
@@ -402,10 +402,19 @@ def record_connection(
     # `benjamini_hochberg` from this module, and a top-level import would be
     # circular.
     from .exploration import record as record_look
+    from . import enquiry as enquiries
+
+    # A sweep with no line of enquiry is its own family. That family now has to
+    # exist rather than be named by the run's id and never created, because
+    # `exploration_tests.enquiry_id` is a foreign key. The correction is
+    # unchanged: these looks are corrected among themselves and against nothing.
+    family = enquiry_id or enquiries.standalone(
+        cur, project_id=project_id, run_id=discovery_run_id,
+        name="Sweep run on its own")
 
     record_look(
         cur,
-        session_id=session_id or discovery_run_id,
+        enquiry_id=family,
         project_id=project_id,
         verb="discovery",
         description=(f"{candidate['left_variable']} vs "

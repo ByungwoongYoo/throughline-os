@@ -27,6 +27,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+import { TabPanel, ViewTabs } from "./ViewTabs";
 import { api } from "@/lib/api";
 import { GraphEdge, GraphNode, KnowledgeGraph } from "./KnowledgeGraph";
 import { Empty, Failure, Loading } from "./primitives";
@@ -137,66 +138,61 @@ export function NoteGraph({ projectId }: { projectId: string }) {
 
   return (
     <>
-      <div className="cmp-verbs" role="tablist" aria-label="Which links to show">
-        {(["both", "asserted", "computed"] as const).map((option) => (
-          <button
-            key={option}
-            role="tab"
-            aria-selected={lens === option}
-            className="cmp-verb"
-            onClick={() => setLens(option)}
-          >
-            {LENS_LABEL[option]}
-          </button>
-        ))}
-      </div>
-
-      {/* The sentence changes with the lens, because what the picture means
-          changes with it — and a graph that looks the same while meaning
-          something different is worse than two graphs. */}
-      <p className="ng-note">{LENS_NOTE[lens]}</p>
-
-      <KnowledgeGraph
-        nodes={nodes}
-        edges={edges}
-        height={560}
-        edgeEmphasis={lens === "asserted" ? 3 : 1.6}
+      <ViewTabs
+        name="notegraph" label="Which links to show"
+        value={lens} onChange={setLens}
+        options={(["both", "asserted", "computed"] as const)
+          .map((option) => [option, LENS_LABEL[option]] as const)}
       />
+      <TabPanel name="notegraph" value={lens}>
 
-      {/* Part P — the canvas has no DOM, so the same content exists as a real
-          table. Without it this view is invisible to a screen reader and
-          unreachable by keyboard, and it is the one I forgot when I built it. */}
-      <details className="kg-table">
-        <summary>Everything in this graph ({nodes.length})</summary>
-        <table>
-          <thead>
-            <tr><th style={{ width: "62%" }}>Object</th><th>Type</th>
-                <th style={{ textAlign: "right" }}>Links</th></tr>
-          </thead>
-          <tbody>
-            {nodes.map((node) => (
-              <tr key={node.id}>
-                <td>{node.title}</td>
-                <td className="mono">{node.object_type.replace(/_/g, " ")}</td>
-                <td className="numeric" style={{ textAlign: "right" }}>
-                  {edges.filter((e) => e.source === node.id
-                                    || e.target === node.id).length}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </details>
+        {/* The sentence changes with the lens, because what the picture means
+            changes with it — and a graph that looks the same while meaning
+            something different is worse than two graphs. */}
+        <p className="ng-note">{LENS_NOTE[lens]}</p>
 
-      <p className="pat-foot">
-        {notes?.note}{" "}
-        {lens === "both" && (
-          <>
-            {(notes?.edges.length ?? 0).toLocaleString()} links you typed,{" "}
-            {(research?.edges.length ?? 0).toLocaleString()} computed.
-          </>
-        )}
-      </p>
+        <KnowledgeGraph
+          nodes={nodes}
+          edges={edges}
+          height={560}
+          edgeEmphasis={lens === "asserted" ? 3 : 1.6}
+        />
+
+        {/* Part P — the canvas has no DOM, so the same content exists as a real
+            table. Without it this view is invisible to a screen reader and
+            unreachable by keyboard, and it is the one I forgot when I built it. */}
+        <details className="kg-table">
+          <summary>Everything in this graph ({nodes.length})</summary>
+          <table>
+            <thead>
+              <tr><th style={{ width: "62%" }}>Object</th><th>Type</th>
+                  <th style={{ textAlign: "right" }}>Links</th></tr>
+            </thead>
+            <tbody>
+              {nodes.map((node) => (
+                <tr key={node.id}>
+                  <td>{node.title}</td>
+                  <td className="mono">{node.object_type.replace(/_/g, " ")}</td>
+                  <td className="numeric" style={{ textAlign: "right" }}>
+                    {edges.filter((e) => e.source === node.id
+                                      || e.target === node.id).length}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
+
+        <p className="pat-foot">
+          {notes?.note}{" "}
+          {lens === "both" && (
+            <>
+              {(notes?.edges.length ?? 0).toLocaleString()} links you typed,{" "}
+              {(research?.edges.length ?? 0).toLocaleString()} computed.
+            </>
+          )}
+        </p>
+      </TabPanel>
     </>
   );
 }

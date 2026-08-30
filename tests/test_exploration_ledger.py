@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import pytest
 from throughline_domain import exploration
+from conftest import make_enquiry
+from throughline_domain import enquiry as enquiries
 from throughline_domain.ids import new_id
 
 
@@ -29,7 +31,8 @@ def project(cur):
     cur.execute(
         "INSERT INTO projects(id, owner_user_id, name, research_question) "
         "VALUES (%s, %s, 'Ledger', 'q')", (project_id, user_id))
-    return {"id": project_id, "user": user_id, "session": new_id("ses")}
+    return {"id": project_id, "user": user_id,
+            "enquiry": make_enquiry(cur, project_id)}
 
 
 def dataset_version(cur, project) -> str:
@@ -50,7 +53,7 @@ def dataset_version(cur, project) -> str:
 
 def look(cur, project, p=None, verb="discovery", prereg=None, what="a test"):
     return exploration.record(
-        cur, session_id=project["session"], project_id=project["id"],
+        cur, enquiry_id=project["enquiry"], project_id=project["id"],
         verb=verb, description=what, p_value=p, preregistration_id=prereg)
 
 
@@ -80,7 +83,7 @@ def test_the_same_p_value_is_worth_less_later_in_a_session(cur, project):
     for _ in range(19):
         look(cur, project, p=0.5)
 
-    later = exploration.ledger(cur, project["session"])
+    later = exploration.ledger(cur, project["enquiry"])
     same_test = next(t for t in later["tests"] if t["id"] == first["recorded"]["id"])
     assert same_test["q_value"] > early_q
 
@@ -92,14 +95,14 @@ def test_a_borderline_result_stops_surviving_once_enough_looks_pile_up(cur, proj
     for _ in range(30):
         look(cur, project, p=0.6)
 
-    final = exploration.ledger(cur, project["session"])
+    final = exploration.ledger(cur, project["enquiry"])
     assert final["surviving"] == 0
 
 
-def test_two_sessions_do_not_pollute_each_other(cur, project):
+def test_two_enquiries_do_not_pollute_each_other(cur, project):
     """A researcher returning tomorrow starts a new family, not a worse one."""
     look(cur, project, p=0.01)
-    other = dict(project, session=new_id("ses"))
+    other = dict(project, enquiry=make_enquiry(cur, project["id"]))
     report = look(cur, other, p=0.01)
     assert report["looks"] == 1
 
@@ -229,7 +232,7 @@ def test_the_two_tables_share_one_number_line(cur, project):
 # ---------------------------------------------------------------------------
 
 def test_an_empty_session_says_so_without_inventing_a_correction(cur, project):
-    report = exploration.ledger(cur, project["session"])
+    report = exploration.ledger(cur, project["enquiry"])
     assert report["looks"] == 0
     assert report["tests"] == []
     assert "first result needs no correction" in report["note"]
@@ -237,21 +240,21 @@ def test_an_empty_session_says_so_without_inventing_a_correction(cur, project):
 
 def test_the_ledger_is_derived_and_stores_nothing(cur, project):
     look(cur, project, p=0.01)
-    cur.execute("SELECT count(*) AS n FROM exploration_tests WHERE session_id = %s",
-                (project["session"],))
+    cur.execute("SELECT count(*) AS n FROM exploration_tests WHERE enquiry_id = %s",
+                (project["enquiry"],))
     before = cur.fetchone()["n"]
 
-    exploration.ledger(cur, project["session"])
-    exploration.ledger(cur, project["session"])
+    exploration.ledger(cur, project["enquiry"])
+    exploration.ledger(cur, project["enquiry"])
 
-    cur.execute("SELECT count(*) AS n FROM exploration_tests WHERE session_id = %s",
-                (project["session"],))
+    cur.execute("SELECT count(*) AS n FROM exploration_tests WHERE enquiry_id = %s",
+                (project["enquiry"],))
     assert cur.fetchone()["n"] == before
 
 
 def test_an_unknown_verb_is_refused_rather_than_recorded(cur, project):
     with pytest.raises(ValueError, match="verb"):
-        exploration.record(cur, session_id=project["session"],
+        exploration.record(cur, enquiry_id=project["enquiry"],
                            project_id=project["id"], verb="vibes",
                            description="a look")
 
@@ -284,7 +287,7 @@ def test_a_discovery_sweep_counts_every_pair_it_tested(cur, project):
                     "evidence_quality": "moderate"},
             q_value=None)
 
-    report = exploration.ledger(cur, run_id)
+    report = exploration.ledger(cur, enquiries.standalone_id(run_id))
     assert report["looks"] == 12
     assert report["family_size"] == 12
 
@@ -300,7 +303,7 @@ def test_a_pair_that_could_not_be_tested_still_counts_as_a_look(cur, project):
                    "method": "spearman", "rationale": "both numeric"},
         analysis_run_id=None, result={"sample_size": 3}, q_value=None)
 
-    report = exploration.ledger(cur, run_id)
+    report = exploration.ledger(cur, enquiries.standalone_id(run_id))
     assert report["looks"] == 1
     assert report["family_size"] == 0
     assert report["uncorrectable"] == 1
@@ -314,8 +317,8 @@ def test_a_sweep_joins_a_wider_session_when_one_is_given(cur, project):
     """
     from throughline_domain import discovery
 
-    session_id = new_id("ses")
-    exploration.record(cur, session_id=session_id, project_id=project["id"],
+    enquiry_id = make_enquiry(cur, project["id"])
+    exploration.record(cur, enquiry_id=enquiry_id, project_id=project["id"],
                        verb="claim_test", description="a claim", p_value=0.02)
 
     run_id = discovery.create_run(cur, project_id=project["id"],
@@ -325,10 +328,10 @@ def test_a_sweep_joins_a_wider_session_when_one_is_given(cur, project):
         candidate={"left_variable": "a", "right_variable": "b",
                    "method": "spearman", "rationale": "both numeric"},
         analysis_run_id=None, result={"p_value": 0.03}, q_value=None,
-        session_id=session_id)
+        enquiry_id=enquiry_id)
 
-    assert exploration.ledger(cur, session_id)["looks"] == 2
-    assert exploration.ledger(cur, run_id)["looks"] == 0
+    assert exploration.ledger(cur, enquiry_id)["looks"] == 2
+    assert exploration.ledger(cur, enquiries.standalone_id(run_id))["looks"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -343,14 +346,14 @@ def test_a_sweep_joins_a_wider_session_when_one_is_given(cur, project):
 def test_a_run_remembers_the_session_that_started_it(cur, project):
     from throughline_domain import discovery
 
-    session_id = new_id("ses")
+    enquiry_id = make_enquiry(cur, project["id"])
     run_id = discovery.create_run(
         cur, project_id=project["id"],
         dataset_version_id=dataset_version(cur, project),
-        session_id=session_id)
+        enquiry_id=enquiry_id)
 
-    cur.execute("SELECT session_id FROM discovery_runs WHERE id = %s", (run_id,))
-    assert cur.fetchone()["session_id"] == session_id
+    cur.execute("SELECT enquiry_id FROM discovery_runs WHERE id = %s", (run_id,))
+    assert cur.fetchone()["enquiry_id"] == enquiry_id
 
 
 def test_a_sweep_started_in_a_session_joins_that_family(cur, project):
@@ -360,26 +363,26 @@ def test_a_sweep_started_in_a_session_joins_that_family(cur, project):
     """
     from throughline_domain import discovery
 
-    session_id = new_id("ses")
-    exploration.record(cur, session_id=session_id, project_id=project["id"],
+    enquiry_id = make_enquiry(cur, project["id"])
+    exploration.record(cur, enquiry_id=enquiry_id, project_id=project["id"],
                        verb="claim_test", description="a claim", p_value=0.02)
 
     run_id = discovery.create_run(
         cur, project_id=project["id"],
-        dataset_version_id=dataset_version(cur, project), session_id=session_id)
+        dataset_version_id=dataset_version(cur, project), enquiry_id=enquiry_id)
 
-    cur.execute("SELECT session_id FROM discovery_runs WHERE id = %s", (run_id,))
-    carried = cur.fetchone()["session_id"]
+    cur.execute("SELECT enquiry_id FROM discovery_runs WHERE id = %s", (run_id,))
+    carried = cur.fetchone()["enquiry_id"]
     for index in range(3):
         discovery.record_connection(
             cur, project_id=project["id"], discovery_run_id=run_id,
             candidate={"left_variable": f"x{index}", "right_variable": "y",
                        "method": "spearman", "rationale": "both numeric"},
             analysis_run_id=None, result={"p_value": 0.04}, q_value=None,
-            session_id=carried)
+            enquiry_id=carried)
 
-    assert exploration.ledger(cur, session_id)["looks"] == 4
-    assert exploration.ledger(cur, run_id)["looks"] == 0
+    assert exploration.ledger(cur, enquiry_id)["looks"] == 4
+    assert exploration.ledger(cur, enquiries.standalone_id(run_id))["looks"] == 0
 
 
 def test_a_run_with_no_session_stays_its_own_family(cur, project):
@@ -394,8 +397,8 @@ def test_a_run_with_no_session_stays_its_own_family(cur, project):
         cur, project_id=project["id"],
         dataset_version_id=dataset_version(cur, project))
 
-    cur.execute("SELECT session_id FROM discovery_runs WHERE id = %s", (run_id,))
-    assert cur.fetchone()["session_id"] is None
+    cur.execute("SELECT enquiry_id FROM discovery_runs WHERE id = %s", (run_id,))
+    assert cur.fetchone()["enquiry_id"] is None
 
     discovery.record_connection(
         cur, project_id=project["id"], discovery_run_id=run_id,
@@ -403,4 +406,4 @@ def test_a_run_with_no_session_stays_its_own_family(cur, project):
                    "method": "spearman", "rationale": "both numeric"},
         analysis_run_id=None, result={"p_value": 0.04}, q_value=None)
 
-    assert exploration.ledger(cur, run_id)["looks"] == 1
+    assert exploration.ledger(cur, enquiries.standalone_id(run_id))["looks"] == 1

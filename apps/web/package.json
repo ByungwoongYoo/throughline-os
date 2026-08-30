@@ -21,6 +21,7 @@
     "@kitware/vtk.js": "^36.9.1",
     "@mediapipe/tasks-vision": "^1.0.1",
     "@niivue/niivue": "^0.69.0",
+    "@radix-ui/react-dropdown-menu": "^2.1.24",
     "@types/d3-array": "^3.2.2",
     "@types/d3-force": "^3.0.10",
     "@types/d3-geo": "^3.1.1",
@@ -44,6 +45,7 @@
     "pdfjs-dist": "^6.2.108",
     "react": "19.1.0",
     "react-dom": "19.1.0",
+    "react-resizable-panels": "^4.12.3",
     "topojson-client": "^3.1.0",
     "world-atlas": "^2.0.2"
   },

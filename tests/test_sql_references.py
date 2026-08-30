@@ -118,6 +118,13 @@ _CREATE_TABLE = re.compile(
     r"CREATE TABLE(?:\s+IF NOT EXISTS)?\s+([a-z_]\w*)\s*\((.*?)\n\);", re.S | re.I)
 _ALTER_TABLE = re.compile(r"ALTER TABLE\s+([a-z_]\w*)(.*?);", re.S | re.I)
 _ADD_COLUMN = re.compile(r"ADD COLUMN(?:\s+IF NOT EXISTS)?\s+([a-z_]\w*)", re.I)
+#: A rename is the third way a column's name changes, after CREATE and ADD.
+#: Without this the guard reports the *new* name as undefined and keeps
+#: believing in the old one — so it fails on a correct migration and would stay
+#: silent on code still writing the name that no longer exists, which is the
+#: one thing it is for. Found when `session_id` became `enquiry_id`.
+_RENAME_COLUMN = re.compile(
+    r"RENAME COLUMN\s+([a-z_]\w*)\s+TO\s+([a-z_]\w*)", re.I)
 _COLUMN_LINE = re.compile(r"([a-z_]\w*)\s+[A-Za-z]")
 
 _INSERT_COLUMNS = re.compile(
@@ -144,6 +151,14 @@ def defined_columns() -> dict[str, set[str]]:
         for table, body in _ALTER_TABLE.findall(text):
             for column in _ADD_COLUMN.findall(body):
                 columns.setdefault(table.lower(), set()).add(column.lower())
+            # Migrations are read in order, so a rename applies to the set built
+            # by everything before it: the old name goes, the new one arrives.
+            # Discarding the old name is the point — code still writing it is a
+            # bug this guard should catch.
+            for old, new in _RENAME_COLUMN.findall(body):
+                known = columns.setdefault(table.lower(), set())
+                known.discard(old.lower())
+                known.add(new.lower())
     return columns
 
 

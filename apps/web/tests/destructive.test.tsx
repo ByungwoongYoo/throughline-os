@@ -21,6 +21,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ProjectMenu } from "@/components/ProjectMenu";
 import { AccountMenu } from "@/components/AccountMenu";
@@ -47,6 +48,18 @@ const PROJECTS = [
  * Selected by class rather than by accessible name: the name comes from the
  * project it is showing, so a name query is really a query for "whichever
  * project happens to be current" and breaks the moment the fixture changes.
+ */
+/*
+ * Opened with `userEvent`, not `fireEvent.click`. The switcher is a Radix
+ * dropdown now and opens on `pointerdown`; a synthetic `click` alone never
+ * reaches it, so a `fireEvent` version of these tests would fail for a reason
+ * that has nothing to do with what they are checking.
+ *
+ * The rows are queried as `menuitem` rather than `button` — which is the point
+ * of the change. The markup always claimed `role="menu"`, and the rows inside
+ * it were plain buttons that no arrow key could reach. Querying by the role
+ * the markup actually promises is what makes these tests notice if that
+ * regresses.
  */
 function openMenu(): HTMLElement {
   const trigger = document.querySelector<HTMLElement>(".pm-trigger");
@@ -134,8 +147,9 @@ describe("deleting a project", () => {
                         onSelect={vi.fn()} onChanged={onChanged}
                         onCreate={vi.fn()} />);
 
-    fireEvent.click(openMenu());
-    fireEvent.click(screen.getByRole("button", { name: "Delete Resistance" }));
+    await userEvent.click(openMenu());
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "Delete Resistance" }));
 
     await screen.findByText(/Delete Resistance\?/);
     fireEvent.change(screen.getByLabelText("Type Resistance to confirm"),
@@ -156,8 +170,9 @@ describe("deleting a project", () => {
                         onSelect={vi.fn()} onChanged={onChanged}
                         onCreate={vi.fn()} />);
 
-    fireEvent.click(openMenu());
-    fireEvent.click(screen.getByRole("button", { name: "Delete Resistance" }));
+    await userEvent.click(openMenu());
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "Delete Resistance" }));
     await screen.findByText(/Delete Resistance\?/);
     fireEvent.change(screen.getByLabelText("Type Resistance to confirm"),
                      { target: { value: "Resistance" } });
@@ -181,8 +196,9 @@ describe("deleting a project", () => {
     render(<ProjectMenu projects={PROJECTS} currentId="prj_1"
                         onSelect={vi.fn()} onChanged={vi.fn()}
                         onCreate={vi.fn()} />);
-    fireEvent.click(openMenu());
-    fireEvent.click(screen.getByRole("button", { name: "Delete Resistance" }));
+    await userEvent.click(openMenu());
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "Delete Resistance" }));
 
     expect(await screen.findByText(/7 findings/)).toBeInTheDocument();
     expect(screen.queryByText(/undefined/)).not.toBeInTheDocument();
@@ -194,8 +210,9 @@ describe("deleting a project", () => {
     render(<ProjectMenu projects={PROJECTS} currentId="prj_1"
                         onSelect={vi.fn()} onChanged={vi.fn()}
                         onCreate={vi.fn()} />);
-    fireEvent.click(openMenu());
-    fireEvent.click(screen.getByRole("button", { name: "Delete Resistance" }));
+    await userEvent.click(openMenu());
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "Delete Resistance" }));
 
     // Says it could not check, rather than claiming there is nothing to lose.
     expect(await screen.findByText(/could not be counted/)).toBeInTheDocument();
@@ -211,8 +228,11 @@ describe("signing out", () => {
 
     render(<AccountMenu user={{ id: "u1", email: "a@b.c",
                                 display_name: "Ada Lovelace" }} />);
-    fireEvent.click(screen.getByRole("button", { name: /Account/ }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /Sign out/ }));
+    // `userEvent`, not `fireEvent.click`: the account menu is a Radix dropdown
+    // now and opens on `pointerdown`, so a synthetic click never reaches it.
+    await userEvent.click(screen.getByRole("button", { name: /Account/ }));
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: /Sign out/ }));
 
     // A full navigation, not a state reset: it drops the whole heap, so no
     // previous user's data can survive a switch. And it happens regardless of

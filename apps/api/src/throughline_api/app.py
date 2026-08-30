@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from throughline_domain import (
     analysis, auth, claim_test, compare, consistency, critic, discovery,
-    embeddings, events, example, exploration, extraction, findings,
+    embeddings, enquiry, events, example, exploration, extraction, findings,
     graph_projection, graphs,
     harmonize, images, interpret, journal, lineage, notebook, objects, observability,
     authoring, board, citations, communication, embedding_space, excerpts, extras,
@@ -2730,11 +2730,24 @@ class AnalysisSpecRequest(BaseModel):
     confidence_level: float = Field(default=0.95, gt=0, lt=1)
     parameters: dict[str, Any] = Field(default_factory=dict)
     random_seed: int = 0
-    #: The look this analysis constitutes belongs to a session, so that a
-    #: researcher who sweeps, then specifies two analyses, is corrected across
-    #: all of it rather than across each verb separately. Absent means the run
-    #: stands alone, which is what a script gets.
-    session_id: str | None = None
+    #: The look this analysis constitutes belongs to a line of enquiry, so that
+    #: a researcher who sweeps, then specifies two analyses, is corrected across
+    #: all of it rather than across each verb separately.
+    #:
+    #: Absent means "the project's open line of enquiry", which is what an
+    #: interactive caller wants and no longer has to compute for itself.
+    enquiry_id: str | None = None
+    #: Deliberately keep this run out of the researcher's family.
+    #:
+    #: This used to be what *omitting* the field meant, and the distinction
+    #: worked only because the interface always sent one and a script never did.
+    #: Now that the server resolves the family, absent no longer tells the two
+    #: apart, and guessing wrong is not a harmless default in either direction:
+    #: a script silently joining an open enquiry inflates a researcher's family
+    #: with work they did not do, and standing alone under-counts the looks. So
+    #: it is asked for rather than inferred, and the caller that wants isolation
+    #: says so.
+    stands_alone: bool = False
     #: Which registered hypothesis this analysis tests, if any. Verified rather
     #: than believed: `exploration.record` checks that the registration came
     #: first, is unedited, and — because a spec is named here — that the
@@ -2782,8 +2795,19 @@ def create_analysis(project_id: str, payload: AnalysisSpecRequest,
         analysis about to run is the one registered — both are questions about
         the spec, and both are answerable now.
         """
+        # The old fallback wrote the run's own id into this column. That is now
+        # a foreign key, and even before it was one the "family" it named was a
+        # row nothing could ever look up.
+        if payload.enquiry_id:
+            family = payload.enquiry_id
+        elif payload.stands_alone:
+            family = enquiry.standalone(
+                cur, project_id=project_id, run_id=run_id,
+                name="Analysis run on its own")
+        else:
+            family = enquiry.current(cur, project_id=project_id)["id"]
         look = exploration.record(
-            cur, session_id=payload.session_id or run_id,
+            cur, enquiry_id=family,
             project_id=project_id, verb="analysis",
             description=f"{payload.method}: "
                         + ", ".join(f"{role}={value}"
@@ -2900,7 +2924,7 @@ class DiscoveryRequest(BaseModel):
     #: multiple-comparison family as everything else they have looked at today.
     #: Optional: without it the run is its own family, which is what happened
     #: before this existed.
-    session_id: str | None = None
+    enquiry_id: str | None = None
     #: Stop the sweep before it records anything into the project, and wait for
     #: a person — Rule 10. The tests still run; what waits is the part that
     #: writes connections and promotes the survivors, so the results can be read
@@ -2960,7 +2984,7 @@ def start_discovery(project_id: str, payload: DiscoveryRequest,
         run_id = discovery.create_run(cur, project_id=project_id,
                                       dataset_version_id=payload.dataset_version_id,
                                       fdr=payload.false_discovery_rate,
-                                      session_id=payload.session_id)
+                                      enquiry_id=payload.enquiry_id)
         workflow.enqueue(cur, workflow_name="discovery.run", project_id=project_id,
                          payload={"discovery_run_id": run_id,
                                   "hold_before_recording":

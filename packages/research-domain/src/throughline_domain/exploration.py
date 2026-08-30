@@ -9,8 +9,8 @@ times. Correcting each of those against only its own siblings reports the fourth
 look with the confidence of the first, which is precisely the arithmetic that
 makes a garden of forking paths look like a result.
 
-So the family is the session, across every verb. Three consequences follow, and
-all three are deliberate rather than incidental:
+So the family is the line of enquiry, across every verb. Three consequences
+follow, and all three are deliberate rather than incidental:
 
 **A finding's q-value moves as you keep looking.** The same p-value is worth less
 after twenty tests than after one, and this reports it that way. Researchers find
@@ -141,7 +141,7 @@ def _registration(cur, registration_id: str) -> dict[str, Any] | None:
 # Recording a look
 # ---------------------------------------------------------------------------
 
-def record(cur, *, session_id: str, project_id: str, verb: str,
+def record(cur, *, enquiry_id: str, project_id: str, verb: str,
            description: str, p_value: float | None = None,
            preregistration_id: str | None = None,
            spec_id: str | None = None,
@@ -216,11 +216,11 @@ def record(cur, *, session_id: str, project_id: str, verb: str,
         # because the ledger reads it to decide what joins the family.
         # `claimed_registration_id` is the claim, kept either way — a deviation
         # whose claim was discarded is one nobody can state deliberately later.
-        "INSERT INTO exploration_tests(id, session_id, project_id, verb, "
+        "INSERT INTO exploration_tests(id, enquiry_id, project_id, verb, "
         "description, p_value, preregistration_id, claimed_registration_id, "
         "spec_id, deviation_note, analysis_run_id) "
         "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING sequence",
-        (test_id, session_id, project_id, verb, description, p_value,
+        (test_id, enquiry_id, project_id, verb, description, p_value,
          preregistration_id if confirmatory else None, claimed,
          spec_id, None if confirmatory else why, analysis_run_id))
     sequence = cur.fetchone()["sequence"]
@@ -235,7 +235,7 @@ def record(cur, *, session_id: str, project_id: str, verb: str,
         cur.execute("UPDATE exploration_tests SET preregistration_id = NULL "
                     "WHERE id = %s", (test_id,))
 
-    report = ledger(cur, session_id)
+    report = ledger(cur, enquiry_id)
     report["recorded"] = {
         "id": test_id, "verb": verb, "description": description,
         "p_value": p_value, "confirmatory": confirmatory, "why": why,
@@ -244,7 +244,7 @@ def record(cur, *, session_id: str, project_id: str, verb: str,
 
 
 # ---------------------------------------------------------------------------
-# What the session has spent
+# What the line of enquiry has spent
 # ---------------------------------------------------------------------------
 
 def attach_result(cur, *, analysis_run_id: str,
@@ -280,9 +280,9 @@ def attach_result(cur, *, analysis_run_id: str,
     return cur.rowcount > 0
 
 
-def ledger(cur, session_id: str) -> dict[str, Any]:
+def ledger(cur, enquiry_id: str) -> dict[str, Any]:
     """
-    Every look this session has taken, and what the family costs.
+    Every look this line of enquiry has taken, and what the family costs.
 
     Derived on read and stored nowhere. A written ledger is a second copy of the
     truth, and a second copy is a thing that can disagree with the first — the
@@ -290,15 +290,15 @@ def ledger(cur, session_id: str) -> dict[str, Any]:
     """
     cur.execute(
         "SELECT id, verb, description, p_value, preregistration_id, sequence "
-        "FROM exploration_tests WHERE session_id = %s ORDER BY sequence",
-        (session_id,))
+        "FROM exploration_tests WHERE enquiry_id = %s ORDER BY sequence",
+        (enquiry_id,))
     tests = cur.fetchall()
 
     if not tests:
         return {
-            "session_id": session_id, "looks": 0, "family_size": 0,
+            "enquiry_id": enquiry_id, "looks": 0, "family_size": 0,
             "confirmatory": 0, "uncorrectable": 0, "tests": [],
-            "note": ("Nothing has been tested in this session yet. The first "
+            "note": ("Nothing has been tested in this line of enquiry yet. The first "
                      "result needs no correction; the twentieth does."),
         }
 
@@ -326,7 +326,7 @@ def ledger(cur, session_id: str) -> dict[str, Any]:
     survivors = sum(1 for r in rows if r["survives"])
 
     return {
-        "session_id": session_id,
+        "enquiry_id": enquiry_id,
         "looks": len(tests),
         "family_size": len(exploratory),
         "confirmatory": confirmatory,
@@ -348,12 +348,12 @@ def _summary(looks: int, family: int, confirmatory: int, uncorrectable: int,
     times, and that is why these p-values are worth less than they appear.
     """
     parts = [f"{looks} look{'' if looks == 1 else 's'} at the data in this "
-             f"session."]
+             f"line of enquiry."]
     if family:
         parts.append(
             f"{family} carried a p-value and were corrected together as one "
             f"family; {survivors} survive at a 5% false-discovery rate. A test "
-            "run later in a session is held to a stricter bar than the same test "
+            "run later in an enquiry is held to a stricter bar than the same test "
             "run first, which is the cost of having looked.")
     if confirmatory:
         parts.append(

@@ -734,7 +734,38 @@ def release(destination: str | None, version: str | None) -> int:
     return 0
 
 
-def build_interface() -> int:
+#: Where `dev.sh` puts the web dev server, and therefore the port to look at
+#: when deciding whether one is running. Overridable the same way `dev.sh`
+#: overrides it, so a person who moved it is still warned.
+WEB_DEV_PORT = int(os.environ.get("WEB_PORT", "3000"))
+
+
+def _dev_server_running(port: int = WEB_DEV_PORT) -> bool:
+    """Whether something is serving the web dev port.
+
+    Asked by `build_interface`, because a production build and `next dev` cannot
+    share a checkout. `NEXT_DIST_DIR=out` sends the *export* to `out/`, and that
+    part works — but Next still writes its build manifests through `.next` on
+    the way, which is where `next dev` keeps its own. The dev server then reads
+    files the build has already replaced and every route answers 500 with
+    `ENOENT: .next/static/development/_buildManifest.js.tmp.*`.
+
+    Reproduced deliberately rather than inferred: with a healthy dev server up,
+    `build-interface` took `/workspace` and `/gesture-check` from 200 to 500 and
+    put twenty errors in its log. Recovery is `rm -rf apps/web/.next` and a
+    restart, which is easy once you know and baffling when you do not — the
+    build reports success, and the thing that breaks is a different process.
+
+    A socket rather than a process list: `pgrep` is not everywhere, and what
+    matters is whether the port is served, not what is serving it.
+    """
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(0.35)
+        return probe.connect_ex(("127.0.0.1", port)) == 0
+
+
+def build_interface(force: bool = False) -> int:
     """Export the interface to `apps/web/out`, where the API serves it from.
 
     One command, because the destination matters and is not the default. A
@@ -749,6 +780,21 @@ def build_interface() -> int:
     runtime no longer has to be fetched, checksummed and updated on every
     install.
     """
+    if not force and _dev_server_running():
+        print(
+            f"A dev server is answering on port {WEB_DEV_PORT}, and a "
+            f"production build\n"
+            "  cannot share a checkout with it: this build writes through "
+            ".next, which\n"
+            "  is where `next dev` keeps its own files, and every route it "
+            "serves will\n"
+            "  start answering 500 until .next is deleted and it is restarted."
+            "\n\n"
+            "  Stop the dev server first, or pass --force and then run:\n"
+            "      rm -rf apps/web/.next\n",
+            file=sys.stderr)
+        return 1
+
     node = _node_on_path()
     if node is None:
         print("Building the interface needs Node 20+, which is not installed.\n"
@@ -1957,8 +2003,11 @@ def main() -> int:
     run = sub.add_parser("dev", help="run the API, a worker and the web interface")
     run.add_argument("--api-port", type=int, default=int(os.environ.get("PORT", 8080)))
     run.add_argument("--web-port", type=int, default=int(os.environ.get("WEB_PORT", 3000)))
-    sub.add_parser("build-interface",
-                   help="export the web interface for the API to serve")
+    iface = sub.add_parser("build-interface",
+                           help="export the web interface for the API to serve")
+    iface.add_argument("--force", action="store_true",
+                       help="build even with a dev server running (it will "
+                            "break until you delete apps/web/.next)")
     sub.add_parser("release-key",
                    help="generate the release signing keypair, once")
     rel = sub.add_parser("release",
@@ -1995,7 +2044,7 @@ def main() -> int:
     if args.command == "start":
         return start(args.api_port, args.web_port)
     if args.command == "build-interface":
-        return build_interface()
+        return build_interface(force=args.force)
     if args.command == "release-key":
         return release_key()
     if args.command == "release":

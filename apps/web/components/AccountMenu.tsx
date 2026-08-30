@@ -19,7 +19,8 @@
  * session should end regardless of whether the server acknowledged it.
  */
 
-import { useEffect, useRef, useState } from "react";
+import * as Menu from "@radix-ui/react-dropdown-menu";
+import { useState } from "react";
 import { api } from "@/lib/api";
 import { IconLogout, IconUser } from "./icons";
 
@@ -43,23 +44,11 @@ function initials(user: SignedInUser): string {
 export function AccountMenu({ user }: { user: SignedInUser }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (event: MouseEvent) => {
-      if (!wrapRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  // Outside click, Escape, focus into the popup and focus back to the trigger
+  // are Radix's. The hand-rolled version did the first two and neither of the
+  // last two — and it sits beside the project switcher in the same topbar, so
+  // two triggers that look identical were behaving differently.
 
   async function signOut() {
     setBusy(true);
@@ -76,20 +65,21 @@ export function AccountMenu({ user }: { user: SignedInUser }) {
   }
 
   return (
-    <div className="am" ref={wrapRef}>
-      <button
-        className="am-trigger"
-        onClick={() => setOpen((o) => !o)}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={`Account: ${user.display_name || user.email}`}
-        title={user.display_name || user.email}
-      >
-        <span className="am-avatar" aria-hidden>{initials(user)}</span>
-      </button>
+    <Menu.Root open={open} onOpenChange={setOpen}>
+      <div className="am">
+        <Menu.Trigger asChild>
+          <button
+            className="am-trigger"
+            aria-label={`Account: ${user.display_name || user.email}`}
+            title={user.display_name || user.email}
+          >
+            <span className="am-avatar" aria-hidden>{initials(user)}</span>
+          </button>
+        </Menu.Trigger>
 
-      {open && (
-        <div className="am-pop" role="menu">
+        <Menu.Portal>
+          <Menu.Content className="am-pop" align="end" sideOffset={8}
+                        collisionPadding={8}>
           <div className="am-who">
             <span className="am-avatar am-avatar-lg" aria-hidden>{initials(user)}</span>
             <div>
@@ -105,13 +95,20 @@ export function AccountMenu({ user }: { user: SignedInUser }) {
             this machine.
           </p>
 
-          <button className="am-out" onClick={() => void signOut()} disabled={busy}
-                  role="menuitem">
+          {/*
+            The one command in here. Everything above it is identity, not
+            choices — which is why they are plain content rather than items:
+            Radix moves focus between `Item`s only, and a paragraph a keyboard
+            could land on but not act upon is a dead stop in the sequence.
+          */}
+          <Menu.Item className="am-out" disabled={busy}
+                     onSelect={() => void signOut()}>
             <IconLogout size={15} />
             <span>{busy ? "Signing out…" : "Sign out"}</span>
-          </button>
-        </div>
-      )}
-    </div>
+          </Menu.Item>
+          </Menu.Content>
+        </Menu.Portal>
+      </div>
+    </Menu.Root>
   );
 }

@@ -42,7 +42,6 @@ import { FindingStanding } from "@/components/lifecycle";
 import { Journal } from "@/components/journal";
 import { Variables } from "@/components/variables";
 import { AnalysisList, PlainReading } from "@/components/analyses";
-import { sessionId } from "@/lib/session";
 
 type AuthStatus = { needs_setup: boolean; authenticated: boolean; user: { display_name: string } | null };
 
@@ -447,7 +446,7 @@ function Workspace({ user }: { user: SignedInUser }) {
                   has scrolled a list of candidate relationships is exactly the
                   reader who should see how many were tested to produce it.
                 */}
-                <ExplorationLedger projectId={project.id} sessionId={sessionId()} />
+                <ExplorationLedger projectId={project.id} />
                 {/*
                   Beneath the ledger, because they answer two halves of one
                   question. The ledger says how much looking was done; this says
@@ -476,8 +475,7 @@ function Workspace({ user }: { user: SignedInUser }) {
                   it behind a tab means it is never opened.
                 */}
                 <Challenges projectId={project.id} findingId={selection.id} />
-                <LibraryNote projectId={project.id} findingId={selection.id}
-                             sessionId={sessionId()} />
+                <LibraryNote projectId={project.id} findingId={selection.id} />
               </>
             : <Findings projectId={project.id} onSelect={select("finding")} />
         )}

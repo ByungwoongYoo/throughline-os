@@ -21,6 +21,7 @@ from __future__ import annotations
 import pytest
 from throughline_domain import deviations, exploration, harmonize
 from throughline_domain.db import jsonb
+from conftest import make_enquiry
 from throughline_domain.ids import new_id
 
 
@@ -280,7 +281,7 @@ def test_a_deviating_analysis_loses_the_confirmatory_exemption(cur, project):
         "predictors": ["consumption", "gdp", "urbanisation"]})
 
     result = exploration.record(
-        cur, session_id="ses_1", project_id=project, verb="claim_test",
+        cur, enquiry_id=make_enquiry(cur, project), project_id=project, verb="claim_test",
         description="the one that worked", p_value=0.04,
         preregistration_id=registration, spec_id=drifted)
 
@@ -298,7 +299,7 @@ def test_the_registered_analysis_keeps_the_exemption(cur, project):
         "outcome": "resistance", "predictors": ["consumption", "gdp"]})
 
     result = exploration.record(
-        cur, session_id="ses_2", project_id=project, verb="claim_test",
+        cur, enquiry_id=make_enquiry(cur, project), project_id=project, verb="claim_test",
         description="as registered", p_value=0.04,
         preregistration_id=registration, spec_id=as_planned)
 
@@ -315,7 +316,7 @@ def test_a_test_naming_no_analysis_still_works(cur, project):
     registration = registered(cur, project, method="spearman_correlation")
 
     result = exploration.record(
-        cur, session_id="ses_3", project_id=project, verb="claim_test",
+        cur, enquiry_id=make_enquiry(cur, project), project_id=project, verb="claim_test",
         description="no spec recorded", p_value=0.03,
         preregistration_id=registration)
 
@@ -332,7 +333,7 @@ def test_a_plan_free_registration_says_the_analysis_was_not_checked(cur, project
     analysis = spec(cur, project, method="pearson_correlation")
 
     result = exploration.record(
-        cur, session_id="ses_4", project_id=project, verb="claim_test",
+        cur, enquiry_id=make_enquiry(cur, project), project_id=project, verb="claim_test",
         description="unchecked", p_value=0.02,
         preregistration_id=registration, spec_id=analysis)
 
@@ -358,7 +359,7 @@ def test_a_deviating_test_stays_visible_against_its_registration(cur, project):
         "outcome": "resistance",
         "predictors": ["consumption", "gdp", "urbanisation"]})
     exploration.record(
-        cur, session_id="ses_1", project_id=project, verb="claim_test",
+        cur, enquiry_id=make_enquiry(cur, project), project_id=project, verb="claim_test",
         description="with urbanisation added", p_value=0.04,
         preregistration_id=registration, spec_id=drifted)
 
@@ -383,7 +384,7 @@ def test_the_project_report_counts_what_matched_and_what_did_not(cur, project):
     for description, analysis in (("as registered", as_planned),
                                   ("with a correlation", drifted)):
         exploration.record(
-            cur, session_id="ses_2", project_id=project, verb="claim_test",
+            cur, enquiry_id=make_enquiry(cur, project), project_id=project, verb="claim_test",
             description=description, p_value=0.04,
             preregistration_id=registration, spec_id=analysis)
 
@@ -400,7 +401,7 @@ def test_a_deleted_spec_does_not_take_the_report_down(cur, project):
     registration = registered(cur, project, method="spearman_correlation")
     analysis = spec(cur, project, method="spearman_correlation")
     exploration.record(
-        cur, session_id="ses_3", project_id=project, verb="claim_test",
+        cur, enquiry_id=make_enquiry(cur, project), project_id=project, verb="claim_test",
         description="ran", p_value=0.04, preregistration_id=registration,
         spec_id=analysis)
     cur.execute("UPDATE exploration_tests SET spec_id = NULL WHERE project_id = %s",
@@ -421,7 +422,7 @@ def test_the_narrative_writes_a_methods_section_from_the_record(cur, project):
         "outcome": "resistance",
         "predictors": ["consumption", "gdp", "urbanisation"]})
     exploration.record(
-        cur, session_id="ses_4", project_id=project, verb="claim_test",
+        cur, enquiry_id=make_enquiry(cur, project), project_id=project, verb="claim_test",
         description="the reported result", p_value=0.04,
         preregistration_id=registration, spec_id=drifted)
 
@@ -441,7 +442,7 @@ def test_the_narrative_refuses_to_invent_the_reason(cur, project):
     registration = registered(cur, project, method="spearman_correlation")
     drifted = spec(cur, project, method="pearson_correlation")
     exploration.record(
-        cur, session_id="ses_5", project_id=project, verb="claim_test",
+        cur, enquiry_id=make_enquiry(cur, project), project_id=project, verb="claim_test",
         description="ran", p_value=0.04, preregistration_id=registration,
         spec_id=drifted)
 

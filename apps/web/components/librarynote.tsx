@@ -31,16 +31,17 @@ import { Failure, Loading } from "./primitives";
 
 type Note = { finding_id: string; html: string };
 
-export function LibraryNote({ projectId, findingId, sessionId }: {
+export function LibraryNote({ projectId, findingId }: {
   projectId: string;
   findingId: string;
-  sessionId: string | null;
 }) {
   const [open, setOpen] = useState(false);
 
-  const query = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
+  // No family is named. The server reads the count from the project's open line
+  // of enquiry, so an exported note carries the record rather than whatever
+  // identifier this browser was holding.
   const { data, error, loading, reload } = useApi<Note>(
-    open ? `/api/projects/${projectId}/findings/${findingId}/library-note${query}` : null,
+    open ? `/api/projects/${projectId}/findings/${findingId}/library-note` : null,
     [open],
   );
 

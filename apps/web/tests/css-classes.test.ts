@@ -36,10 +36,28 @@ const STYLESHEETS = ["app/globals.css", "app/landing.css", "app/fonts.css"];
 const KNOWN_UNSTYLED = new Set([
   // Chart internals, mostly SVG groups that were given semantic names and never
   // any accompanying rule.
-  "axis", "axis-label", "chart-binned", "chart-note", "grid", "tick",
+  //
+  // Six fewer than when this list was written. `Binned.tsx` was using bare
+  // `grid`, `axis`, `tick`, `axis-label` and `chart-note` where every other
+  // chart uses `chart-grid`, `chart-axis`, `chart-tick`, `chart-axis-label` and
+  // `chart-caption` — so the fix was not the invention this list was worried
+  // about, it was adopting names the stylesheet already defines. That mattered
+  // more than it looks: an SVG `<line>` with no stroke rule is not faint, it is
+  // *invisible*, so that chart was drawing no gridlines and no axis ticks at
+  // all, and its tick text fell back to black in both themes. It also missed
+  // the high-contrast block, which those four class names already have.
+  // What survives is one kind of thing, and it is worth naming so the next
+  // entry gets triaged rather than added. Every one of these is a *modifier* on
+  // an element a base class already styles — `chart chart-binned`,
+  // `chart-svg map`, `chart-svg projection`, `beat-card beat-paper` — or a
+  // class on something that draws nothing of its own: `upset-row` is an SVG
+  // `<g>`, and `nb-list` is the first child of a two-column grid that places it
+  // by position. None of them is a silent no-op the way the Binned internals
+  // were, where an SVG `<line>` with no stroke rule simply did not draw.
+  "chart-binned",
   "map", "projection", "upset-row",
   "beat-data", "beat-paper",
-  "nb-hint", "nb-list",
+  "nb-list",
 ]);
 
 function walk(directory: string): string[] {

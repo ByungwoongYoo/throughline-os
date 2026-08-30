@@ -603,6 +603,53 @@ def test_the_formula_carries_this_release_and_not_the_last_one(tmp_path):
     assert 'version "1.2.3"' in body
 
 
+def test_the_formula_states_its_version_rather_than_leaving_it_to_be_guessed(tmp_path):
+    """`brew audit --strict` calls this line redundant. It is wrong here.
+
+    Homebrew reads a version out of the archive name when the formula does not
+    give one, and `version_name` is `git describe --tags --always` — so between
+    releases the archive is `throughline-v1.0.0-3-gabc1234.tar.gz` and Homebrew
+    reads that as version **1234**, the trailing digits of the commit hash.
+    Measured with `brew info` on exactly that URL with the line removed.
+
+    So a release would install under a nonsense version and `brew upgrade`
+    would compare the wrong numbers. This test exists because the audit
+    actively advises deleting the line, and the advice looks authoritative.
+    """
+    body = formula_text(tmp_path)
+    assert 'version "1.2.3"' in body, (
+        "the formula must state its version: Homebrew misreads a git-describe "
+        "archive name as the trailing digits of the commit hash"
+    )
+    # And before the digest, which is the ordering `brew style` enforces.
+    assert body.index('version "') < body.index('sha256 "'), (
+        "FormulaAudit/ComponentsOrder wants version before sha256"
+    )
+
+
+def test_the_formula_strips_a_leading_v_from_the_version_but_not_the_url(tmp_path):
+    """Homebrew's `FormulaAudit/Version` refuses a version beginning with "v".
+
+    `git describe --tags` returns a tag verbatim, so a `v1.0.0` tag arrives as
+    `v1.0.0` and `brew style` rejects it. Only the version field is stripped:
+    the URL has to keep the archive name the release actually wrote, or the
+    download 404s.
+
+    Checked against `brew style` for `v1.0.0`, `v1.0.0-3-gabc1234`, a bare
+    commit hash and a plain semver — all four clean, and `brew info` reports
+    the right version for each.
+    """
+    body = release._write_formula(
+        tmp_path, "v1.0.0-3-gabc1234",
+        "throughline-v1.0.0-3-gabc1234.tar.gz", "b" * 64, lambda m: None
+    ) or (tmp_path / "throughline.rb").read_text()
+
+    assert 'version "1.0.0-3-gabc1234"' in body, "the leading v must be stripped"
+    assert "throughline-v1.0.0-3-gabc1234.tar.gz" in body, (
+        "the URL must keep the archive name the release actually wrote"
+    )
+
+
 def test_the_formula_points_at_the_same_host_as_everything_else(tmp_path):
     """Five places named the release host and none of them agreed until a test
     held them together. This is the sixth."""

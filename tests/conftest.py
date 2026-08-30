@@ -288,3 +288,22 @@ def _fresh_model_provider():
     registry._override.clear()
     registry._override.update(before)
     throughline_model.provider(refresh=True)
+
+
+def make_enquiry(cur, project_id: str, name: str | None = None) -> str:
+    """
+    A real line of enquiry to hang looks off, for tests that need one.
+
+    Before `enquiries` existed, a test could pass any string as the family and
+    the ledger would accept it. It is a foreign key now, so a family has to be a
+    thing that exists — which is the whole point of the change, and it makes
+    tests that want two *distinct* families say so by creating two.
+
+    Not a fixture: several tests need more than one per project, and a fixture
+    that returns a single value cannot express that.
+    """
+    from throughline_domain import enquiry
+
+    # `open_new` closes whatever is open, so successive calls in one test give
+    # genuinely separate families rather than colliding on the one-open index.
+    return enquiry.open_new(cur, project_id=project_id, name=name)["id"]

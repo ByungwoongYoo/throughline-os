@@ -41,7 +41,7 @@ from typing import Any
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException
 from pydantic import BaseModel, Field
-from throughline_domain import exploration, harvesting, library_note
+from throughline_domain import enquiry, exploration, harvesting, library_note
 from throughline_domain.db import transaction
 
 router = APIRouter(prefix="/api", tags=["interpretation"])
@@ -93,7 +93,19 @@ class Preregistration(BaseModel):
 
 
 class RecordedTest(BaseModel):
-    session_id: str = Field(min_length=1)
+    #: Which family this look joins. Optional, and normally omitted.
+    #:
+    #: The server resolves the project's open line of enquiry when this is
+    #: absent, which is the behaviour every ordinary caller wants. It used to be
+    #: required, and the client answered it with a UUID it had minted into
+    #: `sessionStorage` — so the family a result was corrected against was
+    #: decided by a browser tab, and nothing server-side could tell whether the
+    #: id it was handed meant anything. Deciding it here means there is one
+    #: definition of "the same sitting" instead of one per client.
+    #:
+    #: Still accepted, because a script that is deliberately keeping its own
+    #: work in a named family should be able to say so.
+    enquiry_id: str | None = None
     #: The analysis that produced this result, when there is one.
     #:
     #: Supplying it is what lets a claimed pre-registration be checked against
@@ -141,8 +153,10 @@ def record_test(project_id: str, body: RecordedTest,
     _scoped(project_id, user)
     with transaction() as cur:
         try:
+            family = body.enquiry_id or enquiry.current(
+                cur, project_id=project_id)["id"]
             return exploration.record(
-                cur, session_id=body.session_id, project_id=project_id,
+                cur, enquiry_id=family, project_id=project_id,
                 verb=body.verb, description=body.description,
                 p_value=body.p_value,
                 preregistration_id=body.preregistration_id,
@@ -151,12 +165,102 @@ def record_test(project_id: str, body: RecordedTest,
             raise HTTPException(400, str(exc)) from exc
 
 
-@router.get("/projects/{project_id}/exploration/{session_id}")
-def read_ledger(project_id: str, session_id: str,
+class NewEnquiry(BaseModel):
+    name: str | None = None
+
+
+class Renamed(BaseModel):
+    name: str = Field(min_length=1)
+
+
+@router.get("/projects/{project_id}/enquiries")
+def list_enquiries(project_id: str,
+                   user: dict = Depends(signed_in)) -> list[dict[str, Any]]:
+    """
+    Every line of enquiry on this project, most recent first.
+
+    This is the screen that did not exist. The looks were always durable; the
+    identifier that reached them was not, so a researcher's own record of how
+    often they had questioned the data became unreachable the moment they closed
+    the tab.
+    """
+    _scoped(project_id, user)
+    with transaction() as cur:
+        return enquiry.list_for(cur, project_id=project_id)
+
+
+@router.get("/projects/{project_id}/enquiries/current")
+def current_enquiry(project_id: str,
+                    user: dict = Depends(signed_in)) -> dict[str, Any]:
+    """
+    The family a look recorded right now would join, opening one if needed.
+
+    Declared above the ledger's `{enquiry_id}` route on purpose: FastAPI matches
+    in declaration order, and a literal path registered after a matching
+    parameter is never reached.
+    """
+    _scoped(project_id, user)
+    with transaction() as cur:
+        return enquiry.current(cur, project_id=project_id)
+
+
+@router.post("/projects/{project_id}/enquiries", status_code=201)
+def open_enquiry(project_id: str, body: NewEnquiry,
+                 user: dict = Depends(signed_in)) -> dict[str, Any]:
+    """
+    Start a fresh family, closing whichever one is open.
+
+    Correction runs from here over the new one only. That is the point of the
+    control: a researcher who has moved to a different question should not have
+    it held to the bar set by the last one.
+    """
+    _scoped(project_id, user)
+    with transaction() as cur:
+        return enquiry.open_new(cur, project_id=project_id, name=body.name)
+
+
+@router.post("/projects/{project_id}/enquiries/close")
+def close_enquiry(project_id: str,
+                  user: dict = Depends(signed_in)) -> dict[str, Any]:
+    """
+    Close the open line of enquiry, without starting another.
+
+    Answers with what was closed, or `null` when nothing was open — which is not
+    an error, because the caller's intent is already true.
+    """
+    _scoped(project_id, user)
+    with transaction() as cur:
+        closed = enquiry.close_open(cur, project_id=project_id, why="researcher")
+        return {"closed": enquiry.get(cur, enquiry_id=closed) if closed else None}
+
+
+@router.patch("/projects/{project_id}/enquiries/{enquiry_id}")
+def rename_enquiry(project_id: str, enquiry_id: str, body: Renamed,
+                   user: dict = Depends(signed_in)) -> dict[str, Any]:
+    """
+    Name the question, open or closed.
+
+    Renaming a closed enquiry is allowed: naming is how a researcher makes their
+    own record legible months later, and it cannot change which looks were
+    corrected together.
+    """
+    _scoped(project_id, user)
+    with transaction() as cur:
+        existing = enquiry.get(cur, enquiry_id=enquiry_id)
+        if existing is None or existing["project_id"] != project_id:
+            raise HTTPException(404, "no such line of enquiry")
+        try:
+            return enquiry.rename(cur, enquiry_id=enquiry_id, name=body.name)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/projects/{project_id}/exploration/{enquiry_id}")
+def read_ledger(project_id: str, enquiry_id: str,
                 user: dict = Depends(signed_in)) -> dict[str, Any]:
     _scoped(project_id, user)
     with transaction() as cur:
-        return exploration.ledger(cur, session_id)
+        return exploration.ledger(cur, enquiry_id)
 
 
 # ---------------------------------------------------------------------------
@@ -237,15 +341,15 @@ class LibraryExport(BaseModel):
     library: str = Field(min_length=1)
     library_type: str = "users"
     api_key: str = Field(min_length=1)
-    #: When given, the note carries how many times the data was looked at in
-    #: that session. Without it the note says the count is unknown rather than
-    #: implying the question does not apply.
-    session_id: str | None = None
+    #: Which line of enquiry's count the note should carry. Absent means the
+    #: project's open one, which is what a researcher exporting a finding they
+    #: just produced always means.
+    enquiry_id: str | None = None
 
 
 @router.get("/projects/{project_id}/findings/{finding_id}/library-note")
 def preview_note(project_id: str, finding_id: str,
-                 session_id: str | None = None,
+                 enquiry_id: str | None = None,
                  user: dict = Depends(signed_in)) -> dict[str, Any]:
     """
     What would be written, before anything is written.
@@ -256,9 +360,15 @@ def preview_note(project_id: str, finding_id: str,
     """
     _scoped(project_id, user)
     with transaction() as cur:
+        # Resolved here rather than asked of the caller. The interface used to
+        # pass a family id it had invented; the count in an exported note is a
+        # claim about how often the data was questioned, and it should come from
+        # the record rather than from whatever the browser happened to be
+        # holding.
+        family = enquiry_id or enquiry.current(cur, project_id=project_id)["id"]
         try:
             return library_note.for_finding(cur, finding_id=finding_id,
-                                            session_id=session_id)
+                                            enquiry_id=family)
         except ValueError as exc:
             raise HTTPException(404, str(exc)) from exc
 
@@ -277,8 +387,10 @@ def write_note(project_id: str, finding_id: str, body: LibraryExport,
 
     with transaction() as cur:
         try:
+            family = body.enquiry_id or enquiry.current(
+                cur, project_id=project_id)["id"]
             note = library_note.for_finding(cur, finding_id=finding_id,
-                                            session_id=body.session_id)
+                                            enquiry_id=family)
         except ValueError as exc:
             raise HTTPException(404, str(exc)) from exc
 

@@ -180,7 +180,18 @@ export function Binned({
     <figure className="chart chart-binned">
       {title && <figcaption className="chart-title">{title}</figcaption>}
       <svg
-        width={width} height={height} role="img"
+        /*
+         * `viewBox` + `width="100%"`, the way every other chart in this folder
+         * is drawn. This one alone carried a fixed `width={width}` and no
+         * viewBox, so it rendered at a flat 620px regardless of the column it
+         * was in — measured spilling 126px out of a 468px workspace, the only
+         * one of thirteen charts on the primitives screen that did. Since the
+         * shell's edges became draggable that column can be narrow at any
+         * window size, so a fixed width is not a width, it is a guess.
+         */
+        className="chart-svg"
+        viewBox={`0 0 ${width} ${height}`}
+        width="100%" height={height} role="img"
         aria-label={
           `Binned density of ${yLabel} against ${xLabel}. `
           + `${sampleSize.toLocaleString()} observations in ${cells.length} `
@@ -196,14 +207,14 @@ export function Binned({
         <g transform={`translate(${M.left},${M.top})`}>
           {yTicks.map((t) => (
             <g key={t} transform={`translate(0,${y(t)})`}>
-              <line x2={plotWidth} className="grid" />
-              <text x={-8} dy="0.32em" className="tick numeric" textAnchor="end">{t}</text>
+              <line x2={plotWidth} className="chart-grid" />
+              <text x={-8} dy="0.32em" className="chart-tick numeric" textAnchor="end">{t}</text>
             </g>
           ))}
           {xTicks.map((t) => (
             <g key={t} transform={`translate(${x(t)},${plotHeight})`}>
-              <line y2={6} className="axis" />
-              <text y={20} className="tick numeric" textAnchor="middle">{t}</text>
+              <line y2={6} className="chart-axis" />
+              <text y={20} className="chart-tick numeric" textAnchor="middle">{t}</text>
             </g>
           ))}
 
@@ -242,13 +253,13 @@ export function Binned({
 
           <text
             transform={`translate(${plotWidth / 2},${plotHeight + 40})`}
-            className="axis-label" textAnchor="middle"
+            className="chart-axis-label" textAnchor="middle"
           >
             {xLabel}{xUnit ? ` (${xUnit})` : ""}
           </text>
           <text
             transform={`translate(${-M.left + 14},${plotHeight / 2}) rotate(-90)`}
-            className="axis-label" textAnchor="middle"
+            className="chart-axis-label" textAnchor="middle"
           >
             {yLabel}{yUnit ? ` (${yUnit})` : ""}
           </text>
@@ -258,7 +269,7 @@ export function Binned({
         </g>
       </svg>
 
-      <p className="chart-note">
+      <p className="chart-caption">
         {sampleSize.toLocaleString()} observations, binned into {binCount}{" "}
         {binShape === "square" ? "square" : "hexagonal"} cells per axis. Shade
         shows observations per cell
@@ -339,7 +350,7 @@ function Legend({ peak, countScale, height, x }: {
             x={17}
             y={barHeight - position * barHeight}
             dy="0.32em"
-            className="tick numeric"
+            className="chart-tick numeric"
           >
             {value.toLocaleString()}
           </text>
@@ -347,7 +358,7 @@ function Legend({ peak, countScale, height, x }: {
       })}
       <text
         transform={`translate(${-4},${barHeight + 22})`}
-        className="tick" textAnchor="start"
+        className="chart-tick" textAnchor="start"
       >
         per cell{countScale !== "linear" ? ` (${countScale})` : ""}
       </text>

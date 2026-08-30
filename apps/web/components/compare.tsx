@@ -16,6 +16,7 @@
  */
 
 import { useState } from "react";
+import { TabPanel, ViewTabs } from "./ViewTabs";
 import { Source, api } from "@/lib/api";
 import { ApiState, useApi } from "@/lib/useApi";
 import { Empty, Failure, Loading } from "./primitives";
@@ -118,26 +119,18 @@ export function Compare({ projectId, sources }: {
   if (sources.loading) return <Loading rows={4} label="Reading sources" />;
 
   const tabs = (
-    <div className="cmp-verbs" role="tablist" aria-label="What to compare">
-      {([["datasets", "Dataset ↔ dataset"],
-         ["claim", "Paper ↔ dataset"],
-         ["papers", "Paper ↔ paper"],
-         ["many", "Several papers"],
-         ["manydata", "Several datasets"],
-         ["images", "Figures"],
-         ["findings", "Finding ↔ finding"],
-         ["scans", "Scan ↔ scan"]] as const).map(([id, label]) => (
-        <button
-          key={id}
-          role="tab"
-          aria-selected={verb === id}
-          className="cmp-verb"
-          onClick={() => setVerb(id)}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
+    <ViewTabs
+      name="compare" label="What to compare"
+      value={verb} onChange={setVerb}
+      options={[["datasets", "Dataset ↔ dataset"],
+                ["claim", "Paper ↔ dataset"],
+                ["papers", "Paper ↔ paper"],
+                ["many", "Several papers"],
+                ["manydata", "Several datasets"],
+                ["images", "Figures"],
+                ["findings", "Finding ↔ finding"],
+                ["scans", "Scan ↔ scan"]] as const}
+    />
   );
 
   if (verb === "scans") {
@@ -154,7 +147,9 @@ export function Compare({ projectId, sources }: {
       <>
         <h1>Compare</h1>
         {tabs}
-        <CaseCompare />
+        <TabPanel name="compare" value={verb}>
+          <CaseCompare />
+        </TabPanel>
       </>
     );
   }
@@ -164,7 +159,9 @@ export function Compare({ projectId, sources }: {
       <>
         <h1>Compare</h1>
         {tabs}
-        <ClaimTest projectId={projectId} sources={sources.data ?? []} />
+        <TabPanel name="compare" value={verb}>
+          <ClaimTest projectId={projectId} sources={sources.data ?? []} />
+        </TabPanel>
       </>
     );
   }
@@ -174,7 +171,9 @@ export function Compare({ projectId, sources }: {
       <>
         <h1>Compare</h1>
         {tabs}
-        <Reconcile projectId={projectId} sources={sources.data ?? []} />
+        <TabPanel name="compare" value={verb}>
+          <Reconcile projectId={projectId} sources={sources.data ?? []} />
+        </TabPanel>
       </>
     );
   }
@@ -184,7 +183,9 @@ export function Compare({ projectId, sources }: {
       <>
         <h1>Compare</h1>
         {tabs}
-        <Synthesis projectId={projectId} sources={sources.data ?? []} />
+        <TabPanel name="compare" value={verb}>
+          <Synthesis projectId={projectId} sources={sources.data ?? []} />
+        </TabPanel>
       </>
     );
   }
@@ -194,7 +195,9 @@ export function Compare({ projectId, sources }: {
       <>
         <h1>Compare</h1>
         {tabs}
-        <DatasetSynthesis projectId={projectId} sources={sources.data ?? []} />
+        <TabPanel name="compare" value={verb}>
+          <DatasetSynthesis projectId={projectId} sources={sources.data ?? []} />
+        </TabPanel>
       </>
     );
   }
@@ -204,7 +207,9 @@ export function Compare({ projectId, sources }: {
       <>
         <h1>Compare</h1>
         {tabs}
-        <ImageComparison projectId={projectId} sources={sources.data ?? []} />
+        <TabPanel name="compare" value={verb}>
+          <ImageComparison projectId={projectId} sources={sources.data ?? []} />
+        </TabPanel>
       </>
     );
   }
@@ -214,7 +219,9 @@ export function Compare({ projectId, sources }: {
       <>
         <h1>Compare</h1>
         {tabs}
-        <Consistency projectId={projectId} />
+        <TabPanel name="compare" value={verb}>
+          <Consistency projectId={projectId} />
+        </TabPanel>
       </>
     );
   }
@@ -224,10 +231,12 @@ export function Compare({ projectId, sources }: {
       <>
         <h1>Compare</h1>
         {tabs}
-        <Empty
-          title="Two datasets are needed"
-          hint="Add another dataset and the system will work out whether the two can honestly be compared — and say so plainly if they cannot."
-        />
+        <TabPanel name="compare" value={verb}>
+          <Empty
+            title="Two datasets are needed"
+            hint="Add another dataset and the system will work out whether the two can honestly be compared — and say so plainly if they cannot."
+          />
+        </TabPanel>
       </>
     );
   }
