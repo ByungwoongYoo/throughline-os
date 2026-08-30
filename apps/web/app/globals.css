@@ -44,6 +44,19 @@
    */
   --on-accent:   #FFFFFF;
 
+  /* And the readable side of the accent *tint*, which is a different question.
+   *
+   * `--accent` is readable on the page — 4.95:1 on #FAFAF9 — and not on its own
+   * tint: #2563EB on #DBEAFE is 4.24:1, under the 4.5:1 normal text needs. Five
+   * rules make exactly that pairing and every one of them is a selected or
+   * active state, so the failing text is the text saying where you are.
+   *
+   * #1443B8 is 6.82:1 on the tint and is not invented here — it is the accent
+   * this file's own `prefers-contrast: more` block already picks for light.
+   * In dark the accent is light enough that the tint pairing already passes at
+   * 6.68:1, so this simply follows the accent there. */
+  --on-accent-soft: #1443B8;
+
   /* Semantic — state only, never decoration. */
   --positive: #15803D;
   --caution:  #B45309;
@@ -71,7 +84,13 @@
   --hover: var(--n-50);
   --line:  var(--n-200);
   --line-strong: var(--n-300);
-  --ink-faint: var(--n-400);
+  /* n-500, not n-400. WCAG AA wants 4.5:1 for normal text, and this token
+     carries real content — the rail's group labels, the context note, step
+     descriptions, captions, counts. Measured in the running app, n-400 was
+     3.29:1 on a card and 3.15:1 on the page; n-500 is 5.36:1 and 5.13:1.
+     The dark theme needs a further step and takes it below, because the same
+     name resolves to a different colour there. */
+  --ink-faint: var(--n-500);
   --ink-soft:  var(--n-600);
   --ink:       var(--n-800);
   --ink-strong: var(--n-900);
@@ -158,6 +177,54 @@
     --n-800: #D5DAE2;
     --n-900: #F0F2F5;
 
+    /* Faint text needs one step further here than in light.
+     *
+     * The scale flips with the theme, so the same token is a different colour:
+     * measured against the two grounds faint text actually sits on — a card at
+     * #14181F and the page at #0E1116 — n-400 is 2.36:1 and 2.51:1, and n-500
+     * is still only 3.94:1 and 4.19:1. Both fail the 4.5:1 that normal text
+     * needs. n-600 is 6.74:1 and 7.16:1.
+     *
+     * It is also the value `prefers-contrast: more` already remaps this token
+     * to, which is the tell: the accessible answer was in the palette, offered
+     * only to readers who knew to ask the operating system for it. */
+    --ink-faint: var(--n-600);
+
+    /* The three semantic colours that never got a dark variant.
+     *
+     * `--warn` was given one; `--caution` and `--positive` were not, and
+     * `--caution` is the *same* colour as light `--warn` (#B45309), so they
+     * should share the dark one too. Measured on the grounds they sit on — a
+     * card at #14181F and the page at #0E1116 — the light values give
+     * candidate/exploratory 3.54:1 and a completed step 3.55:1, both under the
+     * 4.5:1 normal text needs. These are 8.29:1 and 9.26:1.
+     *
+     * Same defect as `--n-0` on `--accent` before it: a pairing chosen for one
+     * theme and inherited by the other. */
+    --caution: #F59E0B;
+    --positive: #34D399;
+
+    /* The accent, and the side of it that stays readable.
+     *
+     * `--accent: #2563EB` was chosen against a white page and never flipped, so
+     * on a dark ground it is 3.44:1 — under the 4.5:1 normal text needs. That
+     * matters more than one label: the stylesheet uses the accent as a *text*
+     * colour in 45 places and as a background in 10, so the failing role is the
+     * common one.
+     *
+     * #7FA8FF is 7.58:1 on a card and 8.06:1 on the page, and is not invented
+     * here — it is what this file's own `prefers-contrast: more` block already
+     * chose for dark, offered until now only to readers who knew to ask their
+     * operating system for it.
+     *
+     * A light accent flips which side is readable, so `--on-accent` moves with
+     * it: white on #7FA8FF is 2.33:1, near-black is over 9:1. That pairing is
+     * the entire reason `--on-accent` is a token rather than a literal, and
+     * `accent-contrast.test.ts` holds the two together. */
+    --accent: #7FA8FF;
+    --on-accent: #0A0C0F;
+    --on-accent-soft: var(--accent);
+
     --paper: var(--n-0);
     --bg: var(--n-0);
     --warn: #F59E0B;
@@ -173,6 +240,16 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    /* `--bg` and `--warn` restated here, not inherited.
+     *
+     * These two were defined only in the `[data-theme="dark"]` block, so the
+     * two dark paths disagreed — and the one that disagreed is the common one.
+     * A reader whose system is dark and who never touched the toggle got
+     * `--bg: #0E1116` against the toggle's `#0A0C0F`, and `--warn: #B45309`,
+     * the *light* amber, at 3.77:1 instead of 8.81:1. Measured in the browser
+     * by reading both paths, not inferred. */
+    --bg: var(--n-0);
+    --warn: #F59E0B;
     /* In dark theme elevation is lightness, not shadow: surfaces get lighter as
        they rise, because a shadow on a near-black surface is invisible. */
     --n-0:   #0A0C0F;
@@ -186,6 +263,54 @@
     --n-600: #97A0AE;
     --n-800: #D5DAE2;
     --n-900: #F0F2F5;
+
+    /* Faint text needs one step further here than in light.
+     *
+     * The scale flips with the theme, so the same token is a different colour:
+     * measured against the two grounds faint text actually sits on — a card at
+     * #14181F and the page at #0E1116 — n-400 is 2.36:1 and 2.51:1, and n-500
+     * is still only 3.94:1 and 4.19:1. Both fail the 4.5:1 that normal text
+     * needs. n-600 is 6.74:1 and 7.16:1.
+     *
+     * It is also the value `prefers-contrast: more` already remaps this token
+     * to, which is the tell: the accessible answer was in the palette, offered
+     * only to readers who knew to ask the operating system for it. */
+    --ink-faint: var(--n-600);
+
+    /* The three semantic colours that never got a dark variant.
+     *
+     * `--warn` was given one; `--caution` and `--positive` were not, and
+     * `--caution` is the *same* colour as light `--warn` (#B45309), so they
+     * should share the dark one too. Measured on the grounds they sit on — a
+     * card at #14181F and the page at #0E1116 — the light values give
+     * candidate/exploratory 3.54:1 and a completed step 3.55:1, both under the
+     * 4.5:1 normal text needs. These are 8.29:1 and 9.26:1.
+     *
+     * Same defect as `--n-0` on `--accent` before it: a pairing chosen for one
+     * theme and inherited by the other. */
+    --caution: #F59E0B;
+    --positive: #34D399;
+
+    /* The accent, and the side of it that stays readable.
+     *
+     * `--accent: #2563EB` was chosen against a white page and never flipped, so
+     * on a dark ground it is 3.44:1 — under the 4.5:1 normal text needs. That
+     * matters more than one label: the stylesheet uses the accent as a *text*
+     * colour in 45 places and as a background in 10, so the failing role is the
+     * common one.
+     *
+     * #7FA8FF is 7.58:1 on a card and 8.06:1 on the page, and is not invented
+     * here — it is what this file's own `prefers-contrast: more` block already
+     * chose for dark, offered until now only to readers who knew to ask their
+     * operating system for it.
+     *
+     * A light accent flips which side is readable, so `--on-accent` moves with
+     * it: white on #7FA8FF is 2.33:1, near-black is over 9:1. That pairing is
+     * the entire reason `--on-accent` is a token rather than a literal, and
+     * `accent-contrast.test.ts` holds the two together. */
+    --accent: #7FA8FF;
+    --on-accent: #0A0C0F;
+    --on-accent-soft: var(--accent);
 
     --paper: var(--n-0);
     --panel: var(--n-50);
@@ -1799,7 +1924,7 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   display: grid; place-items: center;
   border-radius: 50%;
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
   font-size: 10px;
   font-weight: 600;
 }
@@ -2032,7 +2157,7 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .cmp-verb[aria-selected="true"] {
   background: var(--accent-soft);
   border-color: var(--accent);
-  color: var(--accent);
+  color: var(--on-accent-soft);
   font-weight: 500;
 }
 
@@ -2416,9 +2541,18 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .set-model-meta { font-size: 12px; color: var(--ink-faint); }
 .set-active {
   margin-left: auto;
-  font-size: 11px; color: var(--accent); font-weight: 500;
+  /* On the tint, not on the page: `.set-model[data-active="true"]` supplies an
+     `--accent-soft` background, and the accent is 4.24:1 on it. The tint's own
+     readable colour is the one to use — the same pairing as the selected tab,
+     reached through an ancestor rather than the same rule, which is why the
+     first pass missed it. */
+  font-size: 11px; color: var(--on-accent-soft); font-weight: 500;
   text-transform: lowercase;
 }
+
+/* The metadata line goes with it. `--ink-faint` is chosen against the page and
+   is 4.39:1 on the tint — under the bar by a whisker, which is still under. */
+.set-model[data-active="true"] .set-model-meta { color: var(--ink-soft); }
 
 .set-facts {
   margin: 20px 0 0; padding: 14px 16px;
@@ -2545,7 +2679,7 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 }
 .sc-chip:hover { background: var(--hover); }
 .sc-chip[data-on="true"] {
-  background: var(--accent-soft); border-color: var(--accent); color: var(--accent);
+  background: var(--accent-soft); border-color: var(--accent); color: var(--on-accent-soft);
 }
 
 .sc-headline { margin: 28px 0 8px; font-size: 15px; color: var(--ink-strong); }
@@ -2600,7 +2734,7 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   font-size: 13px; color: var(--ink);
 }
 .nb-index button:hover { background: var(--hover); }
-.nb-index button[data-open="true"] { background: var(--accent-soft); color: var(--accent); }
+.nb-index button[data-open="true"] { background: var(--accent-soft); color: var(--on-accent-soft); }
 .nb-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nb-counts { font-size: 11px; color: var(--ink-faint); }
 
@@ -2654,7 +2788,7 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 /* `aria-selected` is the real state now rather than a constant, so styling on
    it finally means something: it used to be hardcoded to the first row. */
 .nb-suggest li[aria-selected="true"], .nb-suggest li:hover {
-  background: var(--accent-soft); color: var(--accent);
+  background: var(--accent-soft); color: var(--on-accent-soft);
 }
 .nb-suggest-empty {
   position: absolute; left: 18px; top: 100%;
@@ -2702,7 +2836,7 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .theme-option:hover { background: var(--hover); color: var(--ink); }
 .theme-option[aria-pressed="true"] {
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--on-accent-soft);
 }
 
 /* --- The notebook graph --------------------------------------------------- */
@@ -3184,7 +3318,7 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .am-avatar {
   width: 28px; height: 28px; border-radius: 50%;
   display: grid; place-items: center;
-  background: var(--accent); color: #fff;
+  background: var(--accent); color: var(--on-accent);
   font-size: 11px; font-weight: 700; letter-spacing: 0.02em;
   transition: box-shadow var(--fast) var(--ease-out-quad);
 }
@@ -3582,6 +3716,20 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
       --line: var(--n-500);
       --line-strong: var(--n-600);
       --ink-faint: var(--n-600);
+
+    /* The three semantic colours that never got a dark variant.
+     *
+     * `--warn` was given one; `--caution` and `--positive` were not, and
+     * `--caution` is the *same* colour as light `--warn` (#B45309), so they
+     * should share the dark one too. Measured on the grounds they sit on — a
+     * card at #14181F and the page at #0E1116 — the light values give
+     * candidate/exploratory 3.54:1 and a completed step 3.55:1, both under the
+     * 4.5:1 normal text needs. These are 8.29:1 and 9.26:1.
+     *
+     * Same defect as `--n-0` on `--accent` before it: a pairing chosen for one
+     * theme and inherited by the other. */
+    --caution: #F59E0B;
+    --positive: #34D399;
       --ink-soft: var(--n-800);
       --ink: var(--n-900);
       --accent: #7FA8FF;

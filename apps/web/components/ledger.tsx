@@ -165,7 +165,7 @@ function EnquiryBar({ projectId, enquiry, onChanged, showPast, onTogglePast }: {
               }
             }}
           />
-          <button type="submit" disabled={busy}>Save</button>
+          <button type="submit" className="btn" disabled={busy}>Save</button>
         </form>
       ) : (
         <button
@@ -183,10 +183,12 @@ function EnquiryBar({ projectId, enquiry, onChanged, showPast, onTogglePast }: {
       </span>
 
       <span className="enquiry-actions">
-        <button type="button" onClick={onTogglePast} aria-expanded={showPast}>
+        <button type="button" className="btn" onClick={onTogglePast}
+                aria-expanded={showPast}>
           {showPast ? "Hide earlier work" : "Earlier work"}
         </button>
-        <button type="button" onClick={() => void startNew()} disabled={busy}>
+        <button type="button" className="btn" onClick={() => void startNew()}
+                disabled={busy}>
           Start a new line of enquiry
         </button>
       </span>

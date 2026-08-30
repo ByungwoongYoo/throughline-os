@@ -337,6 +337,7 @@ export function FeaturePacks() {
               <div className="set-pack-actions">
                 <button
                   type="button"
+                  className="btn"
                   onClick={() => install(name)}
                   disabled={busy !== null || pack.install_state === "running"}
                 >
@@ -470,7 +471,7 @@ export function VersionPanel() {
       <p className="set-note">{version.note}</p>
 
       <div className="set-pack-actions">
-        <button type="button" onClick={checkNow} disabled={checking}>
+        <button type="button" className="btn" onClick={checkNow} disabled={checking}>
           {checking ? "Checking…" : "Check for updates"}
         </button>
       </div>

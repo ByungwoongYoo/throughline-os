@@ -20,7 +20,20 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const CSS = readFileSync(join(__dirname, "..", "app", "globals.css"), "utf8");
+/**
+ * Comments stripped before anything is matched.
+ *
+ * This file scans for `--accent:` declarations, and prose explaining a token
+ * quotes it — a comment reading "`--accent: #2563EB` was chosen against a white
+ * page" is indistinguishable from a declaration to a regex. When the dark
+ * accent gained such a note, the scan found a phantom accent with no
+ * `--on-accent` after it and failed on a stylesheet that was correct.
+ *
+ * The second time a guard in this suite has read its own documentation;
+ * `menu-reveal.test.ts` was the first. Both now strip first.
+ */
+const CSS = readFileSync(join(__dirname, "..", "app", "globals.css"), "utf8")
+  .replace(/\/\*[\s\S]*?\*\//g, "");
 
 /** Relative luminance, per WCAG. */
 function luminance(hex: string): number {
@@ -92,5 +105,40 @@ describe("text on the accent", () => {
       .filter(({ line }) => /background:\s*var\(--accent\)/.test(line)
                          && /color:\s*var\(--n-0\)/.test(line));
     expect(offenders, JSON.stringify(offenders)).toHaveLength(0);
+  });
+});
+
+describe("nothing paints its own text on the accent", () => {
+  /**
+   * `--on-accent` only works if the rules that sit on the accent actually use
+   * it. Two did not — `.am-avatar` wrote `#fff` and `.cmp-slot` wrote `white` —
+   * and both were invisible as defects while the accent was dark, because white
+   * happened to be right. Flipping the dark accent to a light blue turned them
+   * into 2.35:1 immediately.
+   *
+   * That is the whole argument for the token: the readable side depends on the
+   * accent, so a literal is a guess that survives only until the accent moves.
+   */
+  it("uses the token wherever the accent is the background", () => {
+    const offenders: string[] = [];
+    const rules = CSS.matchAll(/([^{}]+)\{([^}]*)\}/g);
+    for (const rule of rules) {
+      const body = rule[2];
+      if (!/background(?:-color)?:\s*var\(--accent\)/.test(body)) continue;
+      const colour = body.match(/(?:^|;)\s*color:\s*([^;]+)/);
+      if (!colour) continue;                       // no text of its own
+      if (/var\(--on-accent\)/.test(colour[1])) continue;
+      const selector = rule[1].trim().split("\n").pop()!.trim();
+      offenders.push(`${selector} → color: ${colour[1].trim()}`);
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("can tell a literal from the token", () => {
+    /** The mutation, so this cannot pass by matching nothing. */
+    const bad = ".x { background: var(--accent); color: #fff; }";
+    const m = bad.match(/([^{}]+)\{([^}]*)\}/)!;
+    expect(/background(?:-color)?:\s*var\(--accent\)/.test(m[2])).toBe(true);
+    expect(/var\(--on-accent\)/.test(m[2])).toBe(false);
   });
 });
