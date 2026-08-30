@@ -370,7 +370,7 @@ export default function AirInkPage() {
   return (
     <main style={{ maxWidth: 1080, margin: "0 auto", padding: "32px 24px 64px" }}>
       <h1 style={{ fontSize: 26, marginBottom: 4 }}>Air Ink</h1>
-      <p style={{ color: "#555", marginTop: 0, maxWidth: 640 }}>
+      <p style={{ color: "var(--ink-soft)", marginTop: 0, maxWidth: 640 }}>
         Drawing in mid-air, over a chart. Nothing here leaves your machine: the
         cloud is synthetic, no project is loaded, and the camera feed is
         processed in the browser and never uploaded.
@@ -392,8 +392,8 @@ export default function AirInkPage() {
         <button onClick={() => setArmed((on) => !on)}
                 style={{ padding: "8px 14px", borderRadius: 6,
                          border: "1px solid #1443B8",
-                         background: armed ? "#1443B8" : "transparent",
-                         color: armed ? "white" : "#1443B8", cursor: "pointer" }}>
+                         background: armed ? "var(--accent)" : "transparent",
+                         color: armed ? "var(--on-accent)" : "var(--accent)", cursor: "pointer" }}>
           {armed ? "Put the pen away" : "Take out the pen"}
         </button>
         {/*
@@ -425,7 +425,7 @@ export default function AirInkPage() {
                          cursor: "pointer" }}>
           Clear
         </button>
-        <span style={{ color: "#555", fontSize: 14 }}>{EXPLAIN[state]}</span>
+        <span style={{ color: "var(--ink-soft)", fontSize: 14 }}>{EXPLAIN[state]}</span>
       </div>
 
       {/*
@@ -435,20 +435,20 @@ export default function AirInkPage() {
         */}
       <div style={{ display: "flex", gap: 8, alignItems: "center",
                     margin: "0 0 12px" }}>
-        <span style={{ fontSize: 14, color: "#333" }}>Tool</span>
+        <span style={{ fontSize: 14, color: "var(--ink)" }}>Tool</span>
         {(["pen", "eraser", "lasso"] as const).map((option) => (
           <button key={option}
                   onClick={() => { inkRef.current?.setTool(option); setTool(option); }}
                   aria-pressed={tool === option}
                   style={{ padding: "5px 11px", borderRadius: 6, fontSize: 13,
-                           border: "1px solid " + (tool === option ? "#1443B8" : "#bbb"),
-                           background: tool === option ? "#eaf0fc" : "transparent",
-                           color: tool === option ? "#1443B8" : "#444",
+                           border: "1px solid " + (tool === option ? "var(--accent)" : "var(--line-strong)"),
+                           background: tool === option ? "var(--accent-soft)" : "transparent",
+                           color: tool === option ? "var(--on-accent-soft)" : "var(--ink-soft)",
                            cursor: "pointer" }}>
             {option === "pen" ? "Pen" : option === "eraser" ? "Eraser" : "Lasso"}
           </button>
         ))}
-        <span style={{ color: "#555", fontSize: 13 }}>
+        <span style={{ color: "var(--ink-soft)", fontSize: 13 }}>
           {tool === "pen" && activeLayer
             ? `Drawing into "${activeLayer}". `
             : ""}
@@ -470,7 +470,7 @@ export default function AirInkPage() {
         */}
       <div style={{ display: "flex", gap: 8, alignItems: "center",
                     flexWrap: "wrap", margin: "0 0 6px" }}>
-        <span style={{ fontSize: 14, color: "#333" }}>Straightedge</span>
+        <span style={{ fontSize: 14, color: "var(--ink)" }}>Straightedge</span>
         {(["off", "line", "horizontal", "vertical", "diagonal",
            "magnetic"] as const).map((option) => (
           <button key={option}
@@ -478,15 +478,15 @@ export default function AirInkPage() {
                                    setEdge(option); }}
                   aria-pressed={edge === option}
                   style={{ padding: "5px 11px", borderRadius: 6, fontSize: 13,
-                           border: "1px solid " + (edge === option ? "#1443B8" : "#bbb"),
-                           background: edge === option ? "#eaf0fc" : "transparent",
-                           color: edge === option ? "#1443B8" : "#444",
+                           border: "1px solid " + (edge === option ? "var(--accent)" : "var(--line-strong)"),
+                           background: edge === option ? "var(--accent-soft)" : "transparent",
+                           color: edge === option ? "var(--on-accent-soft)" : "var(--ink-soft)",
                            cursor: "pointer" }}>
             {STRAIGHTEDGE_LABEL[option]}
           </button>
         ))}
       </div>
-      <p style={{ color: "#555", fontSize: 13, maxWidth: 640, marginTop: 0 }}>
+      <p style={{ color: "var(--ink-soft)", fontSize: 13, maxWidth: 640, marginTop: 0 }}>
         {STRAIGHTEDGE_HELP[edge]}
       </p>
 
@@ -498,24 +498,24 @@ export default function AirInkPage() {
         * write.
         */}
       <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "0 0 16px" }}>
-        <span style={{ fontSize: 14, color: "#333" }}>Stabilisation</span>
+        <span style={{ fontSize: 14, color: "var(--ink)" }}>Stabilisation</span>
         {(["natural", "steady", "handwriting"] as const).map((option) => (
           <button key={option} onClick={() => setLevel(option)}
                   aria-pressed={level === option}
                   style={{ padding: "5px 11px", borderRadius: 6, fontSize: 13,
-                           border: "1px solid " + (level === option ? "#1443B8" : "#bbb"),
-                           background: level === option ? "#eaf0fc" : "transparent",
-                           color: level === option ? "#1443B8" : "#444",
+                           border: "1px solid " + (level === option ? "var(--accent)" : "var(--line-strong)"),
+                           background: level === option ? "var(--accent-soft)" : "transparent",
+                           color: level === option ? "var(--on-accent-soft)" : "var(--ink-soft)",
                            cursor: "pointer" }}>
             {STABILISATION_LABEL[option]}
           </button>
         ))}
       </div>
-      <p style={{ color: "#555", fontSize: 13, maxWidth: 640, marginTop: -8 }}>
+      <p style={{ color: "var(--ink-soft)", fontSize: 13, maxWidth: 640, marginTop: -8 }}>
         {STABILISATION_HELP[level]}
       </p>
 
-      <p style={{ color: "#555", fontSize: 14, maxWidth: 640, marginTop: 0 }}>
+      <p style={{ color: "var(--ink-soft)", fontSize: 14, maxWidth: 640, marginTop: 0 }}>
         Two locks, deliberately. The pen has to be out <em>and</em> you have to
         pinch — pointing draws nothing at any time, because pointing is what
         people do while they talk.
@@ -563,7 +563,7 @@ export default function AirInkPage() {
       </div>
 
       <h2 style={{ fontSize: 18, marginTop: 32 }}>A second figure</h2>
-      <p style={{ color: "#555", fontSize: 14, maxWidth: 640 }}>
+      <p style={{ color: "var(--ink-soft)", fontSize: 14, maxWidth: 640 }}>
         The pen spans the page rather than one chart, so a loop drawn here
         resolves against <em>this</em> figure. Whichever one your hand is over is
         the one being drawn on, and once you pinch it is held until you let go.
@@ -597,13 +597,13 @@ export default function AirInkPage() {
       </div>
 
       <h2 style={{ fontSize: 18, marginTop: 32 }}>What each stroke turned out to be</h2>
-      <p style={{ color: "#555", fontSize: 14, maxWidth: 640 }}>
+      <p style={{ color: "var(--ink-soft)", fontSize: 14, maxWidth: 640 }}>
         Reported, not applied. A loop that selects 43 observations is a question
         worth answering before anything acts on it — a selection that silently
         happened is one you have to notice.
       </p>
       {visible.length === 0
-        ? <p style={{ color: "#888" }}>Nothing drawn yet.</p>
+        ? <p style={{ color: "var(--ink-faint)" }}>Nothing drawn yet.</p>
         : (
           <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 14 }}>
             <thead>
@@ -626,13 +626,13 @@ export default function AirInkPage() {
                     {reading.closed ? "yes" : "no"}
                   </td>
                   <td style={{ padding: "6px 8px" }}>{reading.verdict}</td>
-                  <td style={{ padding: "6px 8px", color: "#555" }}>
+                  <td style={{ padding: "6px 8px", color: "var(--ink-soft)" }}>
                     {reading.context ?? "—"}
                   </td>
                   <td style={{ padding: "6px 8px" }}>
                     {!reading.viewState ? "—"
                       : sameView(reading.viewState, view)
-                        ? <span style={{ color: "#2c7" }}>yes</span>
+                        ? <span style={{ color: "var(--positive)" }}>yes</span>
                         : (
                           <button
                             onClick={() => {
@@ -640,7 +640,7 @@ export default function AirInkPage() {
                               setView(chartRef.current?.viewState() ?? null);
                             }}
                             style={{ font: "inherit", fontSize: 13,
-                                     color: "#1443B8", background: "none",
+                                     color: "var(--accent)", background: "none",
                                      border: "none", padding: 0,
                                      textDecoration: "underline",
                                      cursor: "pointer" }}>
@@ -650,9 +650,9 @@ export default function AirInkPage() {
                   </td>
                   <td style={{ padding: "6px 8px" }}>
                     {reading.tidied
-                      ? <span style={{ color: "#777" }}>tidied</span>
+                      ? <span style={{ color: "var(--ink-faint)" }}>tidied</span>
                       : !reading.shape
-                        ? <span style={{ color: "#777" }}>as drawn</span>
+                        ? <span style={{ color: "var(--ink-faint)" }}>as drawn</span>
                         : (
                           <button
                             onClick={() => {
@@ -663,7 +663,7 @@ export default function AirInkPage() {
                               setPending();
                             }}
                             style={{ font: "inherit", fontSize: 13,
-                                     color: "#1443B8", background: "none",
+                                     color: "var(--accent)", background: "none",
                                      border: "none", padding: 0,
                                      textDecoration: "underline",
                                      cursor: "pointer" }}>
@@ -686,7 +686,7 @@ export default function AirInkPage() {
         */}
       <div style={{ display: "flex", gap: 8, alignItems: "center",
                     margin: "0 0 16px" }}>
-        <span style={{ fontSize: 14, color: "#333" }}>Colour</span>
+        <span style={{ fontSize: 14, color: "var(--ink)" }}>Colour</span>
         {INK_COLOURS.map((option) => (
           <button key={option.id}
                   onClick={() => { inkRef.current?.setStyle({ colour: option.value });
@@ -701,12 +701,12 @@ export default function AirInkPage() {
       </div>
 
       <h2 style={{ fontSize: 18, marginTop: 32 }}>Measuring between two points</h2>
-      <p style={{ color: "#555", fontSize: 14, maxWidth: 640 }}>
+      <p style={{ color: "var(--ink-soft)", fontSize: 14, maxWidth: 640 }}>
         Click two observations on the cloud above — or pinch them, with the pen
         away. What comes back is the difference along each axis, in that axis&rsquo;s
         own units.
       </p>
-      <p style={{ color: "#555", fontSize: 13, maxWidth: 640 }}>
+      <p style={{ color: "var(--ink-soft)", fontSize: 13, maxWidth: 640 }}>
         <strong>It will not give you a single distance, and that is deliberate.</strong>{" "}
         The three axes are scaled independently so the shape of the cloud is
         legible, which means a centimetre along one is a different amount of a
@@ -716,7 +716,7 @@ export default function AirInkPage() {
         would get quoted.
       </p>
       <p style={{ maxWidth: 640, fontSize: 14, padding: "10px 12px",
-                  background: "#f4f7fd", border: "1px solid #dbe4f7",
+                  background: "var(--panel)", border: "1px solid #dbe4f7",
                   borderRadius: 6 }}>
         {measuring.length < 2
           ? `Select ${2 - measuring.length} more observation${
@@ -730,7 +730,7 @@ export default function AirInkPage() {
       </p>
       {measuring.length > 0 && (
         <button onClick={() => setMeasuring([])}
-                style={{ font: "inherit", fontSize: 13, color: "#1443B8",
+                style={{ font: "inherit", fontSize: 13, color: "var(--accent)",
                          background: "none", border: "none", padding: 0,
                          textDecoration: "underline", cursor: "pointer" }}>
           Start again
@@ -738,15 +738,15 @@ export default function AirInkPage() {
       )}
 
       <h2 style={{ fontSize: 18, marginTop: 32 }}>Layers</h2>
-      <p style={{ color: "#555", fontSize: 14, maxWidth: 640 }}>
+      <p style={{ color: "var(--ink-soft)", fontSize: 14, maxWidth: 640 }}>
         Turn a group of annotations off to see the figure underneath. Hiding is
         not erasing — everything comes back.
       </p>
       {layers.length === 0
-        ? <p style={{ color: "#888", fontSize: 14 }}>
+        ? <p style={{ color: "var(--ink-faint)", fontSize: 14 }}>
             Nothing drawn yet. <button
               onClick={refreshLayers}
-              style={{ font: "inherit", color: "#1443B8", background: "none",
+              style={{ font: "inherit", color: "var(--accent)", background: "none",
                        border: "none", padding: 0, textDecoration: "underline",
                        cursor: "pointer" }}>Show layers</button>
           </p>
@@ -761,7 +761,7 @@ export default function AirInkPage() {
                                                            e.target.checked);
                            refreshLayers();
                          }} />
-                  <span style={{ color: "#333" }}>{describeLayer(layer)}</span>
+                  <span style={{ color: "var(--ink)" }}>{describeLayer(layer)}</span>
                 </label>
               </li>
             ))}
@@ -769,13 +769,13 @@ export default function AirInkPage() {
         )}
 
       <h2 style={{ fontSize: 18, marginTop: 32 }}>Saying what you mean</h2>
-      <p style={{ color: "#555", fontSize: 14, maxWidth: 640 }}>
+      <p style={{ color: "var(--ink-soft)", fontSize: 14, maxWidth: 640 }}>
         Draw a loop around some points, then say what you want — &ldquo;why are
         these different&rdquo;, &ldquo;compare this with this&rdquo;. The word
         &ldquo;these&rdquo; is resolved against <em>what your hand was doing when
         you said it</em>, so it works even when you speak while still drawing.
       </p>
-      <p style={{ color: "#555", fontSize: 13, maxWidth: 640 }}>
+      <p style={{ color: "var(--ink-soft)", fontSize: 13, maxWidth: 640 }}>
         <strong>Typed, not spoken, and that is deliberate.</strong> The
         browser&rsquo;s built-in speech recognition sends your microphone audio
         to Google, which would break the promise that nothing here leaves your
@@ -824,13 +824,13 @@ export default function AirInkPage() {
         <button type="submit"
                 style={{ padding: "7px 14px", borderRadius: 6, fontSize: 14,
                          border: "1px solid #1443B8", background: "transparent",
-                         color: "#1443B8", cursor: "pointer" }}>
+                         color: "var(--accent)", cursor: "pointer" }}>
           Read it
         </button>
       </form>
       {lassoed && (
         <p style={{ maxWidth: 640, fontSize: 14, padding: "10px 12px",
-                    background: "#f4f7fd", border: "1px solid #dbe4f7",
+                    background: "var(--panel)", border: "1px solid #dbe4f7",
                     borderRadius: 6 }}>
           {lassoed}
         </p>
@@ -838,24 +838,24 @@ export default function AirInkPage() {
 
       {proposal && (
         <p style={{ maxWidth: 640, fontSize: 14, padding: "10px 12px",
-                    background: "#f4f7fd", border: "1px solid #dbe4f7",
+                    background: "var(--panel)", border: "1px solid #dbe4f7",
                     borderRadius: 6 }}>
           {proposal}
         </p>
       )}
-      <p style={{ color: "#777", fontSize: 13, maxWidth: 640 }}>
+      <p style={{ color: "var(--ink-faint)", fontSize: 13, maxWidth: 640 }}>
         Nothing is run. A spoken sentence is ambiguous and has no natural moment
         to confirm it, so what comes back is a proposal you would accept or
         decline — a misheard word should cost you a decline, not an analysis.
       </p>
 
       <h2 style={{ fontSize: 18, marginTop: 32 }}>What is actually unknown</h2>
-      <p style={{ color: "#555", fontSize: 14, maxWidth: 640 }}>
+      <p style={{ color: "var(--ink-soft)", fontSize: 14, maxWidth: 640 }}>
         Every number in this subsystem came from reasoning rather than from a
         hand. These are the specific things a test cannot settle, phrased so that
         an answer is useful.
       </p>
-      <ol style={{ color: "#333", fontSize: 14, maxWidth: 640, lineHeight: 1.7 }}>
+      <ol style={{ color: "var(--ink)", fontSize: 14, maxWidth: 640, lineHeight: 1.7 }}>
         <li>
           <strong>Does the line feel attached to your fingertip?</strong> It is
           drawn about one frame ahead of where the camera last saw you, to cover

@@ -125,6 +125,7 @@ export function SpecialistMount(
           </label>
           <button
             type="button"
+            className="btn"
             onClick={open}
             disabled={phase.kind === "loading"}
           >

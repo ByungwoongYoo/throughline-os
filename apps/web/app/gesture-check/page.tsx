@@ -435,7 +435,7 @@ export default function GestureCheck() {
                 this improves is the pointer path — dragging, and landing on a
                 point — which is a hand on the trackpad.
               </p>
-              <button type="button" onClick={() => {
+              <button type="button" className="btn" onClick={() => {
                 void fetch("/api/haptics/tap", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
