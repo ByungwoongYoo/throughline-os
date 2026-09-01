@@ -88,6 +88,44 @@ def test_the_same_p_value_is_worth_less_later_in_a_session(cur, project):
     assert same_test["q_value"] > early_q
 
 
+def test_a_strong_result_still_survives_a_large_family(cur, project):
+    """Correction has to discriminate, not merely refuse.
+
+    Its complement below already catches the crudest version of the opposite
+    failure: it asserts a result survives before the noise arrives, so a
+    correction that rejected *everything* would fail it. Checked by mutation
+    rather than assumed — stubbing `benjamini_hochberg` to return all-False
+    fails that test too.
+
+    What nothing covered is survival in a *large* family. A correction that is
+    right at a family of one and too aggressive at two hundred passes every
+    other test in this file, and that is the interesting way to get this wrong:
+    scepticism that scales faster than the evidence does. A machine that always
+    says no is as useless as one that always says yes, and the value is
+    entirely in telling them apart at the sizes people actually run.
+
+    Two hundred looks with five genuine effects among them — the shape of a
+    checkpoint sweep or a hyperparameter search rather than anything about
+    papers. All five come back; none of the 195 nulls does.
+    """
+    real = {1e-7, 4e-7, 2e-6, 8e-6, 3e-5}
+    for p_value in real:
+        look(cur, project, p=p_value)
+    # Enough noise to bury them, if the correction could not tell the
+    # difference. Spread across the range a true null actually produces.
+    for i in range(195):
+        look(cur, project, p=0.05 + 0.95 * (i / 195))
+
+    report = exploration.ledger(cur, project["enquiry"])
+    survivors = [t for t in report["tests"] if t["survives"]]
+
+    assert report["looks"] == 200
+    assert len(survivors) == 5, (
+        f"expected the five real effects to survive, got {len(survivors)}"
+    )
+    assert {t["p_value"] for t in survivors} == real
+
+
 def test_a_borderline_result_stops_surviving_once_enough_looks_pile_up(cur, project):
     report = look(cur, project, p=0.04)
     assert report["tests"][0]["survives"] is True
