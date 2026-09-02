@@ -53,6 +53,31 @@ export function formatOf(fileName: string): VtkFormat | null {
   return BY_EXTENSION[fileName.slice(dot + 1).toLowerCase()] ?? null;
 }
 
+/**
+ * The ramp a scalar field is painted with, and the one its legend shows.
+ *
+ * Dark to warm to near-white: sequential and perceptually ordered, so a reader
+ * sees "more" as "brighter" without being told. Not a rainbow — a rainbow has
+ * no ordering a reader can recover, and invents boundaries at its hue changes
+ * that the data does not have, which on a stress field reads as a structural
+ * feature.
+ *
+ * The same three colours the volume path already uses, deliberately: a stress
+ * field and a density volume are both a scalar over space, and two ramps for
+ * one idea makes a reader learn the chart instead of the data.
+ */
+export const FIELD_RAMP: ReadonlyArray<readonly [number, number, number, number]> = [
+  [0, 0.0, 0.02, 0.08],
+  [0.45, 0.55, 0.28, 0.12],
+  [1, 1.0, 0.98, 0.92],
+];
+
+/** The ramp as CSS, for a legend the reader can actually read off. */
+export function rampStops(): string[] {
+  return FIELD_RAMP.map(([, r, g, b]) =>
+    `rgb(${Math.round(r * 255)} ${Math.round(g * 255)} ${Math.round(b * 255)})`);
+}
+
 /** What this viewer reads out of a mesh; vtk.js polydata has far more. */
 export type MeshData = {
   getNumberOfPoints(): number;
@@ -155,24 +180,51 @@ export function summarise(parsed: Parsed, fileName: string): SpecialistReport {
     }
     /*
      * A `.vtp` may carry a value per point — stress, temperature, displacement
-     * — and this viewer does not map it. Saying so is the whole of the fix.
+     * — and it is now painted, against its own range and with a legend.
      *
-     * It used to be drawn instead, and drawn wrongly: vtk.js defaults a
-     * mapper's scalar range to [0, 1], so a stress field running 0 to 240 MPa
-     * came out as a flat blue sheet with one small hot spot, which is not the
-     * field and looks exactly like a result. The colouring is now off, and the
-     * absence is reported rather than left for the reader to notice.
+     * Both halves matter. It was drawn once before against vtk.js's default
+     * range of [0, 1], so a stress field of 0 to 240 MPa clamped almost
+     * everywhere and came out as a flat sheet with one hot spot; and it was
+     * then turned off entirely, which was honest but left the researcher with
+     * a shape where their result should be. A field is readable when the ramp
+     * covers the data and the reader can see what the colours mean.
      */
     const array = parsed.data.getPointData?.()?.getScalars() ?? null;
     const shape = `${grouped(points)} points, ${grouped(polys)} polygons.`;
     if (array) {
       const [low, high] = array.getRange();
-      return { drawn: true, describes:
-        `${shape} It also carries "${array.getName()}", ${measured(low)} to `
-        + `${measured(high)} — a value per point, which this viewer does not `
-        + "map to colour. The shape is drawn; the field is not." };
+      if (high === low) {
+        /*
+         * A constant field has no gradient to show, and a ramp across it would
+         * paint noise as structure — every colour in the bar standing for one
+         * value. The number is the whole of what there is to say.
+         */
+        return { drawn: true, describes:
+          `${shape} "${array.getName()}" is ${measured(low)} at every point, `
+          + "so there is no variation to colour." };
+      }
+      return {
+        drawn: true,
+        describes: `${shape} Coloured by "${array.getName()}", `
+          + `${measured(low)} to ${measured(high)}.`,
+        /* `measured` for both, the same formatter the sentence above uses. */
+        legend: { label: array.getName(), low: measured(low),
+                  high: measured(high), stops: rampStops() },
+      };
     }
-    return { drawn: true, describes: shape };
+    /*
+     * Said rather than left out.
+     *
+     * `specialist-vtk` names the risk exactly: a researcher who picks "Stress
+     * visualization", opens an STL of a bracket and is shown an uncoloured
+     * shape has been handed "a placebo with a viewer around it". Painting the
+     * field answers that for a `.vtp` that carries one and not for a file that
+     * does not — so the file that does not carry one has to say so, or the
+     * silence reads as a result.
+     */
+    return { drawn: true, describes:
+      `${shape} No per-point values in this file, so nothing is coloured — a `
+      + "field would arrive as a .vtp with an array on its points." };
   }
 
   const [x, y, z] = parsed.data.getDimensions();
@@ -282,24 +334,37 @@ async function loadVtk(): Promise<VtkKit> {
         show(parsed) {
           if (parsed.kind === "mesh") {
             const mapper = vtkMapper.newInstance();
+            const field = parsed.data.getPointData?.()?.getScalars() ?? null;
+            const range = field ? field.getRange() : null;
+
             /*
-             * Geometry, and only geometry.
+             * Painted over the array's own range, or not painted at all.
              *
-             * vtk.js leaves `scalarVisibility` on, so a `.vtp` carrying a
-             * per-point array was coloured by it against the default scalar
-             * range of [0, 1]. A stress field of 0 to 240 MPa therefore
-             * clamped almost everywhere and rendered as a flat sheet with a
-             * single spot — a picture that reads as a solved field and is not
-             * one, with no legend to check it against.
+             * vtk.js leaves `scalarVisibility` on and defaults the mapper's
+             * range to [0, 1], which is the bug this replaces: a stress field
+             * of 0 to 240 MPa clamped almost everywhere and drew a flat sheet
+             * with one hot spot — a picture that reads as a solved field and
+             * is not one.
              *
-             * `specialist-vtk.test.tsx` already argued the principle for the
-             * catalogue: showing an uncoloured mesh as though it answered
-             * "Stress visualization" would be "a placebo with a viewer around
-             * it". Colouring it wrongly is the same placebo with a coat of
-             * paint. Until there is a scalar range and a legend, this draws
-             * the shape and the caption says what it is not drawing.
+             * `useLookupTableScalarRange` is what makes the ramp follow the
+             * data: without it the mapper keeps its own range and the transfer
+             * function is sampled through the wrong window, which is the same
+             * defect wearing a lookup table.
+             *
+             * A constant field is left uncoloured on purpose — see `summarise`.
              */
-            mapper.setScalarVisibility(false);
+            if (range && range[1] > range[0]) {
+              const [low, high] = range;
+              const ramp = vtkColorTransferFunction.newInstance();
+              for (const [t, r, g, b] of FIELD_RAMP) {
+                ramp.addRGBPoint(low + (high - low) * t, r, g, b);
+              }
+              mapper.setLookupTable(ramp);
+              mapper.setUseLookupTableScalarRange(true);
+              mapper.setScalarVisibility(true);
+            } else {
+              mapper.setScalarVisibility(false);
+            }
             mapper.setInputData(parsed.data);
             const actor = vtkActor.newInstance();
             actor.setMapper(mapper);

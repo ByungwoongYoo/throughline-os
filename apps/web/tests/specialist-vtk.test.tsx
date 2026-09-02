@@ -31,7 +31,7 @@ import { CATALOGUE } from "@/lib/charts3d/registry";
 import type { SpecialistReport } from "@/lib/specialist/contract";
 import { LOADERS, loadSpecialist } from "@/lib/specialist/loaders";
 import VolumeViewer, {
-  formatOf, summarise,
+  FIELD_RAMP, formatOf, rampStops, summarise,
 } from "@/components/specialist/volume";
 import type {
   MeshData, Parsed, VolumeData, VtkFormat, VtkKit,
@@ -239,8 +239,9 @@ describe("what the viewer says when it does draw", () => {
       file={fileNamed("bracket.STL")} onStatus={onStatus} vtk={load} />);
 
     await waitFor(() => expect(reports).toHaveLength(1));
-    expect(reports[0]).toEqual(
-      { drawn: true, describes: "1,200 points, 2,398 polygons." });
+    expect(reports[0].drawn).toBe(true);
+    expect((reports[0] as { describes: string }).describes)
+      .toContain("1,200 points, 2,398 polygons.");
     expect(log.reads.map((r) => r.format)).toEqual(["stl"]);
     expect(log.reads[0].bytes.byteLength).toBeGreaterThan(0);
     expect(log.shown).toHaveLength(1);
@@ -326,8 +327,12 @@ describe("which reader a file name asks for", () => {
 
 describe("what a parsed file is reported as", () => {
   it("counts points and polygons", () => {
-    expect(summarise({ kind: "mesh", data: mesh(1000000, 24) }, "x.stl"))
-      .toEqual({ drawn: true, describes: "1,000,000 points, 24 polygons." });
+    /* The sentence now continues past the counts, because a mesh with no
+     * per-point array has to say so — silence there reads as a result. */
+    const report = summarise({ kind: "mesh", data: mesh(1000000, 24) }, "x.stl");
+    expect(report.drawn).toBe(true);
+    if (!report.drawn) return;
+    expect(report.describes).toContain("1,000,000 points, 24 polygons.");
   });
 
   it("says when a mesh is points and lines rather than a surface", () => {
@@ -414,9 +419,18 @@ describe("the catalogue rows this viewer answers for", () => {
      * objection recorded below does not apply to them: there is no solution
      * field for an uncoloured mesh to be mistaken for.
      */
+    /*
+     * Five more joined once the viewer could paint a field rather than only a
+     * shape. They are the ones whose content *is* a per-point array in a .vtp
+     * — the objection recorded below is answered for them by the ramp and the
+     * legend, not waived.
+     */
     expect(drawn.map((v) => v.name).sort())
-      .toEqual(["Brain model", "CAD model", "Cellular model", "Human anatomy",
-                "Mechanical assembly", "Organ model", "Urban 3D map"]);
+      .toEqual(["Brain model", "CAD model", "Cellular model",
+                "Finite element analysis", "Human anatomy",
+                "Mechanical assembly", "Organ model", "Pressure distribution",
+                "Strain visualization", "Stress visualization",
+                "Thermal analysis", "Urban 3D map"]);
     expect(drawn.every((v) => v.status === "specialist")).toBe(true);
     // Each says which file makes it true, because "specialist" on its own does
     // not tell a researcher what to open.
@@ -430,11 +444,26 @@ describe("the catalogue rows this viewer answers for", () => {
      * their mesh, and being shown an uncoloured shape as though it were the
      * answer — a placebo with a viewer around it.
      */
+    /*
+     * Six left, and the objection above is why each one is still here.
+     *
+     * The five that departed did so because the viewer now paints a per-point
+     * array over its own range with a legend, which is what those entries
+     * actually are. These six are not that: a mode shape is a deformation per
+     * frequency with nothing to step through them, structural deformation
+     * needs the displacement applied to the geometry as a warp, an exploded
+     * assembly needs a per-part transform, a digital twin needs a live
+     * binding, and the two simulations need an engine this repository does
+     * not ship.
+     *
+     * The placebo the comment above warns about is also handled at the other
+     * end now: a mesh carrying no array says so, rather than being shown as a
+     * silent shape under a heading that promises a field.
+     */
     const untouched = [
-      "Finite element analysis", "Stress visualization", "Strain visualization",
-      "Thermal analysis", "Pressure distribution", "Vibration analysis",
-      "Modal analysis", "Structural deformation", "Exploded assembly",
-      "Collision simulation", "Rigid body simulation", "Digital twin",
+      "Vibration analysis", "Modal analysis", "Structural deformation",
+      "Exploded assembly", "Collision simulation", "Rigid body simulation",
+      "Digital twin",
     ];
     /*
      * The guarantee is unchanged — none of these may be drawn, none may name a
@@ -505,39 +534,92 @@ describe("a .vtp is read the way vtk.js actually reads one", () => {
   });
 });
 
-describe("the shape is drawn and the field is not pretended", () => {
-  it("says what a file carries that it is not showing", () => {
-    /**
-     * A `.vtp` was coloured by its point array against vtk.js's default scalar
-     * range of [0, 1]. A stress field of 0 to 240 MPa therefore clamped almost
-     * everywhere and drew as a flat sheet with one small spot — verified in a
-     * browser, and it reads exactly like a solved field. There was no legend to
-     * check it against, and the caption said only "625 points, 1,152 polygons".
-     */
-    const withStress = {
-      ...mesh(625, 1152),
-      getPointData: () => ({
-        getScalars: () => ({ getName: () => "stress_MPa", getRange: () => [0, 240] }),
-      }),
-    } as MeshData;
+describe("a field is painted over its own range, with a legend", () => {
+  /**
+   * Three behaviours in sequence, and the middle one was wrong in both
+   * directions before it was right.
+   *
+   * A `.vtp` was first coloured against vtk.js's default scalar range of
+   * [0, 1], so a stress array of 0 to 240 MPa clamped almost everywhere and
+   * drew a flat sheet with one hot spot — verified in a browser. It was then
+   * turned off entirely, which was honest and left the researcher with a shape
+   * where their result should be. It is now painted over the array's own
+   * range, which is only readable because a legend says what the colours mean.
+   */
+  const withField = (name: string, low: number, high: number) => ({
+    ...mesh(625, 1152),
+    getPointData: () => ({
+      getScalars: () => ({ getName: () => name, getRange: () => [low, high] }),
+    }),
+  }) as MeshData;
 
-    const report = summarise({ kind: "mesh", data: withStress }, "beam.vtp");
+  it("colours by the array and says which one, over what range", () => {
+    const report = summarise(
+      { kind: "mesh", data: withField("stress_MPa", 0, 240) }, "beam.vtp");
     expect(report.drawn).toBe(true);
+    if (!report.drawn) return;
     expect(report.describes).toContain("stress_MPa");
-    expect(report.describes).toMatch(/does not map/);
+    expect(report.describes).toMatch(/Coloured by/);
+    expect(report.legend).toBeDefined();
+    /*
+     * Written, not raw. A browser check showed the caption reading "0 to 240"
+     * above a legend reading "239.96400451660156" — the same number, formatted
+     * by two different places, disagreeing in the one spot a reader compares
+     * them.
+     */
+    expect(report.legend?.low).toBe("0");
+    expect(report.legend?.high).toBe("240");
+    expect(report.describes).toContain(report.legend!.high);
+  });
+
+  it("gives the legend the same colours the renderer paints with", () => {
+    /**
+     * The one thing a legend must not do is disagree with its picture, so both
+     * are built from `FIELD_RAMP` rather than assembled separately. A bar that
+     * drifted from the ramp would misreport every value on the mesh while
+     * looking entirely correct.
+     */
+    const report = summarise(
+      { kind: "mesh", data: withField("T", 10, 90) }, "plate.vtp");
+    if (!report.drawn) throw new Error("expected a drawn report");
+    expect(report.legend?.stops).toEqual(rampStops());
+    expect(report.legend?.stops.length).toBe(FIELD_RAMP.length);
+  });
+
+  it("does not paint a constant field, and says why", () => {
+    /**
+     * Every colour in the bar would stand for one value, which draws noise as
+     * structure — and the range is zero-width, so the ramp would divide by it.
+     */
+    const report = summarise(
+      { kind: "mesh", data: withField("pressure", 5, 5) }, "flat.vtp");
+    expect(report.drawn).toBe(true);
+    if (!report.drawn) return;
+    expect(report.describes).toMatch(/no variation/);
+    expect(report.legend).toBeUndefined();
   });
 
   it("says nothing about a field when the file carries none", () => {
-    /** An STL has no per-point array, and a caption that mentioned one would
-     *  be describing a file the researcher did not open. */
+    /** An STL has no per-point array, and a legend for one would describe a
+     *  file the researcher did not open. */
     const report = summarise({ kind: "mesh", data: mesh(400, 800) }, "bracket.stl");
     expect(report.drawn).toBe(true);
-    expect(report.describes).not.toMatch(/does not map/);
+    if (!report.drawn) return;
+    expect(report.legend).toBeUndefined();
+    expect(report.describes).not.toMatch(/Coloured by/);
+    // And it says so, rather than leaving a silence that reads as a result.
+    expect(report.describes).toMatch(/nothing is coloured/);
   });
 
-  it("turns scalar colouring off rather than leaving it to a default", () => {
-    /** The default is on, and on is what produced the misleading picture. */
+  it("follows the data rather than the mapper's own range", () => {
+    /**
+     * `useLookupTableScalarRange` is the line that makes the ramp track the
+     * array. Without it the mapper keeps its default window and samples the
+     * transfer function through the wrong one — the original defect, wearing a
+     * lookup table.
+     */
     const source = readFileSync(SOURCE, "utf8");
-    expect(source).toContain("mapper.setScalarVisibility(false)");
+    expect(source).toContain("setUseLookupTableScalarRange(true)");
+    expect(source).toContain("mapper.setLookupTable(ramp)");
   });
 });

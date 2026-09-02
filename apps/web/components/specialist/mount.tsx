@@ -163,6 +163,35 @@ export function SpecialistMount(
                   : `Nothing is drawn: ${report.because}`}
               </p>
             )}
+            {report?.drawn && report.legend && (
+              /*
+               * DOM rather than painted into the scene.
+               *
+               * A colour bar drawn in WebGL is an image of a legend: it cannot
+               * be read by a screen reader, does not follow the theme, and
+               * does not scale with the reader's text size. The numbers here
+               * are the array's real range, and the swatches are the ramp the
+               * renderer actually painted with — both come from the same
+               * `FIELD_RAMP`, so the bar cannot drift from the picture.
+               */
+              <figure
+                className="field-legend"
+                aria-label={`${report.legend.label} runs from `
+                  + `${report.legend.low} to ${report.legend.high}, `
+                  + "darkest at the lowest value and brightest at the highest."}
+              >
+                <span className="field-legend-name">{report.legend.label}</span>
+                <span
+                  className="field-legend-bar"
+                  style={{ background: `linear-gradient(to right, `
+                    + `${report.legend.stops.join(", ")})` }}
+                />
+                <span className="field-legend-ends">
+                  <span>{report.legend.low}</span>
+                  <span>{report.legend.high}</span>
+                </span>
+              </figure>
+            )}
           </>
         )}
       </div>

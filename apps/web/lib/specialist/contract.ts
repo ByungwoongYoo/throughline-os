@@ -37,9 +37,41 @@ export type SpecialistId = "molstar" | "vtk" | "niivue" | "geomap";
  * would be the placebo this seam exists to prevent — the researcher would see a
  * viewer frame and conclude their file was empty.
  */
+/**
+ * A colour scale the reader can read values off.
+ *
+ * Optional, and only present when a viewer is genuinely mapping a value to
+ * colour. A field drawn without one is a picture that cannot be read: the
+ * mesh path used to colour a `.vtp` against vtk.js's default range of [0, 1],
+ * so a stress array of 0 to 240 MPa clamped almost everywhere and drew a flat
+ * sheet with one hot spot — which looks exactly like a result.
+ *
+ * `stops` are the ramp's own colours, in order, so the bar a reader sees is
+ * built from the same values the renderer painted with. A legend assembled
+ * separately is a legend that can disagree with its picture, which is worse
+ * than none.
+ */
+export type SpecialistLegend = {
+  /** The array's name, as the file spells it. */
+  label: string;
+  /**
+   * The ends of the scale, already written the way the viewer writes numbers.
+   *
+   * Strings, and formatted by whoever produced them, so the bar cannot
+   * disagree with the sentence beside it. Passing raw floats and formatting
+   * here produced exactly that: a caption reading "0 to 240" above a legend
+   * reading "0" and "239.96400451660156" — seventeen digits claiming a
+   * precision the measurement does not have, contradicting its own picture.
+   */
+  low: string;
+  high: string;
+  /** CSS colours from low to high. */
+  stops: string[];
+};
+
 export type SpecialistReport =
   /** `describes` is shown to the reader: "1,142 atoms, 3 chains". */
-  | { drawn: true; describes: string }
+  | { drawn: true; describes: string; legend?: SpecialistLegend }
   /** `because` is shown verbatim, so it must read as a sentence to a person. */
   | { drawn: false; because: string };
 

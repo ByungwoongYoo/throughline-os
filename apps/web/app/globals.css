@@ -4656,3 +4656,16 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
      and there is nothing to scroll. */
   .workspace *:has(> table) > table { min-width: max-content; }
 }
+
+/* --- a scalar field's legend ---------------------------------------------
+   Beside the viewer rather than inside it: a colour bar painted into WebGL is
+   a picture of a legend, and cannot be read, themed or resized with the page.
+   The bar is 14px so it reads as a scale and not as a divider. */
+.field-legend { display: grid; gap: 4px; margin: 8px 0 0; max-width: 320px; }
+.field-legend-name { color: var(--ink-faint); font-size: 12px;
+                     letter-spacing: 0.02em; }
+.field-legend-bar { display: block; height: 14px; border-radius: 3px;
+                    border: 1px solid var(--line); }
+.field-legend-ends { display: flex; justify-content: space-between;
+                     color: var(--ink-faint); font-size: 12px;
+                     font-variant-numeric: tabular-nums; }
