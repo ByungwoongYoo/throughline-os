@@ -30,8 +30,8 @@ and looked at the code. The test requires the count never to grow.
 
 | Status | Sections |
 |---|---|
-| built | 65 |
-| partial | 24 |
+| built | 66 |
+| partial | 23 |
 | not-built | 13 |
 | unreviewed | 134 |
 | **total** | **236** |
@@ -119,7 +119,7 @@ revisited — an edited specification is exactly when requirements go missing.
 | §70 | COLLABORATION | unreviewed |  |  |  |
 | §71 | COLLABORATIVE AI CONTEXT | unreviewed |  |  |  |
 | §72 | COMMENTS AND ANNOTATIONS | unreviewed |  |  |  |
-| §73 | CITATIONS | partial | packages/research-domain/src/throughline_domain/citations.py | tests/test_communication.py | Citation objects exist and go past what the section asks: rather than letting a claim *assert* that a paper supports it, entailment is checked per claim and recorded as `supported`, `unsupported`, `not_checkable` or `unverified`. **Bibliography export does not exist** — nothing emits BibTeX or RIS — and the section asks for it explicitly. |
+| §73 | CITATIONS | built | packages/research-domain/src/throughline_domain/citations.py, packages/research-domain/src/throughline_domain/bibliography.py | tests/test_communication.py, tests/test_bibliography.py | Citation objects go past what the section asks: rather than letting an author *assert* that a paper supports a claim, entailment is checked per claim and recorded as `supported`, `unsupported`, `not_checkable` or `unverified`. Bibliography export was the gap recorded in T121 and is now built — BibTeX over the papers actually cited, never the whole corpus, with **missing fields omitted rather than guessed**: a dropped PDF with no author exports without an author line, because "Anonymous, n.d." reads as a real reference in a manuscript and an empty field does not. |
 | §74 | RESEARCH REPORT GENERATION | partial | apps/api/src/throughline_api/app.py, packages/research-domain/src/throughline_domain/authoring.py | tests/test_reports_api.py | A report is assembled from a tested connection and its validation report — nothing in it is written by a model, and every displayed number arrives by reference to a recorded run rather than as a literal, so "does the number in the document match the analysis" stops being a question. The pipeline was fully built and entirely unreachable until now: the API imported none of these modules, and the Reports screen called five routes that did not exist, so pressing Draft report answered 404. Drafting from a connection is wired but not yet covered end to end — it needs a validated connection fixture. |
 | §75 | EXPORT | partial | packages/research-domain/src/throughline_domain/render_artifact.py | tests/test_reports_api.py | Markdown, HTML, .docx and .pptx all render over HTTP now, and a render is refused — with the specific blocks named — when a value no longer traces to the run it came from, because a document that quietly published a stale number is the failure this product exists to prevent. Figures already export as SVG/PDF/PNG/TIFF with their spec hash embedded in the file. Not built: CSV and spreadsheet export, workspace snapshot, shareable link, code and provenance-log export. The section never asks for animation or video. |
 | §76 | SAVING | unreviewed |  |  |  |
