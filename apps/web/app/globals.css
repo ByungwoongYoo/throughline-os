@@ -4685,3 +4685,11 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
      moves. */
   .spatial-state { transition: color var(--standard) var(--ease-out-quad); }
 }
+
+/* --- §54 alignment guides -------------------------------------------------
+   Drawn inside the board's transformed plane, so a guide stays with the cards
+   it explains when the board is panned. The accent rather than a neutral,
+   because a guide appears only during a drag and has to be findable in the
+   half-second it exists. */
+.board-guide { position: absolute; background: var(--accent); opacity: 0.65;
+               pointer-events: none; }

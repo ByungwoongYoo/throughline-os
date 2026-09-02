@@ -33,6 +33,7 @@ import { useApi } from "@/lib/useApi";
 import {
   Camera, ORIGIN, WorldPoint, fitTo, isVisible, pan, toWorld, zoomAt,
 } from "@/lib/board/viewport";
+import { snap, type Guide } from "@/lib/board/snapping";
 import { Empty, Failure, Loading } from "../primitives";
 import { CardDetail } from "./CardDetail";
 import { objectTypeName } from "@/lib/api";
@@ -68,6 +69,14 @@ export function Board({ projectId }: { projectId: string }) {
     `/api/projects/${projectId}/board`);
 
   const [cards, setCards] = useState<Placement[]>([]);
+  /*
+   * The alignment guides for the card being dragged right now (§54).
+   *
+   * Held apart from `cards` because they are not board state: they exist for
+   * the length of one drag, are never saved, and a card that snapped keeps its
+   * position while the line that explained it disappears on release.
+   */
+  const [guides, setGuides] = useState<Guide[]>([]);
   const [camera, setCamera] = useState<Camera>(ORIGIN);
   const [problem, setProblem] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
@@ -265,14 +274,31 @@ export function Board({ projectId }: { projectId: string }) {
         && Math.hypot(dx, dy) * camera.zoom < DRAG_THRESHOLD) return;
     active.moved = true;
 
-    setCards((current) => current.map((c) => c.object_id === active.id
-      ? { ...c, x: active.origin.x + dx, y: active.origin.y + dy }
-      : c));
+    setCards((current) => {
+      const moving = current.find((c) => c.object_id === active.id);
+      if (!moving) return current;
+      /*
+       * Snapped against every *other* card. `snap` cannot tell which one is
+       * moving, and a card offered itself as a neighbour would freeze to its
+       * own edge and never move again.
+       */
+      const settled = snap(
+        { x: active.origin.x + dx, y: active.origin.y + dy,
+          width: moving.width, height: moving.height },
+        current.filter((c) => c.object_id !== active.id),
+        camera.zoom);
+      setGuides(settled.guides);
+      return current.map((c) => c.object_id === active.id
+        ? { ...c, x: settled.x, y: settled.y }
+        : c);
+    });
   };
 
   const onPointerUp = (event: React.PointerEvent) => {
     const active = gesture.current;
     gesture.current = { kind: "none" };
+    // The line explained a drag that is over. The position it produced stays.
+    setGuides([]);
     if (active.kind !== "card") return;
 
     if (!active.moved) {
@@ -504,6 +530,30 @@ export function Board({ projectId }: { projectId: string }) {
             transformOrigin: "0 0",
           }}
         >
+          {/*
+            * Drawn inside the transformed plane, in world coordinates, so a
+            * guide sits exactly where the card it explains sits — a line
+            * positioned in screen space would drift from its own cards the
+            * moment the board is panned. Width is divided by the zoom so it
+            * stays one pixel on screen at any magnification, which is what a
+            * guide is: an instrument, not part of the drawing.
+            */}
+          {guides.map((guide, index) => (
+            <div
+              key={`${guide.axis}${guide.at}${index}`}
+              className="board-guide"
+              data-testid="board-guide"
+              aria-hidden="true"
+              style={guide.axis === "x"
+                ? { left: guide.at, top: guide.from,
+                    height: guide.to - guide.from,
+                    width: Math.max(1 / camera.zoom, 0.5) }
+                : { top: guide.at, left: guide.from,
+                    width: guide.to - guide.from,
+                    height: Math.max(1 / camera.zoom, 0.5) }}
+            />
+          ))}
+
           {drawn.map((card) => (
             <article
               key={card.object_id}
