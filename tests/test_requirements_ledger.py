@@ -32,8 +32,9 @@ VALID = {"built", "partial", "not-built", "unreviewed"}
 #: change here rather than a negotiation with the test.
 #: Lowered as sections are assessed, never raised. 144 -> 137 when §54, §56
 #: and §81 were found already built while the ledger still said nobody had
-#: looked — which is the failure §74 paid for once already.
-MAX_UNREVIEWED = 137
+#: looked — the failure §74 paid for once already. 137 -> 134 for §62, §73 and
+#: §84, each read against the specification and recorded with what it lacks.
+MAX_UNREVIEWED = 134
 
 #: Sections in the specification. Fixed, because the specification is fixed.
 TOTAL_SECTIONS = 236

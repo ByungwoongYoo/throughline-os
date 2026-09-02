@@ -31,9 +31,9 @@ and looked at the code. The test requires the count never to grow.
 | Status | Sections |
 |---|---|
 | built | 65 |
-| partial | 21 |
+| partial | 24 |
 | not-built | 13 |
-| unreviewed | 137 |
+| unreviewed | 134 |
 | **total** | **236** |
 
 Nothing here has been verified by anybody other than its author. `TASKS.md`
@@ -108,7 +108,7 @@ revisited — an edited specification is exactly when requirements go missing.
 | §59 | AI AGENTS AS RESEARCH OBJECTS | unreviewed |  |  |  |
 | §60 | COMPUTATIONAL PIPELINES | unreviewed |  |  |  |
 | §61 | CODE INTEGRATION | unreviewed |  |  |  |
-| §62 | STATISTICS SYSTEM | unreviewed |  |  |  |
+| §62 | STATISTICS SYSTEM | partial | packages/research-domain/src/throughline_domain/analysis.py | tests/test_statistical_conformance.py | Descriptive statistics, Pearson/Spearman/bootstrap correlation, t-test, Mann-Whitney, Kruskal-Wallis, ANOVA, chi-square and linear regression are registered and provenance-tracked. **Logistic regression and mixed models are absent** — the string `"mixed"` in `claim_test.py` is a verdict label (`Family.QUALIFIED`), not a mixed model, which is worth writing down because it reads like one in a grep. |
 | §63 | SCIENTIFIC UNITS | unreviewed |  |  |  |
 | §64 | FILTERING | unreviewed |  |  |  |
 | §65 | CROSS-FILTERING | unreviewed |  |  |  |
@@ -119,7 +119,7 @@ revisited — an edited specification is exactly when requirements go missing.
 | §70 | COLLABORATION | unreviewed |  |  |  |
 | §71 | COLLABORATIVE AI CONTEXT | unreviewed |  |  |  |
 | §72 | COMMENTS AND ANNOTATIONS | unreviewed |  |  |  |
-| §73 | CITATIONS | unreviewed |  |  |  |
+| §73 | CITATIONS | partial | packages/research-domain/src/throughline_domain/citations.py | tests/test_communication.py | Citation objects exist and go past what the section asks: rather than letting a claim *assert* that a paper supports it, entailment is checked per claim and recorded as `supported`, `unsupported`, `not_checkable` or `unverified`. **Bibliography export does not exist** — nothing emits BibTeX or RIS — and the section asks for it explicitly. |
 | §74 | RESEARCH REPORT GENERATION | partial | apps/api/src/throughline_api/app.py, packages/research-domain/src/throughline_domain/authoring.py | tests/test_reports_api.py | A report is assembled from a tested connection and its validation report — nothing in it is written by a model, and every displayed number arrives by reference to a recorded run rather than as a literal, so "does the number in the document match the analysis" stops being a question. The pipeline was fully built and entirely unreachable until now: the API imported none of these modules, and the Reports screen called five routes that did not exist, so pressing Draft report answered 404. Drafting from a connection is wired but not yet covered end to end — it needs a validated connection fixture. |
 | §75 | EXPORT | partial | packages/research-domain/src/throughline_domain/render_artifact.py | tests/test_reports_api.py | Markdown, HTML, .docx and .pptx all render over HTTP now, and a render is refused — with the specific blocks named — when a value no longer traces to the run it came from, because a document that quietly published a stale number is the failure this product exists to prevent. Figures already export as SVG/PDF/PNG/TIFF with their spec hash embedded in the file. Not built: CSV and spreadsheet export, workspace snapshot, shareable link, code and provenance-log export. The section never asks for animation or video. |
 | §76 | SAVING | unreviewed |  |  |  |
@@ -130,7 +130,7 @@ revisited — an edited specification is exactly when requirements go missing.
 | §81 | REDUCED MOTION | built | apps/web/app/globals.css | apps/web/tests/reduced-motion.test.ts | Nineteen `prefers-reduced-motion` blocks. Recorded late and *incompletely implemented* when found: sixteen blocks existed with no test, and writing one showed five animated classes with no cover, three of which genuinely moved. Reduce rather than remove — a treemap tile arrives at its new rectangle without sliding to it, and a state label keeps its colour fade and loses its transform. |
 | §82 | COLOR | unreviewed |  |  |  |
 | §83 | SECURITY | unreviewed |  |  |  |
-| §84 | AI DATA BOUNDARIES | unreviewed |  |  |  |
+| §84 | AI DATA BOUNDARIES | partial | packages/model/src/throughline_model/registry.py | tests/test_cloud_models_are_marked.py | Three of the four modes: no AI (`NullProvider`), local AI (Ollama, the default), and approved external AI (Anthropic, configured and never defaulted to). "Make external transmission understandable" is met — `capability()` reports `local=False` and the provider's own docstring says *"This sends data off the machine"*. **Organisation-level controls are absent**, and private hosted AI is not a distinct mode. |
 | §85 | AUDITABILITY | built | packages/research-domain/src/throughline_domain/events.py | tests/test_deletion_is_recorded.py | An append-only audit log; deletions are recorded rather than vanishing. |
 | §86 | TELEMETRY | unreviewed |  |  |  |
 | §87 | FALSE ACTION METRIC | unreviewed |  |  |  |
