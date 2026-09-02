@@ -96,7 +96,7 @@ describe("it fills the space it is given", () => {
     const layout = layoutGraph(
       { nodes: [{ id: "a" }, { id: "b" }, { id: "c" }],
         edges: [{ source: "a", target: "b" }, { source: "b", target: "c" }] },
-      { iterations: 400, attraction: 0.9, repulsion: 1e-9, damping: 0.9 });
+      { iterations: 400, attraction: 0.9, repulsion: 1e-9, damping: 0.9, theta: 0.5, approximateAbove: 800 });
 
     for (const node of layout.nodes) {
       expect(Number.isFinite(node.x + node.y + node.z)).toBe(true);
