@@ -660,7 +660,17 @@ describe("what the catalogue now claims for Mol*", () => {
     const held = ["Docking", "Protein ligand interaction", "Crystal structure"];
     for (const name of held) {
       const entry = chemistry().find((v) => v.name === name);
-      expect(entry?.status, name).toBe("needs-library");
+      /*
+       * `primitive-missing`, not `needs-library`. The guarantee this test
+       * exists for is unchanged and asserted below — none of them is drawable
+       * and none names a viewer — but the *reason* they were carrying was
+       * false: Mol* is a dependency, so "needs a library this codebase does
+       * not have" said the obstacle was a decision somebody else had made,
+       * when it is unwritten analysis here. The reasoning above says exactly
+       * that already: drawing the atoms is not the same claim as scoring a
+       * pose or detecting a contact.
+       */
+      expect(entry?.status, name).toBe("primitive-missing");
       expect(entry?.viewer, name).toBeUndefined();
     }
   });

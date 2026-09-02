@@ -390,11 +390,18 @@ describe("what the catalogue now claims", () => {
   });
 
   it("leaves the city model to whoever wires a mesh reader", () => {
-    // "Urban 3D map" is buildings, not points. Flipping it would be the claim
-    // this viewer cannot make: it draws no geometry from a file.
+    /*
+     * "Urban 3D map" is buildings, not points. Flipping it *here* would be the
+     * claim this viewer cannot make: it draws no geometry from a file.
+     *
+     * It has since gone to whoever this test was waiting for. vtk.js is a
+     * wired mesh reader — it draws "CAD model" from .stl, .obj, .ply or .vtp —
+     * and a city model is exactly that. So the assertion is now the one this
+     * test is entitled to make: not that nobody draws it, but that *geomap*
+     * does not.
+     */
     const urban = CATALOGUE.find((v) => v.name === "Urban 3D map");
-    expect(urban?.status).toBe("needs-library");
-    expect(urban?.viewer).toBeUndefined();
+    expect(urban?.viewer).not.toBe("geomap");
   });
 });
 

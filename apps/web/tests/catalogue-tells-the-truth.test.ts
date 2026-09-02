@@ -57,6 +57,26 @@ describe("a negative promise is checked against the repository", () => {
       .toBeGreaterThan(0);
   });
 
+  it("makes every negative claim checkable, by stating its reason", () => {
+    /**
+     * The root cause, and the reason the check below was weaker than it
+     * looked. All twenty-four remaining `needs-library` entries carried **no
+     * note at all** — so the guard that reads notes for a false claim passed
+     * over every one of them vacuously, one commit after it was written.
+     *
+     * A negative claim with no reason cannot be checked by a test, by a
+     * reviewer, or by the researcher deciding whether this tool does their
+     * work. "Needs a library this codebase does not have" is the strongest
+     * thing the catalogue says about its own limits, and saying it without
+     * saying *which* library and *why* is an assertion dressed as a finding.
+     */
+    const silent = CATALOGUE
+      .filter((v) => v.status === "needs-library" && !(v.note ?? "").trim())
+      .map((v) => v.name);
+    expect(silent, `needs-library with no stated reason: ${silent.join(", ")}`)
+      .toEqual([]);
+  });
+
   it("never says a library is missing when it is installed", () => {
     const wrong: string[] = [];
     for (const entry of CATALOGUE) {

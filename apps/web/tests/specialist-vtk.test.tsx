@@ -407,8 +407,16 @@ describe("the vtk.js modules this viewer names", () => {
 describe("the catalogue rows this viewer answers for", () => {
   it("names vtk on the entries a mesh file genuinely draws", () => {
     const drawn = CATALOGUE.filter((v) => v.viewer === "vtk");
-    expect(drawn.map((v) => v.name))
-      .toEqual(["CAD model", "Mechanical assembly"]);
+    /*
+     * Five entries joined once the question was asked of the whole catalogue
+     * rather than of the two that had been noticed. Each is a case where the
+     * geometry *is* the content — a city, an organ, a brain, a cell — so the
+     * objection recorded below does not apply to them: there is no solution
+     * field for an uncoloured mesh to be mistaken for.
+     */
+    expect(drawn.map((v) => v.name).sort())
+      .toEqual(["Brain model", "CAD model", "Cellular model", "Human anatomy",
+                "Mechanical assembly", "Organ model", "Urban 3D map"]);
     expect(drawn.every((v) => v.status === "specialist")).toBe(true);
     // Each says which file makes it true, because "specialist" on its own does
     // not tell a researcher what to open.
@@ -428,9 +436,21 @@ describe("the catalogue rows this viewer answers for", () => {
       "Modal analysis", "Structural deformation", "Exploded assembly",
       "Collision simulation", "Rigid body simulation", "Digital twin",
     ];
+    /*
+     * The guarantee is unchanged — none of these may be drawn, none may name a
+     * viewer — and it is the part that matters, for the reason above.
+     *
+     * What changed is which admission each one makes. Only a simulation needs
+     * a dependency this repository lacks; the rest have vtk.js sitting in
+     * `package.json` and are waiting on code here, so "needs a library this
+     * codebase does not have" was telling a researcher the obstacle was
+     * somebody else's decision when it is ours.
+     */
+    const needsAnEngine = new Set(["Collision simulation", "Rigid body simulation"]);
     for (const name of untouched) {
       const entry = CATALOGUE.find((v) => v.name === name);
-      expect(entry?.status, `${name} was flipped`).toBe("needs-library");
+      expect(entry?.status, `${name} was flipped`)
+        .toBe(needsAnEngine.has(name) ? "needs-library" : "primitive-missing");
       expect(entry?.viewer).toBeUndefined();
     }
   });

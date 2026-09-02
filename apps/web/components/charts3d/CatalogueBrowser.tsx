@@ -29,6 +29,22 @@ export function standing(entry: Visualization): string {
   if (entry.status === "needs-library") {
     return "needs a library this codebase does not have";
   }
+  /*
+   * Separated from `needs-library`, because they were being said as one thing
+   * and they are two very different admissions.
+   *
+   * Fifteen entries said "needs a library this codebase does not have" while
+   * the library sat in `package.json`. Stress on a mesh is the clearest case:
+   * vtk.js reads the `.vtp` and the viewer draws the geometry, but the mapper
+   * sets no scalar range and there is no legend, so the field on the mesh
+   * would not be readable. Nothing about that is a missing dependency — it is
+   * unwritten code here, and a reader weighing whether to adopt this tool
+   * deserves to know which of the two it is, because only one of them is a
+   * decision somebody else already made for them.
+   */
+  if (entry.status === "primitive-missing") {
+    return "the renderer for this is not written yet";
+  }
   if (entry.status === "specialist") {
     return "drawn by a specialist library, once you open a file";
   }
