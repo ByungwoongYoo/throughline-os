@@ -30,9 +30,9 @@ and looked at the code. The test requires the count never to grow.
 
 | Status | Sections |
 |---|---|
-| built | 66 |
+| built | 65 |
 | partial | 23 |
-| not-built | 13 |
+| not-built | 14 |
 | unreviewed | 134 |
 | **total** | **236** |
 
@@ -100,7 +100,7 @@ revisited — an edited specification is exactly when requirements go missing.
 | §51 | RENDER LOOP | partial | apps/web/lib/charts/scene3d.ts | apps/web/tests/volume-paint.test.tsx | Rendering is rAF-driven behind a dirty flag, independent of the tracker's 30Hz. Interpolation between gesture states is *declined*: it smooths by rendering a lagged position, which trades away the latency this subsystem is tuned for, and the One Euro filter already smooths the input. |
 | §52 | PERFORMANCE BUDGETS | partial | apps/web/lib/spatial/latency.ts | apps/web/tests/latency.test.ts | End-to-end frame-to-response and hand-detection latency are measured as p50/p95/p99 with a budget, and shown on /gesture-check. Render latency, dropped frames, memory, GPU usage, startup and import time are not. |
 | §53 | MAIN THREAD PROTECTION | not-built |  |  | Nothing is off the UI thread: inference, the gesture machine and painting all run on it. Now measured rather than assumed — /gesture-check reports what inference alone costs against an 8ms budget, half a 60Hz frame — so a worker migration can be justified by a number instead of by the specification listing workers. |
-| §54 | WORKSPACE LAYOUT | built | apps/web/components/Shell.tsx | apps/web/tests/shell-panels.test.tsx | Rail, workspace and inspector are draggable and the layout survives a reload. Recorded late: it sat at `unreviewed` with eleven tests behind it, which is the §74 failure repeating. The stored layout is percentage shares, not pixels — see D128. |
+| §54 | WORKSPACE LAYOUT | not-built |  |  | **Recorded as `built` in error and corrected here.** The row cited the resizable shell panels, which are real work and are not this: §54 asks for objects to be arranged on a canvas — alignment guides, magnetic snapping, grouping, frames, layers, spatial zones, and "organize this workspace by experiment". None of that exists; the board is a card list with a detail view. Dragging the rail wider is not arranging a workspace, and the mistake was made while fixing this very ledger, which is the argument for reading a section before recording a verdict on it. |
 | §55 | FOCUS MODE | unreviewed |  |  |  |
 | §56 | COMMAND PALETTE | built | apps/web/components/CommandPalette.tsx | apps/web/tests/palette.test.tsx | ⌘K opens it, it is a real modal with focus trapped and restored, and it reaches every section. Recorded late, like §54. |
 | §57 | SEARCH | unreviewed |  |  |  |
