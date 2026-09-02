@@ -307,3 +307,18 @@ def make_enquiry(cur, project_id: str, name: str | None = None) -> str:
     # `open_new` closes whatever is open, so successive calls in one test give
     # genuinely separate families rather than colliding on the one-open index.
     return enquiry.open_new(cur, project_id=project_id, name=name)["id"]
+
+
+
+@pytest.fixture()
+def make_enquiry_for(cur):
+    """A line of enquiry on a given project, as a callable.
+
+    `make_enquiry` takes a cursor; tests that already have one want to say
+    `make_enquiry_for(project)` without threading it through again. A callable
+    rather than an id, because a test may want two families to compare.
+    """
+    def _make(project_id: str, name: str | None = None) -> str:
+        return make_enquiry(cur, project_id, name)
+
+    return _make

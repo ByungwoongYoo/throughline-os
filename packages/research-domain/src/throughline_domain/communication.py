@@ -304,14 +304,23 @@ def resolve_block(cur, block: dict[str, Any]) -> dict[str, Any]:
     """
     Substitute a block's references with values read from recorded rows.
 
-    A reference names either an analysis run or a connection. The distinction is
-    scientific, not clerical: an estimate belongs to the run that computed it,
-    but a *corrected* q-value does not — it is a property of that test within
-    its multiple-testing family (§49 step 7), and the same run in a family of
-    five and a family of five hundred yields different q. Storing q on the run
-    would make it look like an attribute of the computation, and the report
-    would then be able to quote a correction that no longer matched the family
-    it was corrected in.
+    A reference names an analysis run, a connection, or the *family* a
+    connection was corrected in. The distinction is scientific, not clerical:
+    an estimate belongs to the run that computed it, but a *corrected* q-value
+    does not — it is a property of that test within its multiple-testing family
+    (§49 step 7), and the same run in a family of five and a family of five
+    hundred yields different q. Storing q on the run would make it look like an
+    attribute of the computation, and the report would then be able to quote a
+    correction that no longer matched the family it was corrected in.
+
+    The third source exists because of that same sentence. If q means nothing
+    without knowing the size of the family, then a report quoting q and not the
+    family is asking to be taken on trust — and the ledger already argues the
+    point in its own words: *"a researcher reading `family_size: 23` has to
+    already know what it implies."* `family_of_connection_id` walks the
+    connection to the discovery run that produced it and the line of enquiry
+    that run belonged to, so a drafted report can state how much looking stands
+    behind the number it is quoting.
 
     Raises on anything it cannot resolve. A renderer must never be handed a
     partially-resolved block, because the failure mode of doing so is a document
@@ -324,12 +333,14 @@ def resolve_block(cur, block: dict[str, Any]) -> dict[str, Any]:
     for name, ref in refs.items():
         run_id = ref.get("analysis_run_id")
         connection_id = ref.get("connection_id")
+        family_of = ref.get("family_of_connection_id")
         path = ref.get("path", "")
 
-        if not path or bool(run_id) == bool(connection_id):
+        named = [bool(run_id), bool(connection_id), bool(family_of)]
+        if not path or sum(named) != 1:
             raise UnresolvedReference(
                 f"Reference {name!r} must name a path and exactly one of "
-                "analysis_run_id or connection_id."
+                "analysis_run_id, connection_id or family_of_connection_id."
             )
 
         if run_id:
@@ -349,6 +360,37 @@ def resolve_block(cur, block: dict[str, Any]) -> dict[str, Any]:
                 )
             value = _dig(row["result"], path)
             origin = {"name": name, "source": run_id, "path": path}
+        elif family_of:
+            # connection -> the sweep that produced it -> the family it counted
+            # in. Each hop can be absent, and each absence is a different fact,
+            # so the message says which one was missing rather than reporting a
+            # generic failure to resolve.
+            from . import exploration
+
+            cur.execute("SELECT discovery_run_id FROM connections WHERE id = %s",
+                        (family_of,))
+            row = cur.fetchone()
+            if not row:
+                raise UnresolvedReference(
+                    f"Reference {name!r} points at connection {family_of}, which "
+                    "does not exist."
+                )
+            if not row["discovery_run_id"]:
+                raise UnresolvedReference(
+                    f"Reference {name!r} asks for the family behind connection "
+                    f"{family_of}, which was not produced by a sweep and so "
+                    "counted in none."
+                )
+            cur.execute("SELECT enquiry_id FROM discovery_runs WHERE id = %s",
+                        (row["discovery_run_id"],))
+            run = cur.fetchone()
+            if not run or not run["enquiry_id"]:
+                raise UnresolvedReference(
+                    f"Reference {name!r} asks for the family behind connection "
+                    f"{family_of}, whose sweep belonged to no line of enquiry."
+                )
+            value = _dig(exploration.ledger(cur, run["enquiry_id"]), path)
+            origin = {"name": name, "source": run["enquiry_id"], "path": path}
         else:
             cur.execute("SELECT * FROM connections WHERE id = %s", (connection_id,))
             row = cur.fetchone()

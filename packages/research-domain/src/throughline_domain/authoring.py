@@ -124,6 +124,46 @@ def draft_from_connection(
         citation_ids=[run_citation],
     )
 
+    # --- how much looking stands behind that q ----------------------------
+    #
+    # The sentence above quotes a corrected q, and `resolve_block` explains why
+    # that number is a property of a family rather than of a run: "the same run
+    # in a family of five and a family of five hundred yields different q". A
+    # report that prints q without the family is therefore asking to be taken
+    # on trust — the reviewer cannot tell a first look from a two-hundredth.
+    #
+    # Only drafted when the family can actually be resolved. `resolve_block`
+    # raises rather than render a blank where a number belongs, so a connection
+    # that belonged to no sweep, or a sweep that belonged to no line of enquiry,
+    # must not have a reference written for it — the alternative is a report
+    # that cannot be rendered at all.
+    cur.execute(
+        """
+        SELECT d.enquiry_id FROM connections c
+          JOIN discovery_runs d ON d.id = c.discovery_run_id
+         WHERE c.id = %s AND d.enquiry_id IS NOT NULL
+        """,
+        (connection_id,))
+    counted_in = cur.fetchone()
+    if counted_in:
+        block(
+            block_type="paragraph",
+            template=(
+                "That correction was applied across {{ref:family}} tests in "
+                "the line of enquiry this finding belongs to, of which "
+                "{{ref:surviving}} survive it. A test run late in an enquiry "
+                "is held to a stricter bar than the same test run first, "
+                "which is the cost of having looked."
+            ),
+            value_refs={
+                "family": {"family_of_connection_id": connection_id,
+                           "path": "family_size"},
+                "surviving": {"family_of_connection_id": connection_id,
+                              "path": "surviving"},
+            },
+            citation_ids=[run_citation],
+        )
+
     block(
         block_type="paragraph",
         template="{{ref:interpretation}}",
