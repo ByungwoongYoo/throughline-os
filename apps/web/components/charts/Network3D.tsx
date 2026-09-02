@@ -35,8 +35,9 @@ import {
 import { useSpatialKeys } from "@/lib/charts/spatialKeys";
 import { depthRange, hazeFor } from "@/lib/charts/depth";
 import { isZoomWheel, wheelZoomFactor } from "@/lib/charts/wheel";
+import { useLayout } from "@/lib/charts3d/useLayout";
 import {
-  Graph, Layout, Placed, describeLayout, layoutGraph, layoutLayered,
+  Graph, Layout, Placed, describeLayout,
   neighboursOf,
 } from "@/lib/charts3d/network";
 import { categorical } from "@/lib/tokens";
@@ -78,10 +79,24 @@ export function Network3D({
    * every rotation would make the nodes swim, and a researcher could not tell a
    * camera move from a change in the data.
    */
-  const layout: Layout = useMemo(
-    () => (depthOf ? layoutLayered(graph, (n) => depthOf(n.id))
-                   : layoutGraph(graph)),
-    [graph, depthOf]);
+  /*
+   * Off the main thread once the graph is big enough to freeze it. See
+   * `useLayout` — small graphs and layered ones stay synchronous, because the
+   * round trip costs more than the work and would flash a "settling" state in
+   * front of a picture that is otherwise instant.
+   */
+  const state = useLayout(graph, depthOf);
+  const EMPTY: Layout = useMemo(
+    () => ({ nodes: [], edges: [], dangling: [] }), []);
+  /*
+   * An empty layout while the worker settles, rather than a partial one.
+   *
+   * Everything below — hit-testing, the controller, the caption — reads this,
+   * and half a layout would let a reader click a node that is about to move.
+   * The figure says it is working; it does not show a graph that is not
+   * finished.
+   */
+  const layout: Layout = state.kind === "ready" ? state.layout : EMPTY;
 
   /** Where a node lands on the canvas, at the current camera. */
   const at = useCallback((node: Placed): ScreenPoint => {

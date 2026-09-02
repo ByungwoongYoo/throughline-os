@@ -21,6 +21,7 @@
  * touches a project.
  */
 
+import { useMemo } from "react";
 import { Bars3D } from "@/components/charts/Bars3D";
 import { Field3D } from "@/components/charts/Field3D";
 import { Isosurface3D } from "@/components/charts/Isosurface3D";
@@ -38,7 +39,14 @@ export function CatalogueChart({ entry, width = 620, height = 420 }: {
   width?: number;
   height?: number;
 }) {
-  const data = exampleFor(entry);
+  /*
+   * Memoized, which it was not. Every render rebuilt the example from scratch
+   * — a 24³ voxel grid is 13,824 floats, and a graph is a whole force
+   * relaxation — for a result that depends only on the entry. It also handed
+   * each renderer a new object each time, which is how `useLayout` came to
+   * loop: an effect keyed on that reference re-fired for ever.
+   */
+  const data = useMemo(() => exampleFor(entry), [entry]);
 
   if (!data) {
     /*
