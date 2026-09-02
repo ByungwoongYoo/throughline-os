@@ -14,7 +14,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, render } from "@testing-library/react";
 import { createRef } from "react";
-import { Network3D, paintNetwork } from "@/components/charts/Network3D";
+import { HALO_PAD, Network3D, paintNetwork } from "@/components/charts/Network3D";
 import { DEFAULT_CAMERA, toCanvas } from "@/lib/charts/scene3d";
 import { Graph, Layout, Placed } from "@/lib/charts3d/network";
 import { VisualizationController } from "@/lib/spatial/commands";
@@ -67,11 +67,23 @@ describe("what is in front is drawn last", () => {
     const { canvas, calls } = recordingCanvas();
     paintNetwork(canvas, layout, DEFAULT_CAMERA, SIZE, null, null);
 
-    const arcs = calls.filter((c) => c.op === "arc").map((c) => c.args[0]);
+    /*
+     * Two arcs per node: a halo in the page colour, then the node on top of
+     * it. The halo is what makes the sort visible — two circles of one colour
+     * overlapping read as a figure-of-eight rather than as one in front — so
+     * the pairing is asserted rather than assumed, and the node arcs are
+     * picked out by it instead of by position.
+     */
+    const arcs = calls.filter((c) => c.op === "arc");
+    expect(arcs).toHaveLength(4);
+    for (let i = 0; i < arcs.length; i += 2) {
+      expect(arcs[i].args[2]).toBeCloseTo(arcs[i + 1].args[2] + HALO_PAD, 6);
+    }
+
+    const nodeArcs = arcs.filter((_, i) => i % 2 === 1).map((c) => c.args[0]);
     const near = toCanvas(layout.nodes[1], DEFAULT_CAMERA, 400, 300);
-    expect(arcs).toHaveLength(2);
-    // The last arc drawn is the one nearest the viewer.
-    expect(arcs[1]).toBeCloseTo(near.x, 6);
+    // The last node drawn is the one nearest the viewer.
+    expect(nodeArcs[nodeArcs.length - 1]).toBeCloseTo(near.x, 6);
   });
 
   it("draws every edge before any node", () => {
@@ -151,8 +163,18 @@ describe("the selection is visible", () => {
     const picked = recordingCanvas();
     paintNetwork(picked.canvas, layout, DEFAULT_CAMERA, SIZE, "near", null);
 
-    const radius = (r: ReturnType<typeof recordingCanvas>) =>
-      r.calls.filter((c) => c.op === "arc")[1].args[2];
+    /*
+     * The *selected* node's own arc, which is the last one drawn — it is
+     * nearest, and nearest is painted last. Two traps here, both of which
+     * produce a passing test that measures nothing: each node contributes a
+     * halo arc before its own, so even indices are halos; and the earlier
+     * index-1 arc belongs to the far node, which is unselected in both runs,
+     * so comparing it compares two identical circles.
+     */
+    const radius = (r: ReturnType<typeof recordingCanvas>) => {
+      const arcs = r.calls.filter((c) => c.op === "arc");
+      return arcs[arcs.length - 1].args[2];
+    };
     expect(radius(picked)).toBeGreaterThan(radius(plain));
   });
 

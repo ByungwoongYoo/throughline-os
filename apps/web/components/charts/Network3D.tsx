@@ -32,6 +32,8 @@ import { ScreenPoint, TargetRef, VisualizationController } from "@/lib/spatial/c
 import {
   Camera, DEFAULT_CAMERA, insidePolygon, resetCamera, rotateCamera, toCanvas, zoomCamera,
 } from "@/lib/charts/scene3d";
+import { useSpatialKeys } from "@/lib/charts/spatialKeys";
+import { depthRange, hazeFor } from "@/lib/charts/depth";
 import { isZoomWheel, wheelZoomFactor } from "@/lib/charts/wheel";
 import {
   Graph, Layout, Placed, describeLayout, layoutGraph, layoutLayered,
@@ -110,6 +112,31 @@ export function Network3D({
     rotateCamera(cameraRef.current, dx, dy);
     dirtyRef.current = true;
   }, []);
+
+  /*
+   * Zoom and reset as their own callbacks so the keyboard reaches the
+   * same behaviour the controller and the wheel already do. Written here
+   * rather than inlined into the key handler because three copies of a
+   * clamp is how the three drift apart.
+   */
+  const zoom = useCallback((factor: number) => {
+    zoomCamera(cameraRef.current, factor);
+    dirtyRef.current = true;
+  }, []);
+
+  const reset = useCallback(() => {
+    resetCamera(cameraRef.current);
+    dirtyRef.current = true;
+  }, []);
+
+  /*
+   * Rotation is the depth cue, not a convenience: motion parallax is the
+   * strongest signal a flat screen has for which mark is in front. A
+   * reader who cannot rotate sees one fixed projection of a tangle, which
+   * is the picture §10 exists to forbid.
+   */
+  const spatialKeys = useSpatialKeys({ rotate, zoom, reset },
+    "Citation network, drawn in three dimensions and rotatable.");
 
   useImperativeHandle(controllerRef, (): VisualizationController => ({
     rotate,
@@ -219,6 +246,7 @@ export function Network3D({
   return (
     <figure className="chart">
       <canvas
+        {...spatialKeys}
         ref={canvasRef}
         width={width}
         height={height}
@@ -267,6 +295,33 @@ export function Network3D({
  * draw loop reachable only through an animation frame is one no test ever runs,
  * and this is where depth ordering either happens or does not.
  */
+/**
+ * The page colour behind the marks, for haloing.
+ *
+ * Read from the cascade so the chart follows the theme instead of assuming a
+ * light page. Guarded because `paintNetwork` is deliberately callable with a
+ * recording stand-in for a canvas — that is how the paint order is tested
+ * without a renderer — and a plain object is not an `Element`, so asking the
+ * window for its computed style throws. The fallback is only ever reached from
+ * those tests, where no colour is drawn to a screen at all.
+ */
+/**
+ * How far the halo stands out past a node.
+ *
+ * Exported so the paint tests can tell a halo from the node it belongs to
+ * without counting arcs positionally — every node contributes exactly two, and
+ * a test that assumed one silently measured the wrong circle.
+ */
+export const HALO_PAD = 2.5;
+
+function groundColour(canvas: HTMLCanvasElement): string {
+  if (typeof getComputedStyle !== "function"
+      || typeof Element === "undefined" || !(canvas instanceof Element)) {
+    return "#ffffff";
+  }
+  return getComputedStyle(canvas).getPropertyValue("--panel").trim() || "#ffffff";
+}
+
 export function paintNetwork(
   canvas: HTMLCanvasElement | null,
   layout: Layout,
@@ -287,6 +342,23 @@ export function paintNetwork(
   const placed = new Map(layout.nodes.map((n) => [n.id, place(n)]));
 
   /*
+   * Aerial perspective, over the scene actually on screen.
+   *
+   * Back-to-front order was the only depth cue here, and it says something
+   * only where two marks overlap; everywhere else a near node and a far one
+   * were drawn identically and the graph read flat until it was moved. Haze
+   * is free — opacity carries nothing else in this chart — and it needs no
+   * explaining to a reader. See `lib/charts/depth.ts` for why it is not size.
+   */
+  const { near, far } = depthRange([...placed.values()].map((p) => p.depth));
+
+  /*
+   * The colour behind the marks, for haloing below. Read from the cascade so
+   * the chart follows the theme rather than assuming a light one.
+   */
+  const ground = groundColour(canvas);
+
+  /*
    * Back to front. Without it an edge passing behind a node is drawn over it
    * and the graph reads as flat — and depth is most of what a spatial network
    * buys over a flat one.
@@ -303,6 +375,10 @@ export function paintNetwork(
     const touchesSelection = selected !== null
       && (edge.from.id === selected || edge.to.id === selected);
     context.save();
+    // An edge takes the haze of its midpoint: it spans two depths, and the
+    // point halfway along is where it actually is.
+    context.globalAlpha = touchesSelection
+      ? 1 : hazeFor((from.depth + to.depth) / 2, near, far);
     context.strokeStyle = touchesSelection
       ? "rgba(20,67,184,0.75)" : "rgba(120,130,150,0.30)";
     context.lineWidth = touchesSelection ? 1.8 : 1;
@@ -325,6 +401,26 @@ export function paintNetwork(
     const radius = NODE_RADIUS * (1 + Math.min(1, node.weight ?? 0));
 
     context.save();
+
+    /*
+     * A halo in the page's own colour, drawn before the node.
+     *
+     * This is the occlusion cue. Two circles of the same colour overlapping
+     * read as a figure-of-eight, not as one in front of the other, so sorting
+     * them back to front bought nothing a reader could see. A ring of the
+     * background punched around each node means a nearer one visibly cuts
+     * into whatever it covers — the single largest difference between a
+     * legible node-link graph and a tangle.
+     */
+    context.beginPath();
+    context.arc(at.x, at.y, radius + HALO_PAD, 0, Math.PI * 2);
+    context.fillStyle = ground;
+    context.fill();
+
+    // Haze on the node itself; a selected node stays at full strength, since
+    // fading the thing the reader just picked would answer the wrong question.
+    context.globalAlpha = isSelected || isHovered
+      ? 1 : hazeFor(at.depth, near, far);
     context.beginPath();
     context.arc(at.x, at.y, isSelected ? radius + 2 : radius, 0, Math.PI * 2);
     context.fillStyle = node.group

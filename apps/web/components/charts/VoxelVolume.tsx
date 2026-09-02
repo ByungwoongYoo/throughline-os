@@ -35,6 +35,7 @@ import {
 import {
   Camera, DEFAULT_CAMERA, insidePolygon, resetCamera, rotateCamera, toCanvas, zoomCamera,
 } from "@/lib/charts/scene3d";
+import { useSpatialKeys } from "@/lib/charts/spatialKeys";
 import { isZoomWheel, wheelZoomFactor } from "@/lib/charts/wheel";
 import {
   DEFAULT_VOLUME, Grid, Splat, Volume, VolumeSettings, Window, describeVolume,
@@ -137,6 +138,33 @@ export function VoxelVolume({
     dirtyRef.current = true;
     announce();
   }, [announce]);
+
+  /*
+   * Zoom and reset as their own callbacks so the keyboard reaches the
+   * same behaviour the controller and the wheel already do. Written here
+   * rather than inlined into the key handler because three copies of a
+   * clamp is how the three drift apart.
+   */
+  const zoom = useCallback((factor: number) => {
+    zoomCamera(cameraRef.current, factor);
+    dirtyRef.current = true;
+    announce();
+  }, [announce]);
+
+  const reset = useCallback(() => {
+    resetCamera(cameraRef.current);
+    dirtyRef.current = true;
+    announce();
+  }, [announce]);
+
+  /*
+   * Rotation is the depth cue, not a convenience: motion parallax is the
+   * strongest signal a flat screen has for which mark is in front. A
+   * reader who cannot rotate sees one fixed projection of a tangle, which
+   * is the picture §10 exists to forbid.
+   */
+  const spatialKeys = useSpatialKeys({ rotate, zoom, reset },
+    "A density volume, rotatable.");
 
   const moveWindow = useCallback((next: Window) => {
     windowRef.current = next;
@@ -248,6 +276,7 @@ export function VoxelVolume({
   return (
     <figure className="chart">
       <canvas
+        {...spatialKeys}
         ref={canvasRef}
         width={width}
         height={height}
