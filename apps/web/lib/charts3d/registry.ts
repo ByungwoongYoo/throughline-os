@@ -465,8 +465,26 @@ export const CATALOGUE: Visualization[] = [
   { name: "Flight-path visualization", primitive: "lines", needs: "xyz", spatial: "inherently", status: "configuration", family: "Geographic" },
   { name: "Gravitational-wave strain", primitive: "surface", needs: "grid", spatial: "inherently", status: "configuration", family: "Astronomy", note: "Strain over a plane, which is a height field." },
   { name: "Tumour volume", primitive: "volume", needs: "voxels", spatial: "inherently", status: "configuration", family: "Medical", note: "A segmented region inside a scan already loaded as voxels." },
-  { name: "Interactive globe", primitive: "surface", needs: "geometry", spatial: "inherently", status: "needs-library", family: "Geographic", note: "A basemap and a projection, neither of which is here." },
-  { name: "Molecular dynamics trajectory", primitive: "surface", needs: "geometry", spatial: "inherently", status: "needs-library", family: "Chemistry", note: "Mol* draws the frames; the trajectory is the researcher's file." },
+  /*
+   * The fourth globe, missed when the other three were moved off `surface`.
+   *
+   * Its note said "a basemap and a projection, neither of which is here",
+   * and every clause of that was false by then: `world-atlas` is a bundled
+   * dependency, `d3-geo` does the projection for `Geographic`, and `Globe3D`
+   * had already been written. A `needs-library` entry is a promise that this
+   * product *cannot* do something, which is the most expensive kind to get
+   * wrong — a reader deciding whether the tool fits their work takes it at
+   * its word and stops looking.
+   */
+  { name: "Interactive globe", primitive: "globe", needs: "places", spatial: "inherently", status: "built", family: "Geographic", note: "The same rotatable choropleth the other globes use; the flat map is beside it." },
+  /*
+   * `specialist`, not `needs-library`, and its own note said so: "Mol* draws
+   * the frames". Mol* is a dependency and seven other entries already name it
+   * as their viewer, so this claimed the codebase lacked a library it ships.
+   * `mesh` rather than `surface` for the same reason the globes moved — a
+   * trajectory of atoms is not a height field over a grid.
+   */
+  { name: "Molecular dynamics trajectory", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "specialist", family: "Chemistry", viewer: "molstar", note: "Mol* draws the frames of a multi-model file — .xyz, .gro, multi-model .pdb. The binary trajectory formats (.xtc, .dcd, .trr) are not read." },
 ];
 
 /** Everything that needs a clock rather than a still frame. */

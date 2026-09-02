@@ -32,7 +32,27 @@ export function standing(entry: Visualization): string {
   if (entry.status === "specialist") {
     return "drawn by a specialist library, once you open a file";
   }
-  if (!isDrawable(entry)) return "no renderer for it yet";
+  if (!isDrawable(entry)) {
+    /*
+     * Not "no renderer for it yet", which is what this said and which was
+     * false — the globe it said it about is drawn by `Globe3D` three sections
+     * up the same page. What is missing is an *example*, not the code.
+     *
+     * `builtWithoutAnExample` already names this third category and gives the
+     * reason: the country geometry is bundled, so the only thing a generated
+     * demonstration could add is a value per country, and a fabricated
+     * choropleth of the world does not read as synthetic the way a fabricated
+     * scatter does — it reads as an epidemiological finding.
+     *
+     * Collapsing it into "no renderer" is exactly the confusion this file
+     * opens by refusing: "this product can do X", "this product could do X"
+     * and "somebody has written X" are three different promises, and this one
+     * reported the strongest as the weakest.
+     */
+    return entry.status === "built"
+      ? "drawable from your data — no example invented here"
+      : "drawable from your data — a configuration, no example invented here";
+  }
   return entry.status === "built" ? "drawable" : "drawable — a configuration";
 }
 

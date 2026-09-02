@@ -630,8 +630,20 @@ describe("what the catalogue now claims for Mol*", () => {
       .map((v) => v.name)
       .sort();
 
+    /*
+     * "Molecular dynamics trajectory" joined when it was corrected from
+     * `needs-library` — a claim that this codebase lacks Mol*, made in an
+     * entry whose own note read "Mol* draws the frames", while Mol* is a
+     * dependency and seven siblings already named it as their viewer.
+     *
+     * `specialist` is accurate rather than generous here: the viewer reads
+     * `.xyz` and `.gro`, both multi-frame formats, and Mol* parses a
+     * multi-model file as a real trajectory. What it cannot read is the binary
+     * trajectory formats, and the entry's note now names them.
+     */
     expect(flipped).toEqual([
-      "3D molecule", "Ball and stick", "DNA structure", "Molecular surface",
+      "3D molecule", "Ball and stick", "DNA structure",
+      "Molecular dynamics trajectory", "Molecular surface",
       "Protein structure", "RNA structure", "Space filling",
     ]);
     expect(chemistry().filter((v) => v.viewer === "molstar")
