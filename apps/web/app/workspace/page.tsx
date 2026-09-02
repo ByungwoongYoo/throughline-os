@@ -7,6 +7,9 @@ import {
   Finding, Project, Source, api,
 } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
+import {
+  DEFAULT_SECTION, searchForSection, sectionFromSearch,
+} from "@/lib/section-url";
 import { Centered, Failure, Loading } from "@/components/primitives";
 import { Crumb, SECTIONS, Section, Shell } from "@/components/Shell";
 import { CommandPalette, buildCommands } from "@/components/CommandPalette";
@@ -203,7 +206,53 @@ function Workspace({ user }: { user: SignedInUser }) {
   const projects = useApi<Project[]>("/api/projects");
   const capabilities = useApi<Capabilities>("/api/system/capabilities");
   const [projectId, setProjectId] = useState<string | null>(null);
-  const [section, setSection] = useState<Section>("overview");
+  /*
+   * The section is read from the address bar, not merely mirrored into it.
+   *
+   * Held in `useState` alone, four ordinary things did not work: the view
+   * could not be linked to, a reload went back to Overview however deep the
+   * researcher was, so did reopening the app, and the browser's Back gesture
+   * left the product entirely rather than going back one section. See
+   * `lib/section-url.ts` for why this is the URL and not `localStorage`.
+   *
+   * Initialised from `window.location` inside the initialiser rather than in
+   * an effect, so a deep link renders its own section on the first paint
+   * instead of showing Overview and then replacing it — a flash that reads as
+   * the link having failed.
+   */
+  const [section, setSectionState] = useState<Section>(() =>
+    typeof window === "undefined"
+      ? DEFAULT_SECTION
+      : sectionFromSearch(window.location.search));
+
+  /**
+   * Move to a section, leaving a history entry behind.
+   *
+   * `pushState`, so Back goes back one section. `replaceState` would fix the
+   * link and the reload and leave Back doing what it did before, which was the
+   * complaint that started this.
+   */
+  const setSection = useCallback((next: Section) => {
+    setSectionState(next);
+    if (typeof window === "undefined") return;
+    const search = searchForSection(next, window.location.search);
+    window.history.pushState(null, "",
+      `${window.location.pathname}${search}${window.location.hash}`);
+  }, []);
+
+  /*
+   * Back and Forward move between sections rather than out of the product.
+   *
+   * `popstate` is the only signal for this: the browser changes the URL
+   * without React hearing about it, so without this the address bar and the
+   * screen disagree after a single Back — which is worse than not supporting
+   * it at all, because the URL then lies about what is shown.
+   */
+  useEffect(() => {
+    const onPop = () => setSectionState(sectionFromSearch(window.location.search));
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
   const [selection, setSelection] = useState<{ kind: string; id: string } | null>(null);
   /*
    * The method of the analysis on screen, reported up by the detail view so the
