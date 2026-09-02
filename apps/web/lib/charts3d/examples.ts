@@ -217,6 +217,136 @@ function series(): Generated {
  * landscape" — get a surface chosen to suit the use, because there the name
  * does not pin the geometry and any honest example of the right kind will do.
  */
+/**
+ * A graph with layers, for the entries whose name is an architecture.
+ *
+ * A neural network is not a random graph and does not look like one: every
+ * edge runs forward from one layer to the next, and that is the whole of what
+ * a reader is looking for when they open "Transformer architecture". Drawn as
+ * a uniform blob of 27 nodes it is the same error as a globe drawn flat — the
+ * name denotes a definite structure and the picture does not have it.
+ */
+function layered(widths: number[], group = "layer"): Generated {
+  const nodes: Array<{ id: string; label: string; group?: string }> = [];
+  const edges: Array<{ source: string; target: string; weight?: number }> = [];
+  widths.forEach((width, depth) => {
+    for (let i = 0; i < width; i += 1) {
+      nodes.push({ id: `l${depth}n${i}`, label: `Layer ${depth + 1}, unit ${i + 1}`,
+                   group: `${group} ${depth + 1}` });
+    }
+  });
+  for (let depth = 0; depth < widths.length - 1; depth += 1) {
+    for (let i = 0; i < widths[depth]; i += 1) {
+      for (let j = 0; j < widths[depth + 1]; j += 1) {
+        edges.push({ source: `l${depth}n${i}`, target: `l${depth + 1}n${j}` });
+      }
+    }
+  }
+  return { shape: "graph", graph: { nodes, edges } };
+}
+
+/**
+ * A rooted tree, for a hierarchy or a provenance chain.
+ *
+ * The property that makes it a tree — one parent each, no cycles, n − 1 edges
+ * — is the thing a reader is checking when they look at a derivation.
+ */
+function tree(depth: number, branching: number): Generated {
+  const nodes = [{ id: "root", label: "Root", group: "level 1" }];
+  const edges: Array<{ source: string; target: string }> = [];
+  let frontier = ["root"];
+  for (let level = 1; level <= depth; level += 1) {
+    const next: string[] = [];
+    for (const parent of frontier) {
+      for (let b = 0; b < branching; b += 1) {
+        const id = `${parent}.${b}`;
+        nodes.push({ id, label: id, group: `level ${level + 1}` });
+        edges.push({ source: parent, target: id });
+        next.push(id);
+      }
+    }
+    frontier = next;
+  }
+  return { shape: "graph", graph: { nodes, edges } };
+}
+
+/**
+ * A few hubs and a long tail, which is what an interaction network is.
+ *
+ * Preferential attachment, seeded deterministically. A protein interaction
+ * network drawn with uniform degree hides the only structural fact anybody
+ * opens it for: that a handful of proteins carry most of the interactions.
+ */
+function scaleFree(count: number): Generated {
+  const nodes = [{ id: "n0", label: "Node 1", group: "hub" }];
+  const edges: Array<{ source: string; target: string }> = [];
+  const draw = noise(29);
+  const degrees = [1];
+  for (let i = 1; i < count; i += 1) {
+    const id = `n${i}`;
+    const total = degrees.reduce((a, b) => a + b, 0);
+    let target = 0;
+    let threshold = draw() * total;
+    while (threshold > degrees[target] && target < degrees.length - 1) {
+      threshold -= degrees[target];
+      target += 1;
+    }
+    edges.push({ source: id, target: `n${target}` });
+    degrees[target] += 1;
+    degrees.push(1);
+    nodes.push({ id, label: `Node ${i + 1}`,
+                 group: degrees[target] > 4 ? "hub" : "leaf" });
+  }
+  return { shape: "graph", graph: { nodes, edges } };
+}
+
+/**
+ * Named structures, where the name is a structure.
+ *
+ * The counterpart of `SHAPES`: 35 entries resolved to the `network` primitive
+ * and every one of them drew the same 27-node blob, so an architecture, a
+ * hierarchy and an interaction network were one picture with three labels.
+ */
+export const GRAPHS: Record<string, () => Generated> = {
+  "Neural network graph": () => layered([4, 6, 6, 3]),
+  "Transformer architecture": () => layered([5, 5, 5, 5], "block"),
+  "Model architecture graph": () => layered([3, 5, 4, 2]),
+  "Hierarchical network": () => tree(3, 3),
+  "Provenance tree": () => tree(3, 2),
+  "Protein interaction network": () => scaleFree(34),
+  "Gene interaction network": () => scaleFree(30),
+  "Biological interaction network": () => scaleFree(32),
+};
+
+/**
+ * Which named graphs have a depth a reader should see, and how to read it.
+ *
+ * Giving an architecture layered *data* is only half of it: `layoutGraph` is
+ * force-directed, so it relaxes those layers into the same blob every other
+ * network gets, and the structure survives in the numbers while vanishing from
+ * the picture. `Network3D` already takes a `depthOf` and already calls
+ * `layoutLayered` when it gets one — the catalogue simply never passed it,
+ * which is the built-and-unreachable shape this page exists to catch.
+ *
+ * The depth is read from the node id rather than stored beside it, so a
+ * generator cannot produce ids of one shape and a depth function of another.
+ */
+const LAYERED_ENTRIES = new Set([
+  "Neural network graph", "Transformer architecture", "Model architecture graph",
+  "Hierarchical network", "Provenance tree",
+]);
+
+export function depthReaderFor(name: string):
+    ((nodeId: string) => number) | undefined {
+  if (!LAYERED_ENTRIES.has(name)) return undefined;
+  return (nodeId) => {
+    const architecture = /^l(\d+)n/.exec(nodeId);
+    if (architecture) return Number(architecture[1]);
+    // A tree: "root", "root.0", "root.0.1" — depth is how far down it sits.
+    return nodeId === "root" ? 0 : nodeId.split(".").length - 1;
+  };
+}
+
 export const SHAPES: Record<string, () => Generated> = {
   // Height fields, by their defining equation.
   "Saddle surface": () => heightField((x, y) => x * x - y * y),
@@ -343,7 +473,7 @@ function forPrimitive(entry: Visualization): Generated | null {
     case "volume":
       return SHAPES[entry.name]?.() ?? voxels();
     case "network":
-      return graph();
+      return GRAPHS[entry.name]?.() ?? graph();
     default:
       return null;
   }
@@ -383,6 +513,9 @@ export function sharesPictureWith(entry: Visualization,
     return other.primitive === entry.primitive
         && other.needs === entry.needs
         && SHAPES[other.name] === SHAPES[entry.name]
+        // A named structure is a different picture for the same reason a named
+        // surface is: the name denotes the thing, not the renderer.
+        && GRAPHS[other.name] === GRAPHS[entry.name]
         // Two entries drawn in different styles are two pictures, which is
         // the whole point of having styles at all.
         && STYLES[other.name] === STYLES[entry.name];

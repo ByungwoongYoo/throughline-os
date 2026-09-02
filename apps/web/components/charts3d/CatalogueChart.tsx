@@ -26,6 +26,7 @@ import { Field3D } from "@/components/charts/Field3D";
 import { Isosurface3D } from "@/components/charts/Isosurface3D";
 import { Lines3D } from "@/components/charts/Lines3D";
 import { Network3D } from "@/components/charts/Network3D";
+import { depthReaderFor } from "@/lib/charts3d/examples";
 import { Surface } from "@/components/charts/Surface";
 import { Volume } from "@/components/charts/Volume";
 import { VoxelVolume } from "@/components/charts/VoxelVolume";
@@ -128,6 +129,10 @@ export function CatalogueChart({ entry, width = 620, height = 420 }: {
     case "network":
       return data.shape === "graph" ? (
         <Network3D graph={data.graph} width={width} height={height}
+          /* A layered structure is laid out as layers; everything else relaxes.
+             Without this the architecture entries carried layered data into a
+             force-directed layout, which is a blob with the right node count. */
+          depthOf={depthReaderFor(entry.name)}
                    caption={caption} />
       ) : null;
 
