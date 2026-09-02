@@ -126,7 +126,7 @@ def for_project(cur, *, project_id: str) -> list[dict[str, Any]]:
     cur.execute(
         """
         SELECT p.id, p.object_id, p.x, p.y, p.width, p.height, p.z,
-               o.object_type, o.title, o.status
+               o.object_type, o.title, o.status, o.created_at
           FROM board_placements p
           JOIN research_objects o ON o.id = p.object_id
          WHERE p.project_id = %s
@@ -174,6 +174,36 @@ def remove(cur, *, project_id: str, object_id: str) -> bool:
         (project_id, object_id),
     )
     return cur.rowcount > 0
+
+
+def send_to_back(cur, *, project_id: str, object_id: str) -> int:
+    """Put an object beneath everything else, and say where it landed.
+
+    The counterpart of `bring_to_front`, and §54's "layers" needs both: raising
+    a card is how you reach one that is buried, and lowering one is how you
+    stop it burying the others. With only the first, a card dropped on top of a
+    frame can be moved off it and never put back behind it.
+
+    Written as one statement for the same reason as its twin: two researchers
+    lowering two cards at once would otherwise both read the same minimum and
+    both land on it, leaving the second one still in front.
+    """
+    cur.execute(
+        """
+        UPDATE board_placements
+           SET z = COALESCE(
+                 (SELECT MIN(z) - 1 FROM board_placements WHERE project_id = %s),
+                 0),
+               updated_at = now()
+         WHERE project_id = %s AND object_id = %s
+        RETURNING z
+        """,
+        (project_id, project_id, object_id),
+    )
+    row = cur.fetchone()
+    if not row:
+        raise BoardError("That object is not on the board.")
+    return int(row["z"])
 
 
 def bring_to_front(cur, *, project_id: str, object_id: str) -> int:
