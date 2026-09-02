@@ -560,10 +560,23 @@ export function Surface({
             it was given rather than a model fitted to measurements.{" "}
           </>
         )}
-        Faint cells have no observation near them — the smoothest part of a
-        fitted surface is usually the part with no data under it. The three axes
-        are scaled independently, so distances along different axes are not
-        comparable.
+        {/*
+          * Only where there are observations to be near.
+          *
+          * This sentence used to sit outside the branch above, so a surface
+          * with no observations at all said "faint cells have no observation
+          * near them" — vacuously true of every cell, and read as though some
+          * cells did have data under them. A caption that describes a fit is
+          * misleading on a height field that was never fitted to anything.
+          */}
+        {observations.length > 0 && (
+          <>
+            Faint cells have no observation near them — the smoothest part of a
+            fitted surface is usually the part with no data under it.{" "}
+          </>
+        )}
+        The three axes are scaled independently, so distances along different
+        axes are not comparable.
       </figcaption>
 
       <ChartTable

@@ -96,7 +96,25 @@ export function CatalogueBrowser() {
 
       <label className="c3d-family">
         Family
-        <select value={family} onChange={(e) => setFamily(e.target.value)}>
+        <select
+          value={family}
+          onChange={(e) => {
+            const next = e.target.value;
+            setFamily(next);
+            /*
+             * A chart from another family must not stay on screen above a list
+             * that does not contain it. Filtering to Volume left a Plane drawn
+             * — the reader is looking at one thing and reading a list of
+             * others, with nothing saying they are unrelated.
+             *
+             * Kept rather than always cleared: narrowing to the family the
+             * current chart belongs to should not blank it.
+             */
+            if (chosen && next !== "All" && chosen.family !== next) {
+              setChosen(null);
+            }
+          }}
+        >
           {families.map((f) => <option key={f} value={f}>{f}</option>)}
         </select>
       </label>

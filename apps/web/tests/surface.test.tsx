@@ -198,6 +198,38 @@ describe("degenerate input, which a fit produces more often than data does", () 
                width={300} height={300} />)).not.toThrow();
   });
 
+  it("does not describe observations on a surface that has none", () => {
+    /**
+     * The caption carried two sentences that contradicted each other. One
+     * branch said "No observations are drawn on this surface, so it is the
+     * height field it was given rather than a model fitted to measurements" —
+     * and then, unconditionally, "Faint cells have no observation near them".
+     *
+     * Vacuously true of every cell, and it reads as though some cells *did*
+     * have data under them. Worse, it describes a fit: a reader is told the
+     * smooth parts are where the measurements ran out, on a surface that was
+     * never fitted to any. The catalogue draws every one of its 52 generated
+     * surfaces this way, so it was the common case rather than an edge.
+     */
+    const { container } = render(
+      <Surface grid={GRID} xLabel="a" yLabel="b" zLabel="c"
+               width={300} height={300} />);
+    const caption = container.querySelector("figcaption")?.textContent ?? "";
+
+    expect(caption).toContain("No observations are drawn");
+    expect(caption).not.toContain("Faint cells");
+    // The part that is true of any surface stays.
+    expect(caption).toContain("scaled independently");
+  });
+
+  it("still explains faintness where there are observations to be near", () => {
+    const { container } = render(
+      <Surface grid={GRID} observations={OBSERVATIONS} xLabel="a" yLabel="b"
+               zLabel="c" width={300} height={300} />);
+    const caption = container.querySelector("figcaption")?.textContent ?? "";
+    expect(caption).toContain("Faint cells");
+  });
+
   it("skips cells the fit declined to predict", () => {
     /**
      * `null` is how a fit says "not here" — outside a convex hull, or beyond

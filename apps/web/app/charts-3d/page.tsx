@@ -199,9 +199,21 @@ export default function Charts3DPage() {
    * scatter reads as synthetic; a fabricated world choropleth reads as a result.
    */
   const noExample = builtWithoutAnExample();
-  const byPrimitive = (["network", "glyphs", "volume", "lines", "isosurface", "bars"] as const)
+  /*
+   * The primitives the figures below stand for, and how many entries each one
+   * carries. Both halves derived: the sentence used to open "The three below"
+   * while this list named six, and seven figures were on the page — a count
+   * typed into prose, which is the thing this product refuses to do anywhere a
+   * reader might rely on it.
+   */
+  const PRIMITIVES_SHOWN =
+    ["network", "glyphs", "volume", "lines", "isosurface", "bars"] as const;
+  const byPrimitive = PRIMITIVES_SHOWN
     .map((p) => `${drawnBy(p).length} ${p}`)
     .join(", ");
+  const inWords = ["no", "one", "two", "three", "four", "five", "six", "seven",
+                   "eight", "nine", "ten"][PRIMITIVES_SHOWN.length]
+    ?? String(PRIMITIVES_SHOWN.length);
 
   return (
     <main className="c3d-page">
@@ -223,9 +235,17 @@ export default function Charts3DPage() {
           below.{" "}
           {onDemand.length > 0 && (
             <>
-              A further {onDemand.length} are drawn by a specialist library
-              once you open a file of your own; none of that library is
-              downloaded until you do.{" "}
+              {/*
+                * Not "a further": seven of these also have a generic renderer
+                * here — a CT volume draws as voxels, a point map as points —
+                * so the two counts overlap and a word implying they do not is
+                * an arithmetic claim the catalogue does not support. What is
+                * true of all 26 is that a specialist library draws them
+                * properly, from your file.
+                */}
+              {onDemand.length} are drawn by a specialist library once you open
+              a file of your own; none of that library is downloaded until you
+              do.{" "}
             </>
           )}
           {noExample.length > 0 && (
@@ -236,9 +256,9 @@ export default function Charts3DPage() {
               does not.{" "}
             </>
           )}
-          The three below are the primitives behind {byPrimitive} of them —
-          every one of those is this same renderer with different data bound to
-          it.
+          The figures below cover {inWords} of the primitives — {byPrimitive} —
+          and every one of those entries is the same renderer with different
+          data bound to it.
         </p>
         <p>
           Depth is not free. It buys occlusion, perspective distortion and
