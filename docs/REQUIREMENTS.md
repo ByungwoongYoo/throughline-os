@@ -30,10 +30,10 @@ and looked at the code. The test requires the count never to grow.
 
 | Status | Sections |
 |---|---|
-| built | 62 |
+| built | 65 |
 | partial | 21 |
 | not-built | 13 |
-| unreviewed | 140 |
+| unreviewed | 137 |
 | **total** | **236** |
 
 Nothing here has been verified by anybody other than its author. `TASKS.md`
@@ -100,9 +100,9 @@ revisited — an edited specification is exactly when requirements go missing.
 | §51 | RENDER LOOP | partial | apps/web/lib/charts/scene3d.ts | apps/web/tests/volume-paint.test.tsx | Rendering is rAF-driven behind a dirty flag, independent of the tracker's 30Hz. Interpolation between gesture states is *declined*: it smooths by rendering a lagged position, which trades away the latency this subsystem is tuned for, and the One Euro filter already smooths the input. |
 | §52 | PERFORMANCE BUDGETS | partial | apps/web/lib/spatial/latency.ts | apps/web/tests/latency.test.ts | End-to-end frame-to-response and hand-detection latency are measured as p50/p95/p99 with a budget, and shown on /gesture-check. Render latency, dropped frames, memory, GPU usage, startup and import time are not. |
 | §53 | MAIN THREAD PROTECTION | not-built |  |  | Nothing is off the UI thread: inference, the gesture machine and painting all run on it. Now measured rather than assumed — /gesture-check reports what inference alone costs against an 8ms budget, half a 60Hz frame — so a worker migration can be justified by a number instead of by the specification listing workers. |
-| §54 | WORKSPACE LAYOUT | unreviewed |  |  |  |
+| §54 | WORKSPACE LAYOUT | built | apps/web/components/Shell.tsx | apps/web/tests/shell-panels.test.tsx | Rail, workspace and inspector are draggable and the layout survives a reload. Recorded late: it sat at `unreviewed` with eleven tests behind it, which is the §74 failure repeating. The stored layout is percentage shares, not pixels — see D128. |
 | §55 | FOCUS MODE | unreviewed |  |  |  |
-| §56 | COMMAND PALETTE | unreviewed |  |  |  |
+| §56 | COMMAND PALETTE | built | apps/web/components/CommandPalette.tsx | apps/web/tests/palette.test.tsx | ⌘K opens it, it is a real modal with focus trapped and restored, and it reaches every section. Recorded late, like §54. |
 | §57 | SEARCH | unreviewed |  |  |  |
 | §58 | AI-GENERATED WORKSPACES | unreviewed |  |  |  |
 | §59 | AI AGENTS AS RESEARCH OBJECTS | unreviewed |  |  |  |
@@ -127,7 +127,7 @@ revisited — an edited specification is exactly when requirements go missing.
 | §78 | OFFLINE / DEGRADED MODE | unreviewed |  |  |  |
 | §79 | ACCESSIBILITY | unreviewed |  |  |  |
 | §80 | MOTOR ACCESSIBILITY | unreviewed |  |  |  |
-| §81 | REDUCED MOTION | unreviewed |  |  |  |
+| §81 | REDUCED MOTION | built | apps/web/app/globals.css | apps/web/tests/reduced-motion.test.ts | Nineteen `prefers-reduced-motion` blocks. Recorded late and *incompletely implemented* when found: sixteen blocks existed with no test, and writing one showed five animated classes with no cover, three of which genuinely moved. Reduce rather than remove — a treemap tile arrives at its new rectangle without sliding to it, and a state label keeps its colour fade and loses its transform. |
 | §82 | COLOR | unreviewed |  |  |  |
 | §83 | SECURITY | unreviewed |  |  |  |
 | §84 | AI DATA BOUNDARIES | unreviewed |  |  |  |

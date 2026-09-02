@@ -30,7 +30,10 @@ VALID = {"built", "partial", "not-built", "unreviewed"}
 #: The count on the day the ledger was written. It may fall and never rise.
 #: A ceiling rather than an exact figure, so reviewing a section is a one-line
 #: change here rather than a negotiation with the test.
-MAX_UNREVIEWED = 144
+#: Lowered as sections are assessed, never raised. 144 -> 137 when §54, §56
+#: and §81 were found already built while the ledger still said nobody had
+#: looked — which is the failure §74 paid for once already.
+MAX_UNREVIEWED = 137
 
 #: Sections in the specification. Fixed, because the specification is fixed.
 TOTAL_SECTIONS = 236
@@ -110,6 +113,33 @@ def test_a_row_claiming_nothing_names_nothing():
         if status != "not-built":
             continue
         assert not code and not test, f"§{number} says not-built and names files"
+
+
+def test_a_row_that_names_its_code_is_not_still_unreviewed():
+    """
+    The direction this ledger has actually been wrong in.
+
+    `unreviewed` means nobody has looked. Once somebody has looked hard enough
+    to write down where the thing lives, the verdict is the cheap part, and
+    leaving the row alone says the opposite of what it now knows.
+
+    This is not hypothetical here. The spatial-charts page opens by explaining
+    why it exists: *"§74 and §75 were recorded as unreviewed while their code
+    was complete and unreachable."* A whole page was built in response to work
+    being lost inside this file, and it happened again — §54 and §56 sat at
+    `unreviewed` with eleven tests apiece behind them, and §81 with sixteen
+    reduced-motion blocks and no test at all.
+
+    The mirror of `test_a_row_claiming_nothing_names_nothing`: that one catches
+    a row promising more than it has, this one a row admitting less.
+    """
+    for number, _title, status, code, test in rows():
+        if status != "unreviewed":
+            continue
+        assert not code and not test, (
+            f"§{number} names an implementation and still says nobody has "
+            "looked — give it a verdict"
+        )
 
 
 def test_the_unreviewed_count_never_grows():
