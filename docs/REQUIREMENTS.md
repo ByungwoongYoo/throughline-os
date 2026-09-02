@@ -30,8 +30,8 @@ and looked at the code. The test requires the count never to grow.
 
 | Status | Sections |
 |---|---|
-| built | 65 |
-| partial | 24 |
+| built | 66 |
+| partial | 23 |
 | not-built | 13 |
 | unreviewed | 134 |
 | **total** | **236** |
@@ -100,7 +100,7 @@ revisited — an edited specification is exactly when requirements go missing.
 | §51 | RENDER LOOP | partial | apps/web/lib/charts/scene3d.ts | apps/web/tests/volume-paint.test.tsx | Rendering is rAF-driven behind a dirty flag, independent of the tracker's 30Hz. Interpolation between gesture states is *declined*: it smooths by rendering a lagged position, which trades away the latency this subsystem is tuned for, and the One Euro filter already smooths the input. |
 | §52 | PERFORMANCE BUDGETS | partial | apps/web/lib/spatial/latency.ts | apps/web/tests/latency.test.ts | End-to-end frame-to-response and hand-detection latency are measured as p50/p95/p99 with a budget, and shown on /gesture-check. Render latency, dropped frames, memory, GPU usage, startup and import time are not. |
 | §53 | MAIN THREAD PROTECTION | not-built |  |  | Nothing is off the UI thread: inference, the gesture machine and painting all run on it. Now measured rather than assumed — /gesture-check reports what inference alone costs against an 8ms budget, half a 60Hz frame — so a worker migration can be justified by a number instead of by the specification listing workers. |
-| §54 | WORKSPACE LAYOUT | partial | apps/web/lib/board/snapping.ts | apps/web/tests/board-snapping.test.ts | Magnetic snapping and alignment guides, on the board's existing draggable cards. The threshold is in **screen** pixels converted through the camera zoom, not world units — a fixed world threshold feels sticky zoomed out and dead zoomed in, because snapping is a property of the hand rather than of the data. The nearest anchor wins per axis, so the result does not depend on the order cards happen to be stored in. **Still missing**: grouping, frames, layers, spatial zones, and "organize this workspace by experiment". Previously recorded as `built` in error, then `not-built` — see D183. |
+| §54 | WORKSPACE LAYOUT | built | apps/web/lib/board/snapping.ts, packages/research-domain/src/throughline_domain/regions.py, packages/research-domain/src/throughline_domain/arrange.py | apps/web/tests/board-snapping.test.ts, tests/test_board_regions.py, tests/test_board_arrange.py | All nine items. Alignment guides and magnetic snapping, with the threshold in *screen* pixels through the zoom because snapping belongs to the hand. Grouping, frames and spatial zones are **one primitive** — a named region — because they are one idea under three names, and membership is containment so it cannot go stale; moving one carries its contents, deleting one keeps them. Layers gained `send_to_back`, which `bring_to_front` had lacked, so a card dropped on a frame can be put back behind it. Automatic and AI organization share one engine: a phrase resolves to a **closed set** of groupings and the arithmetic is deterministic, because `ModelProvider` says a model may never produce a numerical result and §39 wants an intent rather than an action. **A model is not invoked today** — `rule_for` parses the phrase, and is the validator a model's answer would pass through; the honest claim is that nothing may choose a coordinate, not that a model chose the rule. Nothing moves until confirmed, and what is applied is what was shown. |
 | §55 | FOCUS MODE | unreviewed |  |  |  |
 | §56 | COMMAND PALETTE | built | apps/web/components/CommandPalette.tsx | apps/web/tests/palette.test.tsx | ⌘K opens it, it is a real modal with focus trapped and restored, and it reaches every section. Recorded late, like §54. |
 | §57 | SEARCH | unreviewed |  |  |  |

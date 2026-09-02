@@ -22,9 +22,11 @@ from throughline_domain import (
     embeddings, enquiry, events, example, exploration, extraction, findings,
     graph_projection, graphs,
     harmonize, images, interpret, journal, lineage, notebook, objects, observability,
-    authoring, board, citations, communication, embedding_space, excerpts, extras,
+    arrange, authoring, board, citations, communication, embedding_space,
+    excerpts, extras,
     haptics,
     marks,
+    regions,
     launchers as domain_launchers,
     updates as domain_updates,
     patterns, reconcile, render_artifact, retrieval, selection, speech,
@@ -1200,6 +1202,48 @@ class DraftRequest(BaseModel):
     audience: str = "researcher"
 
 
+class RegionRequest(BaseModel):
+    """A named part of the board — a frame, a zone, a group (§54).
+
+    One shape for all three, because they are one idea under three names. See
+    `regions.py`.
+    """
+
+    name: str
+    x: float
+    y: float
+    width: float
+    height: float
+
+
+class RegionMoveRequest(BaseModel):
+    """Where a region is now. Its contents come with it."""
+
+    x: float
+    y: float
+
+
+class RegionRenameRequest(BaseModel):
+    name: str
+
+
+class ArrangeRequest(BaseModel):
+    """How to organise the board, said the way a researcher would say it."""
+
+    phrase: str
+
+
+class ArrangeApplyRequest(BaseModel):
+    """The arrangement that was previewed, sent back to be written.
+
+    The moves rather than the phrase, so what is applied is what was shown —
+    recomputing here would let a card added since the preview be swept into an
+    arrangement nobody looked at.
+    """
+
+    moves: list[dict[str, Any]]
+
+
 class PlacementRequest(BaseModel):
     """Where an object sits on the workboard (§4).
 
@@ -1678,6 +1722,131 @@ def take_off_board(project_id: str, object_id: str,
     if not removed:
         raise HTTPException(404, "That object is not on this board.")
     return {"removed": object_id}
+
+
+# ---------------------------------------------------------------------------
+# Named regions, and tidying (§54)
+# ---------------------------------------------------------------------------
+
+@app.post("/api/projects/{project_id}/board/{object_id}/back")
+def lower_on_board(project_id: str, object_id: str,
+                   user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Send a card behind everything else.
+
+    The counterpart of `/front`, which had none: a card dropped on top of a
+    frame could be raised for ever and never put back underneath.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        try:
+            return {"z": board.send_to_back(
+                cur, project_id=project_id, object_id=object_id)}
+        except board.BoardError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+
+@app.get("/api/projects/{project_id}/board/regions")
+def read_regions(project_id: str,
+                 user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Every named region, in draw order, with what each one holds."""
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        found = regions.for_project(cur, project_id=project_id)
+        for region in found:
+            region["members"] = regions.members(
+                cur, project_id=project_id, region_id=region["id"])
+        return {"regions": found}
+
+
+@app.post("/api/projects/{project_id}/board/regions")
+def draw_region(project_id: str, payload: RegionRequest,
+                user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Draw a named region: a frame, a zone, or a group of what is inside it."""
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        try:
+            return regions.create(
+                cur, project_id=project_id, name=payload.name, x=payload.x,
+                y=payload.y, width=payload.width, height=payload.height,
+                actor=user["id"])
+        except regions.RegionError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+
+@app.put("/api/projects/{project_id}/board/regions/{region_id}")
+def move_region(project_id: str, region_id: str, payload: RegionMoveRequest,
+                user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Move a region, carrying everything inside it."""
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        try:
+            return regions.move(cur, project_id=project_id,
+                                region_id=region_id, x=payload.x, y=payload.y,
+                                actor=user["id"])
+        except regions.RegionError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+
+@app.patch("/api/projects/{project_id}/board/regions/{region_id}")
+def rename_region(project_id: str, region_id: str,
+                  payload: RegionRenameRequest,
+                  user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Say what this part of the board is for now."""
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        try:
+            return regions.rename(cur, project_id=project_id,
+                                  region_id=region_id, name=payload.name,
+                                  actor=user["id"])
+        except regions.RegionError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+
+@app.delete("/api/projects/{project_id}/board/regions/{region_id}")
+def erase_region(project_id: str, region_id: str,
+                 user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Remove a region and leave its cards where they are."""
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        removed = regions.remove(cur, project_id=project_id,
+                                 region_id=region_id)
+    if not removed:
+        raise HTTPException(404, "That region is not on this board.")
+    return {"removed": region_id}
+
+
+@app.post("/api/projects/{project_id}/board/arrangement")
+def preview_arrangement(project_id: str, payload: ArrangeRequest,
+                        user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Where a tidy would put everything, without moving anything.
+
+    A preview, because §54 asks for one and because a rearrangement nobody can
+    look at first is one nobody runs twice. A phrase this does not understand
+    is refused by name rather than answered with an arrangement that means
+    nothing.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        try:
+            return arrange.plan(cur, project_id=project_id,
+                                phrase=payload.phrase)
+        except arrange.ArrangeError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+
+@app.put("/api/projects/{project_id}/board/arrangement")
+def confirm_arrangement(project_id: str, payload: ArrangeApplyRequest,
+                        user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Write down the arrangement that was previewed."""
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        try:
+            moved = arrange.apply(cur, project_id=project_id,
+                                  moves=payload.moves, actor=user["id"])
+        except (arrange.ArrangeError, board.BoardError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+    return {"moved": moved}
 
 
 @app.post("/api/projects/{project_id}/marks", status_code=201)

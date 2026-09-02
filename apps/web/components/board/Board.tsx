@@ -29,6 +29,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
+
+/** A named part of the board, and what it currently holds. */
+type Region = { id: string; name: string; x: number; y: number;
+                width: number; height: number; z: number; members: string[] };
+
+/** An arrangement, computed and not yet applied. */
+type Plan = { rule: string; explains: string; groups: number;
+              moves: Array<{ object_id: string; x: number; y: number;
+                             group: string }> };
 import { useApi } from "@/lib/useApi";
 import {
   Camera, ORIGIN, WorldPoint, fitTo, isVisible, pan, toWorld, zoomAt,
@@ -77,6 +86,19 @@ export function Board({ projectId }: { projectId: string }) {
    * position while the line that explained it disappears on release.
    */
   const [guides, setGuides] = useState<Guide[]>([]);
+
+  /*
+   * The named regions (§54: frames, zones, groups — one idea, see
+   * `regions.py`) and the arrangement a researcher is being shown before it
+   * happens. The plan is held rather than applied, because §54 asks that AI
+   * "may rearrange after preview/confirmation" and a tidy nobody can look at
+   * first is one nobody runs twice.
+   */
+  const [regionEpoch, setRegionEpoch] = useState(0);
+  const drawnRegions = useApi<{ regions: Region[] }>(
+    `/api/projects/${projectId}/board/regions`, [projectId, regionEpoch]);
+  const [plan, setPlan] = useState<Plan | null>(null);
+  const [phrase, setPhrase] = useState("by type");
   const [camera, setCamera] = useState<Camera>(ORIGIN);
   const [problem, setProblem] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
@@ -219,6 +241,97 @@ export function Board({ projectId }: { projectId: string }) {
     return toWorld({ x: event.clientX - box.left, y: event.clientY - box.top },
                    camera);
   }, [camera]);
+
+  /* ---- named regions, layers and tidying (§54) ---- */
+
+  /**
+   * Draw a region around what is currently in view.
+   *
+   * Around the viewport rather than around a selection, because the board has
+   * no multi-select: a researcher frames the part they are looking at, which
+   * is also how they got there.
+   */
+  const drawRegion = useCallback(async (name: string) => {
+    if (!name.trim()) return;
+    try {
+      await api.post(`/api/projects/${projectId}/board/regions`, {
+        name,
+        x: camera.x + 40 / camera.zoom,
+        y: camera.y + 40 / camera.zoom,
+        width: Math.max(240, (size.width / camera.zoom) - 80),
+        height: Math.max(240, (size.height / camera.zoom) - 80),
+      });
+      setRegionEpoch((n) => n + 1);
+    } catch {
+      setProblem("That region could not be drawn.");
+    }
+  }, [projectId, camera, size]);
+
+  const renameRegion = useCallback(async (id: string, name: string) => {
+    try {
+      await api.patch(`/api/projects/${projectId}/board/regions/${id}`, { name });
+      setRegionEpoch((n) => n + 1);
+    } catch {
+      setProblem("That region could not be renamed.");
+    }
+  }, [projectId]);
+
+  const eraseRegion = useCallback(async (id: string) => {
+    try {
+      await api.del(`/api/projects/${projectId}/board/regions/${id}`);
+      setRegionEpoch((n) => n + 1);
+    } catch {
+      setProblem("That region could not be removed.");
+    }
+  }, [projectId]);
+
+  /** Move a region and everything inside it. The server carries the cards. */
+  const moveRegion = useCallback(async (id: string, x: number, y: number) => {
+    try {
+      await api.put(`/api/projects/${projectId}/board/regions/${id}`, { x, y });
+      setRegionEpoch((n) => n + 1);
+      placed.reload?.();
+    } catch {
+      setProblem("That region could not be moved.");
+    }
+  }, [projectId, placed]);
+
+  const lower = useCallback(async (objectId: string) => {
+    try {
+      await api.post(`/api/projects/${projectId}/board/${objectId}/back`);
+      placed.reload?.();
+    } catch {
+      setProblem("That card could not be sent back.");
+    }
+  }, [projectId, placed]);
+
+  /**
+   * Ask where a tidy would put everything. Nothing moves until `confirmPlan`.
+   */
+  const previewPlan = useCallback(async () => {
+    try {
+      setPlan(await api.post<Plan>(
+        `/api/projects/${projectId}/board/arrangement`, { phrase }));
+    } catch (error) {
+      // The refusal is the useful part: it names what this understands.
+      setProblem(error instanceof Error ? error.message
+        : "That is not a way this board can be organised.");
+      setPlan(null);
+    }
+  }, [projectId, phrase]);
+
+  const confirmPlan = useCallback(async () => {
+    if (!plan) return;
+    try {
+      await api.put(`/api/projects/${projectId}/board/arrangement`,
+                    { moves: plan.moves });
+      setPlan(null);
+      placed.reload?.();
+      setRegionEpoch((n) => n + 1);
+    } catch {
+      setProblem("That arrangement could not be applied.");
+    }
+  }, [projectId, plan, placed]);
 
   /* ---- moving the board ---- */
 
@@ -457,6 +570,57 @@ export function Board({ projectId }: { projectId: string }) {
         </span>
       </div>
 
+      {/* §54: frames, zones and grouping — one control, because they are one
+          idea. The region is drawn around what is in view, since the board
+          has no multi-select and framing what you are looking at is how you
+          got there. */}
+      <div className="board-organise">
+        <button
+          type="button"
+          onClick={() => {
+            const name = window.prompt("What is this part of the board for?");
+            if (name) void drawRegion(name);
+          }}
+        >
+          Frame this area
+        </button>
+
+        <label className="board-arrange">
+          <span className="sr-only">How to organise the board</span>
+          <input
+            value={phrase}
+            onChange={(event) => setPhrase(event.target.value)}
+            placeholder="by type, by experiment, newest first"
+            aria-label="How to organise the board"
+          />
+        </label>
+        <button type="button" onClick={() => void previewPlan()}
+                disabled={cards.length === 0}>
+          Preview tidy
+        </button>
+      </div>
+
+      {/*
+        * The preview §54 asks for. It says what it grouped by and how many
+        * groups there are, because "it moved everything" is not something a
+        * researcher can agree to — and nothing has moved until Apply.
+        */}
+      {plan && (
+        <div className="board-plan" role="status">
+          <p>
+            Grouping by <b>{plan.rule}</b> — {plan.explains}. {plan.groups}{" "}
+            {plan.groups === 1 ? "group" : "groups"}, {plan.moves.length}{" "}
+            {plan.moves.length === 1 ? "card" : "cards"} would move. Nothing has
+            moved yet.
+          </p>
+          <button type="button" className="nj-primary"
+                  onClick={() => void confirmPlan()}>
+            Apply
+          </button>
+          <button type="button" onClick={() => setPlan(null)}>Discard</button>
+        </div>
+      )}
+
       {problem && <p className="board-problem" role="status">{problem}</p>}
 
       {openedCard && (
@@ -538,6 +702,44 @@ export function Board({ projectId }: { projectId: string }) {
             * stays one pixel on screen at any magnification, which is what a
             * guide is: an instrument, not part of the drawing.
             */}
+          {/*
+            * Regions draw beneath the cards and beneath the guides, because a
+            * frame is the ground a card sits on. Named in the corner rather
+            * than centred: a centred label sits under whatever is inside the
+            * frame, which is the one place it cannot be read.
+            */}
+          {(drawnRegions.data?.regions ?? []).map((region) => (
+            <div
+              key={region.id}
+              className="board-region"
+              data-testid="board-region"
+              style={{ left: region.x, top: region.y,
+                       width: region.width, height: region.height }}
+            >
+              <span className="board-region-name">
+                {region.name}
+                <span className="board-region-count">
+                  {" "}· {region.members.length}
+                </span>
+              </span>
+              <span className="board-region-actions">
+                <button type="button" onClick={() => {
+                  const next = window.prompt("Rename this area", region.name);
+                  if (next) void renameRegion(region.id, next);
+                }}>Rename</button>
+                <button type="button"
+                        onClick={() => void moveRegion(
+                          region.id, region.x - 60, region.y)}>
+                  Nudge left
+                </button>
+                <button type="button"
+                        onClick={() => void eraseRegion(region.id)}>
+                  Remove
+                </button>
+              </span>
+            </div>
+          ))}
+
           {guides.map((guide, index) => (
             <div
               key={`${guide.axis}${guide.at}${index}`}
@@ -576,6 +778,21 @@ export function Board({ projectId }: { projectId: string }) {
                 * board a keyboard can reach: the cards themselves are moved by
                 * pointer only.
                 */}
+              {/*
+                * §54 layers. `/front` already existed and happens on
+                * pointer-down; this is its counterpart, and without it a card
+                * dropped on top of a frame can be raised for ever and never
+                * put back underneath.
+                */}
+              <button
+                type="button"
+                className="board-lower"
+                aria-label={`Send ${card.title} behind the others`}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={() => void lower(card.object_id)}
+              >
+                ⤓
+              </button>
               <button
                 type="button"
                 className="board-remove"
