@@ -163,7 +163,24 @@ describe("thinning keeps the shape, not the spacing", () => {
     const long = Array.from({ length: 100000 },
       (_, i) => ({ x: i / 1000, y: Math.sin(i / 50), z: 0 }));
     expect(() => simplify(long, 0.001)).not.toThrow();
-  });
+  }, 30_000);
+  /*
+   * The timeout is the fix, and it is worth saying what it is not.
+   *
+   * This test asserts nothing about speed — it thins a hundred thousand points
+   * and checks that no RangeError escapes, which is a claim about the stack.
+   * It takes 942ms on an idle machine and inherited vitest's 5s default, so
+   * running the whole suite on a loaded machine pushed it past a limit that
+   * has nothing to do with what it is testing. It was seen failing at 5.4s,
+   * 6.3s and 27s, always while something else was saturating the CPU.
+   *
+   * Shrinking the input was the alternative and would have been worse: the
+   * point of a hundred thousand points is that a recursive implementation
+   * cannot survive them, and a smaller path is a weaker claim. Thirty seconds
+   * is thirty times the real cost, which is headroom for a busy machine
+   * without hiding a genuine regression — a version that got ten times slower
+   * would still fail.
+   */
 
   it("counts what it removed, rather than quietly shrinking", () => {
     const straight = Array.from({ length: 40 },

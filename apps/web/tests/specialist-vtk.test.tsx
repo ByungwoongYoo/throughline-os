@@ -586,6 +586,57 @@ describe("a field is painted over its own range, with a legend", () => {
     expect(report.legend?.stops.length).toBe(FIELD_RAMP.length);
   });
 
+  it("colours a field the solver wrote on the cells, not just the points", () => {
+    /**
+     * Stress per element is the ordinary way an FEA result is written, and
+     * reading only point data told such a file it had no values in it — the
+     * field present, the picture plain, and the caption agreeing with the
+     * picture rather than with the file.
+     */
+    const onCells = {
+      ...mesh(625, 1152),
+      getCellData: () => ({
+        getScalars: () => ({ getName: () => "vonMises", getRange: () => [3, 88] }),
+      }),
+    } as MeshData;
+
+    const report = summarise({ kind: "mesh", data: onCells }, "beam.vtp");
+    expect(report.drawn).toBe(true);
+    if (!report.drawn) return;
+    expect(report.describes).toContain("vonMises");
+    expect(report.describes).toContain("per cell");
+    expect(report.legend?.high).toBe("88");
+  });
+
+  it("prefers the points when a file carries both, and says which", () => {
+    /** Nodal data interpolates across each cell; element data paints each
+     *  facet flat. The smoother picture is the better default, and the reader
+     *  is told which array they are looking at. */
+    const both = {
+      ...mesh(625, 1152),
+      getPointData: () => ({
+        getScalars: () => ({ getName: () => "nodal", getRange: () => [0, 10] }),
+      }),
+      getCellData: () => ({
+        getScalars: () => ({ getName: () => "element", getRange: () => [0, 99] }),
+      }),
+    } as MeshData;
+
+    const report = summarise({ kind: "mesh", data: both }, "both.vtp");
+    if (!report.drawn) throw new Error("expected a drawn report");
+    expect(report.describes).toContain("nodal");
+    expect(report.describes).toContain("per point");
+    expect(report.describes).not.toContain("element");
+  });
+
+  it("tells the mapper which arrays to read", () => {
+    /** The default mode chooses for itself, and a cell field left to it is
+     *  searched for point scalars and drawn plain. */
+    const source = readFileSync(SOURCE, "utf8");
+    expect(source).toContain("setScalarModeToUseCellData()");
+    expect(source).toContain("setScalarModeToUsePointData()");
+  });
+
   it("does not paint a constant field, and says why", () => {
     /**
      * Every colour in the bar would stand for one value, which draws noise as
@@ -609,6 +660,8 @@ describe("a field is painted over its own range, with a legend", () => {
     expect(report.describes).not.toMatch(/Coloured by/);
     // And it says so, rather than leaving a silence that reads as a result.
     expect(report.describes).toMatch(/nothing is coloured/);
+    // And it names both places a field could have been, not just one.
+    expect(report.describes).toMatch(/points or its cells/);
   });
 
   it("follows the data rather than the mapper's own range", () => {

@@ -83,8 +83,18 @@ export type MeshData = {
   getNumberOfPoints(): number;
   getNumberOfPolys(): number;
   getNumberOfCells(): number;
-  /** Present on `.vtp`; the other geometry formats carry no per-point array. */
+  /**
+   * Present on `.vtp`; the other geometry formats carry no arrays at all.
+   *
+   * Both are read, because a solver writes to whichever suits it: a nodal
+   * result lands on the points, and an element result — stress per element is
+   * the common case in FEA — lands on the cells. Reading only points told a
+   * researcher with element-wise stress that their file had no values in it.
+   */
   getPointData?(): {
+    getScalars(): { getName(): string; getRange(): number[] } | null;
+  } | null;
+  getCellData?(): {
     getScalars(): { getName(): string; getRange(): number[] } | null;
   } | null;
 };
@@ -158,6 +168,28 @@ function measured(value: number): string {
  * cells is the case worth naming: vtk.js parses it happily, the mapper draws
  * nothing, and without this the researcher gets a black rectangle and no reason.
  */
+/**
+ * The scalar array a mesh carries, and what it is attached to.
+ *
+ * Points first, because a nodal field is the smoother picture — vtk.js
+ * interpolates it across each cell, where an element field paints each facet
+ * flat. When a file has both, colouring by the points is the better default,
+ * and the caption names which was used so the choice is visible rather than
+ * silent.
+ *
+ * Reading only points was a real gap: stress per element is the ordinary way a
+ * solver writes FEA results, and such a file was told it had no values in it.
+ */
+function fieldOn(data: MeshData):
+    { array: { getName(): string; getRange(): number[] }; per: "point" | "cell" }
+    | null {
+  const onPoints = data.getPointData?.()?.getScalars() ?? null;
+  if (onPoints) return { array: onPoints, per: "point" };
+  const onCells = data.getCellData?.()?.getScalars() ?? null;
+  if (onCells) return { array: onCells, per: "cell" };
+  return null;
+}
+
 export function summarise(parsed: Parsed, fileName: string): SpecialistReport {
   if (parsed.kind === "mesh") {
     const points = parsed.data.getNumberOfPoints();
@@ -189,7 +221,8 @@ export function summarise(parsed: Parsed, fileName: string): SpecialistReport {
      * a shape where their result should be. A field is readable when the ramp
      * covers the data and the reader can see what the colours mean.
      */
-    const array = parsed.data.getPointData?.()?.getScalars() ?? null;
+    const field = fieldOn(parsed.data);
+    const array = field?.array ?? null;
     const shape = `${grouped(points)} points, ${grouped(polys)} polygons.`;
     if (array) {
       const [low, high] = array.getRange();
@@ -206,7 +239,8 @@ export function summarise(parsed: Parsed, fileName: string): SpecialistReport {
       return {
         drawn: true,
         describes: `${shape} Coloured by "${array.getName()}", `
-          + `${measured(low)} to ${measured(high)}.`,
+          + `${measured(low)} to ${measured(high)}, one value per `
+          + `${field!.per}.`,
         /* `measured` for both, the same formatter the sentence above uses. */
         legend: { label: array.getName(), low: measured(low),
                   high: measured(high), stops: rampStops() },
@@ -223,8 +257,9 @@ export function summarise(parsed: Parsed, fileName: string): SpecialistReport {
      * silence reads as a result.
      */
     return { drawn: true, describes:
-      `${shape} No per-point values in this file, so nothing is coloured — a `
-      + "field would arrive as a .vtp with an array on its points." };
+      `${shape} No values in this file, so nothing is coloured — a field `
+      + "would arrive as a .vtp carrying an array on its points or its "
+      + "cells." };
   }
 
   const [x, y, z] = parsed.data.getDimensions();
@@ -334,8 +369,8 @@ async function loadVtk(): Promise<VtkKit> {
         show(parsed) {
           if (parsed.kind === "mesh") {
             const mapper = vtkMapper.newInstance();
-            const field = parsed.data.getPointData?.()?.getScalars() ?? null;
-            const range = field ? field.getRange() : null;
+            const attached = fieldOn(parsed.data);
+            const range = attached ? attached.array.getRange() : null;
 
             /*
              * Painted over the array's own range, or not painted at all.
@@ -362,6 +397,14 @@ async function loadVtk(): Promise<VtkKit> {
               mapper.setLookupTable(ramp);
               mapper.setUseLookupTableScalarRange(true);
               mapper.setScalarVisibility(true);
+              /*
+               * Told explicitly which arrays to read. The default mode picks
+               * for itself, and a mesh whose field is on its cells would be
+               * searched for point scalars and drawn plain — the field
+               * present, the picture blank, and nothing saying so.
+               */
+              if (attached!.per === "cell") mapper.setScalarModeToUseCellData();
+              else mapper.setScalarModeToUsePointData();
             } else {
               mapper.setScalarVisibility(false);
             }

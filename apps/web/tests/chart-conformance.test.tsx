@@ -247,7 +247,13 @@ describe.each(CHARTS)("$name honours the spatial contract", ({ mount }) => {
     const now = locate(c, mark.id)!;
     expect(now.x).toBeCloseTo(where.x, 3);
     expect(now.y).toBeCloseTo(where.y, 3);
-  });
+    /*
+     * 367ms on an idle machine — it mounts every spatial chart and rotates
+     * one — against vitest's 5s default, which it exceeded only while the
+     * suite was competing with a dev server for the CPU. Nothing here measures
+     * time; the assertions are about a camera returning to an exact view.
+     */
+  }, 30_000);
 
   it("ignores a view it does not recognise rather than half-applying it", () => {
     // A partial restore puts the scene somewhere the researcher has never been,
