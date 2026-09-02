@@ -39,6 +39,41 @@ const all = sources.map((s) => s.text).join("\n");
  * wrong about the one token that is working as designed — and a guard that is
  * wrong about a correct thing is the kind that gets deleted.
  */
+/**
+ * A token a component *reads* is not a token a component defines.
+ *
+ * The scan below used to count every `"--x"` literal in a component as a
+ * definition, which made it blind in one direction and wrong in the other: a
+ * `getComputedStyle(...).getPropertyValue("--surface")` — a read of a token
+ * this stylesheet has never had — registered as *defining* `--surface`, so the
+ * unresolved read went unreported and any CSS typo for the same name was
+ * excused along with it.
+ *
+ * That read fails more quietly than the CSS case in the file header. `var()`
+ * at least drops the declaration; `getPropertyValue` of an unknown token
+ * returns `""`, which lands in whatever `|| fallback` the caller wrote, and the
+ * canvas paints a plausible wrong colour. It happened here: a globe's shading
+ * gradient whose two stops silently became the same colour, producing exactly
+ * the flat fill the gradient had been written to replace.
+ */
+const READ = /getPropertyValue\(\s*["'](--[a-z0-9-]+)["']/gi;
+
+function tokensReadInComponents(dir = join(WEB_ROOT, "components")): Set<string> {
+  const found = new Set<string>();
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      for (const token of tokensReadInComponents(path)) found.add(token);
+      continue;
+    }
+    if (!entry.name.endsWith(".tsx") && !entry.name.endsWith(".ts")) continue;
+    for (const match of readFileSync(path, "utf8").matchAll(READ)) {
+      found.add(match[1].toLowerCase());
+    }
+  }
+  return found;
+}
+
 function tokensSetInComponents(dir = join(WEB_ROOT, "components")): Set<string> {
   const found = new Set<string>();
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -49,7 +84,9 @@ function tokensSetInComponents(dir = join(WEB_ROOT, "components")): Set<string> 
     }
     if (!entry.name.endsWith(".tsx") && !entry.name.endsWith(".ts")) continue;
     const source = readFileSync(path, "utf8");
-    for (const match of source.matchAll(/["'](--[a-z0-9-]+)["']/gi)) {
+    // Reads are stripped first, so a read can never pass as a definition.
+    const setting = source.replace(READ, "");
+    for (const match of setting.matchAll(/["'](--[a-z0-9-]+)["']/gi)) {
       found.add(match[1].toLowerCase());
     }
   }
@@ -81,6 +118,20 @@ describe("design tokens", () => {
     expect(missing, missing.join("\n  ")).toEqual([]);
   });
 
+  it("defines every token a component reads back at runtime", () => {
+    /**
+     * Canvas renderers pull their colours from the cascade rather than
+     * hardcoding them, so that a chart follows the theme. That only works if
+     * the name is real — and an unknown name returns "" rather than throwing.
+     */
+    const undefinedReads = [...tokensReadInComponents()]
+      .filter((token) => !defined.has(token));
+
+    expect(undefinedReads,
+      `read from a component but never defined: ${undefinedReads.join(", ")}`)
+      .toEqual([]);
+  });
+
   it("finds a real set of tokens, so a broken scan cannot pass silently", () => {
     /**
      * The failure mode of a guard like this is matching nothing at all and
@@ -89,5 +140,7 @@ describe("design tokens", () => {
     expect(defined.size).toBeGreaterThan(30);
     expect(defined.has("--ink")).toBe(true);
     expect(defined.has("--panel")).toBe(true);
+    // And the read scan finds something, or the test above passes vacuously.
+    expect(tokensReadInComponents().size).toBeGreaterThan(0);
   });
 });

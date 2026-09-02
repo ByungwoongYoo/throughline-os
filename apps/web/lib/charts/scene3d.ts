@@ -111,7 +111,7 @@ export const DEPTH_RANGE = 0.55;
  * At 6 the swing is 1.81x, which is still plainly a depth cue and no longer a
  * distortion.
  */
-const FOCAL = 6;
+export const FOCAL = 6;
 
 /**
  * Scene units per half-canvas, before zoom.
@@ -129,6 +129,19 @@ const FOCAL = 6;
  * either constant without the other fails.
  */
 const FIT = 0.26;
+
+/**
+ * Canvas pixels per scene unit, at this camera and canvas size.
+ *
+ * Split out of `toCanvas` rather than copied, for the reason `toCanvas` itself
+ * gives: a second copy of this arithmetic is a copy that can disagree. The
+ * globe needs it to size the sphere's silhouette, which is not the projection
+ * of any one point and so cannot be read off a `toCanvas` result.
+ */
+export function unitLength(camera: Camera, width: number,
+                           height: number): number {
+  return Math.min(width, height) * FIT * camera.zoom;
+}
 
 export type Projected = {
   x: number;
@@ -165,7 +178,7 @@ export function project(p: { x: number; y: number; z: number },
 export function toCanvas(p: { x: number; y: number; z: number }, camera: Camera,
                          width: number, height: number) {
   const q = project(p, camera);
-  const unit = Math.min(width, height) * FIT * camera.zoom;
+  const unit = unitLength(camera, width, height);
   return {
     x: width / 2 + q.x * unit,
     y: height / 2 - q.y * unit,

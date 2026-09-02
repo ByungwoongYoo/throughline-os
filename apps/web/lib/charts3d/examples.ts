@@ -266,10 +266,20 @@ export const SHAPES: Record<string, () => Generated> = {
  * `geometry` is null on purpose: vertices and faces come from a researcher's
  * file, and a generated stand-in would make the catalogue claim a capability
  * that only arrives with the file.
+ *
+ * `places` is null for a different reason, and the difference is worth keeping.
+ * The geometry is bundled and always available — what is missing is a *value
+ * per country*, and inventing one would put a plausible pattern on a world map.
+ * A fabricated scatter is obviously synthetic; a fabricated choropleth looks
+ * exactly like an epidemiological finding, and the catalogue page's own caption
+ * calls generated data "not a measurement" precisely so that no picture there
+ * can be mistaken for one. A globe of invented country rates is the one example
+ * in the set where that caption might not be believed.
  */
 export const GENERATORS: Record<DataShape, (() => Generated) | null> = {
   xyz: () => points(false),
   xyzv: () => points(true),
+  places: null,
   grid,
   field,
   voxels,

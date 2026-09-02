@@ -39,13 +39,25 @@ describe("the catalogue", () => {
     expect(dupes).toEqual([]);
   });
 
-  it("has a generator for every shape but the one that needs a file", () => {
+  it("has a generator for every shape but the two that must not have one", () => {
+    /**
+     * Two exceptions, for different reasons, and the difference is the point.
+     *
+     * `geometry` has none because vertices and faces come from the
+     * researcher's file: a stand-in would let the catalogue claim a capability
+     * that only arrives with it.
+     *
+     * `places` has none because the geometry *is* bundled — what would have to
+     * be invented is a value per country. A fabricated scatter is obviously
+     * synthetic; a fabricated choropleth looks exactly like an epidemiological
+     * result. The page captions every example "not a measurement", and a world
+     * map of invented rates is the one picture in the set where that caption
+     * might not be believed.
+     */
+    const UNGENERATED = new Set(["geometry", "places"]);
     for (const [shape, make] of Object.entries(GENERATORS)) {
-      if (shape === "geometry") {
-        // Vertices and faces come from the researcher. A generated stand-in
-        // would let the catalogue claim a capability that only arrives with
-        // their file.
-        expect(make, "geometry must have no generator").toBeNull();
+      if (UNGENERATED.has(shape)) {
+        expect(make, `${shape} must have no generator`).toBeNull();
       } else {
         expect(make, `${shape} has no generator`).not.toBeNull();
       }

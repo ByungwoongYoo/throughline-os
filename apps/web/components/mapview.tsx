@@ -22,6 +22,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FeatureCollection, Geometry } from "geojson";
 import { Geographic, Place } from "@/components/charts/Geographic";
+import { Globe3D } from "@/components/charts/Globe3D";
+import { ViewTabs } from "@/components/ViewTabs";
 import { DatasetColumn } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { Empty, Failure, Loading } from "./primitives";
@@ -58,6 +60,13 @@ export function MapView({ versionId, columns }: {
   const [world, setWorld] = useState<
     FeatureCollection<Geometry, { name?: string }> | null>(null);
   const [worldFailed, setWorldFailed] = useState(false);
+  /*
+   * Flat by default, and the caption on each says which question it answers.
+   * Equal Earth compares two countries honestly because it preserves area; the
+   * globe answers "where is this, and what is near it" and pays for it by
+   * hiding a hemisphere. Neither is the better map, so neither is the only one.
+   */
+  const [shape, setShape] = useState<"flat" | "globe">("flat");
 
   // Bundled rather than fetched, but 105KB, so it loads when a map is asked
   // for instead of sitting in the workspace's main bundle.
@@ -107,6 +116,12 @@ export function MapView({ versionId, columns }: {
         by {place.name}
       </label>
 
+      <ViewTabs
+        name="mapshape" label="How to draw the world"
+        value={shape} onChange={setShape}
+        options={[["flat", "Flat map"], ["globe", "Globe"]] as const}
+      />
+
       {worldFailed && (
         <Failure error={new Error(
           "The world topology could not be loaded, so there is no map to draw "
@@ -119,6 +134,17 @@ export function MapView({ versionId, columns }: {
 
       {world && data.data && (
         <>
+          {shape === "globe" ? (
+            <Globe3D
+              places={data.data.places.map((p) => ({
+                id: p.id, label: p.label, value: p.value,
+              }))}
+              world={world}
+              valueLabel={data.data.value_label}
+              title={`${data.data.value_label} by ${place.name}`}
+              caption={data.data.note}
+            />
+          ) : (
           <Geographic
             places={data.data.places.map((p): Place => ({
               id: p.id, label: p.label, value: p.value,
@@ -135,6 +161,7 @@ export function MapView({ versionId, columns }: {
             title={`${data.data.value_label} by ${place.name}`}
             caption={data.data.note}
           />
+          )}
 
           {data.data.unmatched.length > 0 && (
             <p className="notice" role="status">

@@ -1,7 +1,7 @@
 /**
  * The catalogue of spatial visualizations (§9, §10).
  *
- * Two hundred and twenty-six named visualizations, nine primitives. This file
+ * Two hundred and fifty-three named visualizations, ten primitives. This file
  * exists because the alternative to a checkable catalogue is memory, and memory
  * is how §74 and §75 sat recorded as unreviewed while their code was finished
  * and unreachable.
@@ -18,9 +18,15 @@ import {
   unlockedBy,
 } from "@/lib/charts3d/registry";
 
+/**
+ * Ten now. `globe` was added because "3D globe" and "Climate globe" were filed
+ * under `surface` and drawn as height fields on a flat grid — not an
+ * undifferentiated picture but the wrong shape for the thing named. A globe
+ * shares no arithmetic with a surface: fixed radius, data in the colour.
+ */
 const PRIMITIVES: Primitive[] = [
   "points", "lines", "surface", "bars", "glyphs", "volume", "isosurface",
-  "network", "mesh",
+  "network", "mesh", "globe",
 ];
 
 describe("the catalogue is complete and consistent", () => {
@@ -31,7 +37,7 @@ describe("the catalogue is complete and consistent", () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
-  it("draws everything with one of the nine primitives", () => {
+  it("draws everything with one of the ten primitives", () => {
     for (const entry of CATALOGUE) {
       expect(PRIMITIVES).toContain(entry.primitive);
     }

@@ -23,7 +23,7 @@
  * generators below are fixed, so what one person sees is what another sees.
  */
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Network3D } from "@/components/charts/Network3D";
 import { Field3D } from "@/components/charts/Field3D";
@@ -31,6 +31,7 @@ import { VoxelVolume } from "@/components/charts/VoxelVolume";
 import { Lines3D } from "@/components/charts/Lines3D";
 import { Isosurface3D } from "@/components/charts/Isosurface3D";
 import { Bars3D } from "@/components/charts/Bars3D";
+import { Globe3D } from "@/components/charts/Globe3D";
 import { SpatialControl } from "@/components/spatial/SpatialControl";
 import { VisualizationController } from "@/lib/spatial/commands";
 import { Graph } from "@/lib/charts3d/network";
@@ -39,10 +40,41 @@ import { Grid, gridFromFunction } from "@/lib/charts3d/voxels";
 import { Path, nearestSampler, streamline } from "@/lib/charts3d/paths";
 import { SpecialistMount } from "@/components/specialist/mount";
 import {
-  CATALOGUE, drawableOnDemand, drawnBy,
+  CATALOGUE, builtWithoutAnExample, drawableOnDemand, drawnBy,
 } from "@/lib/charts3d/registry";
 import { CatalogueBrowser } from "@/components/charts3d/CatalogueBrowser";
 import { isDrawable } from "@/lib/charts3d/examples";
+import type { FeatureCollection, Geometry } from "geojson";
+
+/**
+ * The bundled 110m topology, loaded on demand.
+ *
+ * Every other figure on this page is synthetic, and the globe is the one that
+ * cannot be: a sphere with invented coastlines is not a demonstration of a
+ * globe, it is a demonstration of a ball. So this reads the same `world-atlas`
+ * file `MapView` does — 105KB, imported when the page opens rather than bundled
+ * into the workspace.
+ */
+function useWorld() {
+  const [world, setWorld] =
+    useState<FeatureCollection<Geometry, { name?: string }> | null>(null);
+  useEffect(() => {
+    let live = true;
+    Promise.all([
+      import("world-atlas/countries-110m.json"),
+      import("topojson-client"),
+    ]).then(([atlas, topojson]) => {
+      if (!live) return;
+      const topology = (atlas.default ?? atlas) as never;
+      setWorld(topojson.feature(
+        topology,
+        (topology as { objects: { countries: unknown } }).objects.countries as never,
+      ) as never);
+    }).catch(() => {});
+    return () => { live = false; };
+  }, []);
+  return world;
+}
 
 /**
  * A citation network with real structure.
@@ -144,6 +176,7 @@ export default function Charts3DPage() {
   const field = useRef<VisualizationController | null>(null);
   const volume = useRef<VisualizationController | null>(null);
   const [addressing, setAddressing] = useState<string>("—");
+  const world = useWorld();
 
   const graph = useMemo(citationNetwork, []);
   const flow = useMemo(vortexFlow, []);
@@ -158,6 +191,14 @@ export default function Charts3DPage() {
    * promises — and the smaller, truer one is what a reader is checking here.
    */
   const onDemand = drawableOnDemand();
+  /*
+   * Built, and shown nowhere on this page. Counted so that 253 minus what is
+   * drawn does not become a silent remainder — §123. The globe is the case: the
+   * renderer is here and the country outlines are bundled, and the one thing a
+   * demonstration would have to invent is a value per country. A fabricated
+   * scatter reads as synthetic; a fabricated world choropleth reads as a result.
+   */
+  const noExample = builtWithoutAnExample();
   const byPrimitive = (["network", "glyphs", "volume", "lines", "isosurface", "bars"] as const)
     .map((p) => `${drawnBy(p).length} ${p}`)
     .join(", ");
@@ -185,6 +226,14 @@ export default function Charts3DPage() {
               A further {onDemand.length} are drawn by a specialist library
               once you open a file of your own; none of that library is
               downloaded until you do.{" "}
+            </>
+          )}
+          {noExample.length > 0 && (
+            <>
+              {noExample.length} more are built and not shown here, because the
+              only thing a demonstration could invent is the data itself — a
+              made-up world map reads as a finding in a way a made-up scatter
+              does not.{" "}
             </>
           )}
           The three below are the primitives behind {byPrimitive} of them —
@@ -302,6 +351,36 @@ export default function Charts3DPage() {
           controllerRef={volume}
           caption="A dense core inside a thin shell, synthetic."
         />
+      </section>
+
+      <section>
+        <h2>Globe</h2>
+        {/*
+          * Empty on purpose, and this is the one figure on the page that
+          * carries no numbers.
+          *
+          * `GENERATORS.places` is null in the catalogue because a value
+          * invented for a real country is a claim about the world — "Chad,
+          * 0.43" reads as a fact whatever the caption says, in a way "node 7,
+          * 0.43" never does. The same objection applies here, so the globe is
+          * shown as what a reader has to judge anyway: whether the coastlines
+          * sit *on* the sphere, whether the far side is properly hidden, and
+          * whether it turns under the arrow keys.
+          */}
+        {world
+          ? <Globe3D
+              places={[]}
+              world={world}
+              valueLabel="No values"
+              caption={"Coastlines and the graticule, no data. The shape is "
+                       + "what there is to judge here: borders following the "
+                       + "surface rather than cutting through it, and the far "
+                       + "hemisphere hidden rather than painted over the near "
+                       + "one. Drag or use the arrow keys; the count below "
+                       + "changes because it is a true statement about what is "
+                       + "on screen right now."}
+            />
+          : <p className="note">Loading the coastlines…</p>}
       </section>
 
       <CatalogueBrowser />

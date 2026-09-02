@@ -47,7 +47,18 @@ export type Primitive =
   /** Nodes and edges placed in space. */
   | "network"
   /** Imported geometry: CAD, anatomy, molecules. */
-  | "mesh";
+  | "mesh"
+  /**
+   * Values on the surface of the Earth, drawn on the sphere it is.
+   *
+   * Its own primitive rather than a `surface` with a spherical option, because
+   * the two share no arithmetic: a height field is z = f(x, y) over a plane,
+   * and this is a fixed radius with data in the *colour*. Filing globes under
+   * `surface` is what drew "3D globe" and "Climate globe" as flat grids — a
+   * picture that was not merely undifferentiated but the wrong shape for the
+   * thing it was named after.
+   */
+  | "globe";
 
 /**
  * What has to exist before a primitive can draw anything.
@@ -64,7 +75,17 @@ export type DataShape =
   | "voxels"       // a scalar sampled through a box
   | "graph"        // nodes and edges
   | "geometry"     // vertices and faces from a file
-  | "series";      // ordered values, for extrusion
+  | "series"       // ordered values, for extrusion
+  /**
+   * A value per place, joined to a country by ISO 3166-1 numeric code.
+   *
+   * Not `xyzv`: the positions are not in the data at all. They come from the
+   * bundled topology, and what the project supplies is an identifier and a
+   * number. Calling it `xyzv` would say a researcher needs coordinates for a
+   * choropleth, which is the opposite of true — `places.py` resolves codes and
+   * reports what it could not match rather than guessing at a position.
+   */
+  | "places";
 
 export type Status =
   /** Drawable today. */
@@ -274,12 +295,12 @@ export const CATALOGUE: Visualization[] = [
   { name: "Temporal network", primitive: "network", needs: "graph", spatial: "inherently", status: "configuration", family: "Networks", note: "A graph whose edges appear and vanish over time." },
 
   // 8. Geographic -----------------------------------------------------------
-  { name: "3D globe", primitive: "surface", needs: "grid", spatial: "inherently", status: "configuration", family: "Geographic" },
+  { name: "3D globe", primitive: "globe", needs: "places", spatial: "inherently", status: "built", family: "Geographic" },
   { name: "3D terrain", primitive: "surface", needs: "grid", spatial: "inherently", status: "built", family: "Geographic" },
   { name: "Elevation map", primitive: "surface", needs: "grid", spatial: "inherently", status: "built", family: "Geographic" },
   { name: "Bathymetric map", primitive: "surface", needs: "grid", spatial: "inherently", status: "built", family: "Geographic" },
-  { name: "Population globe", primitive: "points", needs: "xyzv", spatial: "inherently", status: "configuration", family: "Geographic" },
-  { name: "Climate globe", primitive: "surface", needs: "grid", spatial: "inherently", status: "configuration", family: "Geographic" },
+  { name: "Population globe", primitive: "globe", needs: "places", spatial: "inherently", status: "built", family: "Geographic" },
+  { name: "Climate globe", primitive: "globe", needs: "places", spatial: "inherently", status: "built", family: "Geographic" },
   { name: "Weather visualization", primitive: "glyphs", needs: "field", spatial: "inherently", status: "configuration", family: "Geographic" },
   { name: "Wind visualization", primitive: "glyphs", needs: "field", spatial: "inherently", status: "configuration", family: "Geographic" },
   { name: "Ocean currents", primitive: "glyphs", needs: "field", spatial: "inherently", status: "configuration", family: "Geographic" },
@@ -482,6 +503,32 @@ export function available(): Visualization[] {
 export function drawableOnDemand(): Visualization[] {
   return CATALOGUE.filter((v) => v.status === "specialist");
 }
+
+/**
+ * Built, and deliberately not shown on the catalogue page.
+ *
+ * A third category, and it needs naming or it is a silent absence — §123. These
+ * have a renderer today and are drawn the moment a researcher's own data
+ * arrives; what cannot be produced is an *example*. The globe is the case: the
+ * country geometry is bundled and always available, so the only thing a
+ * generated demonstration could supply is a value per country, and a fabricated
+ * choropleth of the world does not read as synthetic the way a fabricated
+ * scatter does. It reads as an epidemiological finding.
+ *
+ * The page says how many there are rather than listing 253 names and quietly
+ * drawing 216.
+ */
+export function builtWithoutAnExample(): Visualization[] {
+  return CATALOGUE.filter(
+    (v) => v.status === "built" && GENERATORS_MISSING.has(v.needs));
+}
+
+/**
+ * Shapes with no honest generated stand-in. Kept here rather than imported from
+ * `examples.ts` because that module imports this one, and the cycle would be
+ * real rather than a type-only one.
+ */
+const GENERATORS_MISSING: ReadonlySet<DataShape> = new Set(["geometry", "places"]);
 
 /**
  * What building one primitive would unlock.

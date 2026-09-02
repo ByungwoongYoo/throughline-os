@@ -67,8 +67,13 @@ const M = { top: 4, right: 4, bottom: 4, left: 4 };
  *
  * The name is prefixed rather than used bare, so a fallback can never collide
  * with a real numeric id.
+ *
+ * Exported because `Globe3D` joins the same places to the same topology and
+ * must agree about what a country *is*. A second copy of this would put those
+ * three territories on one chart and not the other, and the reasoning above is
+ * exactly the kind that does not survive being written twice.
  */
-function identity(feature: Feature<Geometry, { name?: string }>): string {
+export function identity(feature: Feature<Geometry, { name?: string }>): string {
   return feature.id !== undefined
     ? String(feature.id)
     : `name:${feature.properties?.name ?? "unnamed"}`;

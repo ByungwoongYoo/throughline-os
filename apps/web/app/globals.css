@@ -3105,9 +3105,15 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 
 /* P13 — 3D. Focusable, because rotation is the only way to read it and that
    must not be mouse-only. */
-.chart-canvas.volume { cursor: grab; display: block; border-radius: 6px; }
-.chart-canvas.volume:active { cursor: grabbing; }
-.chart-canvas.volume:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Every rotatable canvas behaves the same: grab to turn, and a visible focus
+   ring because §30 makes arrow-key rotation a keyboard feature rather than a
+   mouse one. `.globe` joins `.volume` here rather than repeating the rules. */
+.chart-canvas.volume,
+.chart-canvas.globe { cursor: grab; display: block; border-radius: 6px; }
+.chart-canvas.volume:active,
+.chart-canvas.globe:active { cursor: grabbing; }
+.chart-canvas.volume:focus-visible,
+.chart-canvas.globe:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 
 /* --- primitive gallery ---------------------------------------------------- */
