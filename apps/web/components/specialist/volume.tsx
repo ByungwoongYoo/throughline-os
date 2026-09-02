@@ -58,6 +58,10 @@ export type MeshData = {
   getNumberOfPoints(): number;
   getNumberOfPolys(): number;
   getNumberOfCells(): number;
+  /** Present on `.vtp`; the other geometry formats carry no per-point array. */
+  getPointData?(): {
+    getScalars(): { getName(): string; getRange(): number[] } | null;
+  } | null;
 };
 
 /** What this viewer reads out of a volume. */
@@ -149,8 +153,26 @@ export function summarise(parsed: Parsed, fileName: string): SpecialistReport {
         `${grouped(points)} points, ${grouped(cells)} cells — lines or `
         + "vertices, not a closed surface." };
     }
-    return { drawn: true,
-      describes: `${grouped(points)} points, ${grouped(polys)} polygons.` };
+    /*
+     * A `.vtp` may carry a value per point — stress, temperature, displacement
+     * — and this viewer does not map it. Saying so is the whole of the fix.
+     *
+     * It used to be drawn instead, and drawn wrongly: vtk.js defaults a
+     * mapper's scalar range to [0, 1], so a stress field running 0 to 240 MPa
+     * came out as a flat blue sheet with one small hot spot, which is not the
+     * field and looks exactly like a result. The colouring is now off, and the
+     * absence is reported rather than left for the reader to notice.
+     */
+    const array = parsed.data.getPointData?.()?.getScalars() ?? null;
+    const shape = `${grouped(points)} points, ${grouped(polys)} polygons.`;
+    if (array) {
+      const [low, high] = array.getRange();
+      return { drawn: true, describes:
+        `${shape} It also carries "${array.getName()}", ${measured(low)} to `
+        + `${measured(high)} — a value per point, which this viewer does not `
+        + "map to colour. The shape is drawn; the field is not." };
+    }
+    return { drawn: true, describes: shape };
   }
 
   const [x, y, z] = parsed.data.getDimensions();
@@ -223,9 +245,26 @@ async function loadVtk(): Promise<VtkKit> {
         const data = reader.getOutputData() as VolumeData | null;
         return data === null ? null : { kind: "volume", data };
       }
+      /*
+       * The XML reader is parsed differently from the other two, and collapsing
+       * them was a bug that made `.vtp` unopenable.
+       *
+       * `vtkSTLReader` and `vtkPLYReader` both expose `parse`; `vtkXMLPolyDataReader`
+       * does not — it takes `parseAsArrayBuffer`, exactly as the `.vti` branch
+       * above already calls it. So every `.vtp` failed with "reader.parse is not
+       * a function", while the format sat in the accepted list this viewer
+       * offers, and `.vtp` is the one of the four that carries a scalar array
+       * per point. The tests missed it because they exercise the seam through a
+       * stand-in reader, and a stand-in has whatever method it is given.
+       */
+      if (format === "vtp") {
+        const reader = vtkXMLPolyDataReader.newInstance();
+        reader.parseAsArrayBuffer(bytes);
+        const data = reader.getOutputData() as MeshData | null;
+        return data === null ? null : { kind: "mesh", data };
+      }
       const reader = format === "stl" ? vtkSTLReader.newInstance()
-        : format === "ply" ? vtkPLYReader.newInstance()
-        : vtkXMLPolyDataReader.newInstance();
+        : vtkPLYReader.newInstance();
       reader.parse(bytes);
       const data = reader.getOutputData() as MeshData | null;
       return data === null ? null : { kind: "mesh", data };
@@ -243,6 +282,24 @@ async function loadVtk(): Promise<VtkKit> {
         show(parsed) {
           if (parsed.kind === "mesh") {
             const mapper = vtkMapper.newInstance();
+            /*
+             * Geometry, and only geometry.
+             *
+             * vtk.js leaves `scalarVisibility` on, so a `.vtp` carrying a
+             * per-point array was coloured by it against the default scalar
+             * range of [0, 1]. A stress field of 0 to 240 MPa therefore
+             * clamped almost everywhere and rendered as a flat sheet with a
+             * single spot — a picture that reads as a solved field and is not
+             * one, with no legend to check it against.
+             *
+             * `specialist-vtk.test.tsx` already argued the principle for the
+             * catalogue: showing an uncoloured mesh as though it answered
+             * "Stress visualization" would be "a placebo with a viewer around
+             * it". Colouring it wrongly is the same placebo with a coat of
+             * paint. Until there is a scalar range and a legend, this draws
+             * the shape and the caption says what it is not drawing.
+             */
+            mapper.setScalarVisibility(false);
             mapper.setInputData(parsed.data);
             const actor = vtkActor.newInstance();
             actor.setMapper(mapper);

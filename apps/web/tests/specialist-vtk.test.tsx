@@ -455,3 +455,89 @@ describe("the catalogue rows this viewer answers for", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+
+describe("a .vtp is read the way vtk.js actually reads one", () => {
+  /**
+   * Every `.vtp` failed with "reader.parse is not a function", and the suite
+   * was green throughout.
+   *
+   * The three geometry readers were called through one branch, and they do not
+   * share an interface: `vtkSTLReader` and `vtkPLYReader` expose `parse`,
+   * `vtkXMLPolyDataReader` does not — it takes `parseAsArrayBuffer`, exactly as
+   * the `.vti` branch beside it already called it. The seam tests could not see
+   * this, because they hand the viewer a stand-in reader, and a stand-in has
+   * whatever methods it is written with.
+   *
+   * So this checks against the real package's own module surface rather than
+   * against a double. It is the only kind of test that could have caught it.
+   */
+  const readerSource = (relative: string) =>
+    readFileSync(join(WEB_ROOT, "node_modules", "@kitware", "vtk.js", relative),
+                 "utf8");
+
+  it("calls parseAsArrayBuffer for the XML reader, which has no parse", () => {
+    /*
+     * The methods come from the base `XMLReader`, not from
+     * `XMLPolyDataReader`, which only extends it — a first version of this
+     * test looked in the subclass, found neither name, and failed for the
+     * wrong reason. The base is where the surface is actually defined.
+     */
+    const base = readerSource("IO/XML/XMLReader.js");
+    expect(/publicAPI\.parseAsArrayBuffer\s*=/.test(base)).toBe(true);
+    // The absence is the point: a `.parse(` on this reader is the bug.
+    expect(/publicAPI\.parse\s*=/.test(base)).toBe(false);
+    expect(readerSource("IO/XML/XMLPolyDataReader.js"))
+      .toContain("XMLReader.js");
+
+    const source = readFileSync(SOURCE, "utf8");
+    const vtpBranch = source.slice(source.indexOf('if (format === "vtp")'));
+    expect(vtpBranch.slice(0, 400)).toContain("parseAsArrayBuffer");
+  });
+
+  it("still calls parse for the two readers that have one", () => {
+    /** Guards the fix from over-reaching: STL and PLY genuinely take `parse`,
+     *  and routing them through `parseAsArrayBuffer` would break both. */
+    for (const path of ["IO/Geometry/STLReader.js", "IO/Geometry/PLYReader.js"]) {
+      expect(/publicAPI\.parse\s*=/.test(readerSource(path)), path).toBe(true);
+    }
+  });
+});
+
+describe("the shape is drawn and the field is not pretended", () => {
+  it("says what a file carries that it is not showing", () => {
+    /**
+     * A `.vtp` was coloured by its point array against vtk.js's default scalar
+     * range of [0, 1]. A stress field of 0 to 240 MPa therefore clamped almost
+     * everywhere and drew as a flat sheet with one small spot — verified in a
+     * browser, and it reads exactly like a solved field. There was no legend to
+     * check it against, and the caption said only "625 points, 1,152 polygons".
+     */
+    const withStress = {
+      ...mesh(625, 1152),
+      getPointData: () => ({
+        getScalars: () => ({ getName: () => "stress_MPa", getRange: () => [0, 240] }),
+      }),
+    } as MeshData;
+
+    const report = summarise({ kind: "mesh", data: withStress }, "beam.vtp");
+    expect(report.drawn).toBe(true);
+    expect(report.describes).toContain("stress_MPa");
+    expect(report.describes).toMatch(/does not map/);
+  });
+
+  it("says nothing about a field when the file carries none", () => {
+    /** An STL has no per-point array, and a caption that mentioned one would
+     *  be describing a file the researcher did not open. */
+    const report = summarise({ kind: "mesh", data: mesh(400, 800) }, "bracket.stl");
+    expect(report.drawn).toBe(true);
+    expect(report.describes).not.toMatch(/does not map/);
+  });
+
+  it("turns scalar colouring off rather than leaving it to a default", () => {
+    /** The default is on, and on is what produced the misleading picture. */
+    const source = readFileSync(SOURCE, "utf8");
+    expect(source).toContain("mapper.setScalarVisibility(false)");
+  });
+});
