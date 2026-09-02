@@ -272,13 +272,34 @@ class Throughline < Formula
   version "{stated}"
   sha256 "{digest}"
 
+  # `runtimes.py`: "The documented install has always asked for Python 3.12
+  # exactly" — pgserver is the reason, and `CPYTHON_VERSION` pins 3.12.14. The
+  # shim used to call `/usr/bin/env python3`, which is whatever happens to be
+  # on PATH and may be 3.13. Declaring it means Homebrew supplies a correct
+  # interpreter and `bootstrap` does not spend several hundred megabytes
+  # fetching one it could have been handed.
+  depends_on "python@3.12"
+
+  # **Deliberately no `depends_on "postgresql"`.** `db.py` opens by saying "a
+  # desktop researcher must never be asked to install one" and depends on
+  # `pgserver`, which ships its own server as a pip wheel. A formula declaring
+  # PostgreSQL would install something the product does not use and tell people
+  # to start a service it never talks to — a claim the software does not
+  # support, in installer form.
+
+  # No `license` line, because the repository has no LICENSE file. Stating one
+  # would be inventing a fact about somebody else's work, and `brew audit
+  # --strict` flagging its absence is the correct outcome rather than a defect
+  # to paper over.
+
   def install
     libexec.install Dir["*"]
     # A thin shim rather than a symlink: manage.py resolves the installation
     # from its own location, so it has to be invoked where it was unpacked.
     (bin/"throughline").write <<~SHIM
       #!/bin/sh
-      exec /usr/bin/env python3 "#{{libexec}}/scripts/manage.py" "$@"
+      exec "#{{formula_opt_bin("python@3.12")}}/python3.12" \\
+        "#{{libexec}}/scripts/manage.py" "$@"
     SHIM
     chmod 0755, bin/"throughline"
   end

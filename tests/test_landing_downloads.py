@@ -650,6 +650,32 @@ def test_the_formula_strips_a_leading_v_from_the_version_but_not_the_url(tmp_pat
     )
 
 
+def test_the_formula_does_not_ask_for_a_database_the_product_ships(tmp_path):
+    """`db.py` opens by saying a researcher must never be asked to install one.
+
+    A hand-written formula in `packaging/` declared `depends_on "postgresql@16"`
+    and told people to `brew services start postgresql@16` before first use.
+    The product uses `pgserver`, which ships its own server as a pip wheel — so
+    that formula installed something the product never talks to and asked for a
+    step that does nothing. A claim the software does not support, in installer
+    form, which is the defect this codebase exists to refuse.
+
+    It pins Python instead, and that one is real: `runtimes.py` says "the
+    documented install has always asked for Python 3.12 exactly".
+    """
+    # The *declaration*, not the word: the formula explains in a comment why it
+    # does not depend on PostgreSQL, and a substring check on "postgresql"
+    # matches that explanation and fails on the fix. Third time in this suite a
+    # guard has read its own documentation and believed it.
+    body = re.sub(r"^\s*#.*$", "", formula_text(tmp_path), flags=re.M)
+
+    assert not re.search(r'depends_on\s+"postgresql', body), (
+        "the product bundles its own server via pgserver; declaring PostgreSQL "
+        "installs something it never uses"
+    )
+    assert 'depends_on "python@3.12"' in body
+
+
 def test_the_formula_points_at_the_same_host_as_everything_else(tmp_path):
     """Five places named the release host and none of them agreed until a test
     held them together. This is the sixth."""
