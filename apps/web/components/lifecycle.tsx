@@ -171,7 +171,9 @@ export function FindingLifecycle({
       <h2 id="lifecycle-heading">Where this finding stands</h2>
       <p className="note">
         It is <b>{stateName(status)}</b>, with{" "}
-        {evidenceTotal === 0 ? "no linked evidence" : `${evidenceTotal} pieces of linked evidence`}.
+        {evidenceTotal === 0
+          ? "no linked evidence"
+          : `${evidenceTotal} piece${evidenceTotal === 1 ? "" : "s"} of linked evidence`}.
         {evidenceTotal === 0 && (
           // Said before the attempt, not after the refusal.
           " Anything past candidate is a claim about the world, so it needs"

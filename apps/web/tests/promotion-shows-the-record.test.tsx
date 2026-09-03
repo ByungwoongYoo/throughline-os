@@ -45,6 +45,35 @@ describe("what a recorded outcome means", () => {
   });
 });
 
+describe("how the standing is worded", () => {
+  it("counts one piece of evidence as a piece, not pieces", () => {
+    /**
+     * The screen a researcher lands on after recording their first finding.
+     * One connection produces exactly one piece of evidence, so "1 pieces" is
+     * the most common reading of this line, not an edge case.
+     */
+    render(
+      <FindingLifecycle findingId="fnd_1" status="candidate" evidenceTotal={1} />,
+    );
+    expect(screen.getByText(/1 piece of linked evidence/)).toBeTruthy();
+    expect(screen.queryByText(/1 pieces/)).toBeNull();
+  });
+
+  it("still says pieces for more than one", () => {
+    render(
+      <FindingLifecycle findingId="fnd_2" status="candidate" evidenceTotal={3} />,
+    );
+    expect(screen.getByText(/3 pieces of linked evidence/)).toBeTruthy();
+  });
+
+  it("says there is none when there is none", () => {
+    render(
+      <FindingLifecycle findingId="fnd_3" status="candidate" evidenceTotal={0} />,
+    );
+    expect(screen.getByText(/no linked evidence/)).toBeTruthy();
+  });
+});
+
 describe("the promotion form", () => {
   const recorded = {
     robustness: { outcome: "violated", detail: "the residuals fan out" },

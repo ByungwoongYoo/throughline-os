@@ -791,8 +791,13 @@ export function Findings({ projectId, onSelect }: {
     <>
       <h1>Findings</h1>
       <p className="lede">
-        A finding must link to supporting and contradicting evidence before it can be
-        promoted past candidate.
+        {/* "and contradicting" overstated the rule and disagreed with the
+            server, which says "supporting or contradicting" when it refuses:
+            `transition` requires the evidence total to be more than zero, not
+            evidence in both directions. A researcher reading the stricter
+            version would go looking for a contradiction to manufacture. */}
+        A finding must link to evidence — supporting, contradicting, or both —
+        before it can be promoted past candidate.
       </p>
       {findings.loading && <Loading rows={3} label="Reading findings" />}
       {findings.error && <Failure error={findings.error} retry={findings.reload} />}
