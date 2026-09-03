@@ -8,11 +8,17 @@ those modules, and the Reports screen called five routes that did not exist — 
 a researcher pressing "Draft report" received a 404 and the product's entire
 reason for existing stopped one step before the end.
 
-These tests are therefore about the *wiring* rather than about the rendering.
-The domain tests already prove a docx is a docx; what was never checked is that
-a request can reach them, that a refusal survives the trip as a refusal rather
-than a 500, and that the shapes the interface reads are the shapes the API
-returns.
+These tests are mostly about the *wiring*: that a request can reach the
+modules, that a refusal survives the trip as a refusal rather than a 500, and
+that the shapes the interface reads are the shapes the API returns.
+
+This file used to say "the domain tests already prove a docx is a docx", and
+gave that as the reason for going no further than `byte_size > 0`. They do not
+— they check the byte count too, which is the same check in a different place.
+Nothing anywhere opened the file. A corrupt archive, or one that lost its
+numbers on the way through, passes every size check ever written and fails in
+the hands of whoever it was sent to, which is a journal. `TestTheFileOpens`
+below is that missing check.
 
 Everything here commits, because `TestClient` drives the real application and
 the rolled-back cursor fixture does not cover it. Each test removes its own
@@ -186,6 +192,51 @@ class TestProducingTheFile:
         assert body["fmt"] == fmt
         assert body["byte_size"] > 0
         assert body["storage_key"]
+
+    @pytest.mark.parametrize("fmt,part", [
+        ("docx", "word/document.xml"),
+        ("pptx", "ppt/presentation.xml"),
+    ])
+    def test_the_office_formats_are_files_their_applications_can_open(
+            self, client, workspace, fmt, part):
+        """
+        Both are ZIP containers with a required part. A renderer that wrote a
+        truncated archive would satisfy every other test in this file.
+        """
+        import zipfile
+
+        from throughline_domain.storage import storage_root
+
+        body = client.post(
+            f"/api/artifacts/{workspace['artifact']}/render?fmt={fmt}").json()
+        path = storage_root() / body["storage_key"]
+
+        assert zipfile.is_zipfile(path), f"the .{fmt} is not a readable archive"
+        with zipfile.ZipFile(path) as archive:
+            assert part in archive.namelist(), (
+                f"the .{fmt} has no {part}, so its application cannot open it")
+            assert archive.testzip() is None, "a member of the archive is corrupt"
+
+    def test_the_recorded_number_is_in_the_document(self, client, workspace):
+        """
+        The whole point of the pipeline: what is in the file is what the
+        analysis produced. `0.9025253041275638` is the fixture's recorded
+        estimate, rendered to four places.
+        """
+        import zipfile
+
+        from throughline_domain.storage import storage_root
+
+        body = client.post(
+            f"/api/artifacts/{workspace['artifact']}/render?fmt=docx").json()
+        with zipfile.ZipFile(storage_root() / body["storage_key"]) as archive:
+            text = " ".join(archive.read(name).decode("utf-8", "replace")
+                            for name in archive.namelist()
+                            if name.endswith(".xml"))
+
+        assert "0.9025" in text, "the recorded estimate is not in the document"
+        assert "{{ref:" not in text, (
+            "the document was sent out with an unresolved reference in it")
 
     def test_a_render_is_recorded_against_the_artifact(self, client, workspace):
         client.post(f"/api/artifacts/{workspace['artifact']}/render?fmt=markdown")

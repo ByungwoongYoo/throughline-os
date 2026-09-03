@@ -245,9 +245,36 @@ def test_paper_plus_dataset_to_validated_finding_with_full_provenance(
         f"analysis recorded ({recorded['estimate']})")
 
     # And it becomes a file a researcher can actually submit.
+    #
+    # Opened, not weighed. Every test of this rendered a document and checked
+    # `byte_size > 0` — and the API test justified going no further by saying
+    # "the domain tests already prove a docx is a docx", which they do not:
+    # they check the byte count too. A corrupt archive, or one that lost the
+    # number on the way through, passes a size check and fails in the hands of
+    # whoever it was sent to.
+    import zipfile
+
+    from throughline_domain.storage import storage_root
+
     rendered = client.post(f"/api/artifacts/{artifact_id}/render?fmt=docx")
     assert rendered.status_code == 200, rendered.text
     assert rendered.json()["byte_size"] > 0
+
+    path = storage_root() / rendered.json()["storage_key"]
+    assert zipfile.is_zipfile(path), "the .docx is not a readable archive"
+    with zipfile.ZipFile(path) as archive:
+        assert "word/document.xml" in archive.namelist(), (
+            "the .docx has no document part, so Word cannot open it")
+        text = " ".join(archive.read(name).decode("utf-8", "replace")
+                        for name in archive.namelist()
+                        if name.endswith(".xml"))
+
+    # The estimate the analysis recorded is in the document a journal receives.
+    assert f"{float(recorded['estimate']):.4f}" in text, (
+        "the recorded estimate is not in the rendered document")
+    # And nothing arrived as an unfilled placeholder.
+    assert "{{ref:" not in text, (
+        "the document still contains an unresolved reference")
 
     # --- DISCOVERY MAP: the project knows what to do next (§63) -------------
     overview = client.get(f"/api/projects/{project_id}/discovery-map").json()
