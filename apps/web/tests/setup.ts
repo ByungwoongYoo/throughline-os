@@ -79,15 +79,36 @@ const RENDER_CRASH =
 /** Tests that provoke a render error on purpose. */
 const ALLOWED_TO_CRASH: RegExp[] = [];
 
+/**
+ * A duplicate `key` is a correctness bug, so it fails here too.
+ *
+ * React's own words: non-unique keys "may cause children to be duplicated
+ * and/or omitted — the behavior is unsupported". A list that silently drops a
+ * row is exactly the kind of wrong this product cannot afford, because the row
+ * that vanishes is a datum.
+ *
+ * It is caught here rather than in a browser because of what finding one costs
+ * otherwise. D191 was a duplicate-key warning seen in a console, and pinning it
+ * took an hour of navigating: React deduplicates the warning per key for the
+ * life of a runtime, so it fires once on the very first load and never again —
+ * every hook installed after mount is too late, and clicking between sections
+ * shows nothing. In a test each render is a fresh runtime, so the warning has
+ * nowhere to hide, and it names the test that produced it.
+ */
+const DUPLICATE_KEY = /same key|unique "?key"? prop/;
+
 let crashes: string[] = [];
+let keyWarnings: string[] = [];
 let realError: typeof console.error;
 
 beforeEach(() => {
   crashes = [];
+  keyWarnings = [];
   realError = console.error;
   console.error = (...args: unknown[]) => {
     const text = args.map(String).join(" ");
     if (RENDER_CRASH.test(text)) crashes.push(text.slice(0, 300));
+    if (DUPLICATE_KEY.test(text)) keyWarnings.push(text.slice(0, 300));
     realError(...args);
   };
 });
@@ -95,6 +116,15 @@ beforeEach(() => {
 afterEach((ctx) => {
   console.error = realError;
   const name = ctx.task?.name ?? "";
+
+  if (keyWarnings.length) {
+    throw new Error(
+      "React reported a duplicate or missing key while this test rendered, "
+      + "which lets a list duplicate or omit a row:\n  " + keyWarnings[0]
+      + "\n\nKey by something unique to the row — an id — rather than by a "
+      + "value two rows can share, such as a type or a label.");
+  }
+
   if (!crashes.length) return;
   if (ALLOWED_TO_CRASH.some((pattern) => pattern.test(name))) return;
   throw new Error(

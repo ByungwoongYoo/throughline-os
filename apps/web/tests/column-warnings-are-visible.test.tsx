@@ -48,10 +48,19 @@ function view() {
 beforeEach(() => { vi.restoreAllMocks(); });
 
 describe("what the researcher is told about a column", () => {
-  it("shows the column at all, so a blank screen cannot pass this file", async () => {
-    serve([column()]);
+  it("shows the columns at all, so a blank screen cannot pass this file", async () => {
+    /*
+     * Two continuous columns, not one. A real dataset has several of a type —
+     * this project's own has three — and a single-column fixture cannot catch
+     * a list keyed by something two rows share, which is what a duplicate key
+     * is. D191 was exactly that shape and a one-column fixture would have
+     * missed it.
+     */
+    serve([column(), column({ ordinal: 1, name: "consumption_ddd",
+                              original_name: "consumption_ddd" })]);
     view();
     expect(await screen.findByText("resistance_pct")).toBeTruthy();
+    expect(screen.getByText("consumption_ddd")).toBeTruthy();
   });
 
   it("says when a sentinel code is sitting in the numbers", async () => {
