@@ -34,6 +34,7 @@ from typing import Any
 from throughline_model import ModelUnavailable, provider, prompt
 from throughline_model.schemas import VariableProposals
 
+from . import events
 from .ids import new_id
 
 SUGGESTED = "suggested"
@@ -336,6 +337,26 @@ def decide(cur, *, mapping_id: str, approve: bool, user_id: str) -> dict[str, An
             "WHERE dataset_column_id = %s AND id <> %s AND status = %s",
             (REJECTED, user_id, row["dataset_column_id"], mapping_id, APPROVED),
             )
+        retired = cur.rowcount
+    else:
+        retired = 0
+
+    # Recorded here as well as on the row. `decided_by` and `decided_at` already
+    # say who settled this mapping, but they can only be read one mapping at a
+    # time; what a methods section asks is what was decided in this project and
+    # in what order, and that question has no per-table answer.
+    #
+    # `retired` is stated separately on purpose. Approving one mapping rejects
+    # any other approved mapping for the same column, and those rows get the
+    # same `decided_by` — so the per-row record says this person rejected
+    # mappings they never saw. The count distinguishes the decision from its
+    # consequence.
+    events.audit(cur, project_id=None, actor=user_id,
+                 action="approve" if approve else "reject",
+                 object_type="variable_mapping", object_id=mapping_id,
+                 detail={"canonical_variable_id": row["canonical_variable_id"],
+                         "dataset_column_id": row["dataset_column_id"],
+                         "also_retired": retired})
     return dict(row)
 
 

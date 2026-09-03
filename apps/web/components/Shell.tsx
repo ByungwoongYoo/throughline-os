@@ -35,7 +35,8 @@ export type Section =
   | "overview" | "sources" | "variables" | "search"
   | "discover" | "compare" | "patterns" | "connections" | "findings"
   | "analyses" | "graph" | "embedding"
-  | "reports" | "figures" | "gallery" | "notebook" | "journal" | "literature"
+  | "reports" | "figures" | "gallery" | "notebook" | "journal" | "activity"
+  | "literature"
   | "datasearch" | "settings";
 
 export type Crumb = { label: string; onClick?: () => void };
@@ -116,6 +117,18 @@ const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; 
        * read across objects rather than one object at a time.
        */
       { id: "journal", label: "Journal" },
+      /*
+       * Beside the journal for the same reason the journal sits beside the
+       * notebook, and the distinction is the same one: the journal is
+       * everything *written* in the project in the order it was written,
+       * this is everything *done* in it in the order it was done.
+       *
+       * It exists because `audit_log` had nine writers and no readers — a
+       * record kept by one part of the system and read by none, which is
+       * this repository's named recurring defect at table scale. A route
+       * without a screen would have recreated it one layer up.
+       */
+      { id: "activity", label: "Activity" },
     ],
   },
   {
@@ -207,6 +220,11 @@ const ICONS: Record<Section, (p: { size?: number }) => ReactElement> = {
   // Reuses the notebook glyph: they are the same notes read two ways, and a
   // second glyph would suggest two different kinds of thing.
   journal: IconNotebook,
+  // Reuses the journal glyph: both are the project's own record read in
+  // order — one of what was written, one of what was done — and a second
+  // glyph for the same idea makes a sidebar harder to scan, which is the
+  // reasoning `variables` already follows above.
+  activity: IconNotebook,
   settings: IconSettings,
 };
 

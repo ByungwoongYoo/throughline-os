@@ -61,6 +61,7 @@ const HEADING_IN: Record<string, { file: string; expect?: string; why?: string }
   figures: { file: "components/figures.tsx" },
   notebook: { file: "components/notebook.tsx" },
   journal: { file: "components/journal.tsx" },
+  activity: { file: "components/activity.tsx" },
   gallery: { file: "components/gallery.tsx" },
   settings: { file: "components/settings.tsx" },
 };

@@ -30,6 +30,7 @@ import { Compare } from "@/components/compare";
 import { Patterns } from "@/components/patterns";
 import { Board } from "@/components/board/Board";
 import { Literature } from "@/components/literature";
+import { ProjectActivity } from "@/components/activity";
 import { Notebook } from "@/components/notebook";
 import { Settings } from "@/components/settings";
 import { WithdrawnSources } from "@/components/withdrawn";
@@ -597,6 +598,7 @@ function Workspace({ user }: { user: SignedInUser }) {
         {section === "journal" && (
           <Journal projectId={project.id} onOpenObject={select("analysis")} />
         )}
+        {section === "activity" && <ProjectActivity projectId={project.id} />}
         {section === "settings" && <Settings />}
         {section === "graph" && (
           <GraphView projectId={project.id} onSelect={select("object")} />
