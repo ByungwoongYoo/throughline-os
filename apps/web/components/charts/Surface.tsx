@@ -72,8 +72,20 @@ export type SurfaceGrid = {
  */
 const SUPPORT_RADIUS = 0.18;
 
+/**
+ * A number short enough to read off a legend.
+ *
+ * Local rather than shared because every chart here formats inline the same
+ * way — `toPrecision(3)` — and a helper imported from one chart into another
+ * is a dependency between two things that have none.
+ */
+function readable(value: number): string {
+  return Number.isInteger(value) ? String(value)
+    : String(Number(value.toPrecision(3)));
+}
+
 export function Surface({
-  grid, observations = [], controllerRef, onSelect, onDetent,
+  grid, colourBy, observations = [], controllerRef, onSelect, onDetent,
   xLabel, yLabel, zLabel, title, caption, width = 720, height = 520,
   style = "filled",
 }: {
@@ -92,6 +104,24 @@ export function Surface({
    */
   style?: "filled" | "wireframe" | "contour";
   /** What was actually measured. Drawn over the fit, never merged into it. */
+  /**
+   * A fourth variable, painted onto the surface instead of its height.
+   *
+   * Height already carries `z`, so colouring by it says the same thing twice
+   * and the picture has three dimensions of data in it, not four. A separate
+   * grid — dispersion across a strike/maturity surface, uncertainty across a
+   * fitted response, residual across a model — is the case where a colour
+   * earns its place, and it must be the same shape as `grid.z` or it is
+   * describing a different surface.
+   *
+   * The legend is not optional when this is given. A colour scale with no key
+   * is a picture that looks quantitative and cannot be read.
+   */
+  colourBy?: {
+    values: Array<Array<number | null>>;
+    label: string;
+    unit?: string;
+  };
   observations?: SurfaceObservation[];
   controllerRef?: React.RefObject<VisualizationController | null>;
   onSelect?: (target: TargetRef | null) => void;
@@ -125,10 +155,33 @@ export function Surface({
     const sy = unitScale(grid.y);
     const sz = unitScale(allZ.length ? allZ : [0, 1]);
 
-    const lo = Math.min(...(allZ.length ? allZ : [0]));
-    const hi = Math.max(...(allZ.length ? allZ : [1]));
-    const colourOf = (z: number) =>
-      interpolateYlGnBu(hi === lo ? 0.5 : (z - lo) / (hi - lo));
+    /*
+     * What the colour means, and it is not always the height.
+     *
+     * A fourth variable is used when one is supplied *and* it describes this
+     * surface — same number of rows and columns. A mismatched grid is refused
+     * rather than stretched: painting one surface with another's values
+     * produces a picture that is confidently wrong everywhere, and no reader
+     * could see it.
+     */
+    const shapeMatches = !!colourBy
+      && colourBy.values.length === grid.z.length
+      && colourBy.values.every((row, i) => row.length === grid.z[i].length);
+
+    const fourth = shapeMatches
+      ? colourBy!.values.flat().filter((v): v is number => v !== null)
+      : [];
+    const paintedBy: number[] = fourth.length ? fourth : allZ;
+
+    const lo = Math.min(...(paintedBy.length ? paintedBy : [0]));
+    const hi = Math.max(...(paintedBy.length ? paintedBy : [1]));
+    const ramp = (value: number) =>
+      interpolateYlGnBu(hi === lo ? 0.5 : (value - lo) / (hi - lo));
+
+    // Indexed by cell when a fourth variable is painted, by height otherwise.
+    const valueAt = (row: number, column: number, z: number): number =>
+      (fourth.length ? (colourBy!.values[row]?.[column] ?? z) : z);
+    const colourOf = (z: number) => ramp(z);
 
     // Support is measured in the normalised square, so it does not depend on
     // whichever units the two predictors happen to be in.
@@ -138,7 +191,24 @@ export function Surface({
       || support.some((s) => Math.hypot(s.x - nx, s.y - ny) <= SUPPORT_RADIUS * 2);
 
     return {
-      sx, sy, sz, colourOf, supported,
+      sx, sy, sz, colourOf, supported, valueAt,
+      /*
+       * What the colour stands for, or nothing when it stands for the height
+       * — in which case the z axis is already the key and a second one would
+       * repeat it.
+       */
+      legend: fourth.length && colourBy
+        ? { label: colourBy.label, unit: colourBy.unit ?? "",
+            low: lo, high: hi,
+            stops: [0, 0.25, 0.5, 0.75, 1].map((t) =>
+              interpolateYlGnBu(t)) }
+        : null,
+      /*
+       * A colour grid that does not describe this surface. Reported so the
+       * caption can say so: silently falling back to height would draw a
+       * different picture from the one asked for, and look correct.
+       */
+      colourMismatch: !!colourBy && !shapeMatches,
       points: observations.map((o) => ({
         id: o.id, label: o.label, datum: o,
         x: sx(o.x), y: sz(o.z), z: sy(o.y),
@@ -157,6 +227,9 @@ export function Surface({
   const cells = useMemo(() => {
     const out: Array<{
       corners: Array<{ x: number; y: number; z: number }>;
+      /** The value this cell's colour stands for — its height, or a fourth
+       *  variable when one was supplied. */
+      paint: number;
       z: number; supported: boolean;
     }> = [];
     for (let j = 0; j + 1 < grid.y.length; j += 1) {
@@ -173,7 +246,11 @@ export function Surface({
         const mean = (heights as number[]).reduce((a, b) => a + b, 0) / 4;
         const nx = (scene.sx(grid.x[i]) + scene.sx(grid.x[i + 1])) / 2;
         const ny = (scene.sy(grid.y[j]) + scene.sy(grid.y[j + 1])) / 2;
-        out.push({ corners, z: mean, supported: scene.supported(nx, ny) });
+        // The cell carries what its colour means, which is its height only
+        // when no fourth variable was given. Read here rather than at paint
+        // time so the sort and the fill cannot disagree about a cell.
+        out.push({ corners, z: mean, paint: scene.valueAt(j, i, mean),
+                   supported: scene.supported(nx, ny) });
       }
     }
     return out;
@@ -212,7 +289,7 @@ export function Surface({
       context.closePath();
 
       if (style === "filled") {
-        context.fillStyle = scene.colourOf(cell.z);
+        context.fillStyle = scene.colourOf(cell.paint);
         // Unsupported cells are drawn faintly. The smoothest part of a fitted
         // surface is usually the part with no data under it, and a reader has
         // no way to tell that from the shape alone.
@@ -221,7 +298,7 @@ export function Surface({
       } else if (style === "contour") {
         // A wash under the curves, or the levels float with nothing to read
         // them against — but faint, because the curves are the chart.
-        context.fillStyle = scene.colourOf(cell.z);
+        context.fillStyle = scene.colourOf(cell.paint);
         context.globalAlpha = cell.supported ? 0.16 : 0.06;
         context.fill();
       }
@@ -229,7 +306,7 @@ export function Surface({
       if (style === "wireframe") {
         // The cell edges carry the value, since nothing is filled.
         context.globalAlpha = cell.supported ? 0.95 : 0.35;
-        context.strokeStyle = scene.colourOf(cell.z);
+        context.strokeStyle = scene.colourOf(cell.paint);
         context.lineWidth = 0.9;
       } else {
         context.globalAlpha = cell.supported ? 0.5 : 0.2;
@@ -532,6 +609,33 @@ export function Surface({
           Reset the view
         </button>
       </div>
+
+      {/*
+        * The key to the colour, and it appears only when the colour carries
+        * something the axes do not. Painting by height and then drawing a
+        * scale for it would key the picture to itself.
+        *
+        * In the DOM rather than on the canvas: a bar painted into the scene
+        * cannot be read by anything that cannot see, does not follow the
+        * theme, and does not grow with the reader's text size.
+        */}
+      {scene.legend && (
+        <figure className="surface-legend">
+          <span className="surface-legend-name">
+            {scene.legend.label}
+            {scene.legend.unit ? ` (${scene.legend.unit})` : ""}
+          </span>
+          <span
+            className="surface-legend-bar"
+            style={{ background:
+              `linear-gradient(to right, ${scene.legend.stops.join(", ")})` }}
+          />
+          <span className="surface-legend-ends">
+            <span>{readable(scene.legend.low)}</span>
+            <span>{readable(scene.legend.high)}</span>
+          </span>
+        </figure>
+      )}
 
       <figcaption className="chart-caption">
         {caption}{" "}

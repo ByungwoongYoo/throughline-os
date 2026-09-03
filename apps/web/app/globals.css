@@ -4722,3 +4722,17 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .board-plan p { margin: 0; flex: 1 1 320px; }
 
 .board-lower { position: absolute; top: 4px; right: 30px; }
+
+/* --- a surface's colour key ------------------------------------------------
+   Shown only where the colour carries something the axes do not; painting by
+   height and then keying it would describe the picture with itself. Beside the
+   figure in the DOM, so it reads at any text size and follows the theme — a
+   bar painted into the canvas is a picture of a legend. */
+.surface-legend { display: grid; gap: 4px; margin: 6px 0 0; max-width: 300px; }
+.surface-legend-name { color: var(--ink-faint); font-size: 12px;
+                       letter-spacing: 0.02em; }
+.surface-legend-bar { display: block; height: 12px; border-radius: 3px;
+                      border: 1px solid var(--line); }
+.surface-legend-ends { display: flex; justify-content: space-between;
+                       color: var(--ink-faint); font-size: 12px;
+                       font-variant-numeric: tabular-nums; }

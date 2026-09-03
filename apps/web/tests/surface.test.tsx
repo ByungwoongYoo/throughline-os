@@ -249,3 +249,121 @@ describe("degenerate input, which a fit produces more often than data does", () 
                width={300} height={300} />)).not.toThrow();
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// Colour carrying a fourth variable, with a key (§9, and a reference figure)
+// ---------------------------------------------------------------------------
+
+describe("colour can carry something the axes do not", () => {
+  const GRID_3 = {
+    x: [0, 1, 2], y: [0, 1, 2],
+    z: [[1, 2, 3], [2, 3, 4], [3, 4, 5]],
+  };
+
+  it("draws no key when colour only repeats the height", () => {
+    /**
+     * The default. Height already carries z, so a scale for it keys the
+     * picture to itself and adds a legend a reader has to check against an
+     * axis that says the same thing.
+     */
+    const { container } = render(
+      <Surface grid={GRID_3} xLabel="a" yLabel="b" zLabel="c"
+               width={300} height={300} />);
+
+    expect(container.querySelector(".surface-legend")).toBeNull();
+  });
+
+  it("draws a key, with its unit, when colour carries a fourth variable", () => {
+    /**
+     * The case the reference figure is built on: a surface whose height is one
+     * quantity and whose colour is another — dispersion across a strike and
+     * maturity surface. Four dimensions in one picture, and unreadable without
+     * a key.
+     */
+    const { container } = render(
+      <Surface
+        grid={GRID_3}
+        colourBy={{
+          values: [[10, 20, 30], [20, 30, 40], [30, 40, 50]],
+          label: "Dispersion", unit: "bps",
+        }}
+        xLabel="a" yLabel="b" zLabel="c" width={300} height={300} />);
+
+    const legend = container.querySelector(".surface-legend");
+    expect(legend).not.toBeNull();
+    expect(legend!.textContent).toContain("Dispersion");
+    expect(legend!.textContent).toContain("bps");
+    // The ends of the scale are the fourth variable's range, not the height's.
+    expect(legend!.textContent).toContain("10");
+    expect(legend!.textContent).toContain("50");
+  });
+
+  it("keys the scale to the fourth variable, not to z", () => {
+    /**
+     * The mistake worth guarding: taking the range from the height while
+     * painting from another variable produces a bar whose numbers belong to a
+     * different quantity than its colours.
+     */
+    const { container } = render(
+      <Surface
+        grid={GRID_3}
+        colourBy={{ values: [[100, 200, 300], [200, 300, 400], [300, 400, 500]],
+                    label: "Residual" }}
+        xLabel="a" yLabel="b" zLabel="c" width={300} height={300} />);
+
+    // The two ends, read as their own spans. A substring test would be
+    // meaningless here: "100500" contains "5" because 500 does.
+    const ends = [...container.querySelectorAll(".surface-legend-ends span")]
+      .map((node) => node.textContent);
+    expect(ends).toEqual(["100", "500"]);
+    // Not the height's range, which is 1 to 5.
+    expect(ends).not.toEqual(["1", "5"]);
+  });
+
+  it("refuses a colour grid that is not this surface", () => {
+    /**
+     * Painting one surface with another's values is confidently wrong
+     * everywhere and no reader could see it. Falling back to height silently
+     * would draw a different picture from the one that was asked for, so the
+     * fallback happens *and says so*.
+     */
+    const { container } = render(
+      <Surface
+        grid={GRID_3}
+        colourBy={{ values: [[1, 2]], label: "Wrong shape" }}
+        xLabel="a" yLabel="b" zLabel="c" width={300} height={300} />);
+
+    // No key, because the colour is back to meaning the height.
+    expect(container.querySelector(".surface-legend")).toBeNull();
+  });
+
+  it("refuses a colour grid with the right rows and the wrong columns", () => {
+    /**
+     * The case the first version of this file missed. A grid with too few
+     * *rows* is caught by a length check; one with the right number of rows
+     * and a short row inside it is not, and it is the likelier mistake —
+     * a column dropped somewhere in a pipeline rather than a whole grid
+     * mismatched. Painting from it would colour each row by the wrong cells
+     * and look entirely plausible.
+     */
+    const { container } = render(
+      <Surface
+        grid={GRID_3}
+        colourBy={{ values: [[1, 2, 3], [4, 5], [6, 7, 8]],
+                    label: "Ragged" }}
+        xLabel="a" yLabel="b" zLabel="c" width={300} height={300} />);
+
+    expect(container.querySelector(".surface-legend")).toBeNull();
+  });
+
+  it("survives a fourth variable with holes in it", () => {
+    /** `null` is how a grid says "not here", and it must not become a colour. */
+    expect(() => render(
+      <Surface
+        grid={GRID_3}
+        colourBy={{ values: [[10, null, 30], [null, 30, 40], [30, 40, null]],
+                    label: "Sparse" }}
+        xLabel="a" yLabel="b" zLabel="c" width={300} height={300} />)).not.toThrow();
+  });
+});
