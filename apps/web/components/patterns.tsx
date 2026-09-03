@@ -24,6 +24,7 @@ import { api } from "@/lib/api";
 import { Empty, Failure, Loading } from "./primitives";
 import { VerdictBody, VerdictCard } from "./Verdict";
 import { SpecificationCurve } from "./speccurve";
+import { Diagnostics } from "./diagnostics";
 
 type Pattern = {
   kind: string;
@@ -94,7 +95,8 @@ export function Patterns({ projectId, datasetVersionId, columns }: {
   // would any one of them survive a different covariate set. They belong on one
   // screen because a researcher who reads the first will immediately want the
   // second about whatever caught their eye.
-  const [view, setView] = useState<"patterns" | "robustness">("patterns");
+  const [view, setView] =
+    useState<"patterns" | "robustness" | "believable">("patterns");
   const [detected, setDetected] = useState<Detected | null>(null);
   const [findings, setFindings] = useState<Findings | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -118,9 +120,26 @@ export function Patterns({ projectId, datasetVersionId, columns }: {
       name="patterns" label="What to look at"
       value={view} onChange={setView}
       options={[["patterns", "Across the project"],
-                ["robustness", "Would it survive?"]] as const}
+                ["robustness", "Would it survive?"],
+                /* The third question a screen raises and the one this product
+                   is built around: not "did this survive" but "does the whole
+                   family look like anything". `lib/diagnostics.ts` answered it
+                   and had no caller. */
+                ["believable", "Worth believing?"]] as const}
     />
   );
+
+  if (view === "believable") {
+    return (
+      <>
+        <h1>Patterns</h1>
+        {tabs}
+        <TabPanel name="patterns" value={view}>
+          <Diagnostics projectId={projectId} />
+        </TabPanel>
+      </>
+    );
+  }
 
   if (view === "robustness") {
     return (
