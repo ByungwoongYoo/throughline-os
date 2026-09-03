@@ -4257,6 +4257,12 @@ def transition_finding(finding_id: str, payload: FindingTransition,
             )
         except findings.EvidenceRequired as exc:
             raise HTTPException(409, str(exc)) from exc
+        except findings.ChecksContradicted as exc:
+            # 409, not 422: the request is well formed and the researcher's
+            # answers are legible. It conflicts with what the system recorded,
+            # which is a different thing from being incomplete, and the
+            # researcher needs to be told which of the two happened.
+            raise HTTPException(409, str(exc)) from exc
         except (findings.IllegalTransition, findings.ValidationIncomplete) as exc:
             raise HTTPException(422, str(exc)) from exc
 
@@ -4297,6 +4303,10 @@ def get_finding(finding_id: str, user: dict = Depends(current_user)) -> dict[str
         scoped_project(finding["project_id"], user)
         finding["evidence"] = findings.evidence_summary(cur, finding_id)
         finding["history"] = findings.lifecycle_history(cur, finding_id)
+        # What validation already observed about the robustness checks, so the
+        # promotion form shows the record instead of asking the researcher to
+        # certify six things from memory.
+        finding["recorded_checks"] = findings.recorded_checks(cur, finding_id)
         return finding
 
 

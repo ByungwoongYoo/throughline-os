@@ -98,11 +98,41 @@ const defined = new Set([
   ...tokensSetInComponents(),
 ]);
 
+/** Every component source, for the `var()` scan below. */
+function componentSources(
+  dir = join(WEB_ROOT, "components"),
+  found: Array<{ name: string; text: string }> = [],
+): Array<{ name: string; text: string }> {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      componentSources(path, found);
+    } else if (entry.name.endsWith(".tsx") || entry.name.endsWith(".ts")) {
+      found.push({
+        name: path.slice(WEB_ROOT.length + 1),
+        text: readFileSync(path, "utf8"),
+      });
+    }
+  }
+  return found;
+}
+
 describe("design tokens", () => {
   it("defines every token that is referenced", () => {
+    /**
+     * Components are scanned here too, not only the stylesheets.
+     *
+     * They were not, and the omission was invisible because a *different*
+     * test reads component sources: `tokensReadInComponents` collects
+     * `getPropertyValue("--x")` calls, so the file looked like it covered
+     * .tsx. It covered one way of reaching a token and not the ordinary one.
+     * An inline `style={{ color: "var(--bad)" }}` naming a token that has
+     * never existed passed this suite — and `var()` with no fallback drops
+     * the declaration, so the element quietly inherits its colour instead.
+     */
     const missing: string[] = [];
 
-    for (const { name, text } of sources) {
+    for (const { name, text } of sources.concat(componentSources())) {
       for (const match of text.matchAll(/var\(\s*(--[a-z0-9-]+)\s*([,)])/gi)) {
         const token = match[1].toLowerCase();
         // `var(--x, fallback)` is deliberate: the fallback is the answer when
@@ -142,5 +172,10 @@ describe("design tokens", () => {
     expect(defined.has("--panel")).toBe(true);
     // And the read scan finds something, or the test above passes vacuously.
     expect(tokensReadInComponents().size).toBeGreaterThan(0);
+    // Likewise the component `var()` scan, which is what let an invented
+    // token through until it was added.
+    const varsInComponents = componentSources()
+      .flatMap(({ text }) => [...text.matchAll(/var\(\s*(--[a-z0-9-]+)/gi)]);
+    expect(varsInComponents.length).toBeGreaterThan(10);
   });
 });

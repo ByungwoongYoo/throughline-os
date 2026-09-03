@@ -82,11 +82,46 @@ export function stateName(state: string): string {
   return state.replace(/_/g, " ");
 }
 
-export function FindingLifecycle({ findingId, status, evidenceTotal, onMoved }: {
+/** What validation observed for one check, as the server recorded it. */
+export type RecordedCheck = { outcome: string; detail: string };
+
+/**
+ * How a recorded outcome reads, and whether it stands against a claimed pass.
+ *
+ * `violated` is the only outcome that contradicts one. `not_tested` is what
+ * confounder adjustment records whenever no confounders were named, and
+ * `noted` flags something worth a look — a researcher may have covered either
+ * outside this system, so neither is treated as a failure here or by the
+ * server that refuses the promotion.
+ */
+export function recordReads(outcome: string): { text: string; against: boolean } {
+  if (outcome === "violated") {
+    return { text: "validation recorded this as violated", against: true };
+  }
+  if (outcome === "passed") return { text: "validation recorded a pass", against: false };
+  if (outcome === "not_tested") {
+    return { text: "validation had nothing to test this with", against: false };
+  }
+  return { text: `validation recorded: ${stateName(outcome)}`, against: false };
+}
+
+export function FindingLifecycle({
+  findingId, status, evidenceTotal, recordedChecks, onMoved,
+}: {
   findingId: string;
   status: string;
   /** How much evidence is linked. Anything past candidate needs some. */
   evidenceTotal: number;
+  /**
+   * What validation already observed, keyed by check name.
+   *
+   * The six checks were asked of the researcher from memory while the system
+   * held measured answers to all of them — `validate_connection` runs each one
+   * as a real analysis and records the outcome under these same names. Showing
+   * the record is not answering for them: the radio buttons still decide what
+   * is sent. It stops the form asking a question it can already see.
+   */
+  recordedChecks?: Record<string, RecordedCheck>;
   onMoved?: () => void;
 }) {
   const [target, setTarget] = useState<string | null>(null);
@@ -178,6 +213,21 @@ export function FindingLifecycle({ findingId, status, evidenceTotal, onMoved }: 
               {REQUIRED_CHECKS.map((check) => (
                 <fieldset key={check} style={{ border: 0, padding: 0, margin: "0 0 6px" }}>
                   <legend style={{ fontSize: 13 }}>{stateName(check)}</legend>
+                  {recordedChecks?.[check] && (() => {
+                    const read = recordReads(recordedChecks[check].outcome);
+                    return (
+                      <p
+                        className="note"
+                        style={{ margin: "0 0 4px", fontSize: 12,
+                                 color: read.against ? "var(--danger)" : undefined }}
+                      >
+                        {read.text}
+                        {recordedChecks[check].detail
+                          ? ` — ${recordedChecks[check].detail}`
+                          : ""}
+                      </p>
+                    );
+                  })()}
                   {(["unanswered", "passed", "failed"] as const).map((state) => (
                     <label key={state} style={{ marginRight: 12, fontSize: 13 }}>
                       <input
@@ -216,6 +266,7 @@ type FindingRecord = {
   id: string;
   lifecycle_status: string;
   evidence: { total: number };
+  recorded_checks?: Record<string, RecordedCheck>;
 };
 
 /**
@@ -238,6 +289,7 @@ export function FindingStanding({ findingId }: { findingId: string }) {
       findingId={findingId}
       status={data.lifecycle_status}
       evidenceTotal={data.evidence?.total ?? 0}
+      recordedChecks={data.recorded_checks}
       onMoved={reload}
     />
   );

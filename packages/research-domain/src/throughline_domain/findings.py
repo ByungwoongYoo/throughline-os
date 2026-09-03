@@ -191,6 +191,10 @@ class IllegalTransition(FindingError):
     """ — the lifecycle is a state machine, not a label."""
 
 
+class ChecksContradicted(FindingError):
+    """ — a check the system watched fail may not be reported as passed."""
+
+
 class ValidationIncomplete(FindingError):
     """ — exploratory may not become validated without the checks."""
 
@@ -305,6 +309,64 @@ def evidence_summary(cur, finding_id: str) -> dict[str, int]:
     return counts
 
 
+def recorded_checks(cur, finding_id: str) -> dict[str, dict[str, str]]:
+    """
+    What the system itself observed about this finding's robustness checks.
+
+    `validate_connection` runs all six  checks as real analyses in the
+    sandbox and records each outcome under the same names the promotion to
+    VALIDATED demands. Nothing read them back, so the two halves of the same
+    rule never met: promotion enforced "a check that was not run is not a check
+    that passed" while ignoring a check that ran and failed.
+
+    The route is the evidence. A finding's claims point at the objects of the
+    analysis runs behind it; those runs are what the connections were drawn
+    from; and a validation report belongs to a connection. A report filed
+    directly against the finding counts too.
+
+    The latest record for each check wins. Re-running validation after fixing
+    something is the normal way to change one of these answers, and reading the
+    first outcome forever would make the fix invisible.
+    """
+    cur.execute(
+        """
+        SELECT DISTINCT ON (vc.name) vc.name, vc.outcome, vc.detail
+        FROM validation_checks vc
+        JOIN validation_reports vr ON vr.id = vc.report_id
+        WHERE vr.finding_id = %(finding)s
+           OR vr.connection_id IN (
+                SELECT c.id
+                FROM finding_claims fc
+                JOIN evidence e ON e.claim_id = fc.claim_id
+                JOIN analysis_runs r ON r.object_id = e.source_object_id
+                JOIN connections c ON c.analysis_run_id = r.id
+                WHERE fc.finding_id = %(finding)s)
+        ORDER BY vc.name, vc.created_at DESC
+        """,
+        {"finding": finding_id},
+    )
+    return {row["name"]: {"outcome": row["outcome"], "detail": row["detail"]}
+            for row in cur.fetchall()}
+
+
+def contradicted_checks(
+    cur, *, finding_id: str, checks: dict[str, Any],
+) -> dict[str, dict[str, str]]:
+    """
+    The checks reported as passed that the record says were violated.
+
+    Only `violated` contradicts. `not_tested` is the outcome whenever the
+    system had nothing to test with — confounder adjustment records it whenever
+    no confounders were named — and `noted` flags something worth a look rather
+    than a failure. A researcher may have done either piece of work outside
+    this system, and refusing their answer on that basis would have the product
+    claim more than it knows.
+    """
+    recorded = recorded_checks(cur, finding_id)
+    return {name: recorded[name] for name, claimed in checks.items()
+            if claimed and recorded.get(name, {}).get("outcome") == "violated"}
+
+
 def transition(
     cur,
     *,
@@ -345,6 +407,22 @@ def transition(
     #  — promotion into VALIDATED requires the robustness checks to have run
     # *and* passed. Missing is not passing.
     if to_status is FindingLifecycle.VALIDATED:
+        # A check the system watched fail may not be reported as passed.
+        # Checked before the missing-checks rule so that a researcher who
+        # contradicts the record is told *that*, rather than being told which
+        # other checks are absent.
+        against = contradicted_checks(cur, finding_id=finding_id, checks=checks)
+        if against:
+            described = "; ".join(
+                f"{name} was recorded as violated"
+                + (f" ({found['detail']})" if found["detail"] else "")
+                for name, found in sorted(against.items()))
+            raise ChecksContradicted(
+                f"Finding {finding_id} cannot become {to_status}: "
+                f"{described}. Re-run validation, or record the finding with "
+                f"the outcome the checks actually had."
+            )
+
         missing = sorted(REQUIRED_VALIDATION_CHECKS - set(checks))
         if missing:
             raise ValidationIncomplete(
