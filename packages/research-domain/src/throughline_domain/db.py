@@ -23,9 +23,29 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb, JsonbBinaryDumper, JsonbDumper
 from psycopg_pool import ConnectionPool
 
-_DEFAULT_ROOT = Path(
-    os.environ.get("THROUGHLINE_HOME", Path.home() / ".throughline-os")
-).expanduser()
+#: The installed home. Correct for a researcher running Throughline, and the
+#: wrong answer for a script somebody wrote next to the tests — see
+#: `data_root`.
+INSTALLED_HOME = Path.home() / ".throughline-os"
+
+#: An entry point saying it means the installed home. `manage.py` sets this for
+#: the API, the worker and the interface it starts, which is the difference
+#: between asking for a researcher's data and forgetting to say anything.
+ALLOW_INSTALLED = "THROUGHLINE_ALLOW_INSTALLED_HOME"
+
+
+def _source_checkout() -> Path | None:
+    """The repository this module is being run out of, if it is one.
+
+    An installed copy lives in site-packages with no `scripts/manage.py` and no
+    `TASKS.md` above it. A checkout has both, and a checkout is the only place
+    anybody writes the throwaway script this guard exists for.
+    """
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "scripts" / "manage.py").exists() \
+                and (parent / "TASKS.md").exists():
+            return parent
+    return None
 
 _lock = threading.Lock()
 _pool: ConnectionPool | None = None
@@ -33,7 +53,38 @@ _server: Any = None
 
 
 def data_root() -> Path:
-    root = _DEFAULT_ROOT
+    """Where the data lives — and a refusal rather than a guess (D116).
+
+    This resolved to `THROUGHLINE_HOME` or `~/.throughline-os`, so anything run
+    from a checkout without that variable set connected to a researcher's real
+    projects while looking exactly like a test run. That is not hypothetical:
+    two one-off scripts inserted two users, two projects and two queued
+    workflow runs into a real home, and the measurements they took were
+    worthless because they were reading a different database from the one under
+    test — invisible until the numbers stopped making sense.
+
+    The default itself is right for an installed copy and is left alone there.
+    What is refused is the *implicit* default inside a source checkout, where
+    forgetting is easy and the consequence is somebody else's research. An
+    entry point that means the installed home says so; `conftest` names the
+    test home the same way.
+    """
+    named = os.environ.get("THROUGHLINE_HOME")
+    if named:
+        root = Path(named).expanduser()
+    elif os.environ.get(ALLOW_INSTALLED) or _source_checkout() is None:
+        root = INSTALLED_HOME
+    else:
+        raise RuntimeError(
+            f"Refusing to guess which database to open.\n\n"
+            f"This is running from the checkout at {_source_checkout()}, and "
+            f"THROUGHLINE_HOME is not set — so the old behaviour was to open "
+            f"the real installation at {INSTALLED_HOME} and write to a "
+            f"researcher's projects.\n\n"
+            f"  For a scratch database:  THROUGHLINE_HOME=/tmp/somewhere\n"
+            f"  For the tests:           run them through pytest, which sets it\n"
+            f"  For the real one, on purpose:  {ALLOW_INSTALLED}=1"
+        )
     root.mkdir(parents=True, exist_ok=True)
     return root
 

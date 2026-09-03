@@ -2093,6 +2093,17 @@ def doctor(api_port: int, web_port: int) -> int:
 
 
 def main() -> int:
+    # D116: this program *is* the installed product acting on purpose — `dev`
+    # runs it, `doctor` inspects it, `backup` copies it — so it says which
+    # database it means instead of letting the library guess. Running from a
+    # checkout, `data_root()` now refuses an unnamed home, because a script
+    # that forgets wrote two users and two projects into a researcher's real
+    # data once already.
+    #
+    # `setdefault`, and THROUGHLINE_HOME still wins: `preflight` runs the
+    # tests, and the tests name the temp home themselves.
+    os.environ.setdefault("THROUGHLINE_ALLOW_INSTALLED_HOME", "1")
+
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("bootstrap", help="create the virtualenv and install everything")
