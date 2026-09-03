@@ -35,6 +35,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { Failure, Loading } from "./primitives";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 type Installed = {
   name: string;
@@ -745,7 +746,22 @@ export function Settings() {
     } catch (err) { setError(err); } finally { setKeyBusy(false); }
   }
 
+  /*
+   * §96. Removing the key was one click on a `btn-danger` labelled "Remove",
+   * and the key was gone — a credential the researcher has to go back to the
+   * provider for, and may not have kept anywhere else. `ConfirmDialog` was
+   * already here for deleting a project; this is the same mechanism on the
+   * other destructive control in the product.
+   *
+   * No typed confirmation, unlike a project. A key can be pasted again from
+   * the place it came from; a corpus cannot be recovered from anywhere. Asking
+   * someone to type a name to remove a replaceable credential is the kind of
+   * ceremony that teaches people to click through the next dialog too.
+   */
+  const [askingRemoveKey, setAskingRemoveKey] = useState(false);
+
   async function removeKey() {
+    setAskingRemoveKey(false);
     setKeyBusy(true);
     setError(null);
     setKeyNote(null);
@@ -905,12 +921,35 @@ export function Settings() {
                   type="button"
                   className="btn btn-danger"
                   disabled={keyBusy}
-                  onClick={() => void removeKey()}
+                  onClick={() => setAskingRemoveKey(true)}
                 >
                   Remove
                 </button>
               )}
             </div>
+
+            <ConfirmDialog
+              open={askingRemoveKey}
+              destructive
+              title="Remove the saved API key?"
+              body={
+                <>
+                  The key is deleted from this machine. Nothing else is
+                  changed, and a key can be pasted in again at any time.
+                </>
+              }
+              consequences={[
+                "Anything that needs a hosted model stops until a key is set",
+                "Local models, analyses and everything already recorded are "
+                + "unaffected",
+                "The key itself is not recoverable from here — it comes from "
+                + "the provider",
+              ]}
+              confirmLabel="Remove key"
+              busy={keyBusy}
+              onConfirm={() => void removeKey()}
+              onCancel={() => setAskingRemoveKey(false)}
+            />
 
             {keyNote && <p className="set-note">{keyNote}</p>}
 

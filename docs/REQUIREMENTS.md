@@ -30,8 +30,8 @@ and looked at the code. The test requires the count never to grow.
 
 | Status | Sections |
 |---|---|
-| built | 71 |
-| partial | 18 |
+| built | 72 |
+| partial | 17 |
 | not-built | 13 |
 | unreviewed | 134 |
 | **total** | **236** |
@@ -142,7 +142,7 @@ revisited — an edited specification is exactly when requirements go missing.
 | §93 | SAFETY LIMITS | unreviewed |  |  |  |
 | §94 | FEEDBACK SYSTEM | unreviewed |  |  |  |
 | §95 | INTENT PREVIEW | unreviewed |  |  |  |
-| §96 | DESTRUCTIVE ACTIONS | partial | apps/web/lib/ink/history.ts | apps/web/tests/ink-history.test.ts | The one destructive action here is now recoverable and its control says what it would take back — "Undo clearing 12 strokes" rather than "Undo". No confirmation step before destructive actions. |
+| §96 | DESTRUCTIVE ACTIONS | built | apps/web/lib/ink/history.ts | apps/web/tests/ink-history.test.ts | The one destructive action here is now recoverable and its control says what it would take back — "Undo clearing 12 strokes" rather than "Undo". **The confirmation step exists and is now used by everything that needs one.** `ConfirmDialog` lists the consequences, can require the name typed, focuses the safe choice rather than the destructive one, and refuses to close while the request is in flight. Deleting a project asked; removing the saved API key did not — one `btn-danger` labelled "Remove", and a credential the researcher has to go back to the provider for was gone. It asks now, without typed confirmation, because a key can be pasted again and a corpus cannot: ceremony over a replaceable thing is how people learn to click through the dialog that matters. **Not everything is confirmed, on purpose.** Taking a card off the board leaves the research object untouched, and rubbing out a mark is a held eraser gesture that restores the mark if the server refuses — a dialog per stroke would make the gesture unusable. Both exemptions are named with their reason in `destructive-actions-ask-first`, which fails on any new deletion that neither asks nor is written down. |
 | §97 | ONBOARDING | built | apps/web/lib/spatial/onboarding.ts | apps/web/tests/onboarding.test.ts | Point, pinch, move, release — advanced by evidence from the hand rather than by a Next button, so finishing it is proof that gestures work here and being stuck on a step is a precise report. Skippable a step at a time and entirely, blocks nothing, and shown once. |
 | §98 | DISCOVERABILITY | built | apps/web/lib/spatial/cursor.ts | apps/web/tests/cursor.test.ts | What a pinch would do, shown beside the hand when the answer changes and whenever the hand goes still, and faded while it is moving — §98 asks for a cue and forbids permanent clutter, and a label pinned to the cursor is the version that loses. |
 | §99 | SETTINGS | unreviewed |  |  |  |
