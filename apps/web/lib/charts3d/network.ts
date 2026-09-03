@@ -389,6 +389,26 @@ export function describeLayout(layout: Layout): string {
 
   let text = `${nodes} ${nodes === 1 ? "node" : "nodes"}, `
            + `${edges} ${edges === 1 ? "edge" : "edges"}.`;
+
+  /*
+   * The sentence the registry has always known and the reader never heard.
+   *
+   * All thirty-five network entries are `spatial: "framed"` — the third axis
+   * is the room, not the data — and `spatial-claims` holds that line. But that
+   * is a field in a source file. On screen this was "35 nodes, 118 edges", and
+   * a force-directed graph in three dimensions looks exactly like structure:
+   * two nodes near each other read as similar, a cluster reads as a finding.
+   *
+   * The positions come from a physics simulation, and `unitScale` then
+   * stretches each axis separately, so a diagonal is not a distance even
+   * inside that simulation. The layout is stable — seeded from node ids, so a
+   * researcher finds it where they left it — and stability is not meaning.
+   *
+   * Which edges exist is the measurement. Where the nodes sit is not.
+   */
+  text += " Positions come from the layout, not from the data: distance and"
+        + " clustering on screen carry no measured meaning, and only the"
+        + " connections do.";
   if (layout.dangling.length > 0) {
     text += ` ${layout.dangling.length} connection`
           + `${layout.dangling.length === 1 ? "" : "s"} could not be drawn `

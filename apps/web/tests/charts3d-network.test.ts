@@ -255,7 +255,13 @@ describe("what a node touches", () => {
 
 describe("what it says about itself", () => {
   it("counts nodes and edges", () => {
-    expect(describeLayout(layoutGraph(chain(3)))).toBe("3 nodes, 2 edges.");
+    /*
+     * `toContain`, not `toBe`. The caption gained a sentence saying the
+     * positions come from the layout rather than the data, which is the point
+     * of a `framed` chart and was missing from everything the reader saw. The
+     * counts are what this test was protecting and they are still exact.
+     */
+    expect(describeLayout(layoutGraph(chain(3)))).toContain("3 nodes, 2 edges.");
   });
 
   it("counts one of each as one", () => {
