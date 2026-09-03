@@ -33,9 +33,7 @@ import {
   useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 } from "react";
 import { ScreenPoint, TargetRef, VisualizationController } from "@/lib/spatial/commands";
-import {
-  Camera, DEFAULT_CAMERA, DEPTH_RANGE, insidePolygon, project, resetCamera, rotateCamera, zoomCamera,
-} from "@/lib/charts/scene3d";
+import { AXES_SCALED_SEPARATELY, Camera, DEFAULT_CAMERA, DEPTH_RANGE, insidePolygon, project, resetCamera, rotateCamera, zoomCamera } from "@/lib/charts/scene3d";
 import { extent } from "d3-array";
 import { scaleLinear } from "d3-scale";
 import { interpolateYlGnBu } from "d3-scale-chromatic";
@@ -829,9 +827,7 @@ export function Volume({
         {points.length.toLocaleString()} points positioned by {xLabel},{" "}
         {yLabel} and {zLabel}
         {valueLabel && <>, coloured by {valueLabel} — colour carries the value,
-          and mark size carries depth only</>}. The three axes are scaled to a
-        cube independently, so distances along different axes are not
-        comparable.{" "}
+          and mark size carries depth only</>}. {AXES_SCALED_SEPARATELY}{" "}
         <b>
           {occluded > 0
             ? `${occluded} of these points are hidden behind others right now.`

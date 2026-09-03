@@ -29,9 +29,7 @@ import {
   useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 } from "react";
 import { ScreenPoint, TargetRef, VisualizationController } from "@/lib/spatial/commands";
-import {
-  Camera, DEFAULT_CAMERA, insidePolygon, resetCamera, rotateCamera, toCanvas, zoomCamera,
-} from "@/lib/charts/scene3d";
+import { AXES_SCALED_SEPARATELY, Camera, DEFAULT_CAMERA, insidePolygon, resetCamera, rotateCamera, toCanvas, zoomCamera } from "@/lib/charts/scene3d";
 import { useSpatialKeys } from "@/lib/charts/spatialKeys";
 import { ChartExport } from "@/components/charts/ChartExport";
 import { depthRange, hazeFor } from "@/lib/charts/depth";
@@ -302,6 +300,7 @@ export function Network3D({
                         ?? selected}
             {" "}({neighboursOf(layout, selected).length} connected).</>
         )}
+        {" "}{AXES_SCALED_SEPARATELY}
       </figcaption>
     </figure>
   );

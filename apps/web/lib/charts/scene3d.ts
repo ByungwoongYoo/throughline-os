@@ -195,6 +195,28 @@ export function toCanvas(p: { x: number; y: number; z: number }, camera: Camera,
  * on screen is not a real distance in the data. Every chart using this owes the
  * reader that sentence, and they say it.
  */
+/**
+ * What a per-axis scaling costs the reader, in one sentence, defined once.
+ *
+ * `unitScale` stretches each axis into the unit cube on its own, and its
+ * docstring has always said the consequence: the three axes become comparable
+ * in *shape* and incomparable in *distance*, so a diagonal on screen is not a
+ * distance in the data. It also said "every chart using this owes the reader
+ * that sentence, and they say it".
+ *
+ * They did not. Two charts said it, in two separately worded copies, and four
+ * more stretched their axes through a layout module and said nothing. Two
+ * copies drift and the one nobody edits becomes the one that is wrong, so
+ * there is now one string and a test that every such chart renders it.
+ */
+export const AXES_SCALED_SEPARATELY =
+  // The wording Surface and Volume already shipped, kept rather than
+  // improved: the tests that pin it are pinning what a reader has seen, and
+  // rewording it would be churn charged to them.
+  "The three axes are scaled independently, so distances along different axes "
+  + "are not comparable.";
+
+
 export function unitScale(values: number[]): (value: number) => number {
   /*
    * Swept, never `Math.min(...values)`.

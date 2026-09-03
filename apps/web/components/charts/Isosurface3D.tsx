@@ -33,9 +33,7 @@ import {
   useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 } from "react";
 import { ScreenPoint, TargetRef, VisualizationController } from "@/lib/spatial/commands";
-import {
-  Camera, DEFAULT_CAMERA, insidePolygon, resetCamera, rotateCamera, toCanvas, zoomCamera,
-} from "@/lib/charts/scene3d";
+import { AXES_SCALED_SEPARATELY, Camera, DEFAULT_CAMERA, insidePolygon, resetCamera, rotateCamera, toCanvas, zoomCamera } from "@/lib/charts/scene3d";
 import { useSpatialKeys } from "@/lib/charts/spatialKeys";
 import { ChartExport } from "@/components/charts/ChartExport";
 import { isZoomWheel, wheelZoomFactor } from "@/lib/charts/wheel";
@@ -333,6 +331,7 @@ export function Isosurface3D({
       <figcaption className="chart-caption">
         {caption ? `${caption} ` : ""}
         {describeSurface(surface)}
+        {" "}{AXES_SCALED_SEPARATELY}
       </figcaption>
     </figure>
   );

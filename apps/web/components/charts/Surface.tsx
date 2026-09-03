@@ -36,10 +36,7 @@
 import {
   useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 } from "react";
-import {
-  Camera, DEFAULT_CAMERA, DEPTH_RANGE, resetCamera, rotateCamera,
-  toCanvas, unitScale, zoomCamera,
-} from "@/lib/charts/scene3d";
+import { AXES_SCALED_SEPARATELY, Camera, DEFAULT_CAMERA, DEPTH_RANGE, resetCamera, rotateCamera, toCanvas, unitScale, zoomCamera } from "@/lib/charts/scene3d";
 import { ScreenPoint, TargetRef, VisualizationController } from "@/lib/spatial/commands";
 import { isZoomWheel } from "@/lib/charts/wheel";
 import { interpolateYlGnBu } from "d3-scale-chromatic";
@@ -679,8 +676,7 @@ export function Surface({
             fitted surface is usually the part with no data under it.{" "}
           </>
         )}
-        The three axes are scaled independently, so distances along different
-        axes are not comparable.
+        {AXES_SCALED_SEPARATELY}
       </figcaption>
 
       <ChartTable
