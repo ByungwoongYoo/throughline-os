@@ -30,8 +30,8 @@ and looked at the code. The test requires the count never to grow.
 
 | Status | Sections |
 |---|---|
-| built | 66 |
-| partial | 23 |
+| built | 67 |
+| partial | 22 |
 | not-built | 13 |
 | unreviewed | 134 |
 | **total** | **236** |
@@ -108,7 +108,7 @@ revisited — an edited specification is exactly when requirements go missing.
 | §59 | AI AGENTS AS RESEARCH OBJECTS | unreviewed |  |  |  |
 | §60 | COMPUTATIONAL PIPELINES | unreviewed |  |  |  |
 | §61 | CODE INTEGRATION | unreviewed |  |  |  |
-| §62 | STATISTICS SYSTEM | partial | packages/research-domain/src/throughline_domain/analysis.py | tests/test_statistical_conformance.py | Descriptive statistics, Pearson/Spearman/bootstrap correlation, t-test, Mann-Whitney, Kruskal-Wallis, ANOVA, chi-square and linear regression are registered and provenance-tracked. **Logistic regression and mixed models are absent** — the string `"mixed"` in `claim_test.py` is a verdict label (`Family.QUALIFIED`), not a mixed model, which is worth writing down because it reads like one in a grep. |
+| §62 | STATISTICS SYSTEM | built | packages/research-domain/src/throughline_domain/analysis.py, services/scientific-runtime/src/throughline_runtime/methods.py | tests/test_statistical_conformance.py, tests/test_statistics.py | Every module the section names. Descriptive statistics, three correlations, t-test, Mann-Whitney, Kruskal-Wallis, ANOVA, chi-square, linear regression, and — added for this — **logistic regression and mixed models**, which were the gap recorded in T121. Logistic reports an **odds ratio** rather than a log-odds, because that is what a reader can act on, and **refuses a perfectly separated outcome**: statsmodels returns finite numbers there, and a ten-row separated frame yields an odds ratio of 1.2e31 that reads as an enormous effect rather than as a model with no answer. The mixed model **will not guess the grouping** — which rows belong together is a fact about the design — and reports an intraclass correlation so a reader can see whether the grouping was needed. Logistic is checked against a Newton-Raphson written by hand in `evals/conformance.py`, because checking statsmodels with statsmodels is not a check; the mixed model is `DECLARED` with a reason and the property that identifies it — reducing to OLS when the grouping carries nothing — is tested instead. |
 | §63 | SCIENTIFIC UNITS | unreviewed |  |  |  |
 | §64 | FILTERING | unreviewed |  |  |  |
 | §65 | CROSS-FILTERING | unreviewed |  |  |  |

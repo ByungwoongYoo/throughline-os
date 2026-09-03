@@ -134,6 +134,12 @@ _QUANTITIES: dict[str, tuple[str, str]] = {
     "mann_whitney": ("group", "value"),
     "anova": ("group", "value"),
     "kruskal_wallis": ("group", "value"),
+    # Both write their exposure the same way a linear regression does. The
+    # grouping variable of a mixed model is deliberately not the exposure: it
+    # is the design, and calling it one would report a deviation whenever a
+    # researcher registered the predictor they actually care about.
+    "logistic_regression": ("predictors", "outcome"),
+    "mixed_model": ("predictors", "outcome"),
 }
 
 

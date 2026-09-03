@@ -594,6 +594,298 @@ def kruskal_wallis(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalResu
     ))
 
 
+@method("logistic_regression")
+def logistic_regression(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalResult:
+    """A binary outcome against one or more predictors (§62).
+
+    §62 names logistic regression and it was absent, which mattered more than
+    the gap in a list: a researcher whose outcome is *did this happen* had no
+    method at all, and the nearest available one — linear regression — fits a
+    line through zeroes and ones and predicts probabilities above one.
+
+    **The estimate is an odds ratio, not a coefficient.** `exp(beta)` is what a
+    reader can act on: "the odds are 2.3 times higher per unit". Reporting the
+    raw log-odds as the headline invites it to be read as a probability
+    difference, which it is not, and the confidence interval is exponentiated
+    with it so the two agree.
+
+    **A perfectly separated outcome is refused rather than reported.** When a
+    predictor divides the outcome exactly, the maximum-likelihood estimate does
+    not exist: the coefficient runs to infinity and the fitter stops wherever
+    its iteration limit is. statsmodels returns numbers for this, and they look
+    like an enormous effect with a wide interval rather than like a model that
+    has no answer.
+    """
+    import numpy as np
+    import statsmodels.api as sm
+
+    outcome_name = spec["variables"]["outcome"]
+    predictor_names = list(spec["variables"].get("predictors") or [])
+    if not predictor_names:
+        raise AnalysisError("logistic_regression requires variables.predictors")
+
+    columns = [outcome_name, *predictor_names]
+    numeric = pd.DataFrame({c: _numeric(frame, c) for c in columns}).dropna()
+    dropped = len(frame) - len(numeric)
+
+    outcome = numeric[outcome_name]
+    levels = sorted(outcome.unique())
+    if len(levels) != 2:
+        raise AnalysisError(
+            f"{outcome_name} takes {counted(len(levels), 'value')}; logistic "
+            "regression needs an outcome that is one of exactly two things.")
+    # Whichever pair of values was recorded, the higher is "it happened".
+    y = (outcome == levels[1]).astype(float)
+
+    if len(numeric) <= len(predictor_names) + 1:
+        raise AnalysisError(
+            f"{len(numeric)} complete rows cannot fit "
+            f"{counted(len(predictor_names), 'predictor')}.")
+
+    X = sm.add_constant(numeric[predictor_names], has_constant="add")
+    try:
+        model = sm.Logit(y, X).fit(disp=False)
+    except Exception as exc:  # noqa: BLE001
+        raise AnalysisError(f"The model would not fit: {exc}") from exc
+
+    fitted = model.predict()
+    converged = bool(getattr(model, "mle_retvals", {}).get("converged", True))
+    complete_separation = bool(np.all((fitted < 1e-6) | (fitted > 1 - 1e-6)))
+    if not np.all(np.isfinite(model.params.to_numpy())) or complete_separation \
+            or not converged:
+        # Checked against the fit rather than the coefficients, because
+        # statsmodels returns *finite* numbers here: a perfectly separated
+        # ten-row frame yields an odds ratio of 1.2e31, which passes an
+        # is-finite test and reads as an enormous effect. The optimiser having
+        # given up, and every fitted probability sitting at 0 or 1, are what
+        # actually say the estimate does not exist.
+        raise AnalysisError(
+            "A predictor separates the outcome perfectly, so there is no "
+            "maximum-likelihood estimate to report — the coefficient runs to "
+            "infinity and a fitter stops wherever its iteration limit is. "
+            "Reported as a number it would read as an enormous effect.")
+
+    confidence = spec.get("confidence_level", 0.95)
+    intervals = model.conf_int(alpha=1 - confidence)
+    first = predictor_names[0]
+
+    coefficients = {
+        name: {
+            "log_odds": float(model.params[name]),
+            "odds_ratio": float(np.exp(model.params[name])),
+            "std_error": float(model.bse[name]),
+            "z": float(model.tvalues[name]),
+            "p_value": float(model.pvalues[name]),
+            "ci_low": float(np.exp(intervals.loc[name, 0])),
+            "ci_high": float(np.exp(intervals.loc[name, 1])),
+        }
+        for name in X.columns
+    }
+
+    # Ten events per predictor is the usual rule of thumb; below it the
+    # coefficients are biased away from zero and the intervals are optimistic.
+    events = int(min(y.sum(), len(y) - y.sum()))
+    per_predictor = events / max(len(predictor_names), 1)
+    checks = [AssumptionCheck(
+        name="events_per_predictor",
+        outcome="passed" if per_predictor >= 10 else "violated",
+        description="At least ten of the rarer outcome per predictor",
+        statistic=float(per_predictor), severity="serious",
+        detail=(f"{counted(events, 'observation')} of the rarer outcome for "
+                f"{counted(len(predictor_names), 'predictor')}. "
+                + ("Enough to estimate stably."
+                   if per_predictor >= 10
+                   else "Coefficients are biased away from zero at this size, "
+                        "and the intervals are narrower than they should be.")),
+    ), AssumptionCheck(
+        name="independent_observations", outcome="not_testable",
+        description="Observations must be independent",
+        detail="Independence follows from the study design, not from the data.",
+    )]
+
+    # Partial separation: extreme somewhere but not everywhere, so an estimate
+    # exists and is merely unstable. Reported rather than refused.
+    separated = bool((fitted > 0.999).any() or (fitted < 0.001).any())
+    checks.append(AssumptionCheck(
+        name="separation", outcome="violated" if separated else "passed",
+        description="No predictor divides the outcome almost perfectly",
+        severity="serious",
+        detail=("Some rows are predicted almost exactly, which makes the "
+                "coefficients unstable even where the fit converged."
+                if separated else
+                "No fitted probability sits at the boundary."),
+    ))
+
+    limitations = ["An odds ratio is an association, not a causal effect.",
+                   "Odds ratios overstate risk ratios when the outcome is common."]
+    if dropped:
+        limitations.append(f"{counted(dropped, 'row')} dropped by listwise deletion.")
+
+    return _finalise(StatisticalResult(
+        method="logistic_regression",
+        method_rationale=spec.get("method_rationale")
+            or "Logistic regression for an outcome that is one of two things.",
+        sample_size=int(model.nobs),
+        estimate=float(np.exp(model.params[first])),
+        estimate_name=f"odds_ratio[{first}]",
+        ci_low=float(np.exp(intervals.loc[first, 0])),
+        ci_high=float(np.exp(intervals.loc[first, 1])),
+        confidence_level=confidence,
+        p_value=float(model.pvalues[first]),
+        test_statistic=float(model.tvalues[first]),
+        degrees_of_freedom=float(model.df_resid),
+        effect_size=EffectSize(
+            name="pseudo_r_squared", value=float(model.prsquared),
+            interpretation="McFadden's pseudo R², not comparable to an R²"),
+        assumptions=checks,
+        adjustments=[f"Adjusted for: {', '.join(predictor_names[1:])}"]
+                    if len(predictor_names) > 1 else [],
+        limitations=limitations,
+        extra={
+            "outcome": outcome_name, "outcome_levels": [str(v) for v in levels],
+            "modelled_as_event": str(levels[1]),
+            "predictors": predictor_names, "coefficients": coefficients,
+            "events": events, "dropped_rows": dropped,
+            "log_likelihood": float(model.llf),
+        },
+    ))
+
+
+@method("mixed_model")
+def mixed_model(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalResult:
+    """A predictor's effect where the rows are not independent (§62).
+
+    §62 names mixed models, and their absence was the more consequential half
+    of that gap. Repeated measures on the same subject, pupils inside schools,
+    readings from one instrument — the ordinary shapes of research data — break
+    the independence every other method here assumes. Fitting them with OLS
+    does not fail; it reports a confidence interval that is too narrow and a
+    p-value that is too small, which is worse than refusing.
+
+    **The grouping variable is required and never guessed.** Which rows belong
+    together is a fact about the study design, not something inferable from a
+    column, and a wrong guess produces a confident answer to a different
+    question.
+
+    `intraclass_correlation` reports how much of the variance the grouping
+    accounts for. Near zero means the grouping was not needed; high means
+    ignoring it would have been the mistake.
+    """
+    import numpy as np
+    import statsmodels.api as sm
+
+    outcome_name = spec["variables"]["outcome"]
+    predictor_names = list(spec["variables"].get("predictors") or [])
+    group_name = spec["variables"].get("group")
+    if not predictor_names:
+        raise AnalysisError("mixed_model requires variables.predictors")
+    if not group_name:
+        raise AnalysisError(
+            "mixed_model requires variables.group — which rows belong "
+            "together is a fact about the design and cannot be inferred.")
+
+    numeric = pd.DataFrame({
+        **{c: _numeric(frame, c) for c in [outcome_name, *predictor_names]},
+        group_name: frame[group_name],
+    }).dropna()
+    dropped = len(frame) - len(numeric)
+
+    groups = numeric[group_name].astype(str)
+    distinct = int(groups.nunique())
+    if distinct < 2:
+        raise AnalysisError(
+            f"{group_name} has {counted(distinct, 'group')}; a mixed model "
+            "needs several, or there is nothing for it to model.")
+    if len(numeric) <= len(predictor_names) + distinct:
+        raise AnalysisError(
+            f"{len(numeric)} complete rows cannot fit "
+            f"{counted(len(predictor_names), 'predictor')} across "
+            f"{counted(distinct, 'group')}.")
+
+    y = numeric[outcome_name]
+    X = sm.add_constant(numeric[predictor_names], has_constant="add")
+    try:
+        model = sm.MixedLM(y, X, groups=groups).fit()
+    except Exception as exc:  # noqa: BLE001
+        raise AnalysisError(f"The model would not fit: {exc}") from exc
+
+    confidence = spec.get("confidence_level", 0.95)
+    intervals = model.conf_int(alpha=1 - confidence)
+    first = predictor_names[0]
+
+    coefficients = {
+        name: {
+            "estimate": float(model.params[name]),
+            "std_error": float(model.bse[name]),
+            "z": float(model.tvalues[name]),
+            "p_value": float(model.pvalues[name]),
+            "ci_low": float(intervals.loc[name, 0]),
+            "ci_high": float(intervals.loc[name, 1]),
+        }
+        for name in X.columns if name in model.params.index
+    }
+
+    between = float(model.cov_re.iloc[0, 0]) if model.cov_re.size else 0.0
+    within = float(model.scale)
+    icc = between / (between + within) if (between + within) > 0 else 0.0
+
+    checks = [AssumptionCheck(
+        name="grouping_is_needed", outcome="passed" if icc >= 0.01 else "violated",
+        description="The grouping accounts for some of the variance",
+        statistic=float(icc), severity="minor",
+        detail=(f"Intraclass correlation {icc:.3f}: the grouping explains "
+                f"{icc * 100:.1f}% of the variance. "
+                + ("Ignoring it would have narrowed the interval wrongly."
+                   if icc >= 0.01 else
+                   "Close to zero — an ordinary regression would have said "
+                   "much the same thing, and is easier to read.")),
+    ), AssumptionCheck(
+        name="enough_groups", outcome="passed" if distinct >= 5 else "violated",
+        description="Enough groups to estimate a variance between them",
+        statistic=float(distinct), severity="serious",
+        detail=(f"{counted(distinct, 'group')}. "
+                + ("Enough to estimate the between-group variance."
+                   if distinct >= 5 else
+                   "Below about five, that variance is barely identified and "
+                   "the standard errors should not be trusted.")),
+    ), _normality(pd.Series(model.resid), "residuals")]
+
+    limitations = ["Coefficients are associations within the model, not causal effects.",
+                   f"Rows are treated as independent only within {group_name}."]
+    if dropped:
+        limitations.append(f"{counted(dropped, 'row')} dropped by listwise deletion.")
+
+    return _finalise(StatisticalResult(
+        method="mixed_model",
+        method_rationale=spec.get("method_rationale")
+            or f"A random intercept for {group_name}, because rows within one "
+               "are not independent.",
+        sample_size=int(model.nobs),
+        estimate=float(model.params[first]),
+        estimate_name=f"beta[{first}]",
+        ci_low=float(intervals.loc[first, 0]),
+        ci_high=float(intervals.loc[first, 1]),
+        confidence_level=confidence,
+        p_value=float(model.pvalues[first]),
+        test_statistic=float(model.tvalues[first]),
+        degrees_of_freedom=float(distinct - 1),
+        effect_size=EffectSize(
+            name="intraclass_correlation", value=float(icc),
+            interpretation="share of variance between groups"),
+        assumptions=checks,
+        adjustments=[f"Adjusted for: {', '.join(predictor_names[1:])}"]
+                    if len(predictor_names) > 1 else [],
+        limitations=limitations,
+        extra={
+            "outcome": outcome_name, "predictors": predictor_names,
+            "group": group_name, "groups": distinct,
+            "coefficients": coefficients,
+            "variance_between": between, "variance_within": within,
+            "intraclass_correlation": float(icc), "dropped_rows": dropped,
+        },
+    ))
+
+
 def available_methods() -> list[str]:
     return sorted(REGISTRY)
 

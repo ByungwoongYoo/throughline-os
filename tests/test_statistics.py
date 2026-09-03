@@ -208,3 +208,133 @@ def test_dropped_rows_are_reported_as_a_limitation():
     result = run("pearson_correlation", frame, x="x", y="y")
     assert result.extra["dropped_rows"] == 2
     assert any("dropped" in limitation for limitation in result.limitations)
+
+
+# ---------------------------------------------------------------------------
+# §62: logistic regression and mixed models
+# ---------------------------------------------------------------------------
+
+def test_logistic_regression_reports_an_odds_ratio_not_a_coefficient():
+    """
+    `exp(beta)` is what a reader can act on. A raw log-odds invites being read
+    as a probability difference, which it is not.
+    """
+    import numpy as np
+    rng = np.random.default_rng(7)
+    x = rng.normal(size=400)
+    frame = pd.DataFrame({
+        "x": x,
+        "happened": (1.2 * x + rng.normal(scale=0.6, size=400) > 0).astype(float),
+    })
+
+    result = run("logistic_regression", frame, outcome="happened", predictors=["x"])
+
+    assert result.estimate_name == "odds_ratio[x]"
+    # A positive coefficient means odds above one, never a negative estimate.
+    assert result.estimate > 1
+    assert result.ci_low > 0, "an odds ratio cannot be negative"
+    assert result.ci_low < result.estimate < result.ci_high
+
+
+def test_logistic_regression_refuses_an_outcome_that_is_not_binary():
+    frame = pd.DataFrame({"x": range(30), "outcome": [0, 1, 2] * 10})
+    with pytest.raises(AnalysisError, match="exactly two things"):
+        run("logistic_regression", frame, outcome="outcome", predictors=["x"])
+
+
+def test_logistic_regression_refuses_a_perfectly_separated_outcome():
+    """
+    The estimate does not exist here — the coefficient runs to infinity and a
+    fitter stops wherever its iteration limit is. Reported rather than refused,
+    it reads as an enormous effect with a wide interval instead of as a model
+    with no answer.
+    """
+    frame = pd.DataFrame({
+        "x": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        "happened": [0, 0, 0, 0, 0, 1, 1, 1, 1, 1],
+    })
+    with pytest.raises(AnalysisError):
+        run("logistic_regression", frame, outcome="happened", predictors=["x"])
+
+
+def test_logistic_regression_says_how_thin_the_evidence_is():
+    """Ten of the rarer outcome per predictor, or the interval is optimistic."""
+    # Thin but *not* separated: the four events are scattered through the
+    # range, so an estimate exists and is merely fragile. A block of ones at
+    # one end would be perfect separation, which is refused outright — the
+    # first version of this test made that mistake and was testing the wrong
+    # refusal.
+    import numpy as np
+    rng = np.random.default_rng(3)
+    happened = np.zeros(40)
+    happened[[5, 14, 23, 31]] = 1
+    frame = pd.DataFrame({"x": rng.normal(size=40), "happened": happened})
+    result = run("logistic_regression", frame, outcome="happened", predictors=["x"])
+    check = next(c for c in result.assumptions if c.name == "events_per_predictor")
+    assert check.outcome == "violated"
+
+
+def test_a_mixed_model_reduces_to_regression_when_the_grouping_carries_nothing():
+    """
+    The property `evals/conformance.py` promises in place of a reference.
+
+    A random-intercept model with no variance between groups *is* ordinary
+    least squares, and its coefficient must agree with one. If it did not, the
+    grouping would be changing an answer it has no information about.
+    """
+    import numpy as np
+    rng = np.random.default_rng(11)
+    n = 300
+    x = rng.normal(size=n)
+    # Groups assigned at random, so they carry no information about y.
+    frame = pd.DataFrame({
+        "x": x,
+        "y": 2.0 * x + rng.normal(scale=1.0, size=n),
+        "site": rng.choice([f"s{i}" for i in range(8)], size=n),
+    })
+
+    mixed = run("mixed_model", frame, outcome="y", predictors=["x"], group="site")
+    plain = run("linear_regression", frame, outcome="y", predictors=["x"])
+
+    assert mixed.estimate == pytest.approx(plain.estimate, abs=0.02)
+    assert mixed.extra["intraclass_correlation"] < 0.05
+
+
+def test_a_mixed_model_parts_from_regression_when_the_grouping_carries_something():
+    """
+    The other half, and the reason the model exists.
+
+    With a real shift per group, the between-group variance is not zero and the
+    intraclass correlation says so. Fitting this with OLS would report an
+    interval narrower than the data supports.
+    """
+    import numpy as np
+    rng = np.random.default_rng(13)
+    sites = [f"s{i}" for i in range(10)]
+    offsets = {site: rng.normal(scale=4.0) for site in sites}
+    rows = []
+    for site in sites:
+        for _ in range(30):
+            x = rng.normal()
+            rows.append({"x": x, "site": site,
+                         "y": 2.0 * x + offsets[site] + rng.normal(scale=0.5)})
+    frame = pd.DataFrame(rows)
+
+    result = run("mixed_model", frame, outcome="y", predictors=["x"], group="site")
+
+    assert result.extra["intraclass_correlation"] > 0.5
+    check = next(c for c in result.assumptions if c.name == "grouping_is_needed")
+    assert check.outcome == "passed"
+
+
+def test_a_mixed_model_will_not_guess_the_grouping():
+    """Which rows belong together is a fact about the design, not the data."""
+    frame = pd.DataFrame({"x": range(20), "y": range(20)})
+    with pytest.raises(AnalysisError, match="variables.group"):
+        run("mixed_model", frame, outcome="y", predictors=["x"])
+
+
+def test_a_mixed_model_refuses_a_single_group():
+    frame = pd.DataFrame({"x": range(20), "y": range(20), "site": ["only"] * 20})
+    with pytest.raises(AnalysisError, match="group"):
+        run("mixed_model", frame, outcome="y", predictors=["x"], group="site")

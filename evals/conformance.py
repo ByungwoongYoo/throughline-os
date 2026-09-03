@@ -91,8 +91,11 @@ def _frame(seed: int) -> pd.DataFrame:
     # between implementations that do and do not correct for them.
     tied = np.round(rng.normal(size=n), 1)
     other = rng.choice(["p", "q"], size=n)
+    # A binary outcome with real signal in x, so logistic regression has
+    # something to find and the two fits have something to disagree about.
+    happened = (0.9 * x + rng.normal(scale=0.7, size=n) > 0).astype(float)
     return pd.DataFrame({"x": x, "y": y, "group": group, "tied": tied,
-                         "other": other})
+                         "other": other, "happened": happened})
 
 
 def _run(method: str, frame: pd.DataFrame, **variables: Any) -> StatisticalResult:
@@ -194,6 +197,40 @@ def _ref_regression(frame: pd.DataFrame, _: StatisticalResult) -> dict[str, floa
     return {"p_value": float(fit.pvalue)}
 
 
+def _ref_logistic(frame: pd.DataFrame, _: StatisticalResult) -> dict[str, float]:
+    """
+    Newton-Raphson by hand, because the alternative is not a check.
+
+    The method under test uses statsmodels, so checking it with statsmodels
+    would compare a library against itself and pass however wrong the wrapper
+    around it was. This is the same mathematics through different code: the
+    log-likelihood's own iteration, in numpy, from a different starting point.
+
+    The comparison is on the odds ratio rather than the log-odds, because that
+    is what the method reports as its estimate and therefore what a reader
+    would act on.
+    """
+    y = frame["happened"].to_numpy(dtype=float)
+    design = np.column_stack([np.ones(len(frame)), frame["x"].to_numpy(dtype=float)])
+
+    beta = np.zeros(design.shape[1])
+    for _iteration in range(100):
+        odds = design @ beta
+        probability = 1.0 / (1.0 + np.exp(-odds))
+        weights = probability * (1.0 - probability)
+        # A weight at the floor means a fitted probability at 0 or 1; the step
+        # is undefined there, and stopping is what the reference should do.
+        if np.any(weights < 1e-10):
+            break
+        hessian = design.T @ (design * weights[:, None])
+        step = np.linalg.solve(hessian, design.T @ (y - probability))
+        beta = beta + step
+        if np.max(np.abs(step)) < 1e-10:
+            break
+
+    return {"estimate": float(np.exp(beta[1]))}
+
+
 def _ref_descriptive(frame: pd.DataFrame, _: StatisticalResult) -> dict[str, float]:
     # Nothing to compare against a test statistic; the mean is what it reports.
     return {"estimate": float(frame["x"].mean())}
@@ -214,12 +251,23 @@ CHECKS: dict[str, tuple[dict[str, Any],
     "kruskal_wallis": ({"value": "tied", "group": "group"}, _ref_kruskal),
     "chi_square": ({"x": "group", "y": "other"}, _ref_chi_square),
     "linear_regression": ({"outcome": "y", "predictors": ["x"]}, _ref_regression),
+    "logistic_regression": ({"outcome": "happened", "predictors": ["x"]},
+                            _ref_logistic),
     "descriptive": ({"columns": ["x"]}, _ref_descriptive),
 }
 
 #: Methods with no independent reference, and why. A reason here is a claim
 #: somebody has to defend, which is the point of writing it down.
 DECLARED: dict[str, str] = {
+    "mixed_model":
+        "A restricted-maximum-likelihood variance component has no closed "
+        "form, so a second implementation differs by its convergence "
+        "tolerance and its starting point rather than by being wrong — the "
+        "same objection as bootstrap_correlation, for a different reason. "
+        "What can be checked is the property that identifies the model: with "
+        "no variance between groups it must reduce to ordinary least "
+        "squares, and with variance between them it must not. That is tested "
+        "in tests/test_statistics.py.",
     "bootstrap_correlation":
         "Resampling has no closed form to compare against: two correct "
         "implementations disagree by design because they draw different "
