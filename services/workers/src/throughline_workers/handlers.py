@@ -270,7 +270,40 @@ def analysis_run(run: dict[str, Any], cur: Any) -> dict[str, Any]:
         #  — a retry must not recompute a terminal run.
         return {"analysis_run_id": run_id, "status": record["status"], "skipped": True}
 
-    spec_row = dict(analysis.load_spec(cur, record["spec_id"]))
+    spec_row, spec_payload, input_path, input_suffix = _prepare_analysis(
+        cur, record["spec_id"])
+    del record  # everything needed is prepared above
+
+    cur.execute("UPDATE analysis_runs SET status = 'running', started_at = now() "
+                "WHERE id = %s", (run_id,))
+
+    try:
+        sandbox = run_analysis(
+            spec=spec_payload, input_path=input_path,
+            input_suffix=input_suffix, policy=SandboxPolicy(),
+        )
+    except SandboxTimeout as exc:
+        from throughline_runtime.executor import SandboxResult, policy_report
+
+        sandbox = SandboxResult(ok=False, payload={"error": str(exc)},
+                                policy=policy_report())
+
+    return analysis.record_result(cur, run_id=run_id, sandbox=sandbox,
+                                  spec_row=spec_row, actor="system:analysis")
+
+
+def _prepare_analysis(cur, spec_id: str):
+    """Everything the sandbox needs for one spec, resolved in the parent.
+
+    Split out of `analysis_run` so that a sweep prepares its candidates exactly
+    the way a lone analysis does. A second copy of this — the column
+    translation especially — would drift, and a discovery run that resolved
+    names differently from a hand-specified one is the kind of difference
+    nobody notices until the numbers disagree.
+    """
+    from throughline_domain import analysis, storage
+
+    spec_row = dict(analysis.load_spec(cur, spec_id))
     version_ids = spec_row["dataset_version_ids"]
     cur.execute(
         """
@@ -301,25 +334,87 @@ def analysis_run(run: dict[str, Any], cur: Any) -> dict[str, Any]:
         "method_rationale": spec_row["method_rationale"],
         "random_seed": spec_row["random_seed"], "parameters": spec_row["parameters"],
     }
+    return (
+        spec_row, spec_payload,
+        storage.path_for(location["storage_key"]),
+        Path(location["filename"] or "").suffix.lower() or ".csv",
+    )
 
-    cur.execute("UPDATE analysis_runs SET status = 'running', started_at = now() "
-                "WHERE id = %s", (run_id,))
 
-    try:
-        sandbox = run_analysis(
-            spec=spec_payload,
-            input_path=storage.path_for(location["storage_key"]),
-            input_suffix=Path(location["filename"] or "").suffix.lower() or ".csv",
-            policy=SandboxPolicy(),
-        )
-    except SandboxTimeout as exc:
-        from throughline_runtime.executor import SandboxResult, policy_report
+def _execute_analyses(cur, run_ids: list[str]) -> None:
+    """Run many prepared analyses in one sandbox, recording each on its own.
 
-        sandbox = SandboxResult(ok=False, payload={"error": str(exc)},
-                                policy=policy_report())
+    This is discovery's path. Every candidate pair used to get its own
+    subprocess — a fresh Python, a fresh pandas, and a fresh copy of the whole
+    dataset — measured at about a second each, of which four fifths is startup.
+    Forty columns is 820 pairs and a quarter of an hour; a hundred columns is
+    4,950 pairs and most of two. The correlations themselves take microseconds.
 
-    return analysis.record_result(cur, run_id=run_id, sandbox=sandbox,
-                                  spec_row=spec_row, actor="system:analysis")
+    Nothing about what is recorded changes. Each run still gets its own
+    `analysis_runs` row, its own result, its own seed and its own verdict,
+    through the same `record_result` a lone analysis uses — so a connection is
+    traceable to its computation exactly as before. What is shared is the
+    process, and these specs are system-generated from a closed list of
+    methods, so sharing one is the same isolation boundary as eight hundred.
+
+    Runs are grouped by input file. Discovery sweeps one dataset version, so
+    in practice there is one group; grouping is what keeps that an observation
+    rather than an assumption.
+    """
+    from throughline_domain import analysis
+    from throughline_runtime.executor import (
+        SandboxPolicy, SandboxResult, SandboxTimeout, policy_report, run_many,
+    )
+
+    groups: dict[tuple[str, str], list[tuple[str, dict, dict]]] = {}
+    for run_id in run_ids:
+        cur.execute("SELECT spec_id, status FROM analysis_runs WHERE id = %s",
+                    (run_id,))
+        record = cur.fetchone()
+        if not record or record["status"] in {"completed", "failed"}:
+            # A retry must not recompute a terminal run, as in `analysis_run`.
+            continue
+        spec_row, spec_payload, input_path, input_suffix = _prepare_analysis(
+            cur, record["spec_id"])
+        groups.setdefault((str(input_path), input_suffix), []).append(
+            (run_id, spec_row, spec_payload))
+
+    for (input_path, input_suffix), prepared in groups.items():
+        ids = [run_id for run_id, _, _ in prepared]
+        cur.execute("UPDATE analysis_runs SET status = 'running', "
+                    "started_at = now() WHERE id = ANY(%s)", (ids,))
+        try:
+            batch = run_many(
+                specs=[payload for _, _, payload in prepared],
+                input_path=Path(input_path), input_suffix=input_suffix,
+                policy=SandboxPolicy(),
+            )
+        except SandboxTimeout as exc:
+            batch = SandboxResult(ok=False, payload={"error": str(exc)},
+                                  policy=policy_report())
+
+        entries = batch.payload.get("results") or []
+        for index, (run_id, spec_row, _) in enumerate(prepared):
+            if index < len(entries):
+                sandbox = SandboxResult(
+                    ok=bool(entries[index].get("ok")), payload=entries[index],
+                    stderr=batch.stderr, exit_code=batch.exit_code,
+                    duration_ms=int(entries[index].get("duration_ms") or 0),
+                    policy=batch.policy,
+                )
+            else:
+                # The sweep itself failed, so every candidate in it failed —
+                # and says the same thing, rather than being left `running`
+                # for ever with no explanation.
+                sandbox = SandboxResult(
+                    ok=False,
+                    payload={"error": batch.payload.get("error")
+                             or "The sweep produced no result for this pair."},
+                    stderr=batch.stderr, exit_code=batch.exit_code,
+                    policy=batch.policy,
+                )
+            analysis.record_result(cur, run_id=run_id, sandbox=sandbox,
+                                   spec_row=spec_row, actor="system:analysis")
 
 
 def _execute_analysis(cur, run_id: str) -> None:
@@ -371,8 +466,9 @@ def discovery_run(run: dict[str, Any], cur: Any) -> dict[str, Any]:
             }, actor="system:discovery")
             analysis_run_id = analysis.create_run(cur, project_id=project_id,
                                                   spec_id=created["spec_id"])
-            _execute_analysis(cur, analysis_run_id)
             run_ids.append(analysis_run_id)
+        # One sandbox for the sweep, not one per pair. See `_execute_analyses`.
+        _execute_analyses(cur, run_ids)
         return {"plan": plan, "analysis_run_ids": run_ids}
 
     # Steps 4–6: one sandboxed analysis per surviving candidate.
