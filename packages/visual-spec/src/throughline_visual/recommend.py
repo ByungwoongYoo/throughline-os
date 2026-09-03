@@ -223,6 +223,20 @@ def _regression(run_id, version_id, variables, result, audience,
                   "estimate and its interval together, which a scatter plot cannot.")
         alternatives = [{"visual_type": VisualType.SCATTER,
                          "when": "you want to show one predictor's raw relationship"}]
+        # §10 admits three dimensions where the data has three, and a fitted
+        # response over exactly two predictors is that case: z = f(x, y) is a
+        # surface, not a chart made to look like one. Offered rather than
+        # chosen — a coefficient plot answers "which predictors matter" more
+        # legibly than any surface, and this answers a different question,
+        # what the model's shape is. With three predictors a surface is a
+        # slice, and a slice presented whole is the misreading §10 exists to
+        # prevent.
+        if len(predictors) == 2:
+            alternatives.append({
+                "visual_type": VisualType.SURFACE,
+                "when": "you want the shape of the fitted response across both "
+                        "predictors, rather than each coefficient on its own",
+            })
     else:
         spec = ResearchVisualSpec(
             visual_type=VisualType.SCATTER,

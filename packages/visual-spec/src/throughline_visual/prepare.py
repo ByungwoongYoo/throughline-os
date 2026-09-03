@@ -48,7 +48,109 @@ def prepare(
         return _histogram(spec, result, sample, statistics)
     if spec.visual_type is VisualType.HEATMAP:
         return _heatmap(spec, result, statistics)
+    if spec.visual_type is VisualType.SURFACE:
+        return _surface(spec, result, sample, statistics)
     raise PreparationError(f"No data preparation defined for {spec.visual_type}")
+
+
+#: How finely the fitted surface is evaluated.
+#:
+#: Twenty-four squares is about the point where a plane stops looking faceted
+#: and well below where the cell count starts to cost a frame. It is a drawing
+#: decision, not a statistical one — the surface is a continuous function and
+#: this only chooses how often it is sampled.
+SURFACE_STEPS = 24
+
+
+def _surface(spec: ResearchVisualSpec, result: dict[str, Any],
+             sample: dict[str, Sequence[Any]],
+             statistics: dict[str, Any]) -> VisualData:
+    """
+    The fitted response over two predictors, evaluated from the recorded
+    coefficients.
+
+    **Nothing is refitted.** The coefficients come from the run, and the
+    surface is arithmetic on them — the same rule every other figure here
+    follows, and the reason a picture cannot disagree with the analysis that
+    produced it. A renderer that re-estimated from the sample would be drawing
+    a second, quieter model beside the one in the record.
+
+    **The grid stops where the data does.** It spans the observed range of each
+    predictor and no further: a plane is defined everywhere, and drawing it
+    past the rows that informed it states a prediction nobody measured. The
+    renderer fades cells with no observation near them for the same reason.
+    """
+    extra = result.get("extra") or {}
+    coefficients = extra.get("coefficients") or {}
+    predictors = list(extra.get("predictors") or [])
+
+    if len(predictors) != 2:
+        raise PreparationError(
+            "A surface needs exactly two predictors: with one it is a line, "
+            f"and with {len(predictors)} it is a slice through a model this "
+            "cannot draw whole.")
+
+    missing = [name for name in predictors if name not in coefficients]
+    if missing or "const" not in coefficients:
+        raise PreparationError(
+            "The recorded result carries no coefficient for "
+            f"{', '.join(missing) or 'the intercept'}, so the fitted surface "
+            "cannot be evaluated from it. Nothing here refits a model.")
+
+    first, second = predictors
+    xs_raw = [float(v) for v in sample.get(first, []) if _is_number(v)]
+    ys_raw = [float(v) for v in sample.get(second, []) if _is_number(v)]
+    if len(xs_raw) < 2 or len(ys_raw) < 2:
+        raise PreparationError(
+            "The sample carries too few values of "
+            f"{first} and {second} to know where the surface should stop.")
+
+    intercept = float(coefficients["const"]["estimate"])
+    slope_x = float(coefficients[first]["estimate"])
+    slope_y = float(coefficients[second]["estimate"])
+
+    def axis(values: list[float]) -> list[float]:
+        low, high = min(values), max(values)
+        if high == low:           # a constant predictor spans nothing
+            high = low + 1.0
+        step = (high - low) / (SURFACE_STEPS - 1)
+        return [low + step * i for i in range(SURFACE_STEPS)]
+
+    x_axis, y_axis = axis(xs_raw), axis(ys_raw)
+    grid = [[intercept + slope_x * x + slope_y * y for x in x_axis]
+            for y in y_axis]
+
+    # The observations, so the reader sees what the fit was fitted to. Paired
+    # by position, and only where all three are present — a point with a
+    # missing coordinate is not somewhere.
+    outcome = extra.get("outcome")
+    zs_raw = [v for v in sample.get(outcome or "", [])]
+    observations = [
+        {"x": float(x), "y": float(y), "z": float(z)}
+        for x, y, z in zip(sample.get(first, []), sample.get(second, []),
+                           zs_raw)
+        if _is_number(x) and _is_number(y) and _is_number(z)
+    ]
+
+    return VisualData(
+        x_values=list(x_axis),
+        y_values=list(y_axis),
+        matrix=grid,
+        series=observations,
+        sample_size=int(result.get("sample_size") or len(observations)),
+        statistics=statistics,
+        note=("The surface is the fitted model evaluated from the recorded "
+              f"coefficients, over the observed range of {first} and "
+              f"{second}. The points are the observations it was fitted to."),
+    )
+
+
+def _is_number(value: Any) -> bool:
+    try:
+        float(value)
+    except (TypeError, ValueError):
+        return False
+    return True
 
 
 def _statistics(result: dict[str, Any]) -> dict[str, Any]:

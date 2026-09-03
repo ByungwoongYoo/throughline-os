@@ -34,6 +34,20 @@ class VisualType(StrEnum):
     LINE = "line"
     FOREST = "forest"
     HEATMAP = "heatmap"
+    #: A fitted response over two continuous predictors.
+    #:
+    #: The one case §10 admits without argument: `z = f(x, y)` *is* a
+    #: two-dimensional manifold in three-space, so the third axis is in the
+    #: model rather than added to it. Every other spatial chart in this system
+    #: draws generated data on a demonstration page; this is the first that a
+    #: researcher's own regression can produce.
+    #:
+    #: Offered, never defaulted to. A coefficient plot answers "which
+    #: predictors matter" more legibly than any surface, so this is the
+    #: alternative for the case where the reader wants the *shape* of the
+    #: model instead — and only with exactly two continuous predictors, where
+    #: the surface is the model rather than a slice through it.
+    SURFACE = "surface"
     #: Two continuous variables at a sample size where one mark per row stops
     #: being readable. A scatter does not fail loudly when it overplots — it
     #: fills in, and a region holding fifty points and one holding five thousand
