@@ -654,6 +654,89 @@ def outliers_in(values: "pd.Series") -> dict[str, Any] | None:
     }
 
 
+#: A number written the way most of the world writes it: a decimal comma, and
+#: optionally dots grouping the thousands. "25,1" and "1.234,56" both match;
+#: "1,380,004,385" does not, because that is already a number here.
+_DECIMAL_COMMA_RE = re.compile(r"^-?(?:\d{1,3}(?:\.\d{3})+|\d+),(\d+)$")
+
+
+def decimal_comma_reading(
+    present: "pd.Series", *, already_numeric: bool = False,
+) -> dict[str, Any] | None:
+    """
+    What this column of text would be if the comma were a decimal point.
+
+    The numeric test rejects "25,1", correctly — it is not a float in this
+    locale — so the column is typed `string`, never offered to an analysis, and
+    nothing said why. A researcher in Berlin or São Paulo watched their
+    measurements disappear from every menu with no explanation available
+    anywhere in the product.
+
+    Nothing is corrected. `possible_sentinel_values` is the precedent: the
+    profiler names what it noticed and leaves the values exactly as written.
+    Rewriting them on a guess is how a wrong number acquires full provenance.
+
+    `confidence` is "certain" when the evidence settles it — at least one value
+    with other than three digits after the comma cannot be a thousands
+    separator — and "ambiguous" when every value could be read either way.
+    "1,234" is 1234 to an American and 1.234 to a German, and this function is
+    not entitled to choose between them.
+
+    Returns None unless *every* present value reads this way. A column of half
+    commas and half dots is a broken export, not a locale.
+    """
+    if not len(present):
+        return None
+    matches = [_DECIMAL_COMMA_RE.match(v) for v in present]
+    if not all(matches):
+        return None
+
+    numbers = [float(v.replace(".", "").replace(",", ".")) for v in present]
+    settled = any(len(m.group(1)) != 3 for m in matches if m)
+    has_grouping = any("." in v for v in present)
+    certain = settled or has_grouping
+
+    if already_numeric:
+        # Every value reads both ways — "1,234" is 1234 here and 1.234 in
+        # Berlin — and the column has already been read the first way. That
+        # choice was being made silently, on a column of real measurements,
+        # and a thousandfold error is exactly the kind that survives review
+        # because every number still looks plausible. It is not overturned
+        # here: the reading stands and the alternative is written down.
+        if certain:
+            return None
+        return {
+            "confidence": "ambiguous",
+            "read_as": "thousands_separators",
+            "min": min(numbers),
+            "max": max(numbers),
+            "note": (
+                "Every value in this column reads two ways: as numbers "
+                "grouped with thousands separators, which is how they have "
+                "been read, or as numbers written with a decimal comma, which "
+                "would make them a thousand times smaller. Check this column "
+                "against your source before relying on it."
+            ),
+        }
+
+    return {
+        "confidence": "certain" if certain else "ambiguous",
+        "min": min(numbers),
+        "max": max(numbers),
+        "note": (
+            "These values are stored as text because the numbers are written "
+            "with a decimal comma. They have not been changed. Saving the file "
+            "with a decimal point, or with this column already numeric, makes "
+            "it available to every analysis."
+            if certain else
+            "These values could be numbers written with a decimal comma, or "
+            "numbers grouped with thousands separators — every value here "
+            "reads both ways, so nothing is assumed. They are stored as text "
+            "and left unchanged."
+        ),
+    }
+
+
 def profile_column(ordinal: int, name: str, series: pd.Series, *,
                    label: str = "",
                    value_labels: dict[str, str] | None = None) -> ColumnProfile:
@@ -695,6 +778,15 @@ def profile_column(ordinal: int, name: str, series: pd.Series, *,
                 stats["possible_sentinel_values"] = sentinels
     elif date_fraction >= 0.9 and len(present):
         physical_type = "date"
+
+    if physical_type in ("string", "number"):
+        # Reported, never corrected — see `decimal_comma_reading`. A numeric
+        # column is checked too, because the ambiguous case is one the
+        # profiler has already silently resolved.
+        reading = decimal_comma_reading(
+            present, already_numeric=physical_type == "number")
+        if reading:
+            stats["reads_as_number_with_decimal_comma"] = reading
 
     top = present.value_counts().head(10)
     stats["top_values"] = [{"value": str(k), "count": int(v)} for k, v in top.items()]

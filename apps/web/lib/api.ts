@@ -324,6 +324,8 @@ export type AnalysisRunRow = {
   sample_size: number | null;
 };
 
+import type { ColumnStatistics } from "./column-notices";
+
 export type DatasetColumn = {
   ordinal: number;
   name: string;
@@ -333,7 +335,16 @@ export type DatasetColumn = {
   unit: string | null;
   missing_count: number;
   unique_count: number;
-  statistics: Record<string, number | null>;
+  /**
+   * The profiler's record for this column.
+   *
+   * Typed `Record<string, number | null>` until it wasn't true: the profile
+   * also carries `top_values` (a list), `possible_sentinel_values` (a list of
+   * numbers) and `reads_as_number_with_decimal_comma` (an object). A type that
+   * describes the data as flatter than it is invites a reader to index into it
+   * as a number and get an object back.
+   */
+  statistics: ColumnStatistics & Record<string, unknown>;
   sensitivity: string;
 };
 

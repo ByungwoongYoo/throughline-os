@@ -9,13 +9,14 @@
  * the analysis that produced it.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import {
   AnalysisRun, Connection, DatasetColumn, DiscoveryMap, EvidenceGraph, Finding,
   objectTypeName,
   INGESTION_STAGES, Provenance, SearchResult, Source, ValidationReport, api,
   ingestionStep, isIngesting,
 } from "@/lib/api";
+import { columnNotices } from "@/lib/column-notices";
 import { ApiState, useApi } from "@/lib/useApi";
 import { Section } from "./Shell";
 import { PlainSummary, ResultCard } from "./ResultCard";
@@ -373,8 +374,15 @@ export function SourceDetail({ projectId, sourceId, onDiscover }: {
                   </tr>
                 </thead>
                 <tbody>
-                  {columns.data.map((column) => (
-                    <tr key={column.name}>
+                  {columns.data.map((column) => {
+                    /* What the profiler noticed, which it has always recorded
+                       and never shown. A -999 standing for "missing" is in
+                       every average until somebody is told about it. */
+                    const notices = columnNotices(
+                      column.statistics, column.physical_type);
+                    return (
+                    <Fragment key={column.name}>
+                    <tr>
                       <td className="mono" style={{ color: "var(--ink)" }}>{column.name}</td>
                       <td style={{ color: "var(--ink-soft)" }}>
                         {column.semantic_type || column.physical_type}
@@ -384,7 +392,25 @@ export function SourceDetail({ projectId, sourceId, onDiscover }: {
                       <td className="numeric" style={{ textAlign: "right" }}>{column.unique_count}</td>
                       <td style={{ color: "var(--ink-soft)" }}>{column.sensitivity}</td>
                     </tr>
-                  ))}
+                    {notices.map((notice, index) => (
+                      <tr key={`${column.name}-notice-${index}`}>
+                        <td colSpan={5} style={{ paddingTop: 0 }}>
+                          <p
+                            className="note"
+                            style={{
+                              margin: 0, fontSize: 12,
+                              color: notice.level === "warn"
+                                ? "var(--caution)" : "var(--ink-faint)",
+                            }}
+                          >
+                            {notice.text}
+                          </p>
+                        </td>
+                      </tr>
+                    ))}
+                    </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             )}
