@@ -4098,6 +4098,21 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .board-zoom, .board-count { font-size: 0.85rem; opacity: 0.7; }
 .board-problem { color: rgb(150,40,40); margin: 0 0 0.5rem; }
 
+/* Undo and redo for the board. Quiet: they sit above the surface all the time
+   and should read as available rather than as something to look at. The undo
+   label is a sentence naming what it would take back, so it is allowed to be
+   wider than the redo beside it. */
+.board-history { display: flex; gap: 0.4rem; margin: 0 0 0.5rem; }
+.board-history button {
+  font-size: 12px; padding: 0.2rem 0.55rem;
+  border: 1px solid var(--line); border-radius: 6px;
+  background: var(--panel); color: var(--ink-soft);
+}
+.board-history button:hover:not(:disabled) {
+  background: var(--hover); color: var(--ink);
+}
+.board-history button:disabled { opacity: 0.45; cursor: default; }
+
 .board-surface {
   position: relative; flex: 1; overflow: hidden;
   border: 1px solid rgba(120,130,150,0.25); border-radius: 8px;

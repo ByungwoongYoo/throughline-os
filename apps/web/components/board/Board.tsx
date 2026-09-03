@@ -43,6 +43,9 @@ import {
   Camera, ORIGIN, WorldPoint, fitTo, isVisible, pan, toWorld, zoomAt,
 } from "@/lib/board/viewport";
 import { snap, type Guide } from "@/lib/board/snapping";
+import {
+  BoardHistory, describeCommand, type BoardCommand,
+} from "@/lib/board/history";
 import { Empty, Failure, Loading } from "../primitives";
 import { CardDetail } from "./CardDetail";
 import { objectTypeName } from "@/lib/api";
@@ -101,6 +104,25 @@ export function Board({ projectId }: { projectId: string }) {
   const [phrase, setPhrase] = useState("by type");
   const [camera, setCamera] = useState<Camera>(ORIGIN);
   const [problem, setProblem] = useState<string | null>(null);
+
+  /*
+   * §42. `lib/board/history.ts` was written for this board — every command
+   * records where a thing was as well as where it went, `invert` is total so
+   * the compiler refuses a new kind without an inverse, and `describeCommand`
+   * exists so the control can name what it would take back. Nothing imported
+   * it, so eight hundred lines of board had no undo and a researcher who
+   * nudged a card could not put it back.
+   *
+   * A ref, not state: the stack is not what is drawn. `tick` is what redraws
+   * the controls when it changes, so the label follows the stack without the
+   * stack becoming render state that has to be copied to be mutated.
+   */
+  const history = useRef(new BoardHistory());
+  const [, setTick] = useState(0);
+  const remember = useCallback((command: BoardCommand) => {
+    history.current.did(command);
+    setTick((n) => n + 1);
+  }, []);
   const [picking, setPicking] = useState(false);
   /*
    * The card just taken off, kept so it can be put back.
@@ -446,6 +468,17 @@ export function Board({ projectId }: { projectId: string }) {
     // a round trip inside the drag loop.
     const card = cards.find((c) => c.object_id === active.id);
     if (!card) return;
+    // Recorded before the request, from `active.origin` — where the drag
+    // started — so undo restores the position the researcher actually left,
+    // not wherever an optimistic update happened to put it.
+    if (card.x !== active.origin.x || card.y !== active.origin.y) {
+      remember({
+        kind: "move", objectId: card.object_id,
+        from: { x: active.origin.x, y: active.origin.y,
+                width: card.width, height: card.height },
+        to: { x: card.x, y: card.y, width: card.width, height: card.height },
+      });
+    }
     void api.put(`/api/projects/${projectId}/board`, {
       object_id: card.object_id, x: card.x, y: card.y,
       width: card.width, height: card.height,
@@ -483,6 +516,66 @@ export function Board({ projectId }: { projectId: string }) {
       setProblem("That card could not be taken off the board.");
     }
   }, [projectId]);
+
+  /**
+   * Perform a command, without recording it.
+   *
+   * Undo and redo both come through here, and neither may push onto the stack:
+   * `BoardHistory` has already moved the command between its two piles, and a
+   * second `did()` would clear the redo stack that the undo just filled.
+   *
+   * Only `move` is applied today, because it is the only kind this board
+   * records. `place` and `remove` are left to "Put it back", which is a
+   * targeted affordance a researcher can see, and two mechanisms racing to
+   * restore the same card is worse than one that says what it does.
+   */
+  const applyCommand = useCallback(async (command: BoardCommand) => {
+    if (command.kind !== "move") return;
+    const { objectId, to } = command;
+    setCards((current) => current.map((c) => c.object_id === objectId
+      ? { ...c, x: to.x, y: to.y, width: to.width, height: to.height }
+      : c));
+    try {
+      await api.put(`/api/projects/${projectId}/board`, {
+        object_id: objectId, x: to.x, y: to.y,
+        width: to.width, height: to.height,
+      });
+    } catch {
+      setProblem("That could not be undone on the server.");
+    }
+  }, [projectId]);
+
+  const undo = useCallback(() => {
+    const command = history.current.undo();
+    setTick((n) => n + 1);
+    if (command) void applyCommand(command);
+  }, [applyCommand]);
+
+  const redo = useCallback(() => {
+    const command = history.current.redo();
+    setTick((n) => n + 1);
+    if (command) void applyCommand(command);
+  }, [applyCommand]);
+
+  /*
+   * The shortcut everybody tries first. Ignored while the focus is in a text
+   * field, where the browser's own undo is the one that is wanted.
+   */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "z") {
+        return;
+      }
+      const inText = document.activeElement instanceof HTMLElement
+        && (document.activeElement.isContentEditable
+            || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName));
+      if (inText) return;
+      event.preventDefault();
+      if (event.shiftKey) redo(); else undo();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo, redo]);
 
   /** Put back the card just taken off, where it was. */
   const putBack = useCallback(async () => {
@@ -632,6 +725,24 @@ export function Board({ projectId }: { projectId: string }) {
           onClose={() => setOpened(null)}
         />
       )}
+
+      <div className="board-history" role="group" aria-label="Undo and redo">
+        {/* Named, not just "Undo": a button that does not say what it will
+            take back is one people press hopefully, and on a board that means
+            pressing it until something recognisable returns. */}
+        <button
+          type="button"
+          disabled={!history.current.canUndo()}
+          onClick={undo}
+        >
+          {describeCommand(history.current.peek(),
+                           (id) => cards.find((c) => c.object_id === id)?.title
+                                   ?? "that card")}
+        </button>
+        <button type="button" disabled={!history.current.canRedo()} onClick={redo}>
+          Redo
+        </button>
+      </div>
 
       {takenOff && (
         <p className="board-problem" role="status">
