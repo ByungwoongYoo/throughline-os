@@ -2738,6 +2738,26 @@ def _model_selection() -> dict[str, Any]:
     }
 
 
+@app.get("/api/projects/{project_id}/activity")
+def project_activity(project_id: str, limit: int = Query(100, ge=1, le=500),
+                     before: str | None = Query(None),
+                     user: dict = Depends(current_user)) -> dict[str, Any]:
+    """What was done in this project, by whom, and when.
+
+    The first reader `audit_log` has ever had. Nine call sites wrote to it and
+    nothing asked it a question, so the record existed and was unreachable —
+    finished, tested, and no way for a person to see it (D070's shape, one
+    table down).
+
+    Scoped like every other project route: an audit trail that leaked across
+    projects would be a worse defect than not having one.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        return events.activity(cur, project_id=project_id, limit=limit,
+                               before=before)
+
+
 @app.get("/api/system/launchers")
 def system_launchers() -> dict[str, Any]:
     """The double-click door for *this* machine, and whether it is really there.

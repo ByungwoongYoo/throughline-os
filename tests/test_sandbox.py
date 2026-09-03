@@ -5,7 +5,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import types
+
 import pytest
+from throughline_runtime import executor as executor_module
 from throughline_runtime import executor
 from throughline_runtime.executor import (
     IsolationUnavailable,
@@ -292,3 +295,107 @@ def test_the_warning_names_the_limit_that_was_requested(monkeypatch):
     executor._limit_child(executor.SandboxPolicy(memory_mb=2048))
 
     assert "2048MB" in b"".join(written).decode()
+
+
+# --- the Windows half of "an unapplied limit is admitted" (D020) -------------
+#
+# D020 recorded this as untestable: "needs a Windows machine or a CI-only test,
+# and writing one blind against a platform that cannot be run locally is
+# guesswork pushed into CI". Two things have changed. Windows is reachable from
+# this machine through WSL interop (D051), so the real `jobobject.py` was run
+# there rather than reasoned about — it creates a job with genuine ceilings, and
+# a bogus `assign` raises `JobObjectError` with "AssignProcessToJobObject failed
+# (Windows error 6)". That is the half that cannot be faked.
+#
+# **And the question D020 asked has no answer, because it assumed a symmetry
+# that is not there.** POSIX continues without the ceiling and admits it, since
+# refusing would make the platform unusable wherever setrlimit is refused.
+# Windows refuses outright: `process.kill()` and re-raise, because it can. There
+# is no Windows admission to test — there is a refusal, and *that* is the
+# contract worth pinning. The asymmetry is deliberate and stated in the code.
+
+
+class _FakeJobObjectError(OSError):
+    pass
+
+
+class _RefusingJob:
+    """A Job Object that is created but cannot take the process."""
+
+    def __init__(self, **_kw):
+        self.closed = False
+
+    def assign(self, _handle):
+        raise _FakeJobObjectError(
+            "AssignProcessToJobObject failed (Windows error 6)")
+
+    def close(self):
+        self.closed = True
+
+
+class _FakeProcess:
+    def __init__(self):
+        self.killed = False
+        self._handle = 1234
+
+    def kill(self):
+        self.killed = True
+
+    def communicate(self, timeout=None):
+        return b"", b""
+
+
+def test_windows_refuses_a_run_whose_ceilings_could_not_be_applied(monkeypatch,
+                                                                   tmp_path):
+    """The Windows contract, and it is the opposite of the POSIX one above.
+
+    POSIX runs on without the ceiling and admits it in the record. Windows will
+    not: a run that silently lost its memory and CPU limits would still be
+    recorded against a policy report claiming it had them, and on Windows the
+    failure is avoidable, so it is refused instead.
+
+    What must never happen is the third option — continuing, unprotected, while
+    the report says otherwise. This asserts the process is killed and the error
+    propagates rather than being swallowed.
+    """
+    from throughline_runtime import executor
+
+    fake_job_module = types.SimpleNamespace(
+        Job=lambda **kw: _RefusingJob(**kw), JobObjectError=_FakeJobObjectError)
+    process = _FakeProcess()
+
+    monkeypatch.setattr(executor, "WINDOWS", True)
+    monkeypatch.setattr(executor, "jobobject", fake_job_module)
+    # `CREATE_NEW_PROCESS_GROUP` does not exist off Windows, and Popen must not
+    # actually start anything: the branch under test is what happens after.
+    monkeypatch.setattr(executor.subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200,
+                        raising=False)
+    monkeypatch.setattr(executor.subprocess, "Popen",
+                        lambda *a, **k: process)
+
+    source = tmp_path / "in.csv"
+    source.write_text("a,b\n1,2\n")
+
+    with pytest.raises(_FakeJobObjectError):
+        executor.run_analysis(spec={"kind": "describe"}, input_path=source,
+                              input_suffix=".csv")
+
+    assert process.killed, (
+        "the child was left running after its ceilings could not be applied")
+
+
+def test_the_two_platforms_disagree_on_purpose_and_say_so():
+    """A reader finding one platform admitting and the other refusing should be
+    able to tell a decision from an oversight. Both branches state their
+    reasoning in the code; this fails if either explanation is removed."""
+    source = Path(executor_module.__file__).read_text()
+    # Normalised, because the explanation is a wrapped comment and a check
+    # keyed to its line breaks would fail on a reflow rather than on a removal.
+    # Comment markers stripped as well as whitespace: the explanation is a
+    # wrapped `#` comment, so normalising spacing alone leaves a "#" sitting in
+    # the middle of the sentence being searched for.
+    prose = " ".join(source.replace("#", " ").split())
+    assert "Refuse rather than continue unprotected" in prose, (
+        "the Windows refusal no longer explains why it differs from POSIX")
+    assert "recorded against a policy report claiming it had them" in prose, (
+        "the reason the refusal exists is gone, leaving a bare kill")

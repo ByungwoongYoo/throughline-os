@@ -55,8 +55,13 @@ def _called() -> dict[tuple[str, str], set[str]]:
         for match in CALL.finditer(source.read_text()):
             verb = (match.group(1) or "get").upper()
             verb = "DELETE" if verb == "DEL" else verb
-            # `${expr}` is a path parameter; the query string is not a route.
-            path = re.sub(r"\$\{[^}]*\}", "X", match.group(2))
+            # An interpolation is a path parameter only when it stands as its
+            # own segment. `/activity${query}` glues a built query string onto
+            # the end of one, and reading that as a segment invented the route
+            # `/activity X` and reported a working screen as broken — which is
+            # what this did on its first contact with somebody else's code.
+            path = re.sub(r"(?<=/)\$\{[^}]*\}", "X", match.group(2))
+            path = re.sub(r"\$\{[^}]*\}", "", path)
             path = path.split("?")[0].rstrip("/")
             if path.startswith("/api"):
                 calls.setdefault((verb, path), set()).add(
@@ -114,6 +119,17 @@ def test_every_call_the_interface_makes_has_a_route():
 def test_known_routes_are_recognised(verb, path):
     """Proves the matcher, not the product: these three exist."""
     assert _serves(verb, path)
+
+
+def test_a_query_string_is_not_read_as_a_path_segment():
+    """
+    `/api/projects/${projectId}/activity${query}` calls a route that exists.
+    Reading the second interpolation as a segment reported it as a 404 that
+    nobody could reproduce, and the screen was fine.
+    """
+    assert ("GET", "/api/projects/X/activity") in {
+        (verb, path) for verb, path in CALLED
+    }, "the activity call is not being normalised to its real route"
 
 
 def test_an_invented_route_is_not_recognised():

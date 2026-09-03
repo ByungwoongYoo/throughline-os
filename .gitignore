@@ -75,3 +75,6 @@ frontend/shots/
 
 # Staging folder for a release upload: built artifacts, never source.
 dist-upload/
+
+# Written by every vitest run so a failure always leaves a name behind (D048).
+apps/web/.vitest-last-run.json

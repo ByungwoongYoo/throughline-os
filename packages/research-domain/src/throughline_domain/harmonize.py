@@ -34,6 +34,7 @@ from typing import Any
 from throughline_model import ModelUnavailable, provider, prompt
 from throughline_model.schemas import VariableProposals
 
+from . import events
 from .ids import new_id
 
 SUGGESTED = "suggested"
@@ -64,6 +65,20 @@ def _profile_line(column: dict[str, Any]) -> str:
     Only the profile is sent — name, type, spread, missingness. The rows never
     leave the machine's database for this purpose, and they would not help:
         a column is named by what it measures, not by what it happens to contain.
+
+    **The label the file stated is sent too, where there is one.** SPSS, Stata
+    and SAS record what each column means, and withholding that made the model
+    infer a canonical name from `survey_noise_b` while the file said
+    "Antibiotic consumption, DDD per 1000 inhabitants" a field away. The
+    canonical name is what makes two datasets comparable, so guessing it from a
+    mangled header when the meaning was available is the expensive half of the
+    same mistake `_clean_label` used to make with the display label.
+
+    It is metadata rather than data — the same category as `original_name`,
+    already sent here — so this does not widen what leaves the machine from the
+    rows themselves. Truncated, because a label is free text from someone
+    else's system and an unbounded one is a prompt-injection surface as much as
+    a token cost.
         """
     bits = [f"{column['name']} ({column['semantic_type'] or column['physical_type']}"]
     if column.get("unit"):
@@ -74,6 +89,9 @@ def _profile_line(column: dict[str, Any]) -> str:
     bits.append(")")
     if column.get("original_name") and column["original_name"] != column["name"]:
         bits.append(f" — original header: {column['original_name']}")
+    stated = (column.get("description") or "").strip()
+    if stated:
+        bits.append(f" — the file states: {stated[:200]}")
     return "".join(bits)
 
 
@@ -87,8 +105,12 @@ def propose_labels(cur, *, project_id: str, dataset_version_id: str) -> dict[str
     own data means.
     """
     cur.execute(
+        # `description` is the label the source file gave this column, and it is
+        # selected because it was previously written and never read: `corpus.py`
+        # stores it on import and nothing downstream asked for it again, so the
+        # canonical layer inferred a label for columns that already had one.
         "SELECT dc.id, dc.name, dc.original_name, dc.physical_type, dc.semantic_type, "
-        "dc.unit, dc.missing_count, dc.unique_count "
+        "dc.unit, dc.description, dc.missing_count, dc.unique_count "
         "FROM dataset_columns dc WHERE dc.dataset_version_id = %s ORDER BY dc.ordinal",
         (dataset_version_id,),
         )
@@ -229,6 +251,30 @@ _LABEL_SUFFIX = re.compile(r"\s*\((?:[^()]{1,30})\)\s*$")
 
 
 def _clean_label(label: str, column: dict[str, Any]) -> str:
+    """The best available presentation label for a column.
+
+    **The file's own label wins, where the file had one.** SPSS, Stata and SAS
+    record what every column means, written by whoever built the dataset;
+    `datasets.py` reads that and `corpus.py` stores it in `description`, whose
+    comment says losing it "would mean re-deriving by inference something the
+    file already said outright". Preferring the model's proposal over it did
+    exactly that — asked a language model to guess a label for a column that
+    already carried a human-written one.
+
+    The order is therefore: what the file said, then what the model proposed,
+    then the raw name. The raw name last, because `survey_noise_b` on an axis is
+    the Definition-of-Done failure this layer exists to prevent, and it was
+    reachable whenever a proposal came back empty or was stripped to nothing.
+
+    **Where two datasets disagree, the newest still wins** — that is the upsert's
+    existing rule and this does not change it. A canonical variable is shared
+    across datasets while a label belongs to one file, so there is no way to
+    honour both; the upsert's comment explains why the newest is the right
+    choice, and a file label is a better newest than a guess.
+    """
+    stated = (column.get("description") or "").strip()
+    if stated:
+        return stated
     cleaned = _LABEL_SUFFIX.sub("", (label or "").strip()).strip()
     return cleaned or column["name"]
 
@@ -291,6 +337,26 @@ def decide(cur, *, mapping_id: str, approve: bool, user_id: str) -> dict[str, An
             "WHERE dataset_column_id = %s AND id <> %s AND status = %s",
             (REJECTED, user_id, row["dataset_column_id"], mapping_id, APPROVED),
             )
+        retired = cur.rowcount
+    else:
+        retired = 0
+
+    # Recorded here as well as on the row. `decided_by` and `decided_at` already
+    # say who settled this mapping, but they can only be read one mapping at a
+    # time; what a methods section asks is what was decided in this project and
+    # in what order, and that question has no per-table answer.
+    #
+    # `retired` is stated separately on purpose. Approving one mapping rejects
+    # any other approved mapping for the same column, and those rows get the
+    # same `decided_by` — so the per-row record says this person rejected
+    # mappings they never saw. The count distinguishes the decision from its
+    # consequence.
+    events.audit(cur, project_id=None, actor=user_id,
+                 action="approve" if approve else "reject",
+                 object_type="variable_mapping", object_id=mapping_id,
+                 detail={"canonical_variable_id": row["canonical_variable_id"],
+                         "dataset_column_id": row["dataset_column_id"],
+                         "also_retired": retired})
     return dict(row)
 
 

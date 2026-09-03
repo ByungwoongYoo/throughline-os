@@ -25,5 +25,22 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./tests/setup.ts"],
     include: ["tests/**/*.test.tsx", "tests/**/*.test.ts"],
+    /**
+     * Every run leaves a record, whether or not anybody thought to pipe it.
+     *
+     * D048 is open because a run of 1430 reported `1 failed` and the output was
+     * not captured, so which test flaked is still unknown — the defect is
+     * literally "can fail one test in a way that leaves no name behind". The
+     * remedy recorded there was to remember `vitest run 2>&1 | tee` next time,
+     * and a step somebody has to remember is one that eventually gets skipped:
+     * the same reasoning that put `_headers` into the release build rather than
+     * into an upload checklist.
+     *
+     * `default` stays first, so the terminal is unchanged. The file is written
+     * on success too, which is the point — a green run is the baseline the next
+     * red one is compared against, and comparing needs both.
+     */
+    reporters: ["default", "json"],
+    outputFile: { json: "./.vitest-last-run.json" },
   },
 });

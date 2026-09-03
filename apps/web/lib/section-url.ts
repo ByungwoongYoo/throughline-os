@@ -42,7 +42,8 @@ export const SECTION_IDS = [
   "overview", "sources", "variables", "search",
   "discover", "compare", "patterns", "connections", "findings",
   "analyses", "graph", "embedding",
-  "reports", "figures", "gallery", "notebook", "journal", "literature",
+  "reports", "figures", "gallery", "notebook", "journal", "activity",
+  "literature",
   "datasearch", "settings",
 ] as const;
 
