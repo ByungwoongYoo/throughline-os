@@ -30,8 +30,8 @@ and looked at the code. The test requires the count never to grow.
 
 | Status | Sections |
 |---|---|
-| built | 67 |
-| partial | 22 |
+| built | 68 |
+| partial | 21 |
 | not-built | 13 |
 | unreviewed | 134 |
 | **total** | **236** |
@@ -130,7 +130,7 @@ revisited — an edited specification is exactly when requirements go missing.
 | §81 | REDUCED MOTION | built | apps/web/app/globals.css | apps/web/tests/reduced-motion.test.ts | Nineteen `prefers-reduced-motion` blocks. Recorded late and *incompletely implemented* when found: sixteen blocks existed with no test, and writing one showed five animated classes with no cover, three of which genuinely moved. Reduce rather than remove — a treemap tile arrives at its new rectangle without sliding to it, and a state label keeps its colour fade and loses its transform. |
 | §82 | COLOR | unreviewed |  |  |  |
 | §83 | SECURITY | unreviewed |  |  |  |
-| §84 | AI DATA BOUNDARIES | partial | packages/model/src/throughline_model/registry.py | tests/test_cloud_models_are_marked.py | Three of the four modes: no AI (`NullProvider`), local AI (Ollama, the default), and approved external AI (Anthropic, configured and never defaulted to). "Make external transmission understandable" is met — `capability()` reports `local=False` and the provider's own docstring says *"This sends data off the machine"*. **Organisation-level controls are absent**, and private hosted AI is not a distinct mode. |
+| §84 | AI DATA BOUNDARIES | built | packages/model/src/throughline_model/registry.py, packages/model/src/throughline_model/ollama.py | tests/test_ai_data_boundaries.py | All four modes and the controls over them. **Private hosted is now a real mode**: `OllamaProvider` accepts a remote host and locality is *derived from the address* rather than asserted — it reported `local=True` unconditionally, so the same backend against `127.0.0.1` and against a university server made the same promise while doing opposite things, and an unreachable remote host looked like a laptop that was merely offline. A machine on the same network counts as hosted, because "inside the building" is not the promise the local default makes. **Organisation-level controls** are an environment policy naming the furthest data may travel, enforced in the registry rather than the interface — a control applied only where it is drawn is not a control — and it **fails closed**: a value that cannot be parsed, including an empty one, permits nothing. |
 | §85 | AUDITABILITY | built | packages/research-domain/src/throughline_domain/events.py | tests/test_deletion_is_recorded.py | An append-only audit log; deletions are recorded rather than vanishing. |
 | §86 | TELEMETRY | unreviewed |  |  |  |
 | §87 | FALSE ACTION METRIC | unreviewed |  |  |  |

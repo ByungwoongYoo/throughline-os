@@ -272,6 +272,89 @@ PROMPTS: dict[str, Prompt] = {
 # Provider selection
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Organisation policy (§84)
+# ---------------------------------------------------------------------------
+
+#: The four modes §84 names, ordered by how far data travels.
+#:
+#: The order is the whole mechanism: a policy names the furthest a researcher's
+#: data may go, and anything beyond it is refused. Written as a list rather
+#: than a set so "further than" is a comparison and not a lookup table that
+#: could disagree with itself.
+MODES: tuple[str, ...] = ("none", "local", "hosted", "external")
+
+MODE_MEANINGS: dict[str, str] = {
+    "none": "No model. Nothing is sent anywhere.",
+    "local": "A model on this machine. Nothing leaves the device.",
+    "hosted": "A model on a server the organisation runs. Data leaves the "
+              "device and stays inside the organisation.",
+    "external": "A model run by another company. Data leaves the "
+                "organisation.",
+}
+
+
+def policy() -> str:
+    """
+    The furthest data may travel, set by whoever administers the installation.
+
+    §84 asks for organisation-level controls, and the distinction from the
+    researcher's own setting is the point: the environment is how an operator
+    configures a deployment, and a person using the software must not be able
+    to exceed it from the interface. So this reads the environment only.
+
+    **It fails closed.** An unrecognised value is treated as `none` rather than
+    ignored, because a policy nobody can parse is one nobody set on purpose,
+    and the safe reading of "I do not understand this instruction about where
+    research data may go" is to send it nowhere. A typo that silently permitted
+    everything would be the worst possible behaviour for this particular
+    setting.
+    """
+    import os as _os
+
+    raw = _os.environ.get("THROUGHLINE_AI_POLICY")
+    if raw is None:
+        # Never set: a deployment nobody has restricted, not a locked one.
+        return "external"
+    # Set to *something*, including an empty string, is a deliberate act. If it
+    # cannot be read, the safe reading of an instruction about where research
+    # data may go is to send it nowhere.
+    configured = raw.strip().lower()
+    return configured if configured in MODES else "none"
+
+
+def mode_of(provider_name: str, *, host: str | None = None) -> str:
+    """
+    Which of §84's four modes a provider selection amounts to.
+
+    Ollama is `local` or `hosted` depending on where it points, which is why
+    this takes a host: the same backend against `127.0.0.1` and against a
+    university server are two different promises, and only the address tells
+    them apart.
+    """
+    name = (provider_name or "").lower()
+    if name in ("none", "off", "disabled", ""):
+        return "none"
+    if name == "ollama":
+        from .ollama import DEFAULT_HOST, runs_on_this_machine
+        import os as _os
+
+        where = host or _os.environ.get("OLLAMA_HOST") or DEFAULT_HOST
+        return "local" if runs_on_this_machine(where) else "hosted"
+    # Any other backend is somebody else's company until one is added that is
+    # not — an unknown provider is treated as the furthest thing from local,
+    # because guessing the other way would understate where data goes.
+    return "external"
+
+
+def permitted(mode: str) -> bool:
+    """Whether the policy allows data to travel this far."""
+    allowed = policy()
+    if mode not in MODES or allowed not in MODES:
+        return False
+    return MODES.index(mode) <= MODES.index(allowed)
+
+
 #: A choice made in the interface, which outranks the environment.
 #:
 #: The environment is how an operator configures a deployment; this is how a
@@ -334,6 +417,15 @@ def _build() -> ModelProvider:
                   or os.environ.get("THROUGHLINE_MODEL_PROVIDER", "ollama")).lower()
     if configured in ("none", "off", "disabled"):
         return NullProvider()
+
+    # §84. The policy is the operator's, and a researcher cannot exceed it from
+    # the interface — refused here rather than in the UI, because a control
+    # that is only enforced where it is drawn is not enforced.
+    wanted = mode_of(configured)
+    if not permitted(wanted):
+        return NullProvider(note=(
+            f"{MODE_MEANINGS[wanted]} This installation permits "
+            f"{policy()!r} at most: {MODE_MEANINGS[policy()]}"))
     if configured == "ollama":
         provider: ModelProvider = OllamaProvider(model=_override["model"])
     elif configured == "anthropic":

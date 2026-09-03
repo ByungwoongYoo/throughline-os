@@ -179,16 +179,30 @@ class NullProvider(ModelProvider):
 
     name = "none"
 
+    def __init__(self, *, note: str | None = None) -> None:
+        """
+        `note` says *why* there is no model, when the reason is not "none was
+        configured".
+
+        §84's policy refusal arrives here: an installation that forbids sending
+        research data to another company has no provider, and a researcher who
+        selected one deserves to be told that it was refused rather than left
+        to conclude the software is broken.
+        """
+        self._note = note
+
     def capability(self) -> Capability:
         return Capability(
             name="none", model="", text=False, local=True,
-            note=("No model provider is configured. Install Ollama and pull a model, "
+            note=self._note or
+                 ("No model provider is configured. Install Ollama and pull a model, "
                   "or set THROUGHLINE_MODEL_PROVIDER. Features that need a model say "
                   "so rather than degrading."),
         )
 
     def _refuse(self) -> Any:
         raise ModelUnavailable(
+            self._note or
             "No model provider is configured. This installation runs retrieval, "
             "statistics, validation and reporting without one; anything that needs "
             "a model is unavailable rather than approximated."

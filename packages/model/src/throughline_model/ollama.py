@@ -33,6 +33,34 @@ from .provider import (
 T = TypeVar("T", bound=BaseModel)
 
 DEFAULT_HOST = "http://127.0.0.1:11434"
+
+#: Hosts that are this machine. Anything else is somebody else's server, even
+#: when it is running the same software.
+_THIS_MACHINE = frozenset({"localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"})
+
+
+def runs_on_this_machine(host: str) -> bool:
+    """
+    Whether a host address is this device.
+
+    §84 asks that external transmission be *understandable*, and the capability
+    said `local=True` unconditionally — so an Ollama pointed at
+    `https://ai.university.edu` reported that nothing left the device while
+    every prompt did. The privacy guarantee was a constant, which is the one
+    thing a guarantee cannot be.
+
+    A unix socket has no host at all and is necessarily this machine. Anything
+    with a name that is not a loopback address is somebody else's server, and
+    is treated as such even when it is on the same network — "inside the
+    building" is not the same promise as "on this laptop", and only the second
+    one is what the local default claims.
+    """
+    from urllib.parse import urlparse
+
+    parsed = urlparse(host if "//" in host else f"//{host}")
+    if parsed.scheme in ("unix", "file") or not parsed.hostname:
+        return True
+    return parsed.hostname.lower() in _THIS_MACHINE
 DEFAULT_MODEL = "qwen2.5:7b-instruct"
 
 #  — a nonce the untrusted content cannot predict, so it cannot close its own
@@ -183,16 +211,22 @@ class OllamaProvider(ModelProvider):
         Reporting a configured-but-absent model as available is exactly the fake
         capability the system forbids: every feature that depended on it would fail at
         the moment of use instead of being greyed out with a reason.
+
+        Locality is computed once here and carried through *every* return,
+        because the early ones were the paths that were wrong: an unreachable
+        remote host reported `local=True`, so a misconfigured university server
+        looked like a laptop that happened to be offline.
         """
+        here = runs_on_this_machine(self.host)
         try:
             installed = self._installed_models()
         except ModelUnavailable as exc:
             return Capability(name=self.name, model=self.model, text=False,
-                              note=str(exc))
+                              local=here, note=str(exc))
 
         if not installed:
             return Capability(
-                name=self.name, model=self.model, text=False,
+                name=self.name, model=self.model, text=False, local=here,
                 note=(f"Ollama is running but no model is installed. "
                       f"Run `ollama pull {self.model}`."),
             )
@@ -202,7 +236,7 @@ class OllamaProvider(ModelProvider):
             m.split(":")[0] == self.model.split(":")[0] for m in installed)
         if not present:
             return Capability(
-                name=self.name, model=self.model, text=False,
+                name=self.name, model=self.model, text=False, local=here,
                 note=(f"{self.model} is not installed. Available: "
                       f"{', '.join(installed)}. Run `ollama pull {self.model}`."),
             )
@@ -210,9 +244,13 @@ class OllamaProvider(ModelProvider):
         return Capability(
             name=self.name, model=self.model, text=True, structured=True,
             embeddings=False, vision=False, tools=False, context_tokens=32768,
-            local=True,
-            note=("Runs on this machine. Nothing sent to it leaves the device, which "
-                  "is what makes it usable on unpublished research data."),
+            local=here,
+            note=("Runs on this machine. Nothing sent to it leaves the device, "
+                  "which is what makes it usable on unpublished research data."
+                  if here else
+                  f"Runs on {self.host}, which is not this machine. Prompts and "
+                  "the data in them are sent there. Same software as the local "
+                  "backend; a different promise."),
         )
 
     # -- prompt assembly ---------------------------------------------------
