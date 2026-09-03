@@ -64,6 +64,20 @@ def _profile_line(column: dict[str, Any]) -> str:
     Only the profile is sent — name, type, spread, missingness. The rows never
     leave the machine's database for this purpose, and they would not help:
         a column is named by what it measures, not by what it happens to contain.
+
+    **The label the file stated is sent too, where there is one.** SPSS, Stata
+    and SAS record what each column means, and withholding that made the model
+    infer a canonical name from `survey_noise_b` while the file said
+    "Antibiotic consumption, DDD per 1000 inhabitants" a field away. The
+    canonical name is what makes two datasets comparable, so guessing it from a
+    mangled header when the meaning was available is the expensive half of the
+    same mistake `_clean_label` used to make with the display label.
+
+    It is metadata rather than data — the same category as `original_name`,
+    already sent here — so this does not widen what leaves the machine from the
+    rows themselves. Truncated, because a label is free text from someone
+    else's system and an unbounded one is a prompt-injection surface as much as
+    a token cost.
         """
     bits = [f"{column['name']} ({column['semantic_type'] or column['physical_type']}"]
     if column.get("unit"):
@@ -74,6 +88,9 @@ def _profile_line(column: dict[str, Any]) -> str:
     bits.append(")")
     if column.get("original_name") and column["original_name"] != column["name"]:
         bits.append(f" — original header: {column['original_name']}")
+    stated = (column.get("description") or "").strip()
+    if stated:
+        bits.append(f" — the file states: {stated[:200]}")
     return "".join(bits)
 
 
