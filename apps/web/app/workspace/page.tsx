@@ -26,6 +26,7 @@ import { ProjectMenu } from "@/components/ProjectMenu";
 import { AccountMenu, SignedInUser } from "@/components/AccountMenu";
 import { FirstProject, NewProject } from "@/components/FirstProject";
 import { DataSearch } from "@/components/datasearch";
+import { ReadFigure } from "@/components/readfigure";
 import { Compare } from "@/components/compare";
 import { Patterns } from "@/components/patterns";
 import { Board } from "@/components/board/Board";
@@ -619,6 +620,7 @@ function Workspace({ user }: { user: SignedInUser }) {
         {section === "embedding" && <EmbeddingSpace projectId={project.id} />}
         {section === "gallery" && <Gallery />}
         {section === "datasearch" && <DataSearch />}
+        {section === "readfigure" && <ReadFigure projectId={project.id} />}
 
         {section === "figures" && (
           <Figures projectId={project.id} runs={analyses} />

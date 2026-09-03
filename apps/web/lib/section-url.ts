@@ -44,7 +44,7 @@ export const SECTION_IDS = [
   "analyses", "graph", "embedding",
   "reports", "figures", "gallery", "notebook", "journal", "activity",
   "literature",
-  "datasearch", "settings",
+  "datasearch", "readfigure", "settings",
 ] as const;
 
 /** Where a visitor lands when the address names no section. */

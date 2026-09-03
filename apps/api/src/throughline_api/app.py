@@ -9,16 +9,24 @@ entry commit together.
 from __future__ import annotations
 
 import logging
+import os
+import pathlib
+import tempfile
 
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import Cookie, Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi import (
+    Cookie, Depends, FastAPI, File, Form, HTTPException, Query, Request,
+    Response, UploadFile,
+)
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
+from pydantic import ValidationError as PayloadInvalid
 from throughline_domain import (
     snapshot,
+    digitise as digitise_module,
     code_export,
     provenance_log,
     tables,
@@ -4751,6 +4759,126 @@ async def unhandled(request: Request, exc: Exception) -> JSONResponse:
             "hint": "The request was rolled back; no partial state was written.",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Reading numbers back off a published figure
+# ---------------------------------------------------------------------------
+
+
+#: A published figure is a picture of a chart, not a photograph of a landscape.
+#: The cap is generous for a 600-dpi journal plate and small enough that the
+#: request cannot be used to spend the machine's memory. It is enforced by
+#: reading a bounded number of bytes rather than by trusting `Content-Length`,
+#: which is a claim the client makes about itself.
+MAX_FIGURE_BYTES = 32 * 1024 * 1024
+
+
+class DigitiseRequest(BaseModel):
+    """The calibration, which is the part a machine must not do for itself.
+
+    Two reference points per axis, their data values read off the printed
+    labels by a person, and an explicit statement of whether each axis is
+    linear or logarithmic. `axes_declared` is not a formality: reading a log
+    axis as linear is wrong by orders of magnitude at one end and nearly right
+    at the other, and the domain refuses rather than guessing.
+    """
+
+    x1_px: float
+    x1_value: float
+    x2_px: float
+    x2_value: float
+    y1_px: float
+    y1_value: float
+    y2_px: float
+    y2_value: float
+    x_log: bool = False
+    y_log: bool = False
+    axes_declared: bool = False
+    marker_colour: list[int] | None = None
+
+
+@app.post("/api/projects/{project_id}/figures/digitise")
+async def digitise_figure(
+    project_id: str,
+    calibration: str = Form(...),
+    file: UploadFile = File(...),
+    user: dict = Depends(current_user),
+) -> dict[str, Any]:
+    """
+    Read a data series off an uploaded chart image.
+
+    **Nothing is stored.** This is a computation, not an ingestion: the bytes
+    live in a temporary file for the length of the call and are deleted in a
+    `finally`, and no `files` row is written. A researcher digitising a figure
+    from a paper is asking a question about a picture, and answering it does
+    not require the platform to keep the picture. If they want the numbers in
+    the project, they upload the CSV — which is a visible, deliberate act that
+    records where the data came from, rather than a silent side effect.
+
+    The calibration arrives as a JSON form field beside the file because a
+    multipart request cannot carry a JSON body as well.
+    """
+    scoped_project(project_id, user)
+
+    try:
+        parsed = DigitiseRequest.model_validate_json(calibration)
+    except PayloadInvalid as exc:
+        raise HTTPException(422, f"The calibration is not usable: {exc}") from exc
+
+    # Bounded read. `await file.read(MAX_FIGURE_BYTES + 1)` — one byte past the
+    # limit — is how the difference between "exactly at the cap" and "over it"
+    # is known without holding the oversized body.
+    payload = await file.read(MAX_FIGURE_BYTES + 1)
+    if len(payload) > MAX_FIGURE_BYTES:
+        raise HTTPException(
+            413, f"That figure is larger than {MAX_FIGURE_BYTES // (1024 * 1024)} MB. "
+                 "A published figure is a chart image; something much larger is "
+                 "probably not one.")
+    if not payload:
+        raise HTTPException(422, "That file is empty.")
+
+    try:
+        calib = digitise_module.Calibration(
+            x1_px=parsed.x1_px, x1_value=parsed.x1_value,
+            x2_px=parsed.x2_px, x2_value=parsed.x2_value,
+            y1_px=parsed.y1_px, y1_value=parsed.y1_value,
+            y2_px=parsed.y2_px, y2_value=parsed.y2_value,
+            x_log=parsed.x_log, y_log=parsed.y_log,
+        )
+    except digitise_module.DigitiseError as exc:
+        # 422 rather than 500: a calibration with two identical reference
+        # points is a thing the researcher can fix, and the domain's message
+        # already says how.
+        raise HTTPException(422, str(exc)) from exc
+
+    marker = tuple(parsed.marker_colour) if parsed.marker_colour else None
+    if marker is not None and len(marker) != 3:
+        raise HTTPException(422, "A marker colour is three numbers: red, green, blue.")
+
+    suffix = pathlib.Path(file.filename or "figure.png").suffix or ".png"
+    handle, temp_path = tempfile.mkstemp(suffix=suffix)
+    try:
+        with os.fdopen(handle, "wb") as scratch:
+            scratch.write(payload)
+        try:
+            result = digitise_module.digitise(
+                path=temp_path, calibration=calib, marker_colour=marker,
+                axes_declared=parsed.axes_declared,
+            )
+        except digitise_module.DigitiseError as exc:
+            # The one that reaches here on a normal installation is the missing
+            # OpenCV pack. It is a 503 rather than a 500 because the request was
+            # well formed and the machine simply cannot answer it yet, and the
+            # message names the pack that fixes it.
+            raise HTTPException(503, str(exc)) from exc
+    finally:
+        # Deleted whether the read succeeded, refused or raised. A figure left
+        # in the system's temporary directory is a copy of somebody's
+        # unpublished data that nothing is tracking.
+        pathlib.Path(temp_path).unlink(missing_ok=True)
+
+    return result
 
 
 # ---------------------------------------------------------------------------

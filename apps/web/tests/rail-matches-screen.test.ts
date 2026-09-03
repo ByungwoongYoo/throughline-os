@@ -49,6 +49,7 @@ const HEADING_IN: Record<string, { file: string; expect?: string; why?: string }
   search: { file: "components/views.tsx" },
   literature: { file: "components/literature.tsx" },
   datasearch: { file: "components/datasearch.tsx" },
+  readfigure: { file: "components/readfigure.tsx" },
   discover: { file: "components/views.tsx" },
   compare: { file: "components/compare.tsx" },
   patterns: { file: "components/patterns.tsx" },

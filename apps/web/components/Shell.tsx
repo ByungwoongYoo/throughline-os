@@ -37,7 +37,7 @@ export type Section =
   | "analyses" | "graph" | "embedding"
   | "reports" | "figures" | "gallery" | "notebook" | "journal" | "activity"
   | "literature"
-  | "datasearch" | "settings";
+  | "datasearch" | "readfigure" | "settings";
 
 export type Crumb = { label: string; onClick?: () => void };
 
@@ -73,6 +73,14 @@ const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; 
       { id: "search", label: "Search sources" },
       { id: "literature", label: "Find papers" },
       { id: "datasearch", label: "Find data" },
+      /*
+       * Beside "Find data" for the same have-it/get-it reason the comment
+       * above gives: this is how a project gets numbers it does not have, out
+       * of a paper that printed them as a picture instead of publishing them.
+       * It is not under Communicate with "Figures" — that screen *makes* a
+       * figure from data, and this one does the opposite.
+       */
+      { id: "readfigure", label: "Read a figure" },
     ],
   },
   {
@@ -231,6 +239,11 @@ const ICONS: Record<Section, (p: { size?: number }) => ReactElement> = {
   // a second glyph for the same idea makes a sidebar harder to scan.
   embedding: IconGraph,
   reports: IconReports, figures: IconFigures, gallery: IconGallery,
+  // Reuses the figures glyph, and the reuse is the argument: this screen and
+  // that one operate on the same object from opposite directions — one draws a
+  // chart from data, this one recovers data from a chart. A different glyph
+  // would imply a different kind of thing.
+  readfigure: IconFigures,
   notebook: IconNotebook,
   // Reuses the notebook glyph: they are the same notes read two ways, and a
   // second glyph would suggest two different kinds of thing.

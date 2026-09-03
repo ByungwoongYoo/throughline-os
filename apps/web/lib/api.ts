@@ -88,6 +88,22 @@ export const api = {
     form.append("file", file);
     return request<T>(path, { method: "POST", body: form });
   },
+  /**
+   * A file plus structured fields, in one multipart request.
+   *
+   * `upload` covers the common case where the file is the whole request. A
+   * figure being digitised is not that: the calibration travels with it, and a
+   * multipart body cannot also be a JSON body — so the fields go alongside as
+   * form values and the server parses them.
+   */
+  uploadWith: <T>(path: string, file: File, fields: Record<string, unknown>) => {
+    const form = new FormData();
+    form.append("file", file);
+    for (const [name, value] of Object.entries(fields)) {
+      form.append(name, typeof value === "string" ? value : JSON.stringify(value));
+    }
+    return request<T>(path, { method: "POST", body: form });
+  },
 };
 
 // --- types mirroring the API contracts -------------------------------------

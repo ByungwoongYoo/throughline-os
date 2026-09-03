@@ -60,7 +60,7 @@ class ParsedDocument:
     def verify_anchors(self) -> list[int]:
         """Return the ordinals of any passage whose offsets do not match `text`.
 
-        this rule depends on offsets being真 real. This is cheap and runs after every
+        This rule depends on offsets being real. This is cheap and runs after every
         parse so a bad anchor is caught at ingestion rather than discovered later
         by a researcher inspecting a citation.
         """
@@ -291,6 +291,51 @@ def parse_plain_text(path: Path) -> ParsedDocument:
                           title=path.stem, metadata={"parser": "plain-text"})
 
 
+def _parse_pdf_with_the_best_available_parser(path: Path) -> ParsedDocument:
+    """Docling when it is installed and it works; PyMuPDF otherwise.
+
+    `structured.py` was written for exactly this fork and then nothing called
+    it, so on a machine with Docling installed every paper was still read as
+    flat text blocks — and the module's own docstring said the interface
+    reports which parser ran, which nothing could do while the answer was
+    always the same one.
+
+    Three things make this a fallback rather than a switch:
+
+    - **An optional parser must never fail an ingestion.** Docling loads
+      models and can raise for reasons that have nothing to do with the
+      document. Any exception hands the file to PyMuPDF, which was going to
+      read it before this function existed.
+
+    - **The anchors are checked before the result is accepted.** A passage's
+      character offsets are what a quotation in a report resolves against, so
+      a structured parse whose offsets do not match its own text is worse than
+      the flat one — it is wrong in the place the product makes promises
+      about. `verify_anchors` already answers this; here it decides.
+
+    - **Whichever ran is recorded on the document.** Two researchers on
+      differently-configured machines can get different passages out of the
+      same paper, and that difference has to be attributable rather than
+      invisible.
+    """
+    # Imported here rather than at module scope: `structured` imports
+    # `ParsedDocument` from this module, so a top-level import is a cycle.
+    from . import structured
+
+    if structured.available():
+        try:
+            parsed = structured.parse(path)
+        except Exception:  # noqa: BLE001 - any failure falls back; see above
+            parsed = None
+        if parsed is not None and not parsed.verify_anchors():
+            parsed.metadata = {**parsed.metadata, "parser": "docling"}
+            return parsed
+
+    flat = parse_pdf(path)
+    flat.metadata = {**flat.metadata, "parser": "pymupdf"}
+    return flat
+
+
 def parse_document(path: Path, *, suffix: str | None = None) -> ParsedDocument:
     """Parse a document.
 
@@ -300,7 +345,7 @@ def parse_document(path: Path, *, suffix: str | None = None) -> ParsedDocument:
     """
     suffix = (suffix or path.suffix).lower()
     if suffix == ".pdf":
-        return parse_pdf(path)
+        return _parse_pdf_with_the_best_available_parser(path)
     if suffix == ".docx":
         return parse_docx(path)
     if suffix in {".txt", ".md", ".markdown"}:

@@ -105,8 +105,10 @@ not deletion — a dated audit is useful; an undated wrong one is not.
 
 An earlier pass flagged two more items. Both were wrong.
 
-`digitise.py` is unreached from any route or component, but it is deliberate,
-careful work: its opening argues that axis calibration must come from the
+`digitise.py` **now has its surface** — `Read a figure`, wired to a route and
+a screen — so the sequencing argument below has been discharged rather than
+merely restated. It was unreached from any route or component, but it was
+deliberate, careful work: its opening argues that axis calibration must come from the
 researcher rather than OCR (a misread axis corrupts every value silently while
 the points still land on the curve), that pixel uncertainty must propagate into
 every downstream statistic, and that a log axis must be declared rather than
