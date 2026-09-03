@@ -40,7 +40,20 @@ WANTED = ("author", "year", "journal")
 
 #: Characters BibTeX treats as syntax, escaped rather than dropped, so a title
 #: containing "Smith & Jones" survives the round trip.
-_ESCAPE = {"&": r"\&", "%": r"\%", "$": r"\$", "#": r"\#", "_": r"\_"}
+#:
+#: Braces are here for a stronger reason than fidelity. They delimit a field,
+#: so a title carrying a single unmatched "{" means the field never closes and
+#: everything after it is swallowed — one malformed record from a scraped
+#: source takes the whole bibliography with it rather than just its own entry.
+#: Titles arrive from a parser as free text, so that is not a hypothetical.
+#:
+#: The cost is the "{DNA}" idiom, which protects a capital from a style that
+#: would lowercase it. That is an authoring convention for .bib files written
+#: by hand; this file is emitted from parsed metadata, where a brace is far
+#: more likely to be noise than intent. A visible brace in one title is a
+#: smaller harm than a bibliography that will not parse.
+_ESCAPE = {"&": r"\&", "%": r"\%", "$": r"\$", "#": r"\#", "_": r"\_",
+           "{": r"\{", "}": r"\}"}
 
 
 def _escaped(text: str) -> str:

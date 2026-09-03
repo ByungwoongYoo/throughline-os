@@ -183,3 +183,96 @@ def test_an_empty_bibliography_says_so_rather_than_being_an_empty_file(cur, proj
 
     assert text.startswith("%")
     assert "No papers are cited" in text
+
+
+# ---------------------------------------------------------------------------
+# The file has to survive the titles it is given
+# ---------------------------------------------------------------------------
+
+
+def _entries_close(text: str) -> bool:
+    """Every *structural* brace in the file is matched.
+
+    An escaped brace is a literal character, not a delimiter, so a checker that
+    counted `\\{` would report the escaping as the corruption it prevents —
+    which is what the first version of this did.
+    """
+    depth = 0
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char == "\\" and index + 1 < len(text) and text[index + 1] in "{}":
+            index += 2          # an escaped brace is a character in the text
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth < 0:
+                return False
+        index += 1
+    return depth == 0
+
+
+class TestOneBadTitleCannotTakeTheFileWithIt:
+    """
+    Titles arrive from a parser as free text — `_surname` says so in as many
+    words — so the escaping has to hold for text nobody wrote by hand.
+
+    An unbalanced brace is the case that matters. BibTeX delimits a field with
+    braces, so a title carrying a single "{" means the field never closes and
+    everything after it is swallowed: one malformed record from a scraped
+    source destroys the whole bibliography rather than its own entry. Every
+    test here checked for a substring, and a substring is present in a corrupt
+    file too.
+    """
+
+    def test_an_unclosed_brace_does_not_run_past_its_field(self, cur, project):
+        source = _paper(cur, project, title="An open { brace",
+                        authors=["Ada Lovelace"], journal="J", date="2024-01-01")
+        _cite(cur, project, source)
+
+        text = bibliography.as_bibtex(cur, project)
+        assert _entries_close(text), (
+            "one title with an unbalanced brace corrupts the whole file")
+
+    def test_a_stray_closing_brace_does_not_end_the_entry_early(
+            self, cur, project):
+        source = _paper(cur, project, title="A close } brace",
+                        authors=["Ada Lovelace"], journal="J", date="2024-01-01")
+        _cite(cur, project, source)
+
+        assert _entries_close(bibliography.as_bibtex(cur, project))
+
+    def test_the_entry_after_a_bad_one_is_still_there(self, cur, project):
+        """The consequence that makes this worth fixing rather than noting."""
+        first = _paper(cur, project, title="An open { brace",
+                       authors=["Ada Lovelace"], journal="J", date="2024-01-01")
+        second = _paper(cur, project, title="Perfectly Ordinary Title",
+                        authors=["Grace Hopper"], journal="J", date="2024-02-01")
+        _cite(cur, project, first)
+        _cite(cur, project, second)
+
+        text = bibliography.as_bibtex(cur, project)
+        assert _entries_close(text)
+        assert "Perfectly Ordinary Title" in text
+        assert text.count("@article{") == 2
+
+    def test_the_ordinary_escapes_still_work(self, cur, project):
+        """The five characters that were already handled, unchanged."""
+        source = _paper(cur, project, title="50% of Smith & Jones_1 costs $2 #3",
+                        authors=["Ada Lovelace"], journal="J", date="2024-01-01")
+        _cite(cur, project, source)
+
+        text = bibliography.as_bibtex(cur, project)
+        assert _entries_close(text)
+        for escaped in (r"\%", r"\&", r"\_", r"\$", r"\#"):
+            assert escaped in text, escaped
+
+    def test_a_plain_title_is_untouched(self, cur, project):
+        source = _paper(cur, project, title="Attention and the Analyst",
+                        authors=["Ada Lovelace"], journal="J", date="2024-01-01")
+        _cite(cur, project, source)
+
+        text = bibliography.as_bibtex(cur, project)
+        assert "Attention and the Analyst" in text
