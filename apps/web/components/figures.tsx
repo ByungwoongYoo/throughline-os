@@ -17,6 +17,7 @@ import { ApiState, useApi } from "@/lib/useApi";
 // Aliased: Matrix exports a `Cell` too, and its shape is row/column/value
 // rather than x/y/count.
 import { Binned, Cell as BinnedCell } from "./charts/Binned";
+import { Surface } from "./charts/Surface";
 import { Cartesian, CartesianMark, Datum } from "./charts/Cartesian";
 import { Estimate, Interval } from "./charts/Interval";
 import { Cell, Matrix } from "./charts/Matrix";
@@ -49,6 +50,18 @@ type Points = {
   bin_count?: number | null;
   bin_shape?: string;
   count_scale?: string;
+  /**
+   * Present only for a surface: the fitted response over a grid, and the
+   * observations it was fitted to.
+   *
+   * Evaluated server-side from the recorded coefficients, like `cells`, so a
+   * browser cannot compute a second model beside the one in the record.
+   */
+  grid?: Array<Array<number | null>> | null;
+  grid_x?: number[];
+  grid_y?: number[];
+  observations?: Array<{ x: number; y: number; z: number }>;
+  note?: string;
 };
 
 const MARK_FOR: Record<string, CartesianMark> = {
@@ -547,10 +560,43 @@ function Figure({ run, recommendation, labels, projectId }: {
   const cells = points.data?.cells;
   const binned = recommendation.visual_type === "hexbin" && cells?.length;
 
+  /**
+   * A surface recommendation must draw a surface, for the same reason the
+   * binned one must draw bins.
+   *
+   * This is the first spatial chart a researcher's own analysis can produce.
+   * Six of the eight renderers had never seen anything but generated data,
+   * because the recommender had no three-dimensional option in its vocabulary
+   * — so they were unreachable by construction rather than misfiled.
+   *
+   * The grid arrives already evaluated from the recorded coefficients. A
+   * browser that computed the fitted response itself could disagree with the
+   * analysis that produced it, which is the fidelity rule every figure here
+   * follows.
+   */
+  const grid = points.data?.grid;
+  const surface = recommendation.visual_type === "surface"
+    && grid?.length
+    && (points.data?.grid_x?.length ?? 0) > 1
+    && (points.data?.grid_y?.length ?? 0) > 1;
+
   return (
     <>
       <div className="card" ref={svgHost}>
-        {binned ? (
+        {surface ? (
+          <Surface
+            grid={{ x: points.data!.grid_x!, y: points.data!.grid_y!,
+                    z: grid! }}
+            observations={(points.data?.observations ?? []).map((o, index) => ({
+              id: String(index), label: `observation ${index + 1}`,
+              x: o.x, y: o.y, z: o.z,
+            }))}
+            xLabel={xLabel}
+            yLabel={yLabel}
+            zLabel={axisLabel(fields.y, labels, recommendation.spec.y)}
+            caption={points.data?.note ?? ""}
+          />
+        ) : binned ? (
           <Binned
             cells={cells}
             xLabel={xLabel}

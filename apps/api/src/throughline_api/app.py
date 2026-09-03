@@ -36,7 +36,7 @@ from throughline_domain import (
 from throughline_visual.prepare import prepare as visual_prepare
 from throughline_visual.renderers import publication as publication_render
 from throughline_schemas.words import counted
-from throughline_visual.spec import ResearchVisualSpec
+from throughline_visual.spec import ResearchVisualSpec, VisualType
 from throughline_domain import secrets as domain_secrets
 from throughline_domain import settings as domain_settings
 from throughline_domain.db import connection, jsonb, transaction
@@ -3880,6 +3880,15 @@ def analysis_points(run_id: str, user: dict = Depends(current_user)) -> dict[str
             "bin_count": spec.bin_count,
             "bin_shape": str(spec.bin_shape),
             "count_scale": str(spec.count_scale),
+            # Present only for a surface: the fitted response evaluated over a
+            # grid, and the observations it was fitted to. Sent here rather
+            # than computed in the browser for the same reason as `cells` — a
+            # client that evaluated the model itself could disagree with the
+            # analysis that recorded the coefficients.
+            "grid": data.matrix,
+            "grid_x": data.x_values if spec.visual_type is VisualType.SURFACE else [],
+            "grid_y": data.y_values if spec.visual_type is VisualType.SURFACE else [],
+            "observations": data.series if spec.visual_type is VisualType.SURFACE else [],
         }
 
 
