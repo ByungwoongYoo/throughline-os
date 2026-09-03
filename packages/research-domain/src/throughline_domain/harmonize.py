@@ -87,8 +87,12 @@ def propose_labels(cur, *, project_id: str, dataset_version_id: str) -> dict[str
     own data means.
     """
     cur.execute(
+        # `description` is the label the source file gave this column, and it is
+        # selected because it was previously written and never read: `corpus.py`
+        # stores it on import and nothing downstream asked for it again, so the
+        # canonical layer inferred a label for columns that already had one.
         "SELECT dc.id, dc.name, dc.original_name, dc.physical_type, dc.semantic_type, "
-        "dc.unit, dc.missing_count, dc.unique_count "
+        "dc.unit, dc.description, dc.missing_count, dc.unique_count "
         "FROM dataset_columns dc WHERE dc.dataset_version_id = %s ORDER BY dc.ordinal",
         (dataset_version_id,),
         )
@@ -229,6 +233,30 @@ _LABEL_SUFFIX = re.compile(r"\s*\((?:[^()]{1,30})\)\s*$")
 
 
 def _clean_label(label: str, column: dict[str, Any]) -> str:
+    """The best available presentation label for a column.
+
+    **The file's own label wins, where the file had one.** SPSS, Stata and SAS
+    record what every column means, written by whoever built the dataset;
+    `datasets.py` reads that and `corpus.py` stores it in `description`, whose
+    comment says losing it "would mean re-deriving by inference something the
+    file already said outright". Preferring the model's proposal over it did
+    exactly that — asked a language model to guess a label for a column that
+    already carried a human-written one.
+
+    The order is therefore: what the file said, then what the model proposed,
+    then the raw name. The raw name last, because `survey_noise_b` on an axis is
+    the Definition-of-Done failure this layer exists to prevent, and it was
+    reachable whenever a proposal came back empty or was stripped to nothing.
+
+    **Where two datasets disagree, the newest still wins** — that is the upsert's
+    existing rule and this does not change it. A canonical variable is shared
+    across datasets while a label belongs to one file, so there is no way to
+    honour both; the upsert's comment explains why the newest is the right
+    choice, and a file label is a better newest than a guess.
+    """
+    stated = (column.get("description") or "").strip()
+    if stated:
+        return stated
     cleaned = _LABEL_SUFFIX.sub("", (label or "").strip()).strip()
     return cleaned or column["name"]
 
