@@ -119,13 +119,36 @@ def test_the_endpoint_returns_the_account(monkeypatch):
     assert "sample, sampling = _visual_sample(" in body
 
 
-def test_the_sample_is_not_taken_from_the_top(monkeypatch):
-    """A regression guard on the defect itself."""
-    from pathlib import Path
+def test_the_sample_is_not_taken_from_the_top(tmp_path):
+    """
+    A regression guard on the defect itself, drawn rather than read.
 
-    source = Path("apps/api/src/throughline_api/app.py").read_text()
-    body = source[source.index("def _visual_sample("):]
-    body = body[:body.index("\ndef ")]
+    This used to search `_visual_sample` for the literal expression
+    `.sample(n=limit, random_state=0)`, which stopped being true the moment the
+    sampling moved into `_sample_columns` to stop loading the whole file — and
+    it would have stopped being true just as loudly if the code had been made
+    better in some other way. A guard that reads for a string is a guard about
+    the spelling; this one takes a sample from a deliberately sorted file and
+    checks where the rows came from, which is the thing that must stay true.
+    """
+    import numpy as np
+    import pandas as pd
+    from throughline_api.app import _sample_columns
 
-    assert ".sample(n=limit, random_state=0)" in body
-    assert ".head(limit)" not in body, "head-of-file is not a sample"
+    rows = 20_000
+    ordered = tmp_path / "sorted.csv"
+    # Sorted, as research data arrives: by date, by site, by arm.
+    pd.DataFrame({"row_id": np.arange(rows)}).to_csv(ordered, index=False)
+
+    sample, account = _sample_columns(ordered, ".csv", ["row_id"], 500)
+    drawn = np.array(sample["row_id"])
+
+    assert account["sampled"] is True
+    assert account["rows_total"] == rows
+    # The head of the file would be entirely inside the first 500 ids.
+    assert drawn.max() > rows * 0.9, (
+        "the sample stops near the top of the file, which is what "
+        "`.head(500)` did beneath statistics computed from everything")
+    assert drawn.min() < rows * 0.1, "the sample never reaches the top either"
+    # And it is spread, not clustered at one end.
+    assert rows * 0.3 < np.median(drawn) < rows * 0.7

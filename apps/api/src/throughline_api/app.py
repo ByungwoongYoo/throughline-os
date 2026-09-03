@@ -4167,6 +4167,131 @@ def _column_values(version_id: str, column: str) -> list[float | None]:
     return [None if pd.isna(v) else float(v) for v in numeric]
 
 
+#: Rows read at a time when sampling a delimited file. Large enough that the
+#: per-chunk overhead is irrelevant, small enough that the peak is bounded no
+#: matter how big the file is.
+SAMPLE_CHUNK_ROWS = 50_000
+
+#: Formats that can be read a piece at a time. Everything else — Excel, SPSS,
+#: Stata, Parquet through the columnar reader — is materialised whole by its
+#: library, and is also the shape nobody has two million rows of.
+STREAMABLE = {".csv", ".tsv"}
+
+
+def _sample_columns(
+    path: Path, suffix: str, fields: list[str], limit: int,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """
+    A bounded sample of `fields`, without loading the file to get it (§47).
+
+    The sampling was already uniform, seeded and declared. What was wrong was
+    the cost of taking it: `read_dataset` materialised the entire file and then
+    kept five hundred rows. Measured, a 2,000,000-row CSV cost 0.40s and 323MB
+    resident to draw those five hundred — and every cell is read as a Python
+    string, which is where the megabytes go. §47 opens by forbidding exactly
+    this, and the time was never the alarming part: the memory is transient
+    peak in the API process, per request, paid again by the next researcher
+    opening the next figure.
+
+    A delimited file is read in chunks, keeping only the columns the figure
+    draws, and the sample is a reservoir — Algorithm R, seeded. That gives a
+    uniform draw without replacement in one pass with no idea of the row count
+    in advance, and hands back the true total as a by-product, which is what
+    the account needs to say "500 of 2,000,000".
+
+    **The points move once.** The old sample was pandas' `.sample(n,
+    random_state=0)` over a fully materialised index, and no streaming
+    algorithm reproduces that choice. Figures already saved keep their stored
+    points; a live redraw of an unsaved figure over a sampled dataset will show
+    a different five hundred than it did before this change, once. Seeded, so
+    it is stable from here.
+    """
+    import numpy as np
+    import pandas as pd
+
+    if suffix not in STREAMABLE:
+        # Read whole, as before: these libraries offer nothing else, and the
+        # formats are not where the millions are.
+        from throughline_ingestion.datasets import read_dataset
+
+        frame, _ = read_dataset(path, suffix=suffix)
+        total = len(frame)
+        chosen = (frame.sample(n=limit, random_state=0).sort_index()
+                  if total > limit else frame)
+        return _columns_from(chosen, fields), _account(total, len(chosen), limit)
+
+    separator = "\t" if suffix == ".tsv" else _sniff(path)
+
+    rng = np.random.default_rng(0)
+    # The reservoir is a list of rows, not a DataFrame. Replacing a row in a
+    # frame of string dtype fights the block manager for no benefit, and only
+    # the winners are ever touched — a handful, not a chunk.
+    kept: list[Any] = []
+    columns: list[str] = []
+    seen = 0
+
+    reader = pd.read_csv(
+        path, sep=separator, usecols=lambda name: name in set(fields),
+        dtype=str, keep_default_na=False, encoding="utf-8",
+        encoding_errors="replace", chunksize=SAMPLE_CHUNK_ROWS,
+        low_memory=False,
+    )
+    for chunk in reader:
+        if not columns:
+            columns = list(chunk.columns)
+        rows = chunk.to_numpy(dtype=object)
+
+        take = min(limit - len(kept), len(rows))
+        if take > 0:
+            kept.extend(rows[:take])
+        rest = rows[take:]
+        offset = seen + take
+
+        # Algorithm R over the remainder: the row at overall position i
+        # replaces a uniformly chosen slot with probability limit/(i+1).
+        # Vectorised per chunk; the loop below runs only for the winners.
+        if len(rest):
+            positions = np.arange(offset, offset + len(rest))
+            draws = rng.integers(0, positions + 1)
+            for index in np.nonzero(draws < limit)[0]:
+                kept[int(draws[index])] = rest[index]
+        seen += len(rows)
+
+    frame = pd.DataFrame(kept, columns=columns or fields)
+    return _columns_from(frame, fields), _account(seen, len(frame), limit)
+
+
+def _sniff(path: Path) -> str:
+    from throughline_ingestion.datasets import sniff_delimiter
+
+    return sniff_delimiter(path)
+
+
+def _columns_from(frame: Any, fields: list[str]) -> dict[str, Any]:
+    """Numbers as numbers, anything else as text — as the whole-file path did."""
+    import pandas as pd
+
+    sample: dict[str, Any] = {}
+    for field_name in fields:
+        if field_name not in frame.columns:
+            continue
+        column = frame[field_name]
+        numeric = pd.to_numeric(column, errors="coerce")
+        sample[field_name] = (numeric.tolist() if numeric.notna().all()
+                              else column.astype(str).tolist())
+    return sample
+
+
+def _account(total: int, drawn: int, limit: int) -> dict[str, Any]:
+    return {
+        "sampled": total > limit,
+        "rows_total": int(total),
+        "rows_drawn": int(drawn),
+        "method": "uniform random without replacement, fixed seed"
+                  if total > limit else "every row",
+    }
+
+
 def _visual_sample(cur, spec: ResearchVisualSpec,
                    limit: int = 500) -> tuple[dict[str, Any], dict[str, Any]]:
     """
@@ -4208,37 +4333,10 @@ def _visual_sample(cur, spec: ResearchVisualSpec,
     if not row:
         return {}, {"sampled": False}
 
-    import pandas as pd
-    from throughline_ingestion.datasets import read_dataset
-
-    frame, _ = read_dataset(storage.path_for(row["storage_key"]),
-                            suffix=Path(row["filename"] or "").suffix.lower())
-
-    total = len(frame)
-    if total > limit:
-        # `random_state` fixed, not omitted: an unseeded sample redraws
-        # differently every time the figure is opened.
-        chosen = frame.sample(n=limit, random_state=0).sort_index()
-    else:
-        chosen = frame
-
-    sample: dict[str, Any] = {}
-    for field_name in fields:
-        if field_name not in chosen.columns:
-            continue
-        column = chosen[field_name]
-        numeric = pd.to_numeric(column, errors="coerce")
-        sample[field_name] = (numeric.tolist() if numeric.notna().all()
-                              else column.astype(str).tolist())
-
-    account = {
-        "sampled": total > limit,
-        "rows_total": int(total),
-        "rows_drawn": int(len(chosen)),
-        "method": "uniform random without replacement, fixed seed"
-                  if total > limit else "every row",
-    }
-    return sample, account
+    return _sample_columns(
+        storage.path_for(row["storage_key"]),
+        Path(row["filename"] or "").suffix.lower(),
+        list(fields), limit)
 
 
 # ---------------------------------------------------------------------------
