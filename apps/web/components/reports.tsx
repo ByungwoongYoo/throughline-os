@@ -20,6 +20,7 @@ import {
 } from "@/lib/api";
 import { ApiState, useApi } from "@/lib/useApi";
 import { Empty, Failure, Loading, Status } from "./primitives";
+import { BibliographyPanel } from "./bibliography";
 
 const FORMATS = ["markdown", "html", "docx", "pptx"] as const;
 
@@ -65,6 +66,11 @@ export function Reports({ projectId, connections, onSelect }: {
 
       {error ? <Failure error={error} /> : null}
       <CitationHealth state={citations} />
+
+      {/* Beside the citation health, because they answer two halves of one
+          question: whether the references still resolve, and what they look
+          like once exported. */}
+      <BibliographyPanel projectId={projectId} />
 
       <div className="card">
         <h2>Write a report</h2>

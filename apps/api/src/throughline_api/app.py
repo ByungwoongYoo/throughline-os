@@ -18,6 +18,7 @@ from fastapi import Cookie, Depends, FastAPI, File, HTTPException, Query, Reques
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from throughline_domain import (
+    bibliography,
     analysis, auth, claim_test, compare, consistency, critic, discovery,
     embeddings, enquiry, events, example, exploration, extraction, findings,
     graph_projection, graphs,
@@ -1644,6 +1645,44 @@ def verify_citations(project_id: str,
     scoped_project(project_id, user)
     with transaction() as cur:
         return citations.verify_project(cur, project_id)
+
+
+@app.get("/api/projects/{project_id}/bibliography")
+def project_bibliography(project_id: str,
+                         user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Every paper this project cited, as a `.bib` file.
+
+    `bibliography.py` has produced this for some time — stable keys, missing
+    fields omitted rather than guessed, and braces escaped so one malformed
+    scraped title cannot swallow the rest of the file. Nothing called it. There
+    was no route and no control, so a researcher who had done the work could
+    not get their citations out to the thing they write in.
+
+    Returned as text in JSON rather than as a file download: the interface
+    shows it, and a researcher can read it before saving it. A .bib that turns
+    out to be a comment saying nothing was cited is better discovered on screen
+    than in a submission.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        text = bibliography.as_bibtex(cur, project_id)
+        found = bibliography.entries(cur, project_id)
+    # `entries()` returns {entries, citations, papers}; the count is `papers`,
+    # not the length of that mapping — which is what the first version of this
+    # returned, giving three for every project on earth.
+    return {
+        "bibtex": text,
+        "entries": found["papers"],
+        "citations": found["citations"],
+        # Which references are short a year, a journal or an author. The module
+        # works this out per entry and nothing was showing it: a .bib that
+        # renders as "Lovelace, ?" is found in the proofs otherwise.
+        "incomplete": [
+            {"key": e["key"], "title": e["title"], "missing": e["missing_fields"]}
+            for e in found["entries"] if e["missing_fields"]
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------

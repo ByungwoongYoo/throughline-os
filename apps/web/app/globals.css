@@ -4762,3 +4762,19 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
                       letter-spacing: 0.02em; }
 .chart-export button { font-size: 11px; padding: 2px 8px; }
 .chart-export-problem { color: var(--caution); font-size: 12px; }
+
+
+/* The bibliography panel on the Reports screen. The textarea is the file
+   itself: monospaced, read-only, and tall enough to see several entries at
+   once, because the reason to show it rather than download it is that somebody
+   reads it before saving. */
+.bib { margin: 1rem 0; }
+.bib-text {
+  width: 100%; margin-top: 0.6rem; padding: 0.6rem;
+  font-size: 12px; line-height: 1.5;
+  border: 1px solid var(--line); border-radius: 6px;
+  background: var(--panel); color: var(--ink-soft);
+}
+.bib-gaps { margin: 0.6rem 0; }
+.bib-gaps ul { margin: 0.3rem 0 0.4rem; padding-left: 1.1rem; }
+.bib-gaps li { font-size: 13px; color: var(--ink-soft); }
