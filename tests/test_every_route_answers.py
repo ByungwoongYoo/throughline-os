@@ -96,40 +96,57 @@ def _paths(project_id: str = "prj_smoke") -> list[str]:
     return sorted(set(found))
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def client():
+    """
+    One client, one project, and the project has work in it.
+
+    This used to create an empty project per case. A real id was already the
+    difference between the test working and being decoration — `scoped_project`
+    404s otherwise and the handler body never runs — but an *empty* project is
+    only half of that. A route that formats an analysis result never formats
+    one; a route that summarises connections summarises nothing. The body runs
+    and returns early, which looks like passing.
+
+    So the worked example is assembled instead: a real paper, a real dataset, a
+    real discovery sweep and the analyses it produced. Module-scoped because
+    assembling it ninety-two times would turn a smoke test into a coffee break,
+    and the cases only read.
+    """
     from throughline_api.app import app
+    from throughline_workers.runner import Worker
 
     with TestClient(app) as test_client:
-        yield test_client
+        status = test_client.get("/api/auth/status").json()
+        endpoint = ("/api/auth/setup" if status["needs_setup"]
+                    else "/api/auth/login")
+        assert test_client.post(endpoint, json={
+            "email": "smoke@lab.local", "display_name": "Smoke",
+            "password": "correct-horse-battery"}).status_code == 200
 
+        made = test_client.post("/api/projects/example")
+        assert made.status_code in (200, 201), made.text
+        while Worker(worker_id="route-smoke").run_once():
+            pass
+        project_id = test_client.get("/api/projects").json()[0]["id"]
 
-@pytest.fixture(autouse=True)
-def clean_users():
-    yield
-    with connection() as conn, conn.cursor() as cur:
-        cur.execute("DELETE FROM users")
-
-
-def _signed_in(client) -> None:
-    status = client.get("/api/auth/status").json()
-    endpoint = "/api/auth/setup" if status["needs_setup"] else "/api/auth/login"
-    response = client.post(endpoint, json={
-        "email": "smoke@lab.local", "display_name": "Smoke",
-        "password": "correct-horse-battery"})
-    assert response.status_code == 200, response.text
+        try:
+            yield test_client, project_id
+        finally:
+            # This commits — the requests under test open their own
+            # transactions — so it puts the database back. A fixture that only
+            # passes when its module runs alone fails whichever test happens to
+            # run after it.
+            test_client.delete(f"/api/projects/{project_id}")
+            with connection() as conn, conn.cursor() as cur:
+                cur.execute("DELETE FROM projects WHERE id = %s", (project_id,))
+                cur.execute("DELETE FROM users")
+                conn.commit()
 
 
 @pytest.mark.parametrize("path", _paths())
 def test_a_get_route_never_raises(client, path):
-    _signed_in(client)
-
-    # A real project, so `scoped_project()` lets the request through and the
-    # handler actually runs. Created per case because `clean_users` truncates
-    # between them, and a project belonging to a deleted user is a 404 again.
-    project_id = client.post("/api/projects", json={
-        "name": "Smoke", "research_question": "does every route answer?"},
-    ).json()["id"]
+    client, project_id = client
 
     response = client.get(path.replace("prj_smoke", project_id))
 
