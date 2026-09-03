@@ -15,7 +15,7 @@
 
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { ResultsTable } from "@/components/bibliography";
+import { ResultsTable, SnapshotPanel } from "@/components/bibliography";
 
 afterEach(cleanup);
 
@@ -45,5 +45,29 @@ describe("taking the results away", () => {
     render(<ResultsTable projectId="prj_other" />);
     expect(screen.getByRole("link", { name: /download the results/i })
       .getAttribute("href")).toContain("prj_other");
+  });
+});
+
+describe("taking the whole project away", () => {
+  it("offers the snapshot as a download", () => {
+    render(<SnapshotPanel projectId="prj_1" />);
+    const link = screen.getByRole("link", { name: /download the snapshot/i });
+    expect(link.getAttribute("href")).toBe("/api/projects/prj_1/snapshot.zip");
+    expect(link.hasAttribute("download")).toBe(true);
+  });
+
+  it("does not call it a backup", () => {
+    /**
+     * Nothing reads a snapshot back in. A file called a backup that cannot be
+     * restored is worse than no file, because it is trusted — and the screen
+     * is where somebody forms that belief.
+     */
+    render(<SnapshotPanel projectId="prj_1" />);
+    expect(screen.getByText(/not a backup to restore from/i)).toBeTruthy();
+  });
+
+  it("says the omissions are named inside the file", () => {
+    render(<SnapshotPanel projectId="prj_1" />);
+    expect(screen.getByText(/named inside the file/i)).toBeTruthy();
   });
 });

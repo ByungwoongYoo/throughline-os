@@ -18,6 +18,7 @@ from fastapi import Cookie, Depends, FastAPI, File, HTTPException, Query, Reques
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from throughline_domain import (
+    snapshot,
     code_export,
     provenance_log,
     tables,
@@ -1718,6 +1719,72 @@ def finding_provenance_log(finding_id: str,
         media_type="text/markdown; charset=utf-8",
         headers={"Content-Disposition":
                  f'attachment; filename="{finding_id}-provenance.md"'},
+    )
+
+
+@app.get("/api/projects/{project_id}/snapshot.zip")
+def project_snapshot(project_id: str,
+                     user: dict = Depends(current_user)) -> Response:
+    """
+    One project as one file, to keep or to carry to another machine (§75).
+
+    `backup.sh` copies the whole installation — every project, including other
+    researchers'. This is the one somebody actually asks for: *give me
+    everything about this project*.
+
+    A zip rather than JSON, because the records are only half of it. The files
+    the project ingested travel beside them under `files/`, named by the
+    storage key the records refer to, so the archive is self-contained: a
+    snapshot describing analyses of a CSV nobody has is a description of work
+    rather than the work.
+
+    Built in memory. A project's records are small and its files are already
+    on this disk; streaming would add a temporary file to clean up for no gain
+    at the sizes involved, and the download is local.
+    """
+    import io
+    import zipfile
+
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        try:
+            records = snapshot.as_json(cur, project_id)
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        files = snapshot.files_in(cur, project_id)
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("project.json", records)
+        missing: list[str] = []
+        for entry in files:
+            # `path_for` raises for an object that is not there rather than
+            # returning a path to test, so the absence arrives as an exception
+            # and is caught here — checked, not assumed.
+            try:
+                path = storage.path_for(entry["storage_key"])
+                present = path.exists()
+            except storage.StorageError:
+                present = False
+            if not present:
+                # Recorded and gone. Named in the archive rather than silently
+                # absent, because a reader counting files against the records
+                # deserves to know which one this installation had lost.
+                missing.append(f"{entry['storage_key']}  {entry['filename']}")
+                continue
+            archive.write(path, f"files/{entry['storage_key']}")
+        if missing:
+            archive.writestr(
+                "files/MISSING.txt",
+                "These files are recorded in project.json and were not on "
+                "this machine when the snapshot was taken:\n\n"
+                + "\n".join(missing) + "\n")
+
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition":
+                 f'attachment; filename="{project_id}-snapshot.zip"'},
     )
 
 

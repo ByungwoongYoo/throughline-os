@@ -20,7 +20,9 @@ import {
 } from "@/lib/api";
 import { ApiState, useApi } from "@/lib/useApi";
 import { Empty, Failure, Loading, Status } from "./primitives";
-import { BibliographyPanel, ResultsTable } from "./bibliography";
+import {
+  BibliographyPanel, ResultsTable, SnapshotPanel,
+} from "./bibliography";
 
 const FORMATS = ["markdown", "html", "docx", "pptx"] as const;
 
@@ -72,6 +74,7 @@ export function Reports({ projectId, connections, onSelect }: {
           like once exported. */}
       <ResultsTable projectId={projectId} />
       <BibliographyPanel projectId={projectId} />
+      <SnapshotPanel projectId={projectId} />
 
       <div className="card">
         <h2>Write a report</h2>

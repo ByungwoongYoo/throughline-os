@@ -53,6 +53,39 @@ export function ResultsTable({ projectId }: { projectId: string }) {
 }
 
 
+/**
+ * The whole project as one file, to keep or to carry.
+ *
+ * `backup.sh` copies the entire installation — every project, including other
+ * researchers'. This is the one somebody asks for: everything about *this*
+ * project, records and ingested files together, so the archive describes work
+ * that can still be opened rather than analyses of a CSV nobody has.
+ *
+ * It says plainly that nothing reads it back in yet. A file called a backup
+ * that cannot be restored is worse than no file, because it is trusted.
+ */
+export function SnapshotPanel({ projectId }: { projectId: string }) {
+  return (
+    <section className="bib">
+      <h2>Snapshot</h2>
+      <p className="lede">
+        Everything recorded about this project, with the files it ingested, as
+        a single zip. For keeping a copy or moving the project to another
+        machine.
+      </p>
+      <a className="btn" href={`/api/projects/${projectId}/snapshot.zip`} download>
+        Download the snapshot
+      </a>
+      <p className="note">
+        An archive to read and keep, not a backup to restore from — nothing
+        loads one back in yet. Anything left out is named inside the file,
+        with the reason.
+      </p>
+    </section>
+  );
+}
+
+
 export function BibliographyPanel({ projectId }: { projectId: string }) {
   const [open, setOpen] = useState(false);
   const bibliography = useApi<Bibliography>(

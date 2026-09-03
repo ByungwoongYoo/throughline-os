@@ -228,6 +228,19 @@ def string_literals(path: pathlib.Path) -> list[str]:
     return found
 
 
+#: Schemas PostgreSQL defines, which no migration of ours ever will. The
+#: snapshot export reads `information_schema.columns` to discover which tables
+#: carry a `project_id` — that discovery is the point, because a hand-written
+#: list of tables is exactly what goes stale when a migration adds one.
+#:
+#: This is a schema allowlist, not a table one, and that is deliberate: a
+#: typo'd catalog table inside `information_schema` still has to exist, but
+#: this guard reads migrations and cannot know what PostgreSQL ships. Naming
+#: the two catalog schemas keeps the exemption narrow enough that a misspelled
+#: *product* table can never slip through it.
+SYSTEM_SCHEMAS = frozenset({"information_schema", "pg_catalog"})
+
+
 def referenced_tables() -> dict[str, set[str]]:
     """Table name -> the files that query it."""
     seen: dict[str, set[str]] = {}
@@ -240,6 +253,8 @@ def referenced_tables() -> dict[str, set[str]]:
             # is not a reference to anything the schema should define.
             local = {name.lower() for name in _CTE.findall(literal)}
             for name in _TABLE_REF.findall(literal):
+                if name.split(".")[0].lower() in SYSTEM_SCHEMAS:
+                    continue
                 if name.lower() in local:
                     continue
                 seen.setdefault(name.lower(), set()).add(
