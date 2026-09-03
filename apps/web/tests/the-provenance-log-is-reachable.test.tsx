@@ -9,7 +9,9 @@
 
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { ProvenanceLogLink } from "@/components/provenancelog";
+import {
+  ProvenanceLogLink, ReproductionScriptLink,
+} from "@/components/provenancelog";
 
 afterEach(cleanup);
 
@@ -35,5 +37,25 @@ describe("taking the reproducibility record away", () => {
     render(<ProvenanceLogLink findingId="fnd_other" />);
     expect(screen.getByRole("link", { name: /provenance log/i })
       .getAttribute("href")).toContain("fnd_other");
+  });
+});
+
+describe("taking the script away", () => {
+  it("offers the reproduction script for the run it was given", () => {
+    render(<ReproductionScriptLink runId="arun_1" />);
+    const link = screen.getByRole("link", { name: /download the script/i });
+    expect(link.getAttribute("href")).toBe("/api/analyses/arun_1/reproduce.py");
+    expect(link.hasAttribute("download")).toBe(true);
+  });
+
+  it("says what the script does not do", () => {
+    /**
+     * The misreading this exists to prevent: a script that prints a p-value
+     * looks like the whole analysis. It is one step of it, without the
+     * correction that decided whether the result stood.
+     */
+    render(<ReproductionScriptLink runId="arun_1" />);
+    expect(screen.getByText(/not a finding/i)).toBeTruthy();
+    expect(screen.getByText(/assumption checks/i)).toBeTruthy();
   });
 });

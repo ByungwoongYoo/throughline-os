@@ -17,6 +17,31 @@
  * a filename this code would have to invent.
  */
 
+/**
+ * The script that produces this analysis's number again.
+ *
+ * Beside the run it belongs to, because that is where somebody is standing
+ * when they ask "how was this computed". Generated from the recorded spec, so
+ * the script and the recorded number cannot drift apart — and refused, with
+ * the method named, where the computation cannot be written out honestly in a
+ * few lines.
+ */
+export function ReproductionScriptLink({ runId }: { runId: string }) {
+  return (
+    <p className="prov-log">
+      <a className="btn" href={`/api/analyses/${runId}/reproduce.py`} download>
+        Download the script
+      </a>{" "}
+      <span className="note">
+        Re-runs this one analysis from the recorded specification. It does not
+        re-run the assumption checks or the correction that decided whether the
+        result survived — a p-value on its own is not a finding.
+      </span>
+    </p>
+  );
+}
+
+
 export function ProvenanceLogLink({ findingId }: { findingId: string }) {
   return (
     <p className="prov-log">

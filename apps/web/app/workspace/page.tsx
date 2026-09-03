@@ -43,7 +43,9 @@ import { Harvest } from "@/components/harvest";
 import { LibraryNote } from "@/components/librarynote";
 import { ForkLineage } from "@/components/forklineage";
 import { FindingStanding } from "@/components/lifecycle";
-import { ProvenanceLogLink } from "@/components/provenancelog";
+import {
+  ProvenanceLogLink, ReproductionScriptLink,
+} from "@/components/provenancelog";
 import { Journal } from "@/components/journal";
 import { Variables } from "@/components/variables";
 import { AnalysisList, PlainReading } from "@/components/analyses";
@@ -539,6 +541,11 @@ function Workspace({ user }: { user: SignedInUser }) {
           selection?.kind === "analysis"
             ? <>
                 <AnalysisDetail runId={selection.id} onMethod={setRunMethod} />
+                {/*
+                  §75. Beside the run, because "how was this computed" is
+                  asked while looking at the number.
+                */}
+                <ReproductionScriptLink runId={selection.id} />
                 {/*
                   The plain reading was reachable only through a connection,
                   so an analysis a researcher specified had no legible version

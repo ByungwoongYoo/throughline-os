@@ -18,6 +18,7 @@ from fastapi import Cookie, Depends, FastAPI, File, HTTPException, Query, Reques
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from throughline_domain import (
+    code_export,
     provenance_log,
     tables,
     bibliography,
@@ -1647,6 +1648,41 @@ def verify_citations(project_id: str,
     scoped_project(project_id, user)
     with transaction() as cur:
         return citations.verify_project(cur, project_id)
+
+
+@app.get("/api/analyses/{run_id}/reproduce.py")
+def analysis_reproduction_script(run_id: str,
+                                 user: dict = Depends(current_user)) -> Response:
+    """
+    The script that produces this analysis's number again (§75).
+
+    Generated from the recorded spec rather than written by hand, so the script
+    and the number have one source instead of two that can disagree — and
+    refused by name for a method whose computation cannot be written out
+    honestly in a few lines. A script that looked like the analysis and quietly
+    did something else would be believed, which is worse than having none.
+    """
+    with transaction() as cur:
+        cur.execute("SELECT project_id FROM analysis_runs WHERE id = %s",
+                    (run_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Analysis run not found.")
+        scoped_project(row["project_id"], user)
+        try:
+            text = code_export.for_run(cur, run_id)
+        except code_export.CannotEmit as exc:
+            # 409, not 404: the run exists and this is a considered refusal
+            # that names the methods it can write, so the caller can act on it.
+            raise HTTPException(409, str(exc)) from exc
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from exc
+    return Response(
+        content=text,
+        media_type="text/x-python; charset=utf-8",
+        headers={"Content-Disposition":
+                 f'attachment; filename="{run_id}-reproduce.py"'},
+    )
 
 
 @app.get("/api/findings/{finding_id}/provenance.md")
