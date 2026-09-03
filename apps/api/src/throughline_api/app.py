@@ -18,6 +18,7 @@ from fastapi import Cookie, Depends, FastAPI, File, HTTPException, Query, Reques
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from throughline_domain import (
+    provenance_log,
     tables,
     bibliography,
     analysis, auth, claim_test, compare, consistency, critic, discovery,
@@ -1646,6 +1647,42 @@ def verify_citations(project_id: str,
     scoped_project(project_id, user)
     with transaction() as cur:
         return citations.verify_project(cur, project_id)
+
+
+@app.get("/api/findings/{finding_id}/provenance.md")
+def finding_provenance_log(finding_id: str,
+                           user: dict = Depends(current_user)) -> Response:
+    """
+    The reproducibility record for one finding, as a file (§75).
+
+    `/objects/{id}/provenance` answers "what did this come from" for a screen.
+    This answers the question a methods section asks — what somebody would
+    have to do to get the number again — and answers it as something they can
+    attach: the analyses behind the finding, each with its method, the reason
+    that method was chosen, the seed, the library versions and the input
+    hashes §44 requires a run to record.
+
+    A download rather than JSON. The audience is a person pasting this into a
+    supplementary file; the structured form for machines already exists on the
+    provenance route.
+    """
+    with transaction() as cur:
+        cur.execute("SELECT project_id FROM findings WHERE id = %s",
+                    (finding_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Finding not found.")
+        scoped_project(row["project_id"], user)
+        try:
+            text = provenance_log.for_finding(cur, finding_id)
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from exc
+    return Response(
+        content=text,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition":
+                 f'attachment; filename="{finding_id}-provenance.md"'},
+    )
 
 
 @app.get("/api/projects/{project_id}/results.csv")

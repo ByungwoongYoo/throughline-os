@@ -43,6 +43,7 @@ import { Harvest } from "@/components/harvest";
 import { LibraryNote } from "@/components/librarynote";
 import { ForkLineage } from "@/components/forklineage";
 import { FindingStanding } from "@/components/lifecycle";
+import { ProvenanceLogLink } from "@/components/provenancelog";
 import { Journal } from "@/components/journal";
 import { Variables } from "@/components/variables";
 import { AnalysisList, PlainReading } from "@/components/analyses";
@@ -517,6 +518,11 @@ function Workspace({ user }: { user: SignedInUser }) {
                   something attached.
                 */}
                 <FindingStanding findingId={selection.id} />
+                {/*
+                  §75. The evidence graph says why we believe it; this is what
+                  somebody else would need to get the number again.
+                */}
+                <ProvenanceLogLink findingId={selection.id} />
                 {/*
                   Below the evidence, deliberately. The case for a finding is
                   what a researcher came to read; the case against it is what

@@ -4778,3 +4778,11 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .bib-gaps { margin: 0.6rem 0; }
 .bib-gaps ul { margin: 0.3rem 0 0.4rem; padding-left: 1.1rem; }
 .bib-gaps li { font-size: 13px; color: var(--ink-soft); }
+
+
+/* The provenance download on a finding's screen. The sentence beside it is
+   doing the work — the link alone would not say what the file is for — so it
+   reads as a line of prose with a control in it rather than as a toolbar. */
+.prov-log { margin: 0.8rem 0; display: flex; align-items: baseline; gap: 0.6rem;
+            flex-wrap: wrap; }
+.prov-log .note { flex: 1; min-width: 16rem; margin: 0; }
