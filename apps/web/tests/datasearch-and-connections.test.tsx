@@ -38,6 +38,30 @@ const table = (connections: unknown, over: Record<string, unknown> = {}) =>
   );
 
 describe("the connections table", () => {
+  it("says which dataset each answer came from", () => {
+    /*
+     * The bug this column exists for. Two datasets in one project produce two
+     * rows for the same pair — in the worked example, `resistance_pct ~
+     * gdp_per_capita` at -0.209 on one and +0.107 on the other. Both are
+     * correct. A table showing them without saying which data each came from
+     * reads as a contradiction, and a researcher reasonably calls it a bug.
+     */
+    table([
+      connection({ id: "con_a", dataset_name: "national-surveillance.csv",
+                   estimate: -0.209 }),
+      connection({ id: "con_b", dataset_name: "amr_surveillance.csv",
+                   estimate: 0.107 }),
+    ]);
+    expect(screen.getByText("national-surveillance.csv")).toBeTruthy();
+    expect(screen.getByText("amr_surveillance.csv")).toBeTruthy();
+  });
+
+  it("says nothing rather than breaking when there is no dataset", () => {
+    /** A connection made outside a discovery run has none. */
+    table([connection({ dataset_name: null })]);
+    expect(screen.getByText("—")).toBeTruthy();
+  });
+
   it("shows the pair and its corrected q-value", () => {
     table([connection()]);
     expect(screen.getByText(/consumption/)).toBeTruthy();

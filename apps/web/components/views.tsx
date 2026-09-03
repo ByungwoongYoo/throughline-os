@@ -726,6 +726,9 @@ export function ConnectionsTable({ connections, error, loading, reload, onSelect
                   {c.left_variable} <span style={{ color: "var(--ink-faint)" }}>×</span> {c.right_variable}
                 </button>
               </td>
+              <td style={{ color: "var(--ink-soft)" }}>
+                {c.dataset_name ?? "—"}
+              </td>
               <td className="mono">{c.method.replace(/_/g, " ")}</td>
               <td className="numeric" style={{ textAlign: "right" }}><Num value={c.estimate} /></td>
               <td className="numeric" style={{ textAlign: "right" }}><Num value={c.q_value} digits={3} /></td>

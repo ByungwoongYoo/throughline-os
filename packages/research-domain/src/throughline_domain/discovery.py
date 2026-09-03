@@ -481,9 +481,17 @@ def list_connections(
     # this join the provenance chain has no anchor to start from, which is why
     # the interface had a Trace control and no way to answer it.
     cur.execute(
-        f"SELECT c.*, dr.dataset_version_id, ar.object_id AS analysis_object_id "
+        # `dataset_name` because the id is not readable and the question it
+        # answers is asked by eye. Two datasets in one project produce two
+        # connections for the same pair — in the worked example, with opposite
+        # signs — and a list that shows both without saying which data each
+        # came from reads as a contradiction rather than as two studies.
+        f"SELECT c.*, dr.dataset_version_id, ar.object_id AS analysis_object_id, "
+        f"       ds.name AS dataset_name, dv.version AS dataset_version "
         f"FROM connections c "
         f"LEFT JOIN discovery_runs dr ON dr.id = c.discovery_run_id "
+        f"LEFT JOIN dataset_versions dv ON dv.id = dr.dataset_version_id "
+        f"LEFT JOIN datasets ds ON ds.id = dv.dataset_id "
         f"LEFT JOIN analysis_runs ar ON ar.id = c.analysis_run_id "
         f"WHERE {' AND '.join('c.' + clause for clause in clauses)} "
         f"ORDER BY c.rank_score DESC, c.created_at DESC LIMIT %s",

@@ -170,6 +170,9 @@ export type Connection = {
   analysis_object_id?: string | null;
   /** Null when the connection did not come from a discovery run. */
   dataset_version_id: string | null;
+  /** The dataset's own name. The id above is not readable, and two datasets
+   *  in one project produce two answers for the same pair. */
+  dataset_name?: string | null;
 };
 
 export type Finding = {

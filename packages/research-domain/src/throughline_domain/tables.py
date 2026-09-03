@@ -42,6 +42,11 @@ CONNECTION_COLUMNS: tuple[tuple[str, str], ...] = (
     ("sample_size", "n"),
     ("p_value", "p"),
     ("q_value", "q (corrected)"),
+    # Which data this answer came from. A project with two datasets produces
+    # two rows for one pair — in the worked example with opposite signs — and a
+    # results table that cannot tell them apart is a document that misleads,
+    # which is worse than a screen that confuses.
+    ("dataset_name", "Dataset"),
     ("evidence_quality", "Evidence quality"),
     ("lifecycle_status", "State"),
     ("id", "Connection id"),
@@ -87,8 +92,15 @@ def connections_csv(cur, project_id: str) -> str:
         """
         SELECT id, left_variable, right_variable, method, estimate,
                effect_size, effect_size_name, sample_size, p_value, q_value,
-               evidence_quality, lifecycle_status, analysis_run_id
-          FROM connections
+               evidence_quality, lifecycle_status, analysis_run_id,
+               dataset_name
+          FROM (
+            SELECT c.*, ds.name AS dataset_name
+              FROM connections c
+              LEFT JOIN discovery_runs dr ON dr.id = c.discovery_run_id
+              LEFT JOIN dataset_versions dv ON dv.id = dr.dataset_version_id
+              LEFT JOIN datasets ds ON ds.id = dv.dataset_id
+          ) AS c
          WHERE project_id = %s
          ORDER BY q_value NULLS LAST, p_value NULLS LAST, id
         """,
