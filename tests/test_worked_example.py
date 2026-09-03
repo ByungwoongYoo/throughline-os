@@ -119,9 +119,29 @@ def test_the_example_assembles_into_a_project_with_real_provenance(client):
         cur.execute("SELECT count(*) AS n FROM evidence WHERE project_id = %s",
                     (project_id,))
         evidence_count = cur.fetchone()["n"]
+        # One analysis, cited once. `create_finding` now records the analyses
+        # behind a finding as its evidence for every finding, so a second
+        # example-only path adds the same run twice and the screen reads
+        # "2 supporting" for one result.
+        cur.execute(
+            "SELECT count(*) AS n FROM finding_claims fc "
+            "JOIN findings f ON f.id = fc.finding_id WHERE f.project_id = %s",
+            (project_id,))
+        claim_count = cur.fetchone()["n"]
+        # Every research object must be reachable. An object created and then
+        # replaced by an UPDATE is an orphan nothing walks to.
+        cur.execute(
+            "SELECT count(*) AS n FROM research_objects "
+            "WHERE project_id = %s AND object_type = 'finding'",
+            (project_id,))
+        finding_objects = cur.fetchone()["n"]
 
     assert finding_object, "the finding has no object, so it has no lineage node"
     assert evidence_count, "the finding has no evidence behind it"
+    assert claim_count == 1, (
+        f"one analysis was cited {claim_count} times")
+    assert finding_objects == 1, (
+        f"{finding_objects} finding objects exist; the extra ones are orphans")
 
     chain = client.get(f"/api/objects/{finding_object}/provenance").json()
     assert chain, "the finding's provenance chain is empty"

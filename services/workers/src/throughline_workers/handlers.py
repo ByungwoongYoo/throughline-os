@@ -570,76 +570,15 @@ def example_assemble(run: dict[str, Any], cur: Any) -> dict[str, Any]:
         from_connections=[best["id"]],
         actor="system:example",
     )
-    # A finding with no evidence is where the provenance chain stops, and
-    # provenance is the product's central claim. Measuring the click depth to
-    # the underlying rows is what exposed this: the example's first finding was
-    # a dead end, with nothing linking it back to the run that produced it.
-    _link_example_evidence(cur, project_id=project_id, finding_id=finding_id,
-                           connection=best)
+    # The evidence, the claim and the finding's own object all come from
+    # `create_finding` now, which records the analyses behind `from_connections`
+    # for every finding rather than only this one. The example used to do it
+    # here, which is why it was the only finding in the product that could ever
+    # leave CANDIDATE.
 
     return {"project_id": project_id, "discovery_run_id": discovery_run_id,
             "finding_id": finding_id}
 
-
-def _link_example_evidence(cur, *, project_id: str, finding_id: str,
-                           connection: dict[str, Any]) -> None:
-    """Give the example's finding the evidence and lineage a real one carries.
-
-    Three separate things, and all three are needed before a researcher can get
-    from the finding back to the rows:
-
-    - a claim stating the computed result, so there is something to be evidence
-      *for* rather than a bare title;
-    - an evidence row pointing at the analysis run's object, which is what the
-      evidence graph traverses;
-    - a finding object derived from that analysis object, which is what
-      `/api/objects/{id}/provenance` walks. Without it the finding has no node
-      in the lineage graph at all, and the chain has nowhere to start.
-    """
-    from throughline_domain import findings, lineage, objects
-    from throughline_schemas.enums import (
-        ClaimType, EvidenceDirection, EvidenceType, LineageType, ObjectType,
-    )
-    from throughline_domain.ids import new_id
-
-    run_id = connection.get("analysis_run_id")
-    if not run_id:
-        return
-
-    cur.execute("SELECT result, object_id FROM analysis_runs WHERE id = %s", (run_id,))
-    analysis = cur.fetchone()
-    if not analysis or not analysis["object_id"]:
-        return
-    result = analysis["result"] or {}
-
-    claim_id = new_id("clm")
-    cur.execute(
-        "INSERT INTO claims(id, project_id, statement, claim_type, created_by) "
-        "VALUES (%s, %s, %s, %s, %s)",
-        (claim_id, project_id,
-         f"{result.get('estimate_name', 'estimate')} = "
-         f"{float(result.get('estimate') or 0):.4f} "
-         f"(p = {float(result.get('p_value') or 0):.3g}, "
-         f"n = {result.get('sample_size')})",
-         str(ClaimType.CALCULATED_RESULT), "system:example"),
-    )
-    cur.execute(
-        "INSERT INTO evidence(id, project_id, claim_id, source_object_id, "
-        "evidence_type, location, direction, strength) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-        (new_id("evd"), project_id, claim_id, analysis["object_id"],
-         str(EvidenceType.ANALYSIS_RESULT), {"analysis_run_id": run_id},
-         str(EvidenceDirection.SUPPORTS), 0.9),
-    )
-    findings.attach_claim(cur, finding_id=finding_id, claim_id=claim_id)
-
-    finding_object = objects.create_object(
-        cur, project_id=project_id, object_type=ObjectType.FINDING,
-        title="Consumption tracks resistance", actor="system:example",
-        derived_from=[analysis["object_id"]],
-    )
-    cur.execute("UPDATE findings SET object_id = %s WHERE id = %s",
-                (finding_object, finding_id))
 
 @REGISTRY.register("connection.validate")
 def connection_validate(run: dict[str, Any], cur: Any) -> dict[str, Any]:

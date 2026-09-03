@@ -77,6 +77,108 @@ def _object_for(cur, *, project_id: str, title: str,
         lineage_type=LineageType.DERIVED_FROM) if inputs else None
 
 
+def _state_result(result: dict[str, Any]) -> str:
+    """
+    Write down what the analysis found, in its own numbers.
+
+    Only what is recorded is stated. The worked example formatted this with
+    ``float(result.get("p_value") or 0)``, which prints "p = 0" for a method
+    that reports no p-value at all — the strongest possible claim, produced by
+    a missing key. A part that is absent is left out instead.
+    """
+    name = str(result.get("estimate_name") or "estimate")
+    estimate = result.get("estimate")
+    head = f"{name} = {float(estimate):.4f}" if estimate is not None else name
+
+    tail = []
+    if result.get("p_value") is not None:
+        tail.append(f"p = {float(result['p_value']):.3g}")
+    if result.get("sample_size") is not None:
+        tail.append(f"n = {int(result['sample_size'])}")
+    return f"{head} ({', '.join(tail)})" if tail else head
+
+
+def _evidence_from_analyses(
+    cur, *, project_id: str, finding_id: str,
+    from_connections: Sequence[str], actor: str,
+) -> int:
+    """
+    Record the analyses a finding was written from as its evidence.
+
+    `transition` refuses to move a finding past CANDIDATE with no evidence, and
+    counts it through `finding_claims`. The only writer of that table was the
+    worked example's handler, tagged "system:example" — so a researcher's own
+    finding had no evidence, could never advance, and was told to "attach
+    supporting or contradicting evidence first" by a product with no way to do
+    it. The lifecycle was closed to real work while passing every test, because
+    every test attached its claims with SQL written in the test file.
+
+    The evidence is not invented here. A researcher who records a finding *from*
+    a set of connections is citing those analyses as showing it, so the result
+    each one produced is recorded as a calculated-result claim supporting the
+    finding, pointing at the run's own research object. That is the same
+    structure the example built, for real runs and under the researcher's name.
+
+    **Direction.** SUPPORTS, because citing an analysis as the basis for a
+    finding is what supporting means here — the researcher chose these
+    connections. Nothing infers a direction from the numbers: a large p-value
+    does not make an analysis evidence *against* a finding, it makes it weak
+    evidence for one, and reading refutation out of a null result is the error
+    §51 exists to prevent. Contradicting evidence is attached deliberately,
+    from the literature or from a later analysis, never derived.
+
+    **Strength and confidence are left null.** The example wrote 0.9. There is
+    no measurement behind such a number, and a stored constant would be read
+    later as if there were.
+
+    A run that never succeeded has shown nothing, so it contributes no
+    evidence and the finding stays at CANDIDATE — correctly.
+    """
+    from throughline_schemas.enums import (
+        ClaimType, EvidenceDirection, EvidenceType,
+    )
+
+    from .analysis import RUN_COMPLETED
+
+    if not from_connections:
+        return 0
+
+    cur.execute(
+        "SELECT DISTINCT r.id, r.object_id, r.result FROM connections c "
+        "JOIN analysis_runs r ON r.id = c.analysis_run_id "
+        "WHERE c.id = ANY(%s) AND c.project_id = %s "
+        "AND r.status = %s AND r.object_id IS NOT NULL "
+        "ORDER BY r.id",
+        (list(from_connections), project_id, RUN_COMPLETED),
+    )
+    runs = cur.fetchall()
+
+    attached = 0
+    for run in runs:
+        result = run["result"] or {}
+        if not result:
+            # Succeeded with nothing recorded is not a result to cite.
+            continue
+        claim_id = new_id("clm")
+        cur.execute(
+            "INSERT INTO claims(id, project_id, object_id, statement, "
+            "claim_type, created_by) VALUES (%s, %s, %s, %s, %s, %s)",
+            (claim_id, project_id, run["object_id"], _state_result(result),
+             str(ClaimType.CALCULATED_RESULT), actor),
+        )
+        cur.execute(
+            "INSERT INTO evidence(id, project_id, claim_id, source_object_id, "
+            "evidence_type, location, direction) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (new_id("evd"), project_id, claim_id, run["object_id"],
+             str(EvidenceType.ANALYSIS_RESULT), {"analysis_run_id": run["id"]},
+             str(EvidenceDirection.SUPPORTS)),
+        )
+        attach_claim(cur, finding_id=finding_id, claim_id=claim_id)
+        attached += 1
+    return attached
+
+
 class FindingError(RuntimeError):
     pass
 
@@ -161,6 +263,9 @@ def create_finding(
             str(causal_status),
         ),
     )
+    _evidence_from_analyses(
+        cur, project_id=project_id, finding_id=finding_id,
+        from_connections=from_connections, actor=actor)
     _record_event(
         cur,
         finding_id=finding_id,

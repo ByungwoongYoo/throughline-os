@@ -824,7 +824,12 @@ export function EvidenceGraphView({ findingId, onOpenAnalysis }: {
       {data.note && <p className="note">{data.note}</p>}
 
       <h2>Claims and their evidence</h2>
-      {data.claims.length === 0 && <Empty title="No claims attached" />}
+      {data.claims.length === 0 && <Empty
+          title="No claims attached"
+          hint="A finding recorded from a connection carries the analysis
+                behind it as its evidence. This one was written by hand, so
+                there is nothing yet for the balance above to weigh."
+        />}
       {data.claims.map((claim) => (
         <div className="card" key={claim.id}>
           <div className="mono" style={{ color: "var(--ink-faint)", marginBottom: 4 }}>
@@ -1079,7 +1084,10 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding }: {
   }
 
   if (connections.loading && !connection) return <Loading rows={4} label="Reading the connection" />;
-  if (!connection) return <Empty title="Connection not found" />;
+  if (!connection) return <Empty
+      title="Connection not found"
+      hint="It may have been deleted, or belong to another project."
+    />;
 
   // Adjusting a variable for itself is not a confounder test; it is a mistake
   // the interface should make impossible rather than report afterwards.

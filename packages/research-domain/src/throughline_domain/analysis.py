@@ -55,6 +55,17 @@ METHOD_VARIABLES: dict[str, tuple[str, ...]] = {
 MULTI_COLUMN_ROLES = frozenset({"columns", "predictors"})
 
 
+#: The status a run carries once it has produced a result, and the one a
+#: failure carries. These are written in exactly one place and read in
+#: several — `findings` decides what counts as evidence by this value, and it
+#: spent its first version filtering on "succeeded", a word nothing writes.
+#: The query matched nothing, in production only: the test that covered it set
+#: up its fixture with the same wrong word, so the code and the test agreed
+#: with each other and neither agreed with the database.
+RUN_COMPLETED = "completed"
+RUN_FAILED = "failed"
+
+
 def method_variables() -> dict[str, list[dict[str, str]]]:
     """Each method's variables, and whether each takes one column or several."""
     return {
@@ -360,7 +371,7 @@ def record_result(
         WHERE id = %s
         """,
         (
-            "completed" if ok else "failed", object_id,
+            RUN_COMPLETED if ok else RUN_FAILED, object_id,
             runtime.get("python", ""), runtime,
             {"sandbox_notes": payload.get("sandbox_notes") or []},
             sandbox.policy, int(payload.get("random_seed", spec_row.get("random_seed", 0))),
