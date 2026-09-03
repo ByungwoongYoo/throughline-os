@@ -37,6 +37,7 @@ import {
   Camera, DEFAULT_CAMERA, insidePolygon, resetCamera, rotateCamera, toCanvas, zoomCamera,
 } from "@/lib/charts/scene3d";
 import { useSpatialKeys } from "@/lib/charts/spatialKeys";
+import { ChartExport } from "@/components/charts/ChartExport";
 import { isZoomWheel, wheelZoomFactor } from "@/lib/charts/wheel";
 import { Grid } from "@/lib/charts3d/voxels";
 import {
@@ -325,6 +326,10 @@ export function Isosurface3D({
           />
         </label>
       </div>
+      {/* §75: a spatial chart could not be saved at all. */}
+      <ChartExport canvasRef={canvasRef} name="Isosurface"
+                   rotate={(degrees) => rotate(degrees, 0)}
+                   redraw={() => { dirtyRef.current = true; }} />
       <figcaption className="chart-caption">
         {caption ? `${caption} ` : ""}
         {describeSurface(surface)}

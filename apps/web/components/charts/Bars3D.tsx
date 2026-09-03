@@ -30,6 +30,7 @@ import {
   Camera, DEFAULT_CAMERA, insidePolygon, resetCamera, rotateCamera, toCanvas, zoomCamera,
 } from "@/lib/charts/scene3d";
 import { useSpatialKeys } from "@/lib/charts/spatialKeys";
+import { ChartExport } from "@/components/charts/ChartExport";
 import { isZoomWheel, wheelZoomFactor } from "@/lib/charts/wheel";
 import {
   Bar, Bars, BarSettings, DEFAULT_BARS, PlacedBar, describeBars, hiddenCount,
@@ -242,6 +243,10 @@ export function Bars3D({
           measure();
         }}
       />
+      {/* §75: a spatial chart could not be saved at all. */}
+      <ChartExport canvasRef={canvasRef} name="Bars"
+                   rotate={(degrees) => rotate(degrees, 0)}
+                   redraw={() => { dirtyRef.current = true; }} />
       <figcaption className="chart-caption">
         {caption ? `${caption} ` : ""}
         {describeBars(prepared, costs.hidden, costs.stretch)}

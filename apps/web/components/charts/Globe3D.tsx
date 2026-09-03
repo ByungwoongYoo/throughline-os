@@ -41,6 +41,7 @@ import {
   GLOBE_ZOOM, type ScenePoint, graticule, silhouetteRadius, visibility,
 } from "@/lib/charts3d/globe";
 import { identity } from "./Geographic";
+import { ChartExport } from "@/components/charts/ChartExport";
 
 export type Place = {
   /** ISO 3166-1 numeric id, matching the bundled topology. */
@@ -270,6 +271,15 @@ export function Globe3D({
           dirtyRef.current = true;
         }}
       />
+      {/* §75: the globe is the chart most worth recording — half of it is
+          always facing away, and a still cannot show the other half. */}
+      <ChartExport
+        canvasRef={canvasRef}
+        name={title ?? "Globe"}
+        rotate={(degrees) => rotateCamera(cameraRef.current, degrees, 0)}
+        redraw={() => { dirtyRef.current = true; }}
+      />
+
       <figcaption className="chart-caption">
         {caption ?? `${valueLabel} for ${withData} countries.`}{" "}
         <b>{hiddenCount} countries face away</b> and are not drawn — rotate to
