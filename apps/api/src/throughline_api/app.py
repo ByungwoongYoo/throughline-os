@@ -18,6 +18,7 @@ from fastapi import Cookie, Depends, FastAPI, File, HTTPException, Query, Reques
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from throughline_domain import (
+    tables,
     bibliography,
     analysis, auth, claim_test, compare, consistency, critic, discovery,
     embeddings, enquiry, events, example, exploration, extraction, findings,
@@ -1645,6 +1646,32 @@ def verify_citations(project_id: str,
     scoped_project(project_id, user)
     with transaction() as cur:
         return citations.verify_project(cur, project_id)
+
+
+@app.get("/api/projects/{project_id}/results.csv")
+def project_results_csv(project_id: str,
+                        user: dict = Depends(current_user)) -> Response:
+    """
+    Every connection this project tested, as a spreadsheet (§75).
+
+    Returned as a real file download rather than as text in JSON, unlike the
+    bibliography beside it. A `.bib` is short and worth reading on screen
+    before it is saved; a results table is opened in Excel, R or a paper's
+    supplementary material, and asking somebody to copy a textarea into a file
+    is asking them to introduce a transcription error into their own results.
+
+    `text/csv` with a filename carrying the project id, so a researcher with
+    three of these in a downloads folder can tell them apart.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        text = tables.connections_csv(cur, project_id)
+    return Response(
+        content=text,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition":
+                 f'attachment; filename="{project_id}-results.csv"'},
+    )
 
 
 @app.get("/api/projects/{project_id}/bibliography")

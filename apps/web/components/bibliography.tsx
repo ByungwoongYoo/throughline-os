@@ -24,6 +24,35 @@ type Bibliography = {
   incomplete: Array<{ key: string; title: string; missing: string[] }>;
 };
 
+/**
+ * The results themselves, as data rather than as a document.
+ *
+ * §75 asked for a spreadsheet export and had none. It sits here rather than on
+ * the Connections screen because this is where a researcher comes to take
+ * things away — the .bib is next to it, and both answer "how do I get this
+ * out". A plain link, because the browser already knows how to save a file the
+ * server marks as an attachment; fetching it into a Blob would add a copy in
+ * memory and a filename this code would have to invent.
+ */
+export function ResultsTable({ projectId }: { projectId: string }) {
+  return (
+    <section className="bib">
+      <h2>Results table</h2>
+      <p className="lede">
+        Every candidate that was tested, with its estimate, its p-value and the
+        q-value after correction — as CSV, for a paper's table or for
+        re-plotting elsewhere. Everything tested is a row, not only what
+        survived: the family that was tested is what makes a q-value mean
+        anything.
+      </p>
+      <a className="btn" href={`/api/projects/${projectId}/results.csv`} download>
+        Download the results table (CSV)
+      </a>
+    </section>
+  );
+}
+
+
 export function BibliographyPanel({ projectId }: { projectId: string }) {
   const [open, setOpen] = useState(false);
   const bibliography = useApi<Bibliography>(
