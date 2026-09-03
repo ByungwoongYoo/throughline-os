@@ -77,10 +77,24 @@ export function RecordFinding({ projectId, connectionId, defaultTitle, validated
     return (
       <div className="card">
         <h2>Recorded as a finding</h2>
+{/*
+          What this used to say: "Promoting it needs evidence attached". True
+          while nothing in the product could attach any — `attach_claim` had a
+          single caller, the worked example — so every finding a researcher
+          made was stuck at candidate and the sentence was the only warning
+          they got. It is the wrong sentence now: `from_connections` travels
+          with this request, and the analysis behind the connection is
+          recorded as the finding's evidence. Telling a researcher to go and
+          attach evidence sends them looking for a step that has happened.
+
+          What has not happened is the judgement, so that is what it says.
+        */}
         <p style={{ margin: "0 0 8px" }}>
-          It starts as a <b>candidate</b>. Promoting it needs evidence attached,
-          both for and against — the lifecycle refuses an unearned promotion
-          rather than warning about one.
+          It starts as a <b>candidate</b>. The analysis behind this connection
+          travels with it as its evidence, so what is left is the judgement —
+          whether it holds, and whether the robustness checks were run and
+          passed. The lifecycle refuses an unearned promotion rather than
+          warning about one.
         </p>
         <p className="mono" style={{ color: "var(--ink-faint)", margin: 0 }}>
           {done.finding_id}
