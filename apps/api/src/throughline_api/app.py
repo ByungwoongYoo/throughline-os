@@ -29,6 +29,7 @@ from throughline_domain import (
     digitise as digitise_module,
     code_export,
     provenance_log,
+    research_context,
     tables,
     bibliography,
     analysis, auth, claim_test, compare, consistency, critic, discovery,
@@ -844,6 +845,12 @@ class Question(BaseModel):
     #: recomputed rather than trusted, no wording that implies a grouping was
     #: fitted — and they belong beside the code that renders it for a model.
     selection: dict[str, Any] | None = None
+    #: What the researcher is looking at — screen, filters, chart configuration
+    #: and where attention is (§36). Validated in
+    #: `throughline_domain.research_context` for the same reason the selection
+    #: is: the rules are about what a model may believe, chiefly that a
+    #: filtered count on a screen is not a total in the project.
+    view: dict[str, Any] | None = None
 
 
 @app.get("/api/projects/{project_id}/objects/{object_id}/journal")
@@ -904,11 +911,18 @@ def ask_about_object(project_id: str, object_id: str, payload: Question,
         try:
             return journal.ask(cur, project_id=project_id, object_id=object_id,
                                question=payload.question, author=user["id"],
-                               selection=payload.selection)
+                               selection=payload.selection,
+                               view=payload.view)
         except journal.NoSuchObject as exc:
             # 404, not 503. Reporting a missing object as a service outage sent
             # researchers to check a model configuration that was working.
             raise HTTPException(404, str(exc)) from exc
+        except research_context.ContextError as exc:
+            # 400 for the same reason as a bad selection below: a view this
+            # system cannot describe honestly is the caller's to fix, and
+            # calling it a model outage sends the researcher to the wrong
+            # screen entirely.
+            raise HTTPException(400, str(exc)) from exc
         except selection.SelectionError as exc:
             # 400, not 503: a selection this system cannot describe honestly is
             # the caller's to fix, and reporting it as a model outage would send

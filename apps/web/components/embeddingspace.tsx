@@ -29,6 +29,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Volume } from "./charts/Volume";
 import { SpatialControl } from "./spatial/SpatialControl";
 import { TargetRef, VisualizationController } from "@/lib/spatial/commands";
+import { currentView } from "@/lib/view-context";
 import { deviceFeedback } from "@/lib/spatial/feedback";
 
 type SpacePoint = {
@@ -138,6 +139,9 @@ export function EmbeddingSpace({ projectId }: { projectId: string }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             question,
+            // §36, alongside the selection: the points say what was pointed at,
+            // this says what was on screen around them.
+            view: currentView(),
             // The selection travels as coordinates and labels. Every statistic
             // the model is shown is computed on the server from these numbers —
             // a summary sent from here would be indistinguishable, to the model

@@ -23,6 +23,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { currentView } from "@/lib/view-context";
 import { Failure, Loading } from "./primitives";
 
 type Note = {
@@ -108,7 +109,11 @@ export function NodeJournal({ projectId, objectId, onClose, onOpen }: {
 
   async function askModel() {
     if (!question.trim()) return;
-    const ok = await post(`${base}/ask`, { question }, "Asking");
+    // §36: what the researcher is looking at travels with the question. The
+    // server validates and labels it — it is a statement about a screen, not
+    // about the project, and the answer must not confuse the two.
+    const ok = await post(`${base}/ask`,
+                          { question, view: currentView() }, "Asking");
     if (ok) setQuestion("");
   }
 

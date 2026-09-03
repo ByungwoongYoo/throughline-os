@@ -313,3 +313,122 @@ def test_a_selection_that_cannot_be_described_is_refused_before_the_model(
 
     assert recorder.context is None
     assert journal.notes_for(cur, object_id) == []
+
+
+# ---------------------------------------------------------------------------
+# What the researcher is looking at (§36)
+# ---------------------------------------------------------------------------
+#
+# Checked in the text the model actually receives rather than in a unit test of
+# the renderer, for the reason the selection tests above give: a renderer that
+# says the right thing into a string nobody passes on is not a property of this
+# system.
+
+
+def _view():
+    return {"screen": "connections",
+            "filters": [{"field": "q_value", "value": "<0.05"}],
+            "showing": 30, "total": 400,
+            "chart": {"kind": "scatter", "x": "gdp", "y": "resistance"},
+            "focus": "the top-right group"}
+
+
+def test_the_model_is_told_what_is_on_screen(cur, project, monkeypatch):
+    recorder = _Recorder()
+    _use(monkeypatch, recorder)
+    object_id = _object(cur, project)
+
+    journal.ask(cur, project_id=project, object_id=object_id,
+                question="What am I looking at?", author="usr_1", view=_view())
+
+    assert "Screen: connections" in recorder.context
+    assert "q_value = <0.05" in recorder.context
+    assert "the top-right group" in recorder.context
+
+
+def test_the_model_is_told_a_filtered_count_is_not_a_total(
+        cur, project, monkeypatch):
+    """
+    The wrong answer this exists to prevent is "the project found 30
+    connections" when it found 400 and is showing 30.
+    """
+    recorder = _Recorder()
+    _use(monkeypatch, recorder)
+    object_id = _object(cur, project)
+
+    journal.ask(cur, project_id=project, object_id=object_id,
+                question="How many are there?", author="usr_1", view=_view())
+
+    assert "Showing 30 of 400" in recorder.context
+    assert "not the number in the project" in recorder.context
+
+
+def _did_something(cur, project):
+    """One real audit entry, so 'recently done' has something to report."""
+    from throughline_domain import events
+
+    events.audit(cur, project_id=project, actor="usr_1", action="created",
+                 object_type="finding", object_id="fin_1")
+
+
+def test_the_model_is_told_which_context_was_verified(cur, project, monkeypatch):
+    _did_something(cur, project)
+    recorder = _Recorder()
+    _use(monkeypatch, recorder)
+    object_id = _object(cur, project)
+
+    journal.ask(cur, project_id=project, object_id=object_id,
+                question="What was I doing?", author="usr_1", view=_view())
+
+    assert "not verified" in recorder.context
+    assert "recorded by the system, so these are facts" in recorder.context
+
+
+def test_recent_actions_are_read_from_the_record_not_taken_from_the_caller(
+        cur, project, monkeypatch):
+    """
+    A caller-supplied list of "what was done" is an assertion about the record
+    that the record itself can answer, so `ask` reads it. The proof is that
+    actions appear with no view supplied at all.
+    """
+    _did_something(cur, project)
+    recorder = _Recorder()
+    _use(monkeypatch, recorder)
+    object_id = _object(cur, project)
+
+    journal.ask(cur, project_id=project, object_id=object_id,
+                question="What has happened here?", author="usr_1")
+
+    assert "recorded by the system, so these are facts" in recorder.context
+    assert "created finding" in recorder.context
+
+
+def test_a_project_with_no_history_announces_no_history(
+        cur, project, monkeypatch):
+    """
+    The heading has to be absent when there is nothing under it. A prompt that
+    says "recently done in this project:" and then stops reads as history
+    withheld rather than history that does not exist.
+    """
+    recorder = _Recorder()
+    _use(monkeypatch, recorder)
+    object_id = _object(cur, project)
+
+    journal.ask(cur, project_id=project, object_id=object_id,
+                question="?", author="usr_1")
+
+    assert "so these are facts" not in recorder.context
+
+
+def test_a_view_that_cannot_be_described_honestly_is_refused(
+        cur, project, monkeypatch):
+    from throughline_domain import research_context
+
+    recorder = _Recorder()
+    _use(monkeypatch, recorder)
+    object_id = _object(cur, project)
+
+    with pytest.raises(research_context.ContextError):
+        journal.ask(cur, project_id=project, object_id=object_id,
+                    question="?", author="usr_1",
+                    view={"showing": 500, "total": 400})

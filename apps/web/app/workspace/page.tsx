@@ -27,6 +27,7 @@ import { AccountMenu, SignedInUser } from "@/components/AccountMenu";
 import { FirstProject, NewProject } from "@/components/FirstProject";
 import { DataSearch } from "@/components/datasearch";
 import { ReadFigure } from "@/components/readfigure";
+import { enterScreen, reportView } from "@/lib/view-context";
 import { Compare } from "@/components/compare";
 import { Patterns } from "@/components/patterns";
 import { Board } from "@/components/board/Board";
@@ -258,6 +259,15 @@ function Workspace({ user }: { user: SignedInUser }) {
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
+
+  /*
+   * §36. The assistant is told which screen the question was asked from, and
+   * anything that screen reports about what it is showing. Announced on every
+   * change so that leaving a screen withdraws its filters and counts — stale
+   * context is worse than none, because it makes a true answer false by
+   * qualifying it with a filter nobody has in force any more.
+   */
+  useEffect(() => { enterScreen(section); }, [section]);
   const [selection, setSelection] = useState<{ kind: string; id: string } | null>(null);
   /*
    * The method of the analysis on screen, reported up by the detail view so the
@@ -636,6 +646,17 @@ function Workspace({ user }: { user: SignedInUser }) {
 
 function ConnectionList({ projectId, onSelect }: { projectId: string; onSelect: (id: string) => void }) {
   const { data, error, loading, reload } = useApi<Connection[]>(`/api/projects/${projectId}/connections?limit=200`);
+  /*
+   * The list is capped at two hundred, and a cap miscounts in exactly the way
+   * a filter does: a project with four hundred connections shows two hundred,
+   * and an assistant told "two hundred connections" will say the project found
+   * two hundred. The total is deliberately not reported, because this screen
+   * does not know it — the domain says so in those words rather than inventing
+   * a denominator.
+   */
+  useEffect(() => {
+    if (data) reportView({ showing: data.length });
+  }, [data]);
   return (
     <>
       <h1>Connections</h1>

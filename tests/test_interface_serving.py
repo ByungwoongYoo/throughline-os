@@ -330,9 +330,20 @@ def test_a_bundle_inside_an_unreadable_directory_is_not_an_error(tmp_path,
     bundle = outer / "out"
     bundle.mkdir(parents=True)
     (bundle / "index.html").write_text("<html></html>")
+    # `/workspace` is `workspace.html` in a static export, and the bundle has
+    # to actually contain it — see the precondition below.
+    (bundle / "workspace.html").write_text("<html></html>")
     monkeypatch.setenv("THROUGHLINE_INTERFACE_DIR", str(bundle))
 
-    assert interface.resolve("/workspace") is not None or True  # readable first
+    # The precondition, asserted rather than waved through. This was
+    # `... is not None or True`, which cannot fail, and repairing it showed why
+    # that mattered: the bundle held only `index.html`, so `/workspace` did not
+    # resolve *before* the chmod either. Both assertions below were therefore
+    # true for a reason that has nothing to do with an unreadable directory,
+    # and the test named after that case had never exercised it.
+    assert interface.resolve("/workspace") is not None, (
+        "the bundle must resolve while the directory is readable, or the "
+        "assertions after the chmod are vacuous")
     outer.chmod(0o000)
     try:
         assert interface.resolve("/workspace") is None

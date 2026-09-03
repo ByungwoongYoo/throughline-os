@@ -197,7 +197,8 @@ _INSTRUCTIONS = (
 
 
 def ask(cur, *, project_id: str, object_id: str, question: str, author: str,
-        selection: dict[str, Any] | None = None) -> dict[str, Any]:
+        selection: dict[str, Any] | None = None,
+        view: dict[str, Any] | None = None) -> dict[str, Any]:
     """
     Ask the configured model about a node, and record the answer as a note.
 
@@ -217,6 +218,19 @@ def ask(cur, *, project_id: str, object_id: str, question: str, author: str,
     # answer would look wrong.
     checked = selection_module.validate(selection) if selection is not None else None
     described = (f"\n\n{selection_module.describe(checked)}" if checked else "")
+
+    # §36: what the researcher is looking at, and what has just been done.
+    # Validated before it is rendered, for the same reason the selection is —
+    # and the recent actions are read here rather than accepted from the
+    # caller, because a client-supplied list of "what was done" is an
+    # assertion about the record that the record itself can answer.
+    from . import research_context
+
+    seen = research_context.validate(view) if view is not None else None
+    context_prose = research_context.describe(
+        seen, research_context.recent(cur, project_id=project_id))
+    if context_prose:
+        described += "\n\n" + context_prose
 
     try:
         completion = provider().generate_text(

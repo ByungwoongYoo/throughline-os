@@ -24,6 +24,7 @@ from pathlib import Path
 
 from throughline_ingestion.datasets import (
     OPTIONAL_FORMATS,
+    optional_format_available,
     SUPPORTED_DATASET_SUFFIXES,
     readable_suffixes,
 )
@@ -74,6 +75,18 @@ def test_the_optional_formats_are_described_as_optional():
     the row should not promise them unconditionally on every machine.
     """
     assert "optional" in ROW.lower() or "extra" in ROW.lower()
-    # And the code still treats them that way.
-    assert set(OPTIONAL_FORMATS) - set(readable_suffixes()) or True
     assert ".parquet" in OPTIONAL_FORMATS
+
+    # And the code still treats them that way.
+    #
+    # This was written as `assert set(OPTIONAL_FORMATS) - set(readable_suffixes())
+    # or True`, which passes whatever the code does — presumably because the
+    # bare version fails on a machine where every optional package happens to
+    # be installed, and `or True` made it green. The contract that actually
+    # holds on every machine is the biconditional: an optional format is
+    # readable exactly when its package is available, never otherwise.
+    for suffix in OPTIONAL_FORMATS:
+        assert (suffix in readable_suffixes()) == optional_format_available(suffix), (
+            f"{suffix} is offered as readable without the package that reads it"
+            if suffix in readable_suffixes() else
+            f"{suffix} has its package installed and is still not offered")
