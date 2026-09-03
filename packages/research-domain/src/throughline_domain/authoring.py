@@ -202,10 +202,20 @@ def draft_from_connection(
                       "It has not survived scrutiny; it has not yet faced any."),
         )
     else:
-        block(block_type="paragraph", template=report["summary"] or
-              "Robustness checks were run against this association.")
+        # Quoted, not pasted. A validation summary says things like "the
+        # estimate moved to 0.7984", and a statistic in a template is refused
+        # unless it is proved to be a stored field verbatim — which is exactly
+        # what this is. Without the proof the whole draft was rejected, so
+        # every attempt to write a report from a connection answered 400.
+        if report["summary"]:
+            block(block_type="paragraph", template=report["summary"],
+                  quoted_from={"field": "validation_reports.summary",
+                               "id": report["id"]})
+        else:
+            block(block_type="paragraph",
+                  template="Robustness checks were run against this association.")
         cur.execute(
-            "SELECT name, outcome, detail, analysis_run_id FROM validation_checks "
+            "SELECT id, name, outcome, detail, analysis_run_id FROM validation_checks "
             "WHERE report_id = %s ORDER BY name",
             (report["id"],),
         )
@@ -217,12 +227,23 @@ def draft_from_connection(
                     cur, project_id=project_id, analysis_run_id=check["analysis_run_id"],
                     locator=check["name"],
                 ))
+            # Two blocks, because one cannot be both. The label is authored
+            # prose and states no statistic; the detail is the check's own
+            # words and is quoted verbatim, which is what lets it carry a
+            # number at all. Concatenating them made the whole thing authored
+            # prose containing a statistic, and the draft was refused.
             block(
                 block_type="list",
-                template=(f"{check['name'].replace('_', ' ')} — {check['outcome']}. "
-                          f"{check['detail']}"),
+                template=(f"{check['name'].replace('_', ' ')} — "
+                          f"{check['outcome']}."),
                 citation_ids=check_citations,
             )
+            if check["detail"]:
+                block(
+                    block_type="paragraph", template=check["detail"],
+                    quoted_from={"field": "validation_checks.detail",
+                                 "id": check["id"]},
+                )
 
     # --- what remains uncertain ------------------------------------------
     block(block_type="heading", template="What remains uncertain")
@@ -233,22 +254,32 @@ def draft_from_connection(
     limitations = result.get("limitations") or []
     for limitation in limitations:
         block(block_type="limitation", template=str(limitation),
-              citation_ids=[run_citation])
+              citation_ids=[run_citation],
+              quoted_from={"field": "analysis_runs.result.limitations",
+                           "id": run_id})
 
     cur.execute(
-        "SELECT name, outcome, detail FROM assumption_checks WHERE run_id = %s "
+        "SELECT id, name, outcome, detail FROM assumption_checks WHERE run_id = %s "
         "AND outcome = 'violated' ORDER BY name",
         (run_id,),
     )
     violated = list(cur.fetchall())
     for check in violated:
+        # Split for the same reason as the validation checks above: the
+        # framing is authored and carries no statistic, the detail is the
+        # runtime's own words and is quoted.
         block(
             block_type="limitation",
-            template=(f"The {check['name']} assumption is violated. {check['detail']} "
-                      "This is why the evidence grade above is what it is, independently "
-                      "of how small the q-value is."),
+            template=(f"The {check['name']} assumption is violated. This is why "
+                      "the evidence grade above is what it is, independently of "
+                      "how small the q-value is."),
             citation_ids=[run_citation],
         )
+        if check["detail"]:
+            block(block_type="limitation", template=check["detail"],
+                  citation_ids=[run_citation],
+                  quoted_from={"field": "assumption_checks.detail",
+                               "id": check["id"]})
 
     if not limitations and not violated:
         block(block_type="paragraph",

@@ -111,6 +111,11 @@ _QUOTABLE = {
     "analysis_runs.result.interpretation": ("analysis_runs", "result", "interpretation"),
     "validation_checks.detail": ("validation_checks", "detail", None),
     "validation_reports.summary": ("validation_reports", "summary", None),
+    # Written by the sandboxed runtime into `result["assumptions"]` and stored
+    # as rows by `analysis.record_result` — the same provenance as
+    # `validation_checks.detail`, and quotable for the same reason: it is the
+    # computation's own words about its own assumptions, not authored prose.
+    "assumption_checks.detail": ("assumption_checks", "detail", None),
     "analysis_runs.result.limitations": ("analysis_runs", "result", "limitations"),
 }
 

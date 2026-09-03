@@ -209,6 +209,46 @@ def test_paper_plus_dataset_to_validated_finding_with_full_provenance(
         challenge = cur.fetchone()
     assert challenge["verdict"] in {"holds", "uncertain", "weakens"}
 
+    # --- COMMUNICATE: the work leaves the system (§74) ----------------------
+    #
+    # The last mile, and the one the ledger has carried as partial: drafting
+    # from a connection was wired but never walked, because it needed a
+    # genuinely validated connection and no test had one. `draft_from_connection`
+    # has already shipped a bug for exactly that reason — it selected a column
+    # `projects` does not have, so every call raised before assembling
+    # anything, and nothing caught it because nothing called it.
+    draft = client.post(f"/api/projects/{project_id}/artifacts/draft", json={
+        "connection_id": target["id"], "artifact_type": "report",
+        "audience": "researcher",
+    })
+    assert draft.status_code == 201, draft.text
+    artifact_id = draft.json()["artifact_id"]
+
+    document = client.get(f"/api/artifacts/{artifact_id}").json()
+    assert document["blocks"], "the drafted report has no content"
+
+    # Every number in the document is a reference to the recorded run, not a
+    # literal typed beside it — which is what makes "does this figure match the
+    # analysis" a question nobody has to ask.
+    resolved = {key: value for block in document["blocks"]
+                for key, value in (block.get("resolved") or {}).items()}
+    assert resolved, "nothing in the report resolves to a recorded value"
+
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT result FROM analysis_runs WHERE id = %s",
+                    (target["analysis_run_id"],))
+        recorded = cur.fetchone()["result"]
+    numbers = [v for v in resolved.values() if isinstance(v, (int, float))]
+    assert any(abs(value - float(recorded["estimate"])) < 1e-9
+               for value in numbers), (
+        f"the report's numbers {numbers} do not include the estimate the "
+        f"analysis recorded ({recorded['estimate']})")
+
+    # And it becomes a file a researcher can actually submit.
+    rendered = client.post(f"/api/artifacts/{artifact_id}/render?fmt=docx")
+    assert rendered.status_code == 200, rendered.text
+    assert rendered.json()["byte_size"] > 0
+
     # --- DISCOVERY MAP: the project knows what to do next (§63) -------------
     overview = client.get(f"/api/projects/{project_id}/discovery-map").json()
     assert overview["counts"]["papers"] >= 1
