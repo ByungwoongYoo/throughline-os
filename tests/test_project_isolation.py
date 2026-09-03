@@ -70,6 +70,9 @@ ROUTES = [
     ("put", "/api/projects/{p}/board",
      {"object_id": "obj_1", "x": 0, "y": 0, "width": 10, "height": 10}),
     ("post", "/api/projects/{p}/board/obj_1/front", None),
+    # Its counterpart, which was not listed here — so nothing checked that
+    # sending a card to the back of somebody else's board is refused.
+    ("post", "/api/projects/{p}/board/obj_1/back", None),
     ("delete", "/api/projects/{p}/board/obj_1", None),
     ("get", "/api/projects/{p}/artifacts", None),
     ("post", "/api/projects/{p}/artifacts/draft",

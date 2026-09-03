@@ -142,6 +142,52 @@ class TestRaisingACard:
             board.bring_to_front(cur, project_id=project, object_id=thing)
 
 
+class TestLoweringACard:
+    """
+    `send_to_back` shipped with a route, a button and no test of its own.
+    Only `bring_to_front` was covered, which is the half that cannot strand
+    anybody: the bug this exists to fix is a card raised over a frame that can
+    never be put back underneath it.
+    """
+
+    def test_it_lands_below_everything(self, cur, project):
+        first = objects.create_object(
+            cur, project_id=project, object_type=ObjectType.ANALYSIS,
+            title="First", actor="researcher")
+        second = objects.create_object(
+            cur, project_id=project, object_type=ObjectType.ANALYSIS,
+            title="Second", actor="researcher")
+        put(cur, project, first, z=0)
+        put(cur, project, second, z=9)
+
+        assert board.send_to_back(cur, project_id=project, object_id=second) < 0
+        assert [c["title"] for c in board.for_project(cur, project_id=project)] \
+            == ["Second", "First"]
+
+    def test_a_raised_card_can_be_put_back_underneath(self, cur, project):
+        """The round trip, which is the whole reason the counterpart exists."""
+        under = objects.create_object(
+            cur, project_id=project, object_type=ObjectType.ANALYSIS,
+            title="Frame", actor="researcher")
+        over = objects.create_object(
+            cur, project_id=project, object_type=ObjectType.ANALYSIS,
+            title="Card", actor="researcher")
+        put(cur, project, under, z=0)
+        put(cur, project, over, z=1)
+
+        board.bring_to_front(cur, project_id=project, object_id=over)
+        assert [c["title"] for c in board.for_project(cur, project_id=project)][-1] \
+            == "Card"
+
+        board.send_to_back(cur, project_id=project, object_id=over)
+        assert [c["title"] for c in board.for_project(cur, project_id=project)][0] \
+            == "Card"
+
+    def test_lowering_something_that_is_not_on_the_board(self, cur, project, thing):
+        with pytest.raises(board.BoardError, match="not on the board"):
+            board.send_to_back(cur, project_id=project, object_id=thing)
+
+
 class TestWhatItRefuses:
     def test_an_object_from_another_project(self, cur, project, thing):
         """An identifier is not an authorisation.
