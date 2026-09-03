@@ -121,7 +121,17 @@ export type Status =
   | "specialist";
 
 export type Spatial =
-  /** The data has three meaningful dimensions. */
+  /**
+   * The data has three meaningful dimensions.
+   *
+   * Measured, not assumed. A `network` never qualifies: every one of them
+   * takes `needs: "graph"`, and that shape is nodes and edges with no
+   * coordinates anywhere in it — so all three dimensions come out of
+   * `layoutGraph`, a force simulation. Twenty-one of them claimed this, which
+   * told a reader the depth in front of them was in their data when it had
+   * been invented to spread the nodes out. `spatial-claims.test.ts` holds the
+   * line.
+   */
   | "inherently"
   /**
    * Two dimensions, shown in a spatial frame.
@@ -277,22 +287,22 @@ export const CATALOGUE: Visualization[] = [
   { name: "Activation visualization", primitive: "surface", needs: "grid", spatial: "framed", status: "configuration", family: "Machine learning" },
 
   // 7. Networks -------------------------------------------------------------
-  { name: "3D network", primitive: "network", needs: "graph", spatial: "inherently", status: "configuration", family: "Networks" },
-  { name: "3D knowledge graph", primitive: "network", needs: "graph", spatial: "inherently", status: "configuration", family: "Networks" },
-  { name: "Citation network", primitive: "network", needs: "graph", spatial: "inherently", status: "configuration", family: "Networks" },
-  { name: "Research paper network", primitive: "network", needs: "graph", spatial: "inherently", status: "configuration", family: "Networks" },
-  { name: "Concept graph", primitive: "network", needs: "graph", spatial: "inherently", status: "configuration", family: "Networks" },
+  { name: "3D network", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Networks" },
+  { name: "3D knowledge graph", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Networks" },
+  { name: "Citation network", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Networks" },
+  { name: "Research paper network", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Networks" },
+  { name: "Concept graph", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Networks" },
   { name: "Dependency graph", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Networks" },
-  { name: "Social network", primitive: "network", needs: "graph", spatial: "inherently", status: "configuration", family: "Networks" },
-  { name: "Biological interaction network", primitive: "network", needs: "graph", spatial: "inherently", status: "configuration", family: "Networks" },
-  { name: "Protein interaction network", primitive: "network", needs: "graph", spatial: "inherently", status: "configuration", family: "Networks" },
-  { name: "Gene interaction network", primitive: "network", needs: "graph", spatial: "inherently", status: "configuration", family: "Networks" },
-  { name: "Neural connectivity", primitive: "network", needs: "graph", spatial: "inherently", status: "configuration", family: "Networks" },
+  { name: "Social network", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Networks" },
+  { name: "Biological interaction network", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Networks" },
+  { name: "Protein interaction network", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Networks" },
+  { name: "Gene interaction network", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Networks" },
+  { name: "Neural connectivity", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Networks" },
   { name: "Supply chain network", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Networks" },
   { name: "Computer network", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Networks" },
   { name: "Communication network", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Networks" },
   { name: "Hierarchical network", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Networks" },
-  { name: "Temporal network", primitive: "network", needs: "graph", spatial: "inherently", status: "configuration", family: "Networks", note: "A graph whose edges appear and vanish over time." },
+  { name: "Temporal network", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Networks", note: "A graph whose edges appear and vanish over time." },
 
   // 8. Geographic -----------------------------------------------------------
   { name: "3D globe", primitive: "globe", needs: "places", spatial: "inherently", status: "built", family: "Geographic" },
@@ -308,7 +318,7 @@ export const CATALOGUE: Visualization[] = [
   { name: "Seismic visualization", primitive: "volume", needs: "voxels", spatial: "inherently", status: "configuration", family: "Geographic" },
   { name: "Satellite orbits", primitive: "lines", needs: "xyz", spatial: "inherently", status: "configuration", family: "Geographic" },
   { name: "Flight paths", primitive: "lines", needs: "xyz", spatial: "inherently", status: "configuration", family: "Geographic" },
-  { name: "Shipping network", primitive: "network", needs: "graph", spatial: "inherently", status: "configuration", family: "Geographic" },
+  { name: "Shipping network", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Geographic" },
   { name: "Urban 3D map", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "specialist", family: "Geographic", viewer: "vtk", note: "An .stl, .obj, .ply or .vtp of the model, drawn by the same vtk.js viewer as CAD model." },
   { name: "Geographic heat map", primitive: "surface", needs: "grid", spatial: "framed", status: "built", family: "Geographic" },
   { name: "Point map", primitive: "points", needs: "xyz", spatial: "framed", status: "specialist", family: "Geographic", viewer: "geomap", note: "Longitude and latitude on a plane — the third axis is the room, not the data. deck.gl draws the researcher's own CSV or GeoJSON over the country outlines bundled with this build; there is no tile server (T080)." },
@@ -346,7 +356,7 @@ export const CATALOGUE: Visualization[] = [
   { name: "Digital twin", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "primitive-missing", family: "Engineering", note: "The mesh would draw; what is missing is the live binding from a running system to it." },
   { name: "Robotics workspace", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "primitive-missing", family: "Engineering", note: "The reachable volume has to be computed from the kinematics before anything can draw it." },
   { name: "Robot arm motion", primitive: "lines", needs: "xyz", spatial: "inherently", status: "configuration", family: "Engineering" },
-  { name: "Kinematic chain", primitive: "network", needs: "graph", spatial: "inherently", status: "configuration", family: "Engineering" },
+  { name: "Kinematic chain", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Engineering" },
   { name: "Vehicle simulation", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "needs-library", family: "Engineering", note: "Needs a physics engine to produce the dynamics; nothing here integrates motion." },
   { name: "Aerodynamics", primitive: "glyphs", needs: "field", spatial: "inherently", status: "configuration", family: "Engineering" },
   { name: "Engine simulation", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "needs-library", family: "Engineering", note: "Needs a physics engine to produce the cycle; nothing here integrates motion." },
@@ -365,14 +375,14 @@ export const CATALOGUE: Visualization[] = [
   { name: "Docking", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "primitive-missing", family: "Chemistry", note: "Needs poses and their scores from a docking program; Mol* would then draw them." },
   { name: "Crystal structure", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "primitive-missing", family: "Chemistry", note: "A core CIF, which the Mol* viewer here deliberately does not read — it routes .cif to the mmCIF parser." },
   { name: "Reaction pathway", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Chemistry" },
-  { name: "Chemical bond network", primitive: "network", needs: "graph", spatial: "inherently", status: "configuration", family: "Chemistry" },
+  { name: "Chemical bond network", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Chemistry" },
   { name: "Molecular dynamics", primitive: "points", needs: "xyzv", spatial: "inherently", status: "configuration", family: "Chemistry" },
 
   // 12. Medical -------------------------------------------------------------
   { name: "Human anatomy", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "specialist", family: "Medical", viewer: "vtk", note: "An .stl, .obj, .ply or .vtp of the model, drawn by the same vtk.js viewer as CAD model." },
   { name: "Organ model", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "specialist", family: "Medical", viewer: "vtk", note: "An .stl, .obj, .ply or .vtp of the model, drawn by the same vtk.js viewer as CAD model." },
   { name: "Brain model", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "specialist", family: "Medical", viewer: "vtk", note: "An .stl, .obj, .ply or .vtp of the model, drawn by the same vtk.js viewer as CAD model." },
-  { name: "Brain connectivity", primitive: "network", needs: "graph", spatial: "inherently", status: "configuration", family: "Medical" },
+  { name: "Brain connectivity", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Medical" },
   { name: "Neural pathways", primitive: "lines", needs: "xyz", spatial: "inherently", status: "configuration", family: "Medical" },
   { name: "Blood vessel network", primitive: "lines", needs: "xyz", spatial: "inherently", status: "configuration", family: "Medical" },
   { name: "Cellular model", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "specialist", family: "Medical", viewer: "vtk", note: "An .stl, .obj, .ply or .vtp of the model, drawn by the same vtk.js viewer as CAD model." },
@@ -383,7 +393,7 @@ export const CATALOGUE: Visualization[] = [
   { name: "Surgical planning", primitive: "mesh", needs: "geometry", spatial: "inherently", status: "primitive-missing", family: "Medical", note: "The anatomy draws as a mesh; the planning — cuts, trajectories, margins — is the part that does not exist." },
   { name: "Biological pathway network", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Medical" },
   { name: "Gene expression space", primitive: "points", needs: "xyz", spatial: "inherently", status: "built", family: "Medical" },
-  { name: "Protein network", primitive: "network", needs: "graph", spatial: "inherently", status: "configuration", family: "Medical" },
+  { name: "Protein network", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Medical" },
 
   // 13. Astronomy -----------------------------------------------------------
   { name: "Solar system", primitive: "points", needs: "xyzv", spatial: "inherently", status: "built", family: "Astronomy" },
@@ -407,7 +417,7 @@ export const CATALOGUE: Visualization[] = [
   { name: "Animated 3D scatter", primitive: "points", needs: "xyzv", spatial: "inherently", status: "configuration", family: "Time", animated: true },
   { name: "Animated surface", primitive: "surface", needs: "grid", spatial: "inherently", status: "configuration", family: "Time", animated: true },
   { name: "Time-varying volume", primitive: "volume", needs: "voxels", spatial: "inherently", status: "configuration", family: "Time", animated: true },
-  { name: "Dynamic network", primitive: "network", needs: "graph", spatial: "inherently", status: "configuration", family: "Time", animated: true },
+  { name: "Dynamic network", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Time", animated: true },
   { name: "Moving particle system", primitive: "points", needs: "xyzv", spatial: "inherently", status: "configuration", family: "Time", animated: true },
   { name: "Simulation timeline", primitive: "points", needs: "xyzv", spatial: "inherently", status: "configuration", family: "Time", animated: true, note: "Scrubbed by hand: the clock is the thing being manipulated." },
   { name: "Historical geographic evolution", primitive: "surface", needs: "grid", spatial: "inherently", status: "configuration", family: "Time", animated: true },
@@ -435,11 +445,11 @@ export const CATALOGUE: Visualization[] = [
   // commodity; a figure showing which evidence supports which claim is not.
   { name: "Provenance tree", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Native", note: "How a result was made. The lineage already exists." },
   { name: "Research universe", primitive: "points", needs: "xyz", spatial: "inherently", status: "configuration", family: "Native", note: "Objects placed by semantic similarity." },
-  { name: "Evidence galaxy", primitive: "network", needs: "graph", spatial: "inherently", status: "configuration", family: "Native" },
-  { name: "Knowledge constellation", primitive: "network", needs: "graph", spatial: "inherently", status: "configuration", family: "Native" },
-  { name: "Hypothesis space", primitive: "network", needs: "graph", spatial: "inherently", status: "configuration", family: "Native" },
+  { name: "Evidence galaxy", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Native" },
+  { name: "Knowledge constellation", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Native" },
+  { name: "Hypothesis space", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Native" },
   { name: "Experiment universe", primitive: "points", needs: "xyzv", spatial: "inherently", status: "configuration", family: "Native" },
-  { name: "Causal graph space", primitive: "network", needs: "graph", spatial: "inherently", status: "configuration", family: "Native" },
+  { name: "Causal graph space", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Native" },
   { name: "Analysis pipeline space", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Native" },
   { name: "AI reasoning workspace", primitive: "network", needs: "graph", spatial: "framed", status: "configuration", family: "Native" },
   { name: "Uncertainty landscape", primitive: "surface", needs: "grid", spatial: "inherently", status: "built", family: "Native" },
