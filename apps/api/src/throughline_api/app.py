@@ -3854,7 +3854,7 @@ def analysis_points(run_id: str, user: dict = Depends(current_user)) -> dict[str
             raise HTTPException(409, str(exc)) from exc
 
         spec = recommendation["spec"]
-        sample = _visual_sample(cur, spec)
+        sample, sampling = _visual_sample(cur, spec)
         try:
             data = visual_prepare(spec, analysis_result=row["result"] or {},
                                   sample=sample)
@@ -3867,6 +3867,8 @@ def analysis_points(run_id: str, user: dict = Depends(current_user)) -> dict[str
             "group": data.group_values,
             "ci_low": data.ci_low,
             "ci_high": data.ci_high,
+            # §47: sampling is communicated, never inferred from a point count.
+            "sampling": sampling,
             # Statistics come from the recorded run, so the figure and the
             # analysis cannot state different numbers.
             "statistics": data.statistics,
@@ -3942,7 +3944,10 @@ def create_visual(project_id: str, payload: VisualCreate,
 
         spec = (ResearchVisualSpec.model_validate(payload.spec) if payload.spec
                 else recommendation["spec"])
-        sample = _visual_sample(cur, spec)
+        # The account is discarded here on purpose: a stored visual records
+        # its own provenance, and the figure endpoint above is what a reader
+        # sees the sampling in.
+        sample, _sampling = _visual_sample(cur, spec)
         try:
             created = visuals.create_visual(
                 cur, project_id=project_id, spec=spec, actor=user["id"], sample=sample,
@@ -4133,15 +4138,33 @@ def _column_values(version_id: str, column: str) -> list[float | None]:
     return [None if pd.isna(v) else float(v) for v in numeric]
 
 
-def _visual_sample(cur, spec: ResearchVisualSpec, limit: int = 500) -> dict[str, Any]:
-    """A bounded sample of the fields a figure draws.
+def _visual_sample(cur, spec: ResearchVisualSpec,
+                   limit: int = 500) -> tuple[dict[str, Any], dict[str, Any]]:
+    """
+    A bounded sample of the fields a figure draws, and an account of it.
 
-    The browser never receives the dataset; scatter and box plots need points, so
-    a capped sample is read server-side and passed to the renderer.
+    The browser never receives the dataset; scatter and box plots need points,
+    so a capped sample is read server-side and passed to the renderer.
+
+    **It is drawn at random, not taken from the top.** This used to be
+    `.head(500)`, which is not a sample of anything: research data arrives
+    sorted — by date, by site, by arm — so the first five hundred rows are the
+    earliest patients, or one hospital, or one condition. That subset was then
+    drawn *underneath statistics computed from the whole dataset*, so the
+    picture and the numbers beside it described different populations, and
+    nothing on the figure said so.
+
+    **Seeded, so the same figure is the same picture.** A researcher who
+    reopens a chart and finds different points cannot tell a redraw from a
+    change in the data, and cannot put it in a paper.
+
+    **The account is returned rather than logged**, because §47's closing line
+    is that sampling must be clearly communicated, and a caption can only say
+    what the endpoint tells it.
     """
     fields = spec.data_fields()
     if not fields or not spec.dataset_version_id:
-        return {}
+        return {}, {"sampled": False}
     cur.execute(
         """
         SELECT f.storage_key, f.filename FROM dataset_versions dv
@@ -4154,22 +4177,39 @@ def _visual_sample(cur, spec: ResearchVisualSpec, limit: int = 500) -> dict[str,
     )
     row = cur.fetchone()
     if not row:
-        return {}
+        return {}, {"sampled": False}
 
     import pandas as pd
     from throughline_ingestion.datasets import read_dataset
 
     frame, _ = read_dataset(storage.path_for(row["storage_key"]),
                             suffix=Path(row["filename"] or "").suffix.lower())
+
+    total = len(frame)
+    if total > limit:
+        # `random_state` fixed, not omitted: an unseeded sample redraws
+        # differently every time the figure is opened.
+        chosen = frame.sample(n=limit, random_state=0).sort_index()
+    else:
+        chosen = frame
+
     sample: dict[str, Any] = {}
     for field_name in fields:
-        if field_name not in frame.columns:
+        if field_name not in chosen.columns:
             continue
-        column = frame[field_name].head(limit)
+        column = chosen[field_name]
         numeric = pd.to_numeric(column, errors="coerce")
         sample[field_name] = (numeric.tolist() if numeric.notna().all()
                               else column.astype(str).tolist())
-    return sample
+
+    account = {
+        "sampled": total > limit,
+        "rows_total": int(total),
+        "rows_drawn": int(len(chosen)),
+        "method": "uniform random without replacement, fixed seed"
+                  if total > limit else "every row",
+    }
+    return sample, account
 
 
 # ---------------------------------------------------------------------------
