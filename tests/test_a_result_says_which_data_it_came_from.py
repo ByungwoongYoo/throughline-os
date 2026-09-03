@@ -1,22 +1,25 @@
 """
-Two datasets, one variable pair, two different answers — and nothing saying so.
+A result says which data it came from.
 
-Found by reading the worked example's own numbers rather than its tests. The
-Connections list contained:
+**The premise this was written on was wrong, and the correction is the more
+useful record.** Reading the worked example I found two rows for
+`resistance_pct ~ gdp_per_capita` with opposite signs — -0.209 at n=120 and
++0.107 at n=160 — and reported it as a contradiction the screen was hiding.
+The query behind that reading had no project filter. The two rows are in two
+different projects, each holding exactly one dataset, and the Connections
+screen is scoped to a project: a researcher would never see them together.
+Nine times this session a scanner of mine has been the thing at fault, and
+this is the first time I acted on one before checking.
 
-    resistance_pct ~ gdp_per_capita    -0.209   n=120
-    resistance_pct ~ gdp_per_capita    +0.107   n=160
+What survives is a smaller, true claim. A project *may* hold several datasets
+— the schema allows it and discovery runs per dataset version — and then two
+connections for one pair are two studies rather than a contradiction, but only
+if the list says so. And a results table that travels into a paper should name
+the data it came from whether or not there is a second dataset to confuse it
+with, because the file outlives the screen that explained it.
 
-Opposite signs, same pair, no explanation. Both are correct: they come from
-two different datasets, `national-surveillance.csv` and `amr_surveillance.csv`,
-each with its own discovery run. The defect is that neither the screen nor the
-CSV export said which — so a researcher reads two contradictory rows and
-concludes the product is broken, and a results table pasted into a paper
-carries two numbers for one relationship with nothing to tell them apart.
-
-That last part is the serious half. A document that misleads is worse than a
-screen that confuses, and the qualifier that makes both numbers true was being
-dropped exactly where it travels furthest.
+So these tests construct the two-dataset project deliberately rather than
+claiming to have found one.
 """
 
 from __future__ import annotations
@@ -65,7 +68,11 @@ def _connection(cur, project, version_id, *, estimate: float, rows: int):
 
 @pytest.fixture()
 def two_datasets(cur, project):
-    """The situation the worked example is actually in."""
+    """Two datasets in one project — constructed here, not observed.
+
+    The situation the schema permits and the worked example does not happen to
+    be in.
+    """
     first = _dataset(cur, project, "national-surveillance.csv", 120)
     second = _dataset(cur, project, "amr_surveillance.csv", 160)
     _connection(cur, project, first, estimate=-0.209, rows=120)

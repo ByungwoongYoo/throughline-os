@@ -40,11 +40,13 @@ const table = (connections: unknown, over: Record<string, unknown> = {}) =>
 describe("the connections table", () => {
   it("says which dataset each answer came from", () => {
     /*
-     * The bug this column exists for. Two datasets in one project produce two
-     * rows for the same pair — in the worked example, `resistance_pct ~
-     * gdp_per_capita` at -0.209 on one and +0.107 on the other. Both are
-     * correct. A table showing them without saying which data each came from
-     * reads as a contradiction, and a researcher reasonably calls it a bug.
+     * A project may hold several datasets, and then two connections for one
+     * pair are two studies rather than a contradiction — but only if the
+     * table says which data each came from.
+     *
+     * Constructed here, not observed: I first reported this from two
+     * opposite-signed rows in the worked example, which turned out to be in
+     * two different projects, read through a query with no project filter.
      */
     table([
       connection({ id: "con_a", dataset_name: "national-surveillance.csv",

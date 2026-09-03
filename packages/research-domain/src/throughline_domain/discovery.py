@@ -482,10 +482,13 @@ def list_connections(
     # the interface had a Trace control and no way to answer it.
     cur.execute(
         # `dataset_name` because the id is not readable and the question it
-        # answers is asked by eye. Two datasets in one project produce two
-        # connections for the same pair — in the worked example, with opposite
-        # signs — and a list that shows both without saying which data each
-        # came from reads as a contradiction rather than as two studies.
+        # answers is asked by eye. A project may hold several datasets, and
+        # two connections for the same pair from different data are two
+        # studies rather than a contradiction — but only if the list says so.
+        #
+        # Not observed in the worked example: the two opposite-signed rows I
+        # first took for evidence of this were in two different projects, seen
+        # through a query with no project filter.
         f"SELECT c.*, dr.dataset_version_id, ar.object_id AS analysis_object_id, "
         f"       ds.name AS dataset_name, dv.version AS dataset_version "
         f"FROM connections c "

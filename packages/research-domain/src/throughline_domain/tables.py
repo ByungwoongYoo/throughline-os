@@ -42,10 +42,19 @@ CONNECTION_COLUMNS: tuple[tuple[str, str], ...] = (
     ("sample_size", "n"),
     ("p_value", "p"),
     ("q_value", "q (corrected)"),
-    # Which data this answer came from. A project with two datasets produces
-    # two rows for one pair — in the worked example with opposite signs — and a
-    # results table that cannot tell them apart is a document that misleads,
-    # which is worse than a screen that confuses.
+    # Which data this answer came from.
+    #
+    # Added on a false premise and kept on a true one. I read two rows for
+    # `resistance_pct ~ gdp_per_capita` with opposite signs and reported it as
+    # a contradiction the screen was hiding; the query behind that reading had
+    # no project filter, and the two rows are in two different projects, each
+    # with one dataset. A researcher would never see them together.
+    #
+    # The column stays because a project may hold several datasets — the
+    # schema allows it and discovery runs per dataset version — and because a
+    # results table that travels into a paper should name the data it came
+    # from whether or not there is a second one to confuse it with. That is a
+    # smaller claim than the one it was built on, and it is the true one.
     ("dataset_name", "Dataset"),
     ("evidence_quality", "Evidence quality"),
     ("lifecycle_status", "State"),
