@@ -6,7 +6,8 @@
 # See the resolution block below for why that changed.
 #
 # `.command` is the extension Finder runs in Terminal. Unsigned, so the first
-# double-click raises Gatekeeper: right-click and choose Open, once. The
+# double-click raises Gatekeeper. Since macOS 15 the Control-click override is
+# gone: open System Settings > Privacy & Security and choose Open Anyway. The
 # `curl` line carries no such warning, because quarantine is set by the
 # downloading browser rather than by the operating system.
 #

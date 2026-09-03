@@ -22,7 +22,13 @@ const MAC = {
   file: "launchers/Throughline.command",
   path: "/app/launchers/Throughline.command", present: true,
   how: "Double-click it in Finder.",
-  warning: "Unsigned, so the first time macOS will refuse it. Right-click the file and choose Open, once.",
+  // The current text. It used to say "Right-click the file and choose Open",
+  // which Apple removed in macOS 15 — see D058 and
+  // `test_the_mac_instruction_still_works`.
+  warning: "Unsigned, so macOS will refuse it the first time. Open System "
+    + "Settings > Privacy & Security, scroll to Security, and choose Open "
+    + "Anyway. Or skip the download and run the one-line command in Terminal, "
+    + "which macOS does not check.",
   needs_desktop_entry: false, desktop_entry_installed: null,
   command: "python scripts/manage.py start",
 };
@@ -66,7 +72,7 @@ describe("Starting Throughline", () => {
   it("warns about the unsigned first run before it happens", async () => {
     stub({ "/api/system/launchers": MAC });
     render(<StartingPanel />);
-    await waitFor(() => expect(screen.getByText(/Right-click/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Privacy & Security/)).toBeTruthy());
   });
 
   it("always offers the terminal command as well", async () => {
@@ -88,7 +94,7 @@ describe("Starting Throughline", () => {
   it("does not offer a menu entry where it means nothing", async () => {
     stub({ "/api/system/launchers": MAC });
     render(<StartingPanel />);
-    await waitFor(() => expect(screen.getByText(/Right-click/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Privacy & Security/)).toBeTruthy());
     expect(screen.queryByRole("button", { name: /applications menu/ })).toBeNull();
   });
 

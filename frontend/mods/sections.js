@@ -28,7 +28,7 @@ const TL_SECTIONS_HTML = `
         <div class="tl-row" data-tl-rise="60">
           <b class="tl-row-os">macOS</b>
           <code class="tl-row-path">launchers/Throughline.command</code>
-          <span class="tl-row-note">right-click, Open, once</span>
+          <span class="tl-row-note">Privacy &amp; Security &gt; Open Anyway</span>
         </div>
         <div class="tl-row" data-tl-rise="72">
           <b class="tl-row-os">Windows</b>

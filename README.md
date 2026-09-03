@@ -139,7 +139,7 @@ the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **2194 backend tests and 2637 web tests**.
+The current suite is **2199 backend tests and 2637 web tests**.
 
 How many of those skip depends on which optional extras a machine has
 installed, so the number is not fixed and is not claimed as one: on a checkout
@@ -381,7 +381,7 @@ rather than a way to get it, which is the opposite of what a download is for.
 
 | Platform | Double-click | First-run warning |
 |---|---|---|
-| macOS | `launchers/Throughline.command` | Gatekeeper — right-click, Open, once |
+| macOS | `launchers/Throughline.command` | Gatekeeper — System Settings > Privacy & Security > Open Anyway, or use the Terminal one-liner |
 | Windows | `launchers/Throughline.bat` | SmartScreen — More info, Run anyway, once |
 | Linux | `python scripts/manage.py desktop-entry`, then Throughline in the menu | none |
 

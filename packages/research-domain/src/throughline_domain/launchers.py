@@ -33,8 +33,22 @@ LAUNCHERS: dict[str, dict[str, str]] = {
     "darwin": {
         "file": "launchers/Throughline.command",
         "how": "Double-click it in Finder.",
-        "warning": "Unsigned, so the first time macOS will refuse it. "
-                   "Right-click the file and choose Open, once.",
+        # D058. This used to say "Right-click the file and choose Open,
+        # once", which was true for years and is not true now: Apple's macOS 15
+        # release note says users "will no longer be able to Control-click to
+        # override Gatekeeper... They will need to visit System Settings >
+        # Privacy & Security".
+        #
+        # A stale instruction is worse than none. Absent, a researcher searches;
+        # wrong, they follow it, nothing happens, and they conclude the download
+        # is broken. The Terminal line is offered because `curl` does not set
+        # the quarantine attribute, so a file fetched that way never meets
+        # Gatekeeper — corroborated everywhere and stated by Apple nowhere,
+        # which is why it is an alternative here and not the blessed path.
+        "warning": "Unsigned, so macOS will refuse it the first time. Open "
+                   "System Settings > Privacy & Security, scroll to Security, "
+                   "and choose Open Anyway. Or skip the download and run the "
+                   "one-line command in Terminal, which macOS does not check.",
     },
     "win32": {
         "file": "launchers/Throughline.bat",
