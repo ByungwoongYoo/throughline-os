@@ -31,7 +31,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { Empty, Failure, Loading } from "./primitives";
+import { Failure, Loading } from "./primitives";
 
 type Artifact = { id: string; title: string };
 
@@ -67,14 +67,24 @@ export function WithdrawnSources({ projectId }: { projectId: string }) {
   if (!report) return <Loading label="Checking what has been withdrawn upstream" />;
 
   if (report.withdrawn.length === 0) {
+    /*
+     * One quiet line, which is what the caller's comment has always promised
+     * and what this did not do. An `Empty` panel — bold title, hint, spacing —
+     * put an absent edge case at the top of the Sources screen: the first
+     * words a researcher read on a project with three sources were "Nothing
+     * here has been withdrawn", above the sources themselves.
+     *
+     * The caveat stays in full. `report.note` says the answer is only as
+     * current as the last harvest, because repositories are not asked between
+     * runs, and this is deliberately not "all clear" — trading that sentence
+     * for a tidier layout would be trading away the honest part.
+     */
     return (
-      <Empty
-        title="Nothing here has been withdrawn"
-        // Deliberately not "all clear". This is only as true as the last
-        // harvest — repositories are not asked between runs, and implying
-        // otherwise would be a claim the data cannot support.
-        hint={report.note}
-      />
+      <p className="note" style={{ margin: "0 0 14px", fontSize: 12 }}>
+        {/* The note already opens with "Nothing in this project has been
+            withdrawn upstream", so a prefix here said it twice. */}
+        {report.note}
+      </p>
     );
   }
 
