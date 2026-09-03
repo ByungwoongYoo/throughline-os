@@ -246,6 +246,24 @@ def discovery_map(cur, *, project_id: str) -> dict[str, Any]:
     )
     connections_by_status = {row["lifecycle_status"]: int(row["n"]) for row in cur.fetchall()}
 
+    # Candidates that have nothing behind them yet, which is a different
+    # problem from a candidate waiting to be promoted. Every finding starts as
+    # CANDIDATE, and one recorded from its connections now carries the analyses
+    # behind it — so counting candidates alone stopped meaning "needs
+    # evidence" the moment a researcher's own finding could have any.
+    cur.execute(
+        """
+        SELECT COUNT(*) AS n FROM findings f
+        WHERE f.project_id = %s AND f.lifecycle_status = 'candidate'
+          AND NOT EXISTS (
+            SELECT 1 FROM finding_claims fc
+            JOIN evidence e ON e.claim_id = fc.claim_id
+            WHERE fc.finding_id = f.id)
+        """,
+        (project_id,),
+    )
+    candidates_without_evidence = int(cur.fetchone()["n"])
+
     cur.execute(
         "SELECT id, left_variable, right_variable, method, lifecycle_status, estimate, "
         "q_value, effect_size, evidence_quality, rank_score FROM connections "
@@ -260,13 +278,15 @@ def discovery_map(cur, *, project_id: str) -> dict[str, Any]:
         "findings": findings_by_status,
         "connections": connections_by_status,
         "top_connections": top_connections,
-        "recommended_next_action": _recommend(counts, findings_by_status,
-                                              connections_by_status),
+        "recommended_next_action": _recommend(
+            counts, findings_by_status, connections_by_status,
+            candidates_without_evidence=candidates_without_evidence),
     }
 
 
 def _recommend(counts: dict[str, Any], findings: dict[str, int],
-               connections: dict[str, int]) -> str:
+               connections: dict[str, int], *,
+               candidates_without_evidence: int = 0) -> str:
     """One concrete next step, chosen from the project's actual state."""
     if not counts["sources"]:
         return "Add sources: upload papers or a dataset to begin."
@@ -280,8 +300,15 @@ def _recommend(counts: dict[str, Any], findings: dict[str, int],
     if connections.get("validated") and not findings:
         return ("Validated connections exist but no findings have been recorded. "
                 "Turn the strongest into a finding with its evidence.")
+    if candidates_without_evidence:
+        return (f"{counted(candidates_without_evidence, 'finding')} still need "
+                "evidence before promotion.")
     if findings.get("candidate"):
-        return f"{counted(findings['candidate'], 'finding')} still need evidence before promotion."
+        # Has its evidence and has not moved. Telling this researcher to go
+        # and find evidence sends them looking for something they already
+        # have, which is worse than saying nothing.
+        return (f"{counted(findings['candidate'], 'finding')} have their "
+                "evidence recorded. Promote the ones that hold to exploratory.")
     if findings.get("validated"):
         return "Challenge the validated findings before communicating them."
     return "Review the project's contradictions and gaps."
