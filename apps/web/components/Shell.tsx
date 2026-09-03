@@ -85,9 +85,24 @@ const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; 
       { id: "discover", label: "Discovery" },
       { id: "compare", label: "Compare" },
       { id: "patterns", label: "Patterns" },
+      /*
+       * Analyses, then connections, then findings — the order the work
+       * actually happens in, and the only group in this rail whose order had
+       * no reason attached to it.
+       *
+       * It read Connections, Findings, Analyses, which puts the producer last:
+       * a finding is assembled `from_connections`, and every connection joins
+       * to an `analysis_run`. So a researcher scanning the rail met the two
+       * things a run produces before the run itself, and the list implied a
+       * sequence that runs backwards through its own data model.
+       *
+       * The three counts make that legible from the rail alone: six analyses
+       * behind six connections behind two findings is the shape of honest
+       * work, and the same three numbers in the old order said nothing.
+       */
+      { id: "analyses", label: "Analyses", count: "analyses" },
       { id: "connections", label: "Connections", count: "connections" },
       { id: "findings", label: "Findings", count: "findings" },
-      { id: "analyses", label: "Analyses", count: "analyses" },
       /*
        * "Research graph", which is what the screen has always been titled and
        * what it shows: every object in the project and how they relate.
