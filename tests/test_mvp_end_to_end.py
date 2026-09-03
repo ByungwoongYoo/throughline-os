@@ -131,62 +131,41 @@ def test_paper_plus_dataset_to_validated_finding_with_full_provenance(
     assert any(c["analysis_run_id"] for c in report["check_details"])
 
     # --- FINDING: evidence first, promotion second (LAW 3, §13) -------------
+    #
+    # This section used to hand-write the claim, the evidence row and the
+    # finding's object in raw SQL, because nothing in the product could do it:
+    # `attach_claim` had exactly one caller, the worked example's handler, so a
+    # researcher's own finding had no evidence and could never leave CANDIDATE.
+    # The test that exists to prove the journey works was performing by hand
+    # the one step of it that did not.
+    #
+    # It is the product's own path now, over HTTP, with no SQL.
+
+    # A finding written from nothing is still a hypothesis, and LAW 3 refuses
+    # to promote one.
+    hunch_id = client.post(f"/api/projects/{project_id}/findings", json={
+        "title": "A hunch nobody has tested",
+        "finding_type": "statistical",
+    }).json()["finding_id"]
+    refused = client.post(f"/api/findings/{hunch_id}/transition", json={
+        "to_status": "exploratory", "reason": "it feels right",
+    })
+    assert refused.status_code == 409
+    assert "evidence" in refused.json()["detail"].lower()
+
+    # The real finding, recorded from the connection that was validated. The
+    # analysis behind it becomes its evidence, which is what the researcher is
+    # citing by choosing that connection.
     finding_id = client.post(f"/api/projects/{project_id}/findings", json={
         "title": "Antibiotic consumption is associated with resistance",
         "finding_type": "statistical",
         "statement": "Higher national consumption tracks higher resistance.",
+        "from_connections": [target["id"]],
     }).json()["finding_id"]
 
-    # Promotion without evidence is refused.
-    assert client.post(f"/api/findings/{finding_id}/transition", json={
-        "to_status": "exploratory", "reason": "the analysis supports it",
-    }).status_code == 409
-
-    # Attach the computed result as evidence, and link the finding to the
-    # connection so the evidence graph can reach the analysis behind it.
-    with connection() as conn, conn.cursor() as cur:
-        from throughline_domain import findings as findings_domain
-        from throughline_domain import lineage, objects
-        from throughline_domain.ids import new_id
-        from throughline_schemas.enums import (
-            ClaimType, EvidenceDirection, EvidenceType, LineageType, ObjectType,
-        )
-
-        cur.execute("SELECT object_id, analysis_run_id FROM connections WHERE id = %s",
-                    (target["id"],))
-        conn_row = cur.fetchone()
-        cur.execute("SELECT result, object_id FROM analysis_runs WHERE id = %s",
-                    (conn_row["analysis_run_id"],))
-        analysis_row = cur.fetchone()
-        result = analysis_row["result"]
-
-        claim_id = new_id("clm")
-        cur.execute(
-            "INSERT INTO claims(id, project_id, statement, claim_type, created_by) "
-            "VALUES (%s, %s, %s, %s, %s)",
-            (claim_id, project_id,
-             f"{result['estimate_name']} = {result['estimate']:.4f} "
-             f"(p = {result['p_value']:.3g}, n = {result['sample_size']})",
-             str(ClaimType.CALCULATED_RESULT), "test"),
-        )
-        cur.execute(
-            "INSERT INTO evidence(id, project_id, claim_id, source_object_id, "
-            "evidence_type, location, direction, strength) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-            (new_id("evd"), project_id, claim_id, analysis_row["object_id"],
-             str(EvidenceType.ANALYSIS_RESULT),
-             {"analysis_run_id": conn_row["analysis_run_id"]},
-             str(EvidenceDirection.SUPPORTS), 0.9),
-        )
-        findings_domain.attach_claim(cur, finding_id=finding_id, claim_id=claim_id)
-
-        finding_object = objects.create_object(
-            cur, project_id=project_id, object_type=ObjectType.FINDING,
-            title="Consumption ↔ resistance", actor="test",
-            derived_from=[analysis_row["object_id"]],
-        )
-        cur.execute("UPDATE findings SET object_id = %s WHERE id = %s",
-                    (finding_object, finding_id))
+    standing = client.get(f"/api/findings/{finding_id}").json()
+    assert standing["evidence"]["total"] >= 1, (
+        "a finding recorded from a validated connection has no evidence")
 
     # Now the lifecycle moves, in the order §13 requires.
     assert client.post(f"/api/findings/{finding_id}/transition", json={
