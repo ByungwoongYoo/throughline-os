@@ -30,8 +30,8 @@ and looked at the code. The test requires the count never to grow.
 
 | Status | Sections |
 |---|---|
-| built | 68 |
-| partial | 21 |
+| built | 69 |
+| partial | 20 |
 | not-built | 13 |
 | unreviewed | 134 |
 | **total** | **236** |
@@ -92,7 +92,7 @@ revisited — an edited specification is exactly when requirements go missing.
 | §43 | HISTORY | partial | packages/research-domain/src/throughline_domain/events.py | tests/test_objects.py | The timeline exists as data — domain events and an audit log — with no history view and no restore to a previous state. |
 | §44 | BRANCHING | built | packages/research-domain/src/throughline_domain/lineage_forks.py | tests/test_lineage_forks.py | Forks are first-class and read back as branches; nothing counts a fork against the researcher. |
 | §45 | DATA INGESTION | partial | packages/ingestion/src/throughline_ingestion/datasets.py | tests/test_dataset_formats.py | CSV, TSV, XLSX, JSON, Parquet and Arrow. No SQL, no APIs, no scientific or geographic formats. |
-| §46 | DATA PROFILING | partial | packages/ingestion/src/throughline_ingestion/datasets.py | tests/test_ingestion.py | Row count, column types, missing fractions and numeric ranges. No duplicates, categories, candidate identifiers, unit detection or anomalies. Uploaded data is never altered. |
+| §46 | DATA PROFILING | built | packages/ingestion/src/throughline_ingestion/datasets.py | tests/test_profiling_units_and_anomalies.py | All thirteen items. **Eleven were already built and the previous note was wrong about them** — duplicates, categories, candidate identifiers, dates and geography all worked and were recorded as absent, which is the §54 mistake in a different row. The two real gaps: units were read only from brackets, so `weight (kg)` carried one and `dose_mg` did not; and nothing looked for anomalies. Units now read a suffix against a **closed vocabulary with no single letters**, because matching any trailing token gives `patient_id` the unit "id" and an invented unit propagates onto an axis as though measured. Anomalies use the median absolute deviation, not three sigma — five outliers together inflate a standard deviation until none of them stands out, which is **measured in the test** rather than argued. A two-valued column is left to the reader as a stated limit: a rare 0/1 indicator and a constant with one sentinel are structurally identical. Nothing is ever altered, per the section's closing line. |
 | §47 | LARGE DATASETS | partial | packages/ingestion/src/throughline_ingestion/datasets.py | tests/test_ingestion.py | Sampling above a row limit, and the sample is declared rather than hidden. No aggregation, level of detail, tiling, streaming or GPU path. |
 | §48 | VISUALIZATION CONTROLLER | built | apps/web/lib/spatial/commands.ts | apps/web/tests/chart-conformance.test.tsx | One seam, exhaustively typed, and now one conformance suite for every chart behind it. |
 | §49 | THREE-DIMENSIONAL RENDERING | built | apps/web/lib/charts/scene3d.ts | apps/web/tests/scene3d.test.ts | One shared projection. T043 fixed it never fitting its own canvas. |

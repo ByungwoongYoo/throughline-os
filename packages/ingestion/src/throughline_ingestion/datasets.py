@@ -170,6 +170,58 @@ _SENSITIVE_HINTS = re.compile(
 
 _UNIT_IN_NAME = re.compile(r"[\(\[]\s*([%a-zA-Zµ/·^0-9\-\.]{1,20})\s*[\)\]]\s*$")
 
+#: Units a column *name* may end with, and what each one is.
+#:
+#: §46 asks for "units where detectable", and only the bracketed convention was
+#: read — `weight (kg)`. The commoner one in research data is a suffix:
+#: `dose_mg`, `age_years`, `height_cm`. Those carried no unit at all, so a
+#: figure axis had nothing to label and two columns in different units looked
+#: interchangeable.
+#:
+#: **A closed vocabulary, and deliberately no single letters.** Matching any
+#: trailing token would give `patient_id` the unit "id" and `sales_usa` the
+#: unit "usa". And `temp_c` is probably Celsius but `count_c` is not a unit at
+#: all, so single letters are read only inside brackets, where the author was
+#: explicit. A unit invented from a name is worse than an absent one: it
+#: propagates onto an axis and into a sentence as though it were measured.
+_UNIT_SUFFIXES: dict[str, str] = {
+    "mg": "mg", "kg": "kg", "ug": "µg", "mcg": "µg", "ng": "ng",
+    "grams": "g", "gram": "g",
+    "ml": "mL", "litres": "L", "liters": "L", "litre": "L", "liter": "L",
+    "mm": "mm", "cm": "cm", "km": "km", "metres": "m", "meters": "m",
+    "inches": "in", "feet": "ft",
+    "ms": "ms", "sec": "s", "secs": "s", "seconds": "s",
+    "min": "min", "mins": "min", "minutes": "min",
+    "hr": "h", "hrs": "h", "hours": "h",
+    "days": "days", "weeks": "weeks", "months": "months",
+    "years": "years", "yrs": "years",
+    "pct": "%", "percent": "%", "percentage": "%",
+    "celsius": "°C", "centigrade": "°C", "fahrenheit": "°F", "kelvin": "K",
+    "mmhg": "mmHg", "bpm": "bpm", "iu": "IU", "kcal": "kcal",
+    "usd": "USD", "eur": "EUR", "gbp": "GBP",
+    "hz": "Hz", "khz": "kHz", "mhz": "MHz",
+}
+
+_UNIT_SUFFIX_RE = re.compile(
+    r"[_\s\-]("+ "|".join(sorted(_UNIT_SUFFIXES, key=len, reverse=True)) + r")$",
+    re.I)
+
+
+def unit_of(name: str) -> str | None:
+    """
+    The unit a column name declares, or nothing.
+
+    Brackets first, because they are explicit: whoever wrote `dose (mg/kg)`
+    meant that, and it may be a compound this vocabulary does not list.
+    """
+    bracketed = _UNIT_IN_NAME.search(name)
+    if bracketed:
+        return bracketed.group(1)
+    suffix = _UNIT_SUFFIX_RE.search(name.strip())
+    if suffix:
+        return _UNIT_SUFFIXES[suffix.group(1).lower()]
+    return "%" if "percent" in name.lower() else None
+
 
 @dataclass(slots=True)
 class ColumnProfile:
@@ -518,6 +570,90 @@ def _as_float(value: str) -> float | None:
         return None
 
 
+def outliers_in(values: "pd.Series") -> dict[str, Any] | None:
+    """
+    Values far from the rest of the column, by a measure they cannot hide from.
+
+    §46 asks for anomalies. The obvious rule — more than three standard
+    deviations from the mean — is the wrong one, because both the mean and the
+    standard deviation are computed *from the outliers too*. One value of
+    1,000,000 in a column of small numbers drags the mean towards itself and
+    inflates the deviation enough to cover its own distance, so the rule
+    reports nothing and the error stays in the data.
+
+    The median and the median absolute deviation are not moved by a few
+    extreme values, so a value that is far away stays far away. 1.4826 makes
+    the MAD comparable to a standard deviation for normal data, which is what
+    makes the familiar threshold mean the familiar thing.
+
+    **Nothing is removed or changed.** §46's closing line is that uploaded data
+    is never altered silently, and an anomaly is a question for the researcher
+    — a plausible extreme, a unit that changed halfway down the file, a
+    sentinel like -999 — not something this code is entitled to decide about.
+    """
+    numbers = values.dropna().astype(float)
+    # Below about a dozen values, "far from the rest" is not a statement the
+    # data can support: every point is an outlier in a sample of four.
+    if len(numbers) < 12:
+        return None
+
+    """
+    Two distinct values is not a distribution to be an outlier of.
+
+    This is a stated limit rather than a gap. A 0/1 indicator with a rare 1 and
+    a constant column with one sentinel are *structurally identical* — forty
+    of one value and a handful of another — and only knowing what the column
+    means separates them. Guessing would either flag the rarer level of every
+    indicator, which teaches a reader to ignore this field, or silently accept
+    a sentinel as a category.
+
+    So neither is claimed, and nothing is hidden: `unique_count` and
+    `top_values` already show a two-valued column for what it is, on the same
+    screen.
+    """
+    if numbers.nunique() <= 2:
+        return None
+
+    median = float(numbers.median())
+    deviation = float((numbers - median).abs().median()) * 1.4826
+
+    if deviation <= 0:
+        """
+        More than half the column is one value, so the MAD is zero — and
+        returning here was a bug that swallowed the clearest case there is.
+        Forty identical readings and one of 1,000,000 gave a MAD of zero, so
+        the detector reported nothing at all while three-sigma, the rule this
+        replaces, found it. Measured, not reasoned about.
+
+        The interquartile range is the next robust thing that still has a
+        spread to offer when half the values coincide.
+        """
+        spread = float(numbers.quantile(0.75) - numbers.quantile(0.25))
+        if spread <= 0:
+            # Nearly every value identical, and more than five distinct ones:
+            # anything off the median is far from everything.
+            spread = float((numbers - median).abs().mean())
+        if spread <= 0:
+            return None
+        deviation = spread
+
+    distance = (numbers - median).abs() / deviation
+    flagged = numbers[distance > 3.5]
+    if flagged.empty:
+        return None
+
+    return {
+        "count": int(len(flagged)),
+        "fraction": round(len(flagged) / len(numbers), 6),
+        "method": "median absolute deviation, threshold 3.5",
+        "low": float(median - 3.5 * deviation),
+        "high": float(median + 3.5 * deviation),
+        # A few, so a reader can recognise a sentinel like -999 on sight.
+        "examples": [float(v) for v in flagged.head(5)],
+        "note": "Reported, not removed. These may be real.",
+    }
+
+
 def profile_column(ordinal: int, name: str, series: pd.Series, *,
                    label: str = "",
                    value_labels: dict[str, str] | None = None) -> ColumnProfile:
@@ -567,8 +703,13 @@ def profile_column(ordinal: int, name: str, series: pd.Series, *,
         name=name, physical_type=physical_type, present=present,
         unique_count=unique_count, total=total, stats=stats,
     )
-    unit_match = _UNIT_IN_NAME.search(name)
-    unit = unit_match.group(1) if unit_match else ("%" if "percent" in name.lower() else None)
+    unit = unit_of(name)
+
+    # Anomalies (§46), for columns where "far from the rest" means something.
+    if physical_type == "number":
+        found = outliers_in(numeric[numeric_ok])
+        if found:
+            stats["outliers"] = found
     sensitivity = "possibly_personal" if _SENSITIVE_HINTS.match(name.strip()) else "unclassified"
 
     if value_labels:
