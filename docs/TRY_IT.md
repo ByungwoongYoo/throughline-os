@@ -29,6 +29,21 @@ all of them when you press Ctrl-C. It prints:
 will load the interface and then refuse camera access, because browsers only
 allow cameras on secure origins and `localhost` is the one exception.
 
+### Stopping it
+
+```bash
+python scripts/manage.py stop
+```
+
+Ctrl-C in the window running it does the same thing. This is for the other
+case — a session started in a window you have since closed, which is easy to
+forget about and does not behave like a fresh one: it keeps serving whatever
+it compiled when it started, so after pulling changes the interface is the old
+one and looks broken rather than stale.
+
+It stops only a stack started from this directory. Anything else holding those
+ports is named and left running.
+
 ### If anything looks wrong, ask first
 
 ```bash
@@ -48,7 +63,7 @@ the working case a failure is one you learn to ignore.
 
 | What it says | What it means |
 |---|---|
-| `Port 3000 (web interface) is already in use by node (pid …)` | Something is already running — often a previous session. Stop it, or run `PORT=8081 WEB_PORT=3001 ./scripts/dev.sh`. |
+| `Port 3000 (web interface) is already in use by node (pid …)` | Something is already running — often a previous session. Stop it with `python scripts/manage.py stop`, or run `PORT=8081 WEB_PORT=3001 ./scripts/dev.sh`. |
 | `No virtualenv at …` | Run `python scripts/manage.py bootstrap` once. |
 | `Web interface unavailable — Node 20+ is not installed` | The API still works; the interface needs Node. |
 | `Hand tracking    model not installed` | Run `npm --prefix apps/web run vendor:hand-model`. It downloads a 7.5MB model once. |

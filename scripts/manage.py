@@ -957,6 +957,106 @@ def _stop(process: subprocess.Popen) -> None:
             pass
 
 
+def running_stacks() -> list[tuple[int, str]]:
+    """The `manage.py dev` processes running out of *this* checkout.
+
+    Matched on the script's own path, not on the words "manage.py": a second
+    clone, or somebody else's project, must not be stopped by a command run
+    here.
+    """
+    if WINDOWS or not shutil.which("ps"):
+        return []
+    found = subprocess.run(["ps", "-eo", "pid=,command="],
+                           capture_output=True, text=True)
+    stacks = []
+    for line in found.stdout.splitlines():
+        line = line.strip()
+        pid, _, command = line.partition(" ")
+        if not pid.isdigit() or int(pid) == os.getpid():
+            continue
+        # `dev.sh` execs `scripts/manage.py dev` with a *relative* path, which
+        # is how everybody starts this — so matching an absolute path found
+        # nothing and the command refused to stop the stack it had just been
+        # asked about. The path is matched by its tail and the checkout is
+        # confirmed from the process's working directory instead.
+        if "scripts/manage.py" not in command.replace("\\", "/"):
+            continue
+        if not re.search(r"\bdev\b", command):
+            continue
+        if _working_directory(int(pid)) == ROOT:
+            stacks.append((int(pid), command.strip()))
+    return stacks
+
+
+def _working_directory(pid: int) -> Path | None:
+    """Where a process is running, so another clone is never signalled."""
+    if WINDOWS or not shutil.which("lsof"):
+        return None
+    found = subprocess.run(["lsof", "-a", "-d", "cwd", "-Fn", "-p", str(pid)],
+                           capture_output=True, text=True)
+    for line in found.stdout.splitlines():
+        if line.startswith("n"):
+            try:
+                return Path(line[1:]).resolve()
+            except OSError:
+                return None
+    return None
+
+
+def stop(api_port: int, web_port: int) -> int:
+    """Stop a running stack, the way Ctrl-C would.
+
+    `dev` already unwinds on SIGTERM and stops its three children — that is
+    what `_stop_on_termination` is for — and there was no way to ask it to.
+    TRY_IT tells a reader "something is already running … Stop it", and left
+    them to find the process themselves; a session left running for hours
+    serves whatever it compiled hours ago, which looks like the product being
+    broken rather than stale.
+
+    Only this checkout's own `dev` processes are signalled. A port held by
+    something that is not ours is reported and left alone, for the reason
+    `_throughline_at` gives: deciding it is safe to kill somebody else's
+    server is not a decision this command gets to make.
+    """
+    stacks = running_stacks()
+    if stacks:
+        for pid, _ in stacks:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                continue
+            except PermissionError:
+                print(f"  Cannot signal pid {pid} — it belongs to "
+                      f"another user.", file=sys.stderr)
+                return 1
+        # `dev` stops its children on the way out, so wait for the ports rather
+        # than for the parent: the ports are what the next start needs.
+        for _ in range(60):
+            time.sleep(0.25)
+            if port_owner(api_port) is None and port_owner(web_port) is None:
+                print(f"  Stopped ({len(stacks)} running).")
+                return 0
+        print("  Signalled, but a port is still held. "
+              "Run doctor to see what.", file=sys.stderr)
+        return 1
+
+    held = [(label, port, port_owner(port))
+            for label, port in (("API", api_port), ("Web interface", web_port))]
+    holders = [(label, port, found) for label, port, found in held if found]
+    if not holders:
+        print("  Nothing to stop.")
+        return 0
+
+    print("  No `manage.py dev` from this directory is running, but "
+          "something holds the ports:", file=sys.stderr)
+    for label, port, (owner, pid) in holders:
+        print(f"    Port {port} ({label}): {owner}", file=sys.stderr)
+    print("  Left alone, because stopping a process this command did not "
+          "start is not its decision. Stop it yourself, or start on other "
+          "ports with --api-port / --web-port.", file=sys.stderr)
+    return 1
+
+
 def _stop_on_termination() -> None:
     """Make SIGTERM unwind like Ctrl-C does, so the children get stopped.
 
@@ -2021,6 +2121,12 @@ def main() -> int:
                         help="update this installation, backing up first")
     up.add_argument("--check", action="store_true",
                     help="only say whether an update is available")
+    halt = sub.add_parser("stop", help="stop a running stack")
+    halt.add_argument("--api-port", type=int,
+                      default=int(os.environ.get("PORT", 8080)))
+    halt.add_argument("--web-port", type=int,
+                      default=int(os.environ.get("WEB_PORT", 3000)))
+
     sub.add_parser("desktop-entry",
                    help="add Throughline to the Linux applications menu")
     sub.add_parser("sync", help="fetch, and show what everyone else is working on")
@@ -2037,6 +2143,8 @@ def main() -> int:
         return bootstrap()
     if args.command == "sync":
         return sync()
+    if args.command == "stop":
+        return stop(args.api_port, args.web_port)
     if args.command == "doctor":
         return doctor(args.api_port, args.web_port)
     if args.command == "preflight":
