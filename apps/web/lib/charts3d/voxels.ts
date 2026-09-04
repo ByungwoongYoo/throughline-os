@@ -85,7 +85,22 @@ export type VolumeSettings = {
 export const MIN_VISIBLE_ALPHA = 1 / 255;
 
 export const DEFAULT_VOLUME: VolumeSettings = {
-  opacity: 0.06,
+  /*
+   * Raised from 0.06, on a measurement rather than a preference.
+   *
+   * The old value assumed "a stack of hundreds of these" accumulating. Real
+   * volumes do not stack that deep: sampled in a browser, the busiest pixel of
+   * a 4,776-splat volume had accumulated an alpha of 0.23, and the brightest
+   * thing on the canvas reached 1.51:1 against the page. Nothing was even at
+   * 2:1 — the whole figure was invisible rather than subtle.
+   *
+   * A core needs roughly 0.4 accumulated to clear 3:1. 0.12 was the first
+   * step and got the brightest pixel to 2.53 — measured again rather than
+   * assumed, which is how this landed at 0.16 instead. Still low enough that
+   * a single voxel is nearly transparent, which is the property the value
+   * exists for.
+   */
+  opacity: 0.16,
   /*
    * Measured in a browser, not guessed: projecting and sorting takes 13.4ms at
    * 60,000 splats and 4.1ms at 25,000, and drawing them costs a further 13ms

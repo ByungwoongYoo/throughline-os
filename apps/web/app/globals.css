@@ -84,6 +84,16 @@
   --hover: var(--n-50);
   --line:  var(--n-200);
   --line-strong: var(--n-300);
+  /*
+   * The lit face of a sphere.
+   *
+   * Its own token because a globe is an object in front of the page, not a
+   * panel that is part of it. Drawn in `--panel` it measured 1.03:1 against
+   * the dark page — the land was there and could not be seen. `--n-500`
+   * clears 3:1 in both themes; `--n-400` reaches only 2.60 on dark, which is
+   * how this was chosen rather than eyeballed.
+   */
+  --sphere: var(--n-500);
   /* n-500, not n-400. WCAG AA wants 4.5:1 for normal text, and this token
      carries real content — the rail's group labels, the context note, step
      descriptions, captions, counts. Measured in the running app, n-400 was

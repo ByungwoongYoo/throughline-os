@@ -186,7 +186,11 @@ describe("depth is visible as well as ordered", () => {
      * rainbow's hue boundaries accumulate into bands that read as structures
      * that are not there.
      */
-    const steps = [0, 0.25, 0.5, 0.75, 1].map(volumeColour);
+    // Wrapped, not passed by reference: `.map` hands the index in as the
+    // second argument, which is now the theme flag — so `.map(volumeColour)`
+    // would ask for the dark ramp at t=0 and the light one at every step
+    // after it.
+    const steps = [0, 0.25, 0.5, 0.75, 1].map((level) => volumeColour(level));
     for (let i = 1; i < steps.length; i += 1) {
       expect(steps[i][0]).toBeGreaterThan(steps[i - 1][0]);
       expect(steps[i][2]).toBeLessThan(steps[i - 1][2]);

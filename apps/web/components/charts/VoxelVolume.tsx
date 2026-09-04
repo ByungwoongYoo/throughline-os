@@ -86,6 +86,20 @@ export function VoxelVolume({
   const cameraRef = useRef<Camera>({ ...DEFAULT_CAMERA });
   const dirtyRef = useRef(true);
   const [window_, setWindow] = useState<Window | null>(settings.window ?? null);
+  /*
+   * The page's theme, watched rather than read once: a reader who switches
+   * theme with the figure on screen would otherwise keep the ramp built for
+   * the other background, which is the case this whole fix is about.
+   */
+  const [dark, setDark] = useState(true);
+  useEffect(() => {
+    const query = window.matchMedia("(prefers-color-scheme: dark)");
+    const stamped = document.documentElement.getAttribute("data-theme");
+    const read = () => setDark(stamped ? stamped === "dark" : query.matches);
+    read();
+    query.addEventListener("change", read);
+    return () => query.removeEventListener("change", read);
+  }, []);
   const [selected, setSelected] = useState<number | null>(null);
 
   /*
@@ -276,7 +290,7 @@ export function VoxelVolume({
         // Flat while it is moving. See `paintVolume`'s `shaded` parameter for
         // the measurement behind that.
         paintVolume(canvasRef.current, volume, cameraRef.current,
-                    { width, height }, selected, false);
+                    { width, height }, selected, false, dark);
         // And once more, shaded, when the camera has stopped changing. A
         // single 15ms frame after a drag ends is imperceptible; the same cost
         // during the drag is not.
@@ -284,7 +298,7 @@ export function VoxelVolume({
         settle = window.setTimeout(() => {
           if (running && !dirtyRef.current) {
             paintVolume(canvasRef.current, volume, cameraRef.current,
-                        { width, height }, selected, true);
+                        { width, height }, selected, true, dark);
           }
         }, SETTLE_MS);
       }
@@ -296,7 +310,10 @@ export function VoxelVolume({
       clearTimeout(settle);
       cancelAnimationFrame(handle);
     };
-  }, [volume, width, height, selected]);
+    // `dark` is a dependency: without it, switching theme with the figure on
+    // screen leaves the ramp built for the other background in place, which is
+    // exactly the state this fix exists to prevent.
+  }, [volume, width, height, selected, dark]);
 
   const dragging = useRef<{ x: number; y: number } | null>(null);
 
@@ -424,12 +441,35 @@ function within(volume: Volume, at: (s: Splat) => ScreenPoint,
  * top of one another — its hue boundaries accumulate into bands that look like
  * structures.
  */
-export function volumeColour(level: number): [number, number, number] {
+export function volumeColour(level: number,
+                             dark = true): [number, number, number] {
   const t = Math.max(0, Math.min(1, level));
+  if (dark) {
+    // Deep blue to a bright cream: the dense end is the light end, which is
+    // the end that shows on a dark page.
+    return [
+      Math.round(40 + 215 * t),
+      Math.round(70 + 130 * t * t),
+      Math.round(150 - 90 * t),
+    ];
+  }
+  /*
+   * Inverted for a light page, and the inversion is the point.
+   *
+   * One ramp cannot serve both. Running dark to light, the *dense* end
+   * vanishes on white; running light to dark, the *sparse* end vanishes on
+   * black. Measured on the dark page, the busiest voxel in a real volume
+   * reached 1.51:1 against the background — nothing on the canvas was even
+   * at 2:1. The fix is not a different hue but a ramp whose high end
+   * contrasts with the page it is drawn on.
+   *
+   * Both directions keep lightness monotonic in |t|, so the ordering still
+   * reads without colour.
+   */
   return [
-    Math.round(40 + 215 * t),
-    Math.round(70 + 130 * t * t),
-    Math.round(150 - 90 * t),
+    Math.round(210 - 170 * t),
+    Math.round(222 - 180 * t * t),
+    Math.round(240 - 120 * t),
   ];
 }
 
@@ -463,6 +503,13 @@ export function paintVolume(
    * when it is worth having.
    */
   shaded = true,
+  /**
+   * Which page this is drawn on.
+   *
+   * The colour ramp inverts: a volume's dense end has to be the end that
+   * contrasts with the background, and one ramp cannot do that for both.
+   */
+  dark = true,
 ): void {
   if (!canvas) return;
   const context = canvas.getContext("2d");
@@ -486,7 +533,7 @@ export function paintVolume(
     .sort((a, b) => a.at.depth - b.at.depth);
 
   for (const { splat, index, at } of drawn) {
-    const [r, g, b] = volumeColour(splat.level);
+    const [r, g, b] = volumeColour(splat.level, dark);
     context.save();
     context.globalAlpha = splat.alpha;
     // Scaled by the perspective factor, so a voxel nearer the eye is larger —

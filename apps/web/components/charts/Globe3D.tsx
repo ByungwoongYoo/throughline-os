@@ -138,7 +138,18 @@ export function Globe3D({
       const lit = context.createRadialGradient(
         centre.x - radius * 0.35, centre.y - radius * 0.35, radius * 0.05,
         centre.x, centre.y, radius);
-      const body = style.getPropertyValue("--panel").trim() || "#f6f6f6";
+      /*
+       * A surface colour, not a background one.
+       *
+       * This was `--panel`, and `--panel` is what the *page* is made of: on a
+       * dark page the sphere was painted in the page's own colour and measured
+       * 1.03:1 against it. The land was there and could not be seen. A globe
+       * is an object in front of the page, so its lit face has to be a colour
+       * the page is not — `--sphere` is defined for this and checked against
+       * both themes by test.
+       */
+      const body = style.getPropertyValue("--sphere").trim()
+        || style.getPropertyValue("--panel").trim() || "#f6f6f6";
       lit.addColorStop(0, body);
       /*
        * `--bg`, chosen because it is darker than `--panel` in both themes — the
