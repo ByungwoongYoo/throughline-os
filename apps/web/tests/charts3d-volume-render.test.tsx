@@ -489,6 +489,53 @@ describe("the render loop draws flat while the volume is moving", () => {
     });
   }
 
+  it("repaints when the theme changes, with nothing else changing", () => {
+    /**
+     * The loop draws only when something has marked the scene dirty, which is
+     * right for a camera that has not moved and wrong for everything else.
+     *
+     * The theme is the dependency that proves it, because it is the only one
+     * with no other path to the dirty flag: a size change marks dirty on its
+     * own, so a test that resized passed with the fix removed — which is how
+     * this test started, and why it was rewritten.
+     *
+     * In a browser emulating a light page, the volume kept drawing its bright
+     * end on white at 1.63:1 until the reader happened to drag it.
+     */
+    const listeners: Array<() => void> = [];
+    let dark = true;
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      // A getter, not a captured value: written as a plain property, the stub
+      // froze `matches` at the moment it was created, so the listener fired
+      // and the component read the old answer — the test failed for a reason
+      // that had nothing to do with the code under test.
+      get matches() { return query.includes("dark") ? dark : false; },
+      media: query,
+      addEventListener: (_: string, fn: () => void) => { listeners.push(fn); },
+      removeEventListener: () => {},
+      addListener: () => {}, removeListener: () => {},
+      onchange: null, dispatchEvent: () => false,
+    }));
+
+    const ref = createRef<VisualizationController>();
+    render(<VoxelVolume grid={gradient(4)} controllerRef={ref} width={400}
+                        height={300} />);
+    pump(2);
+    const before = recorder.calls.filter((c) => c.op === "arc").length;
+    expect(before).toBeGreaterThan(0);
+
+    // Nothing has changed: the loop is entitled to draw nothing.
+    pump(2);
+    expect(recorder.calls.filter((c) => c.op === "arc")).toHaveLength(before);
+
+    // The page becomes light. Nothing else about the figure changes.
+    act(() => { dark = false; listeners.forEach((fn) => fn()); });
+    pump(2);
+
+    expect(recorder.calls.filter((c) => c.op === "arc").length,
+           "a theme change must repaint the volume").toBeGreaterThan(before);
+  });
+
   it("stamps no sprites on the frame it paints while dirty", () => {
     const ref = createRef<VisualizationController>();
     render(<VoxelVolume grid={gradient(4)} controllerRef={ref} width={400}

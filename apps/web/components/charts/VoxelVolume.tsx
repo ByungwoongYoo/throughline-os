@@ -300,6 +300,21 @@ export function VoxelVolume({
 
   useEffect(() => {
     if (typeof requestAnimationFrame === "undefined") return;
+    /*
+     * Anything that restarts this loop needs a frame drawn.
+     *
+     * The loop only paints when something has marked the scene dirty, which
+     * is right for a camera that has not moved — and wrong for every other
+     * dependency. A new volume, a new size, a new selection or a new theme all
+     * change what should be on screen while leaving the flag false, so the
+     * canvas kept whatever it had until the reader happened to drag it.
+     *
+     * That is how the theme-aware ramp looked broken after it was fixed:
+     * `dark` flipped, the effect restarted, and nothing repainted. Measured
+     * with the page emulating light, the volume was still drawing its bright
+     * end on white at 1.63:1.
+     */
+    dirtyRef.current = true;
     let running = true;
     let handle = 0;
     let settle = 0;
