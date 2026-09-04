@@ -703,7 +703,7 @@ function Figure({ run, recommendation, labels, projectId, versionId }: {
           <p className="note" style={{ marginTop: 0 }}>
             Recording {fields.x} between {recording.from.toPrecision(4)} and{" "}
             {recording.to.toPrecision(4)}. It will be counted against the
-            dataset's own rows, not against what is drawn here.
+            dataset&rsquo;s own rows, not against what is drawn here.
           </p>
           <label>
             Name{" "}

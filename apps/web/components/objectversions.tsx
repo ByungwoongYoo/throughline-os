@@ -82,7 +82,7 @@ export function ObjectVersions({ projectId, objectId, onRestored }: {
       <p className="lede">
         This has been edited {chain.versions.length - 1}{" "}
         {chain.versions.length === 2 ? "time" : "times"}. Restoring brings an
-        earlier version's content back as a new one — nothing is deleted.
+        earlier version&rsquo;s content back as a new one — nothing is deleted.
       </p>
       {error != null && <Failure error={error} retry={load} />}
       <ol className="chain">

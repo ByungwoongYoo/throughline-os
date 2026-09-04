@@ -40,7 +40,7 @@ export function ResultsTable({ projectId }: { projectId: string }) {
       <h2>Results table</h2>
       <p className="lede">
         Every candidate that was tested, with its estimate, its p-value and the
-        q-value after correction — as CSV, for a paper's table or for
+        q-value after correction — as CSV, for a paper&rsquo;s table or for
         re-plotting elsewhere. Everything tested is a row, not only what
         survived: the family that was tested is what makes a q-value mean
         anything.
