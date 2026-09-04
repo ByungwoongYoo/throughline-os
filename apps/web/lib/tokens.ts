@@ -127,6 +127,22 @@ export function palette(dark: boolean) {
     surface: n[50],
     border: n[200],
     borderStrong: n[300],
+    /**
+     * A link between two things, on a canvas.
+     *
+     * Separate from `border` because it is not one. A border is a hairline
+     * dividing regions and is meant to be barely there; a link in a node-link
+     * graph is *data* — the caption counts them — and drawing it at border
+     * weight made "6 objects · 6 links" a figure showing six objects. On the
+     * dark canvas `border` came out at about 1.4:1 against the background,
+     * which is invisible rather than quiet.
+     *
+     * `n[400]` was the first attempt and reached only 2.5:1 — better, and
+     * still under the 3:1 that a graphical object carrying meaning needs. The
+     * number came from a test rather than from looking, which is the point of
+     * having one.
+     */
+    link: n[500],
     textFaint: n[400],
     textTertiary: n[500],
     textSecondary: n[600],

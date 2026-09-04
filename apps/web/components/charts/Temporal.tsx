@@ -162,7 +162,7 @@ export function Temporal({
       {title && <figcaption className="chart-title">{title}</figcaption>}
 
       <svg
-        className="chart-svg" width="100%"
+        className="chart-svg" style={{ maxWidth: width }} width="100%"
         viewBox={`0 0 ${width} ${chartHeight}`} role="img"
         aria-label={
           `${title ?? "Time to event"}. ${events.length} subjects followed from `

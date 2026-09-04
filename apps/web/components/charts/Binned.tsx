@@ -189,7 +189,7 @@ export function Binned({
          * shell's edges became draggable that column can be narrow at any
          * window size, so a fixed width is not a width, it is a guess.
          */
-        className="chart-svg"
+        className="chart-svg" style={{ maxWidth: width }}
         viewBox={`0 0 ${width} ${height}`}
         width="100%" height={height} role="img"
         aria-label={

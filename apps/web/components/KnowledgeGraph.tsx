@@ -314,7 +314,7 @@ export function KnowledgeGraph({
       if (!from || !to) continue;
 
       const lit = hover !== null && (a === hover || b === hover);
-      context.strokeStyle = lit ? theme.accent : theme.border;
+      context.strokeStyle = lit ? theme.accent : theme.link;
       context.globalAlpha = lit
         ? 0.9
         : Math.min(0.9, 0.15 * edgeEmphasis) * Math.min(dimmed(a), dimmed(b));

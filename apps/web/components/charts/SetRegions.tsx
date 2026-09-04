@@ -133,7 +133,7 @@ export function SetRegions({
       {title && <figcaption className="chart-title">{title}</figcaption>}
 
       <svg
-        className="chart-svg" width="100%" viewBox={`0 0 ${width} ${height}`} role="img"
+        className="chart-svg" style={{ maxWidth: width }} width="100%" viewBox={`0 0 ${width} ${height}`} role="img"
         aria-label={
           `${title ?? "Set intersections"}. ${members.length} ${itemLabel} across `
           + `${sets.length} sets, ${rows.length} distinct combinations. `

@@ -102,7 +102,7 @@ export function Matrix({
       {title && <figcaption className="chart-title">{title}</figcaption>}
 
       <svg
-        className="chart-svg"
+        className="chart-svg" style={{ maxWidth: width }}
         viewBox={`0 0 ${width} ${height}`}
         width="100%"
         role="img"

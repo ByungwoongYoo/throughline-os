@@ -110,7 +110,7 @@ export function Radial({
     return (
       <figure className="chart">
         {title && <figcaption className="chart-title">{title}</figcaption>}
-        <svg className="chart-svg" width="100%"
+        <svg className="chart-svg" style={{ maxWidth: size }} width="100%"
              viewBox={`0 0 ${size} ${spokes.length * 24 + 24}`} role="img"
              aria-label={`${title ?? "Chart"}. ${spokes.length} categories by `
                + `${valueLabel}, drawn as bars because ${cycleLabel} is not cyclical.`}>
@@ -158,7 +158,7 @@ export function Radial({
       {title && <figcaption className="chart-title">{title}</figcaption>}
 
       <svg
-        className="chart-svg" width="100%" viewBox={`0 0 ${size} ${size}`} role="img"
+        className="chart-svg" style={{ maxWidth: size }} width="100%" viewBox={`0 0 ${size} ${size}`} role="img"
         aria-label={
           `${title ?? "Radial chart"}. ${valueLabel} across ${cycleLabel}, `
           + `${spokes.length} positions around a full cycle. Peak ${peak.toLocaleString()} `

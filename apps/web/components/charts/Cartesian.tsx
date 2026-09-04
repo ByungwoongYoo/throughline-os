@@ -278,7 +278,7 @@ export function Cartesian({
       {title && <figcaption className="chart-title">{title}</figcaption>}
 
       <svg
-        className="chart-svg"
+        className="chart-svg" style={{ maxWidth: width }}
         viewBox={`0 0 ${width} ${height}`}
         width="100%"
         // §118 / Part P — the figure describes itself, and a table follows.
