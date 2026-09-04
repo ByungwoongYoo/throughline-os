@@ -211,7 +211,12 @@ def test_the_bundle_holds_both_files_and_the_readme():
 
     with zipfile.ZipFile(io.BytesIO(payload)) as archive:
         assert set(archive.namelist()) == {
-            "fitted_surface.obj", "observations.ply", "README.md"}
+            "fitted_surface.obj", "observations.ply", "README.md",
+            # Generated from the same spec as the geometry, so the labels it
+            # writes into the viewport cannot drift from the numbers in the
+            # mesh. Executed against a stand-in for Blender in
+            # `test_the_blender_script_runs.py`.
+            "import_scene.py"}
 
 
 def test_a_flat_figure_is_refused_by_name():
