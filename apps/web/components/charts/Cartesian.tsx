@@ -27,6 +27,8 @@ import { extent, max } from "d3-array";
 import { scaleBand, scaleLinear } from "d3-scale";
 import { line as d3line, area as d3area, curveMonotoneX } from "d3-shape";
 import { categorical } from "@/lib/tokens";
+import { densityNote, densityOf } from "@/lib/charts/density";
+import { sequential } from "@/lib/charts/sequential";
 import { ChartTooltip, readable, useChartHover } from "./interaction";
 import { ChartTable } from "./ChartTable";
 
@@ -59,6 +61,22 @@ export type CartesianProps = {
   fit?: { slope: number; intercept: number } | null;
   /** Bar baselines are never truncated — the critic forbids it. */
   zeroBaseline?: boolean;
+  /**
+   * Colour a scatter by how many points share a cell of the plot.
+   *
+   * Off unless asked for, and never with `group`: colour cannot carry a
+   * category and a count at once, and a chart that tried would be encoding
+   * two things on one channel — which is the failure this whole component
+   * takes care to avoid elsewhere.
+   */
+  densityColour?: boolean;
+  /**
+   * How many observations the figure has, when more than are drawn.
+   *
+   * A reader looking at twenty thousand marks from a hundred thousand rows is
+   * looking at a real distribution and is owed the fact that it is a sample.
+   */
+  totalPoints?: number;
 };
 
 const M = { top: 12, right: 16, bottom: 44, left: 56 };
@@ -66,6 +84,7 @@ const M = { top: 12, right: 16, bottom: 44, left: 56 };
 export function Cartesian({
   data, mark, xLabel, yLabel, xUnit, yUnit, title, caption,
   width = 620, height = 360, fit = null, zeroBaseline,
+  densityColour = false, totalPoints,
 }: CartesianProps) {
   const clipId = useId();
   const hover = useChartHover();
@@ -75,6 +94,22 @@ export function Cartesian({
   const inner = { w: width - M.left - M.right, h: height - M.top - M.bottom };
 
   const categorical_x = typeof data[0]?.x === "string";
+
+  /*
+   * Colour by local density, when asked and when it can mean anything.
+   *
+   * Refused where any point carries a `group`, because colour would then be
+   * saying both what a point is and how crowded it is, and neither would be
+   * readable. Refused on a categorical x for the same reason the binning
+   * would be meaningless there.
+   */
+  const grouped = data.some((d) => d.group);
+  const shadeByDensity = densityColour && !grouped && !categorical_x;
+  const density = useMemo(
+    () => (shadeByDensity
+      ? densityOf(data.map((d) => ({ x: Number(d.x), y: d.y })))
+      : null),
+    [shadeByDensity, data]);
 
   const xScale = useMemo(() => {
     if (categorical_x) {
@@ -241,7 +276,7 @@ export function Cartesian({
               );
             })}
 
-            {mark === "point" && data.map((d) => (
+            {mark === "point" && data.map((d, index) => (
               <circle
                 key={d.id}
                 className="chart-point"
@@ -250,7 +285,14 @@ export function Cartesian({
                 // The hovered mark grows a little as well as staying opaque:
                 // opacity alone is hard to see on a sparse scatter.
                 r={hover.hovered === d.id ? 5 : 3.2}
-                style={{ fill: colourOf(d.group), opacity: hover.emphasis(d.id) }}
+                style={{
+                  // Density where it was asked for; the group's colour
+                  // otherwise. Never both — see `densityColour`.
+                  fill: density
+                    ? sequential(density.levels[index])
+                    : colourOf(d.group),
+                  opacity: hover.emphasis(d.id),
+                }}
                 {...hover.markProps(d.id)}
               />
             ))}
@@ -335,6 +377,17 @@ export function Cartesian({
         </p>
       )}
 
+      {/*
+        What the colour means, beside the figure rather than in a tooltip.
+        The scale is local to this plot, so the same colour in two panels is
+        two different counts — a reader who compares them without being told
+        reads a difference that is an artefact of scaling.
+      */}
+      {density && (
+        <figcaption className="chart-caption chart-density-note">
+          {densityNote(density, data.length, totalPoints ?? data.length)}
+        </figcaption>
+      )}
       {caption && <figcaption className="chart-caption">{caption}</figcaption>}
 
       <ChartTable

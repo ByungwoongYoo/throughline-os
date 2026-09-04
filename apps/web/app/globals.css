@@ -4927,3 +4927,14 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .talkstomachine ul { margin: 0.5rem 0; padding-left: 1.1rem; }
 .talkstomachine li { font-size: 13px; margin-bottom: 0.25rem; }
 .talkstomachine q { font-style: italic; }
+
+
+/* What a density colour means.
+
+   Sits with the caption rather than above the plot: it is read once, when the
+   reader wonders what the colours are, and a permanent banner would compete
+   with the figure every other time. Quieter than the caption proper, because
+   the caption says what the figure shows and this says how it was drawn. */
+.chart-density-note {
+  font-size: 11px; color: var(--ink-faint); font-variant-numeric: tabular-nums;
+}
