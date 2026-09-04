@@ -8,6 +8,7 @@ entry commit together.
 
 from __future__ import annotations
 
+import io
 import logging
 import os
 import pathlib
@@ -4773,6 +4774,122 @@ async def unhandled(request: Request, exc: Exception) -> JSONResponse:
             "hint": "The request was rolled back; no partial state was written.",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Databases a researcher uploaded
+# ---------------------------------------------------------------------------
+
+
+def _database_file(cur, *, project_id: str, source_id: str) -> dict[str, Any]:
+    """The stored file behind a source, once it is known to be a database."""
+    cur.execute(
+        "SELECT f.storage_key, f.filename FROM sources s "
+        "JOIN files f ON f.id = s.file_id "
+        "WHERE s.id = %s AND s.project_id = %s",
+        (source_id, project_id))
+    row = cur.fetchone()
+    if row is None:
+        raise HTTPException(404, "No such source in this project.")
+    return dict(row)
+
+
+@app.get("/api/projects/{project_id}/sources/{source_id}/tables")
+def database_tables(project_id: str, source_id: str,
+                    user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    What is in an uploaded SQLite database.
+
+    A dataset is one table and a database is several, so ingesting one is a
+    choice somebody has to make. Refusing without saying what the choices are
+    would leave the researcher with a file the system can read and no way to
+    say which part of it they meant.
+    """
+    from throughline_ingestion import datasets as dataset_reader
+
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        located = _database_file(cur, project_id=project_id, source_id=source_id)
+
+    path = storage.path_for(located["storage_key"])
+    try:
+        tables = dataset_reader.sqlite_tables(path)
+    except dataset_reader.UnsupportedDataset as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    return {
+        "source_id": source_id,
+        "filename": located["filename"],
+        "tables": tables,
+        "note": ("Importing a table copies its rows into this project as a "
+                 "dataset of its own. The database file is left as it is."),
+    }
+
+
+@app.post("/api/projects/{project_id}/sources/{source_id}/tables/{table}",
+          status_code=202)
+def import_database_table(project_id: str, source_id: str, table: str,
+                          user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Import one table out of a database as a dataset in its own right.
+
+    **It becomes a CSV source rather than a special kind of database source.**
+    Everything downstream — profiling, semantic types, missingness, the column
+    passages a researcher searches — already works on a table of text, and a
+    second path through all of that would be a second set of bugs. The rows are
+    written out once, registered as an ordinary file, and handed to the
+    ingestion the rest of the product already uses.
+    """
+    from throughline_ingestion import datasets as dataset_reader
+
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        located = _database_file(cur, project_id=project_id, source_id=source_id)
+
+    path = storage.path_for(located["storage_key"])
+    try:
+        frame, _ = dataset_reader.read_dataset(path, suffix=".sqlite", table=table)
+    except dataset_reader.UnsupportedDataset as exc:
+        # 400 rather than 404 even for an unknown table: the message names
+        # every table there is, which is more use than a bare "not found".
+        raise HTTPException(400, str(exc)) from exc
+
+    if frame.empty:
+        raise HTTPException(
+            400, f"{table!r} has no rows, so there is nothing to import.")
+
+    buffer = io.BytesIO(frame.to_csv(index=False).encode("utf-8"))
+    stem = pathlib.Path(located["filename"]).stem
+    name = f"{stem} — {table}.csv"
+
+    with transaction() as cur:
+        record = storage.register_file(
+            cur, project_id=project_id, filename=name, stream=buffer,
+            media_type="text/csv")
+        new_source = objects.create_source(
+            cur, project_id=project_id, source_type=SourceType.UPLOAD,
+            title=name, actor=user["id"], file_id=str(record["id"]),
+            content_hash=str(record["content_hash"]))
+        run_id = workflow.enqueue(
+            cur, workflow_name="ingest.source", project_id=project_id,
+            payload={"source_id": new_source},
+            # Keyed per source, for the reason the upload route gives at
+            # length: a retried POST collapses into one run, and a source that
+            # is created can never end up with no run to finish it.
+            idempotency_key=f"ingest:{new_source}")
+        events.audit(cur, project_id=project_id, actor=user["id"],
+                     action="imported", object_type="dataset",
+                     object_id=new_source,
+                     detail={"from_database": located["filename"], "table": table})
+
+    return {
+        "source_id": new_source,
+        "workflow_run_id": run_id,
+        "rows": int(len(frame)),
+        "columns": int(len(frame.columns)),
+        "note": (f"{len(frame)} rows from {table!r} are being profiled as a "
+                 "dataset of their own. The database is unchanged."),
+    }
 
 
 # ---------------------------------------------------------------------------

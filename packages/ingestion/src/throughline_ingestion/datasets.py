@@ -45,6 +45,11 @@ SUPPORTED_DATASET_SUFFIXES = frozenset({
     ".sav", ".por",              # SPSS
     ".dta",                      # Stata
     ".sas7bdat", ".xpt",         # SAS
+    # SQLite, through the standard library — no extra runtime, so core rather
+    # than an optional pack. `.db` is ambiguous by convention (Access and
+    # Berkeley DB use it too); the header check below decides what a file
+    # actually is rather than trusting its name.
+    ".db", ".sqlite", ".sqlite3",
 })
 
 @dataclass(frozen=True, slots=True)
@@ -261,7 +266,8 @@ def sniff_delimiter(path: Path) -> str:
         return ","
 
 
-def read_dataset(path: Path, *, suffix: str | None = None) -> tuple[pd.DataFrame, str]:
+def read_dataset(path: Path, *, suffix: str | None = None,
+                 table: str | None = None) -> tuple[pd.DataFrame, str]:
     """Load a dataset without coercing anything.
 
     ``dtype=str`` and ``keep_default_na=False`` mean the profiler observes the
@@ -278,6 +284,8 @@ def read_dataset(path: Path, *, suffix: str | None = None) -> tuple[pd.DataFrame
             encoding="utf-8", encoding_errors="replace", low_memory=False,
         )
         return frame, "tsv" if delimiter == "\t" else "csv"
+    if suffix in {".db", ".sqlite", ".sqlite3"}:
+        return _read_sqlite(path, table)
     if suffix in {".xlsx", ".xlsm"}:
         # Wrapped for the same reason as .xls below. This one predates the .xls
         # branch: pandas raises a bare ValueError ("Excel file format cannot be
@@ -351,6 +359,112 @@ def read_dataset(path: Path, *, suffix: str | None = None) -> tuple[pd.DataFrame
         f"{suffix or 'this file type'} is not supported for dataset ingestion. "
         f"Supported here: {', '.join(sorted(readable_suffixes()))}"
     )
+
+
+#: SQLite files begin with this, per the file format specification. Checked
+#: rather than inferred from the suffix: `.db` is used by several unrelated
+#: formats, and "not a database" is a far more useful sentence than whatever
+#: sqlite3 says when it opens one.
+SQLITE_MAGIC = b"SQLite format 3\x00"
+
+
+def is_sqlite(path: Path) -> bool:
+    try:
+        with path.open("rb") as handle:
+            return handle.read(len(SQLITE_MAGIC)) == SQLITE_MAGIC
+    except OSError:
+        return False
+
+
+def _sqlite_connection(path: Path):
+    """A read-only connection to somebody else's database.
+
+    `mode=ro` is not a formality. This is a file a researcher uploaded, opened
+    by a background worker, and ingestion has no business writing to it —
+    including the journal and `-wal` files SQLite would otherwise create beside
+    it in a directory that is content-addressed storage.
+    """
+    import sqlite3
+
+    return sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+
+
+def sqlite_tables(path: Path) -> list[dict[str, Any]]:
+    """Every table and view in the file, with its row count.
+
+    Views are included because a view is how somebody hands you the join they
+    meant; `sqlite_%` internals are not, because they are the database's own
+    bookkeeping and no researcher uploaded them.
+    """
+    if not is_sqlite(path):
+        raise UnsupportedDataset(
+            "This file is not a SQLite database — its header says otherwise. "
+            "A `.db` extension is also used by Access and Berkeley DB, neither "
+            "of which can be read here.")
+
+    found: list[dict[str, Any]] = []
+    with _sqlite_connection(path) as connection:
+        cursor = connection.execute(
+            "SELECT name, type FROM sqlite_master WHERE type IN ('table', 'view') "
+            "AND name NOT LIKE 'sqlite_%' ORDER BY name")
+        for name, kind in cursor.fetchall():
+            # The identifier is quoted rather than interpolated: these names
+            # come out of somebody's file, and a table called `x"; DROP` is a
+            # string to read, not a statement to run.
+            quoted = '"' + str(name).replace('"', '""') + '"'
+            rows = connection.execute(f"SELECT count(*) FROM {quoted}").fetchone()[0]
+            columns = connection.execute(f"SELECT * FROM {quoted} LIMIT 0")
+            found.append({
+                "name": str(name), "kind": kind, "rows": int(rows),
+                "columns": [description[0] for description in columns.description],
+            })
+    return found
+
+
+def _read_sqlite(path: Path, table: str | None = None) -> tuple[pd.DataFrame, str]:
+    """One table out of a SQLite file, as text.
+
+    **A file with several tables is refused rather than guessed at.** Picking
+    the largest, or the first, would produce a dataset that looks entirely
+    right and is the wrong one — and nothing downstream could tell, because
+    every column would profile perfectly. The refusal names the tables, and
+    `POST /sources/{id}/tables/{name}` is how one is chosen.
+    """
+    tables = sqlite_tables(path)
+    if not tables:
+        raise UnsupportedDataset(
+            "This database has no tables or views in it.")
+
+    if table is None:
+        if len(tables) > 1:
+            names = ", ".join(f"{t['name']} ({t['rows']} rows)" for t in tables)
+            raise UnsupportedDataset(
+                f"This database holds {len(tables)} tables and a dataset is one "
+                f"table, so which one to read is not something to guess: {names}. "
+                "Choose one to import, or export the table you want as CSV.")
+        table = tables[0]["name"]
+
+    known = {t["name"] for t in tables}
+    if table not in known:
+        raise UnsupportedDataset(
+            f"There is no table or view called {table!r} in this database. "
+            f"It holds: {', '.join(sorted(known))}.")
+
+    quoted = '"' + table.replace('"', '""') + '"'
+    with _sqlite_connection(path) as connection:
+        cursor = connection.execute(f"SELECT * FROM {quoted}")
+        names = [description[0] for description in cursor.description]
+        rows = cursor.fetchall()
+
+    # Read as text, and a NULL becomes the empty string, because that is what
+    # every other reader in this module does: `dtype=str` with
+    # `keep_default_na=False` so the profiler sees the file's literal contents
+    # and decides what missing means, rather than inheriting pandas' opinion.
+    # A NULL rendered as "None" would profile as a string value somebody typed.
+    frame = pd.DataFrame(
+        [["" if value is None else str(value) for value in row] for row in rows],
+        columns=names, dtype=str)
+    return frame, "sqlite"
 
 
 def _read_columnar(path: Path) -> tuple[pd.DataFrame, str]:

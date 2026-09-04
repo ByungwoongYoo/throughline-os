@@ -240,6 +240,15 @@ def string_literals(path: pathlib.Path) -> list[str]:
 #: *product* table can never slip through it.
 SYSTEM_SCHEMAS = frozenset({"information_schema", "pg_catalog"})
 
+#: Catalog tables belonging to a *different* database engine.
+#:
+#: `sqlite_master` is how a SQLite file lists its own tables, and the file in
+#: question is one a researcher uploaded — it is data being read, not part of
+#: this product's schema, and no migration here will ever define it. The same
+#: reasoning as the schemas above, one level down: this guard reads our
+#: migrations, and cannot know what SQLite ships.
+FOREIGN_CATALOG = frozenset({"sqlite_master", "sqlite_temp_master"})
+
 
 def referenced_tables() -> dict[str, set[str]]:
     """Table name -> the files that query it."""
@@ -254,6 +263,8 @@ def referenced_tables() -> dict[str, set[str]]:
             local = {name.lower() for name in _CTE.findall(literal)}
             for name in _TABLE_REF.findall(literal):
                 if name.split(".")[0].lower() in SYSTEM_SCHEMAS:
+                    continue
+                if name.lower() in FOREIGN_CATALOG:
                     continue
                 if name.lower() in local:
                     continue

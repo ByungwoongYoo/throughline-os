@@ -58,15 +58,32 @@ def test_the_row_does_not_deny_the_geographic_formats():
 
 def test_the_row_still_says_what_is_genuinely_absent():
     """
-    The half of the original claim that holds. Nothing here reads a database
-    or calls an API, and a row that quietly dropped that would overstate.
+    The half of the original claim that still holds.
+
+    This used to assert that *no* SQL reader existed, by looking for
+    `read_sql` in the module. SQLite files are read now, so the claim it was
+    holding down has moved rather than disappeared: database *files* are read,
+    database *servers* are not, and a row that blurred the two would overstate
+    in exactly the way this guard exists to prevent.
+
+    (It also caught `_read_sqlite` on the substring, which is how a textual
+    guard reports a real change for an accidental reason. The checks below ask
+    about behaviour instead.)
     """
-    assert "sql" in ROW.lower()
     from throughline_ingestion import datasets
 
-    source = Path(datasets.__file__).read_text()
-    assert "read_sql" not in source, (
-        "a SQL reader exists now; §45 still says there is none")
+    assert "sqlite" in ROW.lower(), "the row no longer mentions what is read"
+    assert ".sqlite" in datasets.readable_suffixes()
+
+    # Servers, still absent. A connection string is the thing that would make
+    # this false, and none of the drivers that take one is imported here.
+    source = Path(datasets.__file__).read_text().lower()
+    for driver in ("psycopg", "pymysql", "sqlalchemy", "create_engine", "pyodbc"):
+        assert driver not in source, (
+            f"{driver} is used now, so §45 must stop saying no database server "
+            "can be reached")
+    assert "server" in ROW.lower() or "postgres" in ROW.lower(), (
+        "the row must still say database servers are not reachable")
 
 
 def test_the_optional_formats_are_described_as_optional():

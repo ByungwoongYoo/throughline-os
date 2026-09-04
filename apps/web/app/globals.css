@@ -4836,3 +4836,25 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   margin: 0.5rem 0; padding-left: 0.7rem; font-size: 13px;
   border-left: 2px solid var(--warn, var(--line)); color: var(--ink-soft);
 }
+
+
+/* Choosing a table out of an uploaded database.
+
+   A table with a control in the last column, deliberately plain: it appears
+   under a failed ingestion, where the researcher is already reading an error,
+   and a decorated panel there competes with the message that explains why they
+   are choosing at all. The column list is allowed to wrap and go quiet — it is
+   there to tell two similarly-named tables apart, not to be read. */
+.dbtables { margin: 1.2rem 0; }
+.dbtables table { border-collapse: collapse; width: 100%; margin: 0.6rem 0; }
+.dbtables th, .dbtables td {
+  border-bottom: 1px solid var(--line); padding: 0.4rem 0.8rem 0.4rem 0;
+  text-align: left; font-size: 13px; vertical-align: baseline;
+}
+.dbtables .num { text-align: right; font-variant-numeric: tabular-nums; }
+.dbtables .cols { color: var(--ink-soft); font-size: 12px; max-width: 22rem; }
+.dbtables .tag {
+  font-size: 11px; color: var(--ink-faint); text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.dbtables .done { font-size: 12px; color: var(--ink-soft); }

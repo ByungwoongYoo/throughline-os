@@ -21,6 +21,7 @@ import { ApiState, useApi } from "@/lib/useApi";
 import { Section } from "./Shell";
 import { PlainSummary, ResultCard } from "./ResultCard";
 import { Empty, Failure, Loading, Meter, Num, Stat, Status } from "./primitives";
+import { DatabaseTables } from "./databasetables";
 import { RecordFinding } from "./recordfinding";
 import { Approvals } from "./approvals";
 import { WhatTheSweepDid } from "./sweep";
@@ -331,6 +332,16 @@ export function SourceDetail({ projectId, sourceId, onDiscover }: {
 
       {data.ingestion_status === "failed" && (
         <div className="error">{data.ingestion_detail || "Ingestion failed with no detail recorded."}</div>
+      )}
+
+      {/*
+        A database that could not be ingested as one dataset is the case this
+        answers: the message above says which tables it holds, and this is how
+        one of them is chosen. It renders nothing for a source that is not a
+        database, so it costs an ordinary failed ingestion nothing.
+      */}
+      {data.ingestion_status === "failed" && (
+        <DatabaseTables projectId={projectId} sourceId={sourceId} />
       )}
 
       {data.paper && (

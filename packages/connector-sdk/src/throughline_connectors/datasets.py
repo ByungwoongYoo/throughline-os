@@ -52,7 +52,11 @@ from .base import Connector, ConnectorError, clean_doi, clean_text, year_of
 #: `tests/test_dataset_formats.py` now fails if this drifts from the core set
 #: again.
 TABULAR = {"csv", "tsv", "xlsx", "xlsm", "xls", "json", "geojson",
-           "sav", "por", "dta", "sas7bdat", "xpt"}
+           "sav", "por", "dta", "sas7bdat", "xpt",
+           # SQLite, read through the standard library — core rather than an
+           # optional pack, so it belongs in the standalone list too. A
+           # repository record offering a `.sqlite` is genuinely readable here.
+           "db", "sqlite", "sqlite3"}
 
 
 def _readable_formats() -> set[str]:
