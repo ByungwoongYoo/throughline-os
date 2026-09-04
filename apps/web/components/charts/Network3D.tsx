@@ -29,6 +29,7 @@ import {
   useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 } from "react";
 import { ScreenPoint, TargetRef, VisualizationController } from "@/lib/spatial/commands";
+import { drawLitSphere } from "@/lib/charts3d/shading";
 import { AXES_SCALED_SEPARATELY, Camera, DEFAULT_CAMERA, insidePolygon, resetCamera, rotateCamera, toCanvas, zoomCamera } from "@/lib/charts/scene3d";
 import { useSpatialKeys } from "@/lib/charts/spatialKeys";
 import { ChartExport } from "@/components/charts/ChartExport";
@@ -440,14 +441,21 @@ export function paintNetwork(
     // fading the thing the reader just picked would answer the wrong question.
     context.globalAlpha = isSelected || isHovered
       ? 1 : hazeFor(at.depth, near, far);
-    context.beginPath();
-    context.arc(at.x, at.y, isSelected ? radius + 2 : radius, 0, Math.PI * 2);
-    context.fillStyle = node.group
+    // Shaded from a constant light, so a node reads as a bead rather than a
+    // sticker. The colour still carries the group and nothing else: the light
+    // does not move with position or value, so lightness says nothing.
+    const fill = node.group
       ? categorical[hashOf(node.group) % categorical.length]
       : "rgba(90,105,135,0.9)";
-    context.fill();
+    drawLitSphere(context, at.x, at.y, isSelected ? radius + 2 : radius, fill);
 
     if (isSelected || isHovered) {
+      // The path has to be laid down here: `drawLitSphere` stamps an image and
+      // leaves no current path to stroke. Built only for the one node that
+      // needs it rather than for every node — an outline nothing strokes is
+      // two canvas calls per node, on every frame of a drag.
+      context.beginPath();
+      context.arc(at.x, at.y, isSelected ? radius + 2 : radius, 0, Math.PI * 2);
       // An outline as well as a colour, because §82 forbids state carried by
       // colour alone.
       context.strokeStyle = isSelected

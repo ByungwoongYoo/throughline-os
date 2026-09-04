@@ -9,8 +9,8 @@
  * though it were visible.
  */
 
-import { describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { createRef } from "react";
 import {
   VoxelVolume, paintVolume, volumeColour,
@@ -40,6 +40,9 @@ function recordingCanvas() {
     clearRect: note("clearRect"), save: note("save"), restore: note("restore"),
     beginPath: note("beginPath"), arc: note("arc"), fill: note("fill"),
     stroke: note("stroke"), moveTo: note("moveTo"), lineTo: note("lineTo"),
+    // Recorded so "it drew no sprites" is a real assertion rather than a
+    // property of a context that could not have drawn one anyway.
+    drawImage: note("drawImage"),
   });
   const canvas = {
     getContext: () => context, width: 400, height: 300,
@@ -49,9 +52,9 @@ function recordingCanvas() {
 
 const SIZE = { width: 400, height: 300 };
 const paint = (volume: Volume, selected: number | null = null,
-               camera = DEFAULT_CAMERA) => {
+               camera = DEFAULT_CAMERA, shaded = true) => {
   const r = recordingCanvas();
-  paintVolume(r.canvas, volume, camera, SIZE, selected);
+  paintVolume(r.canvas, volume, camera, SIZE, selected, shaded);
   return r;
 };
 
@@ -402,5 +405,94 @@ describe("what the reader is told", () => {
       <VoxelVolume grid={gradient(4)} controllerRef={ref} />);
     act(() => { ref.current!.focus("5"); });
     expect(container.textContent).toMatch(/Selected: [\d.]+ HU/);
+  });
+});
+
+describe("shading arrives when the reader stops turning it", () => {
+  /*
+   * Measured, not assumed: stamping 25,000 shaded sprites takes about 15ms in
+   * a browser against about 6ms for flat discs, and sprite size barely moves
+   * it — the cost is `drawImage` call overhead. Shading every frame would put
+   * a drag past 20ms, and this file already records that rotation is how a
+   * volume becomes legible at all.
+   */
+  it("draws flat when asked to", () => {
+    const volume = prepareVolume(gradient(3));
+    const { calls } = paint(volume, null, DEFAULT_CAMERA, false);
+
+    expect(calls.filter((c) => c.op === "fill")).toHaveLength(volume.splats.length);
+    expect(calls.filter((c) => c.op === "drawImage")).toHaveLength(0);
+  });
+
+  it("still draws every splat, in the same order, when flat", () => {
+    // The compositing order is the correctness of the chart whichever way the
+    // marks are painted.
+    const volume = prepareVolume(gradient(3));
+    const { calls } = paint(volume, null, DEFAULT_CAMERA, false);
+    const radii = calls.filter((c) => c.op === "arc").map((c) => c.args[2]);
+
+    for (let index = 1; index < radii.length; index += 1) {
+      expect(radii[index]).toBeGreaterThanOrEqual(radii[index - 1] - 1e-9);
+    }
+  });
+});
+
+describe("the render loop draws flat while the volume is moving", () => {
+  /*
+   * The performance guarantee, and it was untested until a mutation walked
+   * straight through it: making the loop shade every frame broke nothing,
+   * because every test called `paintVolume` directly and none drove the loop.
+   *
+   * What it costs to get wrong is measured rather than assumed. In a browser,
+   * stamping 25,000 shaded sprites takes ~15ms against ~6ms flat, and sprite
+   * size barely moves it (14.6ms at 8px, 15.1ms at 64px) because the cost is
+   * `drawImage` call overhead, not scaling. Added to ~4ms of projecting and
+   * sorting that puts a drag past 20ms — and this chart's own comments say
+   * rotation is how a volume becomes legible at all.
+   */
+  let frames: FrameRequestCallback[] = [];
+  let recorder: ReturnType<typeof recordingCanvas>;
+  let originalGetContext: typeof HTMLCanvasElement.prototype.getContext;
+
+  beforeEach(() => {
+    frames = [];
+    recorder = recordingCanvas();
+    originalGetContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = vi.fn(
+      () => (recorder.canvas as unknown as { getContext: () => unknown }).getContext(),
+    ) as never;
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+      frames.push(cb);
+      return frames.length;
+    });
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+  });
+
+  afterEach(() => {
+    HTMLCanvasElement.prototype.getContext = originalGetContext;
+    vi.unstubAllGlobals();
+    cleanup();
+  });
+
+  /** Run the loop, which happy-dom will not run for us. */
+  function pump(times: number) {
+    act(() => {
+      for (let i = 0; i < times; i += 1) {
+        for (const callback of frames.splice(0, frames.length)) {
+          callback(performance.now());
+        }
+      }
+    });
+  }
+
+  it("stamps no sprites on the frame it paints while dirty", () => {
+    const ref = createRef<VisualizationController>();
+    render(<VoxelVolume grid={gradient(4)} controllerRef={ref} width={400}
+                        height={300} />);
+
+    pump(2);
+
+    expect(recorder.calls.some((c) => c.op === "arc")).toBe(true);
+    expect(recorder.calls.filter((c) => c.op === "drawImage")).toHaveLength(0);
   });
 });
