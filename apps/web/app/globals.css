@@ -4894,3 +4894,22 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .scene { margin-top: 0.9rem; display: flex; gap: 0.75rem; align-items: baseline;
          flex-wrap: wrap; }
 .scene p { flex: 1; min-width: 18rem; margin: 0; font-size: 12px; }
+
+
+/* How fragile a connection is.
+
+   The number is large because it is the point of the section, but it is not
+   coloured by a threshold: an E-value is a continuous quantity and a red/green
+   split would turn it into a pass mark, which is the reading this whole
+   section exists to prevent. The fragile case gets weight, not a colour. */
+.fragility { margin: 1.2rem 0; }
+.fragility .big {
+  font-size: 2.4rem; line-height: 1.1; margin: 0.3rem 0;
+  font-variant-numeric: tabular-nums; color: var(--ink);
+}
+.fragility .big[data-fragile="yes"] { font-weight: 600; }
+.fragility details { margin-top: 0.8rem; }
+.fragility summary { font-size: 13px; cursor: pointer; color: var(--ink-soft); }
+.fragility details ul { margin: 0.4rem 0 0; padding-left: 1.1rem; }
+.fragility details li { font-size: 12px; color: var(--ink-soft);
+                        margin-bottom: 0.3rem; }

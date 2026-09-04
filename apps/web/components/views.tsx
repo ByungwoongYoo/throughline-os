@@ -21,6 +21,7 @@ import { ApiState, useApi } from "@/lib/useApi";
 import { Section } from "./Shell";
 import { PlainSummary, ResultCard } from "./ResultCard";
 import { Empty, Failure, Loading, Meter, Num, Stat, Status } from "./primitives";
+import { Fragility } from "./fragility";
 import { DatabaseTables } from "./databasetables";
 import { RecordFinding } from "./recordfinding";
 import { Approvals } from "./approvals";
@@ -1256,6 +1257,12 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding }: {
         )}
       </div>
 
+      {/*
+        Above the validation reports, because it answers the question a reader
+        arrives with. The reports say what was tried; this says what it would
+        take for none of it to matter.
+      */}
+      <Fragility connectionId={connectionId} />
       <ValidationReports reports={reports} />
 
       {/*

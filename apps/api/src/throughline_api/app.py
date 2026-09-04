@@ -36,6 +36,7 @@ from throughline_domain import (
     bibliography,
     analysis, auth, claim_test, compare, consistency, critic, discovery,
     embeddings, enquiry, events, example, exploration, extraction, findings,
+    fragility,
     graph_projection, graphs,
     harmonize, images, interpret, journal, lineage, notebook, objects, observability,
     arrange, authoring, board, citations, communication, embedding_space,
@@ -3570,6 +3571,63 @@ def validate_connection(connection_id: str, payload: ValidateRequest,
             idempotency_key=f"validate:{connection_id}:{','.join(sorted(payload.confounders))}",
         )
     return {"connection_id": connection_id, "status": "queued"}
+
+
+@app.get("/api/connections/{connection_id}/fragility")
+def connection_fragility(connection_id: str,
+                         user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    How much unmeasured confounding would explain this association away.
+
+    The validation suite asks what happens when the analysis is perturbed;
+    this asks the question a reviewer asks instead — what would have to be
+    true, and unaccounted for, for the result to vanish. It is the natural
+    complement to the causal-language validator: that stops a sentence
+    claiming more than the design licenses, and this says in one number how
+    far from a causal claim the evidence sits.
+
+    Nothing is refitted. The estimate, its interval and its sample size come
+    from the recorded run.
+    """
+    with transaction() as cur:
+        cur.execute(
+            "SELECT c.project_id, c.p_value, c.q_value, c.method, "
+            "c.left_variable, c.right_variable, c.analysis_run_id "
+            "FROM connections c WHERE c.id = %s", (connection_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Connection not found.")
+        scoped_project(row["project_id"], user)
+        run = (analysis.get_run(cur, row["analysis_run_id"])
+               if row["analysis_run_id"] else None)
+
+    if not run or run.get("status") != analysis.RUN_COMPLETED:
+        raise HTTPException(
+            409, "This connection has no completed analysis, so there is no "
+                 "estimate to test the fragility of.")
+
+    result = run.get("result") or {}
+    estimate = result.get("estimate")
+    if estimate is None:
+        raise HTTPException(
+            409, "The recorded run has no estimate, so nothing can be said "
+                 "about how much would explain it away.")
+
+    try:
+        report = fragility.for_correlation(
+            r=float(estimate), method=str(row["method"]),
+            ci_low=result.get("ci_low"), ci_high=result.get("ci_high"))
+    except fragility.FragilityError as exc:
+        # 422 and not 500: an estimate this cannot convert honestly is a fact
+        # about the method, and the message names which methods it does.
+        raise HTTPException(422, str(exc)) from exc
+
+    return {
+        "connection_id": connection_id,
+        "variables": [row["left_variable"], row["right_variable"]],
+        **report,
+        "sentence": fragility.describe(report),
+    }
 
 
 @app.get("/api/connections/{connection_id}/validations")
