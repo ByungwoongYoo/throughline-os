@@ -94,6 +94,17 @@ export type CartesianProps = {
    */
   linkKey?: string;
   /**
+   * Offer to record the brushed region as a named subset.
+   *
+   * The chart hands back the range in data units and nothing else. It does
+   * not know which column it is drawing — `xLabel` is what a reader should
+   * call it, which is frequently not what the data calls it — and a subset
+   * defined against a display label would be undefined against the rows. The
+   * caller knows the field, the dataset and the project, so the caller
+   * records it.
+   */
+  onRecordRegion?: (range: { from: number; to: number }) => void;
+  /**
    * How many observations the figure has, when more than are drawn.
    *
    * A reader looking at twenty thousand marks from a hundred thousand rows is
@@ -108,6 +119,7 @@ export function Cartesian({
   data, mark, xLabel, yLabel, xUnit, yUnit, title, caption,
   width = 620, height = 360, fit = null, zeroBaseline,
   densityColour = false, totalPoints, xTransform, yTransform, linkKey,
+  onRecordRegion,
 }: CartesianProps) {
   const clipId = useId();
   // This figure's own identity, so it can tell its selection from one it is
@@ -477,6 +489,18 @@ export function Cartesian({
           {brushed.count.toLocaleString()} of {data.length.toLocaleString()} drawn
           {" ("}{(brushed.share * 100).toFixed(1)}%{")"} in the region
           {" · "}{xLabel} {readable(brushed.from)} to {readable(brushed.to)}
+          {onRecordRegion && (
+            /*
+              The gesture the subset tree is for. A region drawn and then
+              retyped into a form as two numbers is the same subset described
+              twice, and the second description is the one that will be wrong.
+            */
+            <button type="button"
+                    onClick={() => onRecordRegion(
+                      { from: brushed.from, to: brushed.to })}>
+              record as a subset
+            </button>
+          )}
           <button type="button" onClick={() => setBrush(null)}>clear</button>
         </p>
       )}

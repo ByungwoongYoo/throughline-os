@@ -5004,3 +5004,13 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .cohort-new input, .cohort-new select { font-size: 13px; padding: 0.25rem 0.4rem;
   border: 1px solid var(--line); border-radius: 4px; background: var(--panel);
   color: var(--ink); min-width: 7rem; }
+
+/* Naming a region so it becomes a subset. Appears under the figure the region
+   was drawn on, because the picture is the thing being named and a modal would
+   cover it at the moment somebody is deciding what to call it. */
+.record-subset { display: flex; gap: 0.6rem; align-items: baseline;
+                 flex-wrap: wrap; margin-top: 0.6rem; }
+.record-subset .note { flex-basis: 100%; }
+.record-subset input { font-size: 13px; padding: 0.25rem 0.4rem;
+  border: 1px solid var(--line); border-radius: 4px;
+  background: var(--panel); color: var(--ink); }

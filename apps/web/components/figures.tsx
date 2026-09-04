@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { AnalysisRunRow, DatasetColumn } from "@/lib/api";
+import { AnalysisRunRow, DatasetColumn, api } from "@/lib/api";
 import { nameOf } from "./analyses";
 import { ApiState, useApi } from "@/lib/useApi";
 // Aliased: Matrix exports a `Cell` too, and its shape is row/column/value
@@ -277,7 +277,7 @@ export function Figures({ projectId, runs }: {
       {recommendation.loading && <Loading rows={4} label="Choosing the figure" />}
       {run && recommendation.data && (
         <Figure run={run} recommendation={recommendation.data}
-                labels={labels} projectId={projectId} />
+                labels={labels} projectId={projectId} versionId={versionId} />
       )}
       </>
       )}
@@ -502,15 +502,32 @@ function ForestView({ state }: { state: ApiState<EstimatePayload> }) {
   );
 }
 
-function Figure({ run, recommendation, labels, projectId }: {
+function Figure({ run, recommendation, labels, projectId, versionId }: {
   run: AnalysisRunRow;
   recommendation: Recommendation;
   labels: Record<string, string>;
   projectId: string;
+  /** Which dataset a recorded subset would belong to, when there is one. */
+  versionId: string | null;
 }) {
   const svgHost = useRef<HTMLDivElement>(null);
   const points = useApi<Points>(`/api/analyses/${run.id}/points`, [run.id]);
   const fields = axisFields(recommendation, run);
+
+  /*
+   * Recording a region as a subset.
+   *
+   * The name is asked for rather than generated: a subset called "region 3"
+   * is one nobody can quote, and naming it is the moment the researcher says
+   * what they think it is. The bounds come from the chart in data units and
+   * the column from the recorded spec — never from the axis label, which is
+   * what a reader should call it and frequently not what the data does.
+   */
+  const [recording, setRecording] =
+    useState<{ from: number; to: number } | null>(null);
+  const [subsetName, setSubsetName] = useState("");
+  const [recordError, setRecordError] = useState<unknown>(null);
+  const [recorded, setRecorded] = useState<string | null>(null);
 
   const data: Datum[] = useMemo(() => {
     const p = points.data;
@@ -597,6 +614,25 @@ function Figure({ run, recommendation, labels, projectId }: {
     && (points.data?.grid_x?.length ?? 0) > 1
     && (points.data?.grid_y?.length ?? 0) > 1;
 
+  async function recordSubset() {
+    if (!recording || !versionId) return;
+    setRecordError(null);
+    try {
+      const made = await api.post<{ sentence: string }>(
+        `/api/projects/${projectId}/cohorts`, {
+          dataset_version_id: versionId,
+          name: subsetName,
+          definition: [{ column: fields.x, min: recording.from,
+                         max: recording.to }],
+        });
+      setRecorded(made.sentence);
+      setRecording(null);
+      setSubsetName("");
+    } catch (failure) {
+      setRecordError(failure);
+    }
+  }
+
   return (
     <>
       <div className="card" ref={svgHost}>
@@ -649,11 +685,47 @@ function Figure({ run, recommendation, labels, projectId }: {
               crowded it is at once.
             */
             densityColour={mark === "point"}
+            /*
+              Only where there is a dataset to define a subset against.
+              Offering it without one would be a control that cannot work,
+              which teaches a researcher the feature is broken rather than
+              inapplicable.
+            */
+            onRecordRegion={versionId ? setRecording : undefined}
             title={recommendation.spec?.title}
             caption={recommendation.caption}
           />
         )}
       </div>
+
+      {recording && (
+        <div className="card card-tight record-subset">
+          <p className="note" style={{ marginTop: 0 }}>
+            Recording {fields.x} between {recording.from.toPrecision(4)} and{" "}
+            {recording.to.toPrecision(4)}. It will be counted against the
+            dataset's own rows, not against what is drawn here.
+          </p>
+          <label>
+            Name{" "}
+            <input value={subsetName} aria-label="Subset name"
+                   onChange={(event) => setSubsetName(event.target.value)} />
+          </label>
+          <button className="btn btn-primary" disabled={!subsetName.trim()}
+                  onClick={() => void recordSubset()}>
+            Record subset
+          </button>
+          <button className="btn" onClick={() => setRecording(null)}>
+            Cancel
+          </button>
+          {recordError != null && <Failure error={recordError} />}
+        </div>
+      )}
+
+      {recorded && (
+        <p className="note" role="status">
+          Recorded. {recorded}
+        </p>
+      )}
 
       {/* The reason, stated. This is where visualisation judgment transfers. */}
       <div className="card card-tight">
