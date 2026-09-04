@@ -127,6 +127,56 @@ describe("perspective is a depth cue and not a distortion", () => {
   });
 });
 
+describe("what `depth` means", () => {
+  /*
+   * Every 3D chart in this codebase composites by sorting on `depth`
+   * ascending, and each of them is right only because a larger `depth` means
+   * *nearer*. Not one of their tests says so: they compare the draw order
+   * against the same sort the renderer applies, so they agree with the
+   * implementation instead of checking it. Flipping the sign in `project` —
+   * which would make every translucent chart composite inside out — left the
+   * volume's own "composites back to front" test passing, and every test of
+   * the surface, network, line and field charts passing too.
+   *
+   * The convention is shared, so it is pinned here once rather than
+   * separately in each chart. Stated in terms of what a reader sees: the
+   * nearer of two points is the one drawn bigger.
+   */
+  it("gives a nearer point a larger depth than a farther one", () => {
+    const camera = { ...DEFAULT_CAMERA, yaw: 0, pitch: 0 };
+    // With no rotation the view axis is z, and +z is toward the viewer.
+    const near = project({ x: 0, y: 0, z: 0.9 }, camera);
+    const far = project({ x: 0, y: 0, z: -0.9 }, camera);
+
+    expect(near.depth).toBeGreaterThan(far.depth);
+  });
+
+  it("draws the point with the larger depth bigger, which is what makes it near",
+     () => {
+    const camera = { ...DEFAULT_CAMERA, yaw: 0, pitch: 0 };
+    const near = project({ x: 0, y: 0, z: 0.9 }, camera);
+    const far = project({ x: 0, y: 0, z: -0.9 }, camera);
+
+    // `scale` is the perspective factor every chart multiplies its mark size
+    // by. If these two ever disagreed, "sort ascending and draw" would put
+    // the big marks first and the charts would composite backwards.
+    expect(near.scale).toBeGreaterThan(far.scale);
+    expect(near.depth > far.depth).toBe(near.scale > far.scale);
+  });
+
+  it("keeps that agreement whichever way the camera is turned", () => {
+    for (const yaw of [0, 0.7, 1.9, 3.4, 5.2]) {
+      for (const pitch of [-0.9, 0, 0.6]) {
+        const camera = { ...DEFAULT_CAMERA, yaw, pitch };
+        const a = project({ x: 0.4, y: -0.2, z: 0.8 }, camera);
+        const b = project({ x: -0.3, y: 0.5, z: -0.7 }, camera);
+        expect(a.depth > b.depth).toBe(a.scale > b.scale);
+      }
+    }
+  });
+});
+
+
 describe("the camera's own rules", () => {
   it("clamps zoom at both ends", () => {
     const camera = { ...DEFAULT_CAMERA };

@@ -87,6 +87,27 @@ describe("the order is the correctness", () => {
     expect(arcs[0].args[0]).toBeCloseTo(depths[0].x, 6);
     expect(arcs[arcs.length - 1].args[0])
       .toBeCloseTo(depths[depths.length - 1].x, 6);
+
+    /*
+     * And "farthest" means what a reader would mean by it.
+     *
+     * The three assertions above compare the draw order against
+     * `sort by ascending depth` — which is the rule the renderer itself
+     * applies, so they agree with the implementation rather than checking it.
+     * Flipping the sign convention in `project`, so that a larger `depth`
+     * meant *farther*, left every one of them passing while the volume
+     * rendered inside out.
+     *
+     * Perspective is the independent anchor: a nearer splat is drawn larger,
+     * and that is the size cue a reader actually sees. Back to front
+     * therefore means the radii never shrink as drawing proceeds — stated
+     * without reference to `depth` at all, so it holds whichever way the
+     * projection signs its axis.
+     */
+    const radii = arcs.map((call) => call.args[2]);
+    for (let index = 1; index < radii.length; index += 1) {
+      expect(radii[index]).toBeGreaterThanOrEqual(radii[index - 1] - 1e-9);
+    }
   });
 
   it("draws every splat, not only the ones in front", () => {
