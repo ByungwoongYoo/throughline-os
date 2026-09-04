@@ -135,12 +135,41 @@ describe("what the reader is told about the colour", () => {
     expect(note).toMatch(/440 points/);
   });
 
-  it("names the grid and the busiest cell", () => {
-    const density = densityOf(coreAndSkirt());
-    const note = densityNote(density, 440);
+  it("names the grid it actually used, not the largest one allowed", () => {
+    /**
+     * This asserted `BINS`, the maximum — which passed while the grid was
+     * fixed at 64 and went on passing when it became adaptive, so the caption
+     * claimed a 64×64 grid on a figure binned at 24. A number in a caption
+     * that nothing checks against the code is the defect this whole file is
+     * about, committed in the file itself.
+     */
+    const points = coreAndSkirt();
+    const density = densityOf(points);
+    const note = densityNote(density, points.length);
 
-    expect(note).toContain(`${BINS}×${BINS}`);
+    expect(density.bins).toBeLessThan(BINS);
+    expect(note).toContain(`${density.bins}×${density.bins}`);
+    expect(note).not.toContain(`${BINS}×${BINS}`);
     expect(note).toContain(String(density.peak));
+  });
+
+  it("counts a cell together with the eight around it", () => {
+    /**
+     * Counting one cell alone makes the grid visible as a mosaic of coloured
+     * rectangles whose boundaries are an artefact of where they fall. The
+     * neighbourhood count is what removes that, and it is a plain count — so
+     * the busiest reported figure exceeds any single cell's population.
+     */
+    const clustered = Array.from({ length: 400 }, (_, i) => ({
+      x: 0.5 + ((i % 20) - 10) * 0.004,
+      y: 0.5 + (Math.floor(i / 20) - 10) * 0.004,
+    }));
+
+    const density = densityOf(clustered);
+
+    // Every point is inside one tight clump, so a neighbourhood holds more
+    // than the 400/occupied a single cell could.
+    expect(density.peak).toBeGreaterThan(clustered.length / density.occupied);
   });
 });
 

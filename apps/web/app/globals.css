@@ -1717,10 +1717,32 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   max-width: 60ch;
 }
 
-.chart-grid   { stroke: var(--line); stroke-width: 1; }
+/*
+ * Ink hierarchy: the data is the darkest thing on the figure.
+ *
+ * The gridlines were `--line` at full strength, the same weight as the axis.
+ * A grid is a reading aid: findable when looked for, and quiet when not.
+ *
+ * The size of the correction is deliberately small, and the reason is worth
+ * recording. The first version of this dropped them much further, on the
+ * evidence of a rendering that turned out to be lying: the preview forced a
+ * white background while the browser was in dark mode, so every token came
+ * from the dark palette and `--line` resolved to `#262C36` on white. The grid
+ * looked like solid rules because it *was* one — in a combination the product
+ * never shows anybody.
+ *
+ * The axis keeps its weight, because the frame of the plot is structure
+ * rather than decoration and a chart whose edges dissolve is harder to read,
+ * not cleaner.
+ */
+.chart-grid   { stroke: var(--line); stroke-width: 1; opacity: 0.6; }
 .chart-axis   { stroke: var(--line-strong); stroke-width: 1; }
 .chart-tick   { font-size: 11px; fill: var(--ink-faint); font-variant-numeric: tabular-nums; }
-.chart-axis-label { font-size: 11px; fill: var(--ink-soft); }
+.chart-axis-label {
+  font-size: 11px; fill: var(--ink-soft);
+  /* The axis name outranks its tick values: it says what the numbers are. */
+  letter-spacing: 0.01em;
+}
 
 /*
  * Motion attaches to the primitive, not the chart name (Part F).
@@ -1736,7 +1758,17 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
               cy var(--standard) var(--ease-in-out-quart),
               opacity var(--micro) var(--ease-out-quad);
 }
-.chart-point:hover { r: 5; }
+/*
+ * Slightly smaller than they were, and slightly transparent.
+ *
+ * Three hundred overlapping points at r=3.2 and full opacity read as one solid
+ * band: the shape of the cloud survives, and everything inside it is lost.
+ * Transparency puts the overlap back — where marks pile up the ink deepens,
+ * which is the same information density colouring carries and costs nothing
+ * when colour is doing something else.
+ */
+.chart-point { r: 2.9; fill-opacity: 0.82; }
+.chart-point:hover { r: 5; fill-opacity: 1; }
 
 /* P1's signature: rects grow from the baseline, they never fade in. */
 .chart-rect {
