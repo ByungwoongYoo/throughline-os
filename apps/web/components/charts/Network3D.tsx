@@ -29,6 +29,7 @@ import {
   useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 } from "react";
 import { ScreenPoint, TargetRef, VisualizationController } from "@/lib/spatial/commands";
+import { canvasPoint, isClick } from "@/lib/charts/pointer";
 import { drawLitSphere } from "@/lib/charts3d/shading";
 import { AXES_SCALED_SEPARATELY, Camera, DEFAULT_CAMERA, insidePolygon, resetCamera, rotateCamera, toCanvas, zoomCamera } from "@/lib/charts/scene3d";
 import { useSpatialKeys } from "@/lib/charts/spatialKeys";
@@ -269,6 +270,8 @@ export function Network3D({
   /* ---- pointer, so the chart works without a camera (Rule 4) ---- */
 
   const dragging = useRef<{ x: number; y: number } | null>(null);
+  /** Where a press began, so a click can be told from a rotation. */
+  const pressedAt = useRef<{ x: number; y: number } | null>(null);
 
   return (
     <figure className="chart">
@@ -281,6 +284,7 @@ export function Network3D({
         style={{ width: "100%", maxWidth: width, touchAction: "none" }}
         onPointerDown={(event) => {
           dragging.current = { x: event.clientX, y: event.clientY };
+          pressedAt.current = { x: event.clientX, y: event.clientY };
           (event.target as Element).setPointerCapture?.(event.pointerId);
         }}
         onPointerMove={(event) => {
@@ -289,7 +293,31 @@ export function Network3D({
           rotate(event.clientX - from.x, event.clientY - from.y);
           dragging.current = { x: event.clientX, y: event.clientY };
         }}
-        onPointerUp={() => { dragging.current = null; }}
+        onPointerUp={(event) => {
+          /*
+           * A press that did not travel is a click, and a click selects.
+           *
+           * Selection existed on this chart all along — it paints a selected
+           * node, reports one through `onSelect`, and exposes `select` on its
+           * controller — and no pointer ever reached it. The capability was
+           * reachable from the gesture layer and from nowhere a mouse could
+           * go, so clicking a node in a node-link graph did nothing at all.
+           *
+           * The canvas rotates on drag, so every selection starts as a
+           * gesture that might become a rotation; the distance travelled is
+           * what separates them.
+           */
+          const start = pressedAt.current;
+          pressedAt.current = null;
+          dragging.current = null;
+          if (!isClick(start, { x: event.clientX, y: event.clientY })) return;
+          const target = event.currentTarget;
+          const point = canvasPoint(event, target, width, height);
+          const picked = nearest(point);
+          setSelected(picked?.id ?? null);
+          dirtyRef.current = true;
+          onSelect?.(picked);
+        }}
         onWheel={(event) => {
           // A plain wheel scrolls the page; ctrl or ⌘ zooms. Without the gate
           // a reader scrolling past three stacked charts never reaches the

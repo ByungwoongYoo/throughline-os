@@ -29,6 +29,7 @@ import { ScreenPoint, TargetRef, VisualizationController } from "@/lib/spatial/c
 import {
   Camera, DEFAULT_CAMERA, insidePolygon, resetCamera, rotateCamera, toCanvas, zoomCamera,
 } from "@/lib/charts/scene3d";
+import { canvasPoint, isClick } from "@/lib/charts/pointer";
 import { useSpatialKeys } from "@/lib/charts/spatialKeys";
 import { ChartExport } from "@/components/charts/ChartExport";
 import { isZoomWheel, wheelZoomFactor } from "@/lib/charts/wheel";
@@ -226,6 +227,8 @@ export function Bars3D({
   }, [prepared, width, height, selected]);
 
   const dragging = useRef<{ x: number; y: number } | null>(null);
+  /** Where a press began, so a click can be told from a rotation. */
+  const pressedAt = useRef<{ x: number; y: number } | null>(null);
 
   return (
     <figure className="chart">
@@ -237,6 +240,7 @@ export function Bars3D({
         data-testid="bars-3d"
         style={{ width: "100%", maxWidth: width, touchAction: "none" }}
         onPointerDown={(event) => {
+          pressedAt.current = { x: event.clientX, y: event.clientY };
           dragging.current = { x: event.clientX, y: event.clientY };
           (event.target as Element).setPointerCapture?.(event.pointerId);
         }}
@@ -246,7 +250,26 @@ export function Bars3D({
           rotate(event.clientX - from.x, event.clientY - from.y);
           dragging.current = { x: event.clientX, y: event.clientY };
         }}
-        onPointerUp={() => { dragging.current = null; }}
+        onPointerUp={(event) => {
+          /*
+           * A press that did not travel is a click, and a click selects.
+           *
+           * This chart has painted a selected mark and exposed `select` on
+           * its controller since it was written, and no pointer ever reached
+           * either — selection was available to the gesture layer and to
+           * nothing a mouse could do. The canvas rotates on drag, so the
+           * distance travelled is what separates a click from a camera move.
+           */
+          const start = pressedAt.current;
+          pressedAt.current = null;
+          dragging.current = null;
+          if (!isClick(start, { x: event.clientX, y: event.clientY })) return;
+          const picked = nearest(
+            canvasPoint(event, event.currentTarget, width, height));
+          setSelected(picked ? Number(picked.id) : null);
+          onSelect?.(picked);
+          dirtyRef.current = true;
+        }}
         onWheel={(event) => {
           if (!isZoomWheel(event)) return;
           event.preventDefault();
