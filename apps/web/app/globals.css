@@ -4913,3 +4913,17 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .fragility details ul { margin: 0.4rem 0 0; padding-left: 1.1rem; }
 .fragility details li { font-size: 12px; color: var(--ink-soft);
                         margin-bottom: 0.3rem; }
+
+
+/* A document containing text addressed to an AI system.
+
+   Deliberately not styled as an error. Nothing failed, nothing was blocked,
+   and the platform was never at risk — this is a fact about the paper, and an
+   alarm here would say the wrong thing about whose problem it is. The quoted
+   phrases are the point, so they get the emphasis. */
+.talkstomachine { margin: 1rem 0; padding: 0.8rem 1rem;
+                  border-left: 3px solid var(--line); background: var(--panel); }
+.talkstomachine h2 { font-size: 15px; margin: 0 0 0.3rem; }
+.talkstomachine ul { margin: 0.5rem 0; padding-left: 1.1rem; }
+.talkstomachine li { font-size: 13px; margin-bottom: 0.25rem; }
+.talkstomachine q { font-style: italic; }

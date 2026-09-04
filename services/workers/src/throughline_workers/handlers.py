@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from throughline_domain import corpus, objects, storage
+from throughline_domain import corpus, objects, storage, trust
 from throughline_domain.db import connection
 from throughline_ingestion import datasets as dataset_parser
 from throughline_ingestion import documents as document_parser
@@ -169,6 +169,14 @@ def _ingest_document(
 
     objects.advance_ingestion(cur, source_id=source_id, to_status=IngestionStatus.PARSING,
                               detail=f"Parsed {len(parsed.passages)} passages")
+
+    # Text in this document addressed to an AI system, recorded for the
+    # researcher rather than acted on. Nothing is blocked or edited: the
+    # content is already untrusted and already fenced when it reaches a model,
+    # and a paper carrying hidden instructions is a fact about that paper
+    # somebody should know before citing it.
+    trust.note_injection_attempt(cur, project_id=project_id, source_id=source_id,
+                                 text=parsed.text, actor=actor)
     count = corpus.store_passages(cur, project_id=project_id, source_id=source_id,
                                   passages=parsed.passages)
 

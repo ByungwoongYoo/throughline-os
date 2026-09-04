@@ -336,6 +336,36 @@ export function SourceDetail({ projectId, sourceId, onDiscover }: {
       )}
 
       {/*
+        Text in this document addressed to an AI system.
+        
+        Shown near the top, because it changes how a reader should treat the
+        whole source, and stated as a fact about the paper rather than as an
+        alarm about the platform: nothing was blocked, nothing was edited, and
+        the content was already fenced before any model saw it. The phrases are
+        quoted so the researcher can judge them — a hidden instruction in a
+        preprint is often the most interesting thing about it.
+      */}
+      {(data.metadata?.injection_signals?.length ?? 0) > 0 && (
+        <section className="talkstomachine">
+          <h2>This document contains text addressed to an AI system</h2>
+          <p className="lede">
+            Found while reading it. Nothing was blocked or removed, and no model
+            has acted on it — retrieved content is fenced as data before it
+            reaches one. It is shown because it is a fact about this source.
+          </p>
+          <ul>
+            {data.metadata!.injection_signals!.map((phrase) => (
+              <li key={phrase}><q>{phrase}</q></li>
+            ))}
+          </ul>
+          <p className="note">
+            Text like this in a paper is usually aimed at automated review or
+            summarisation. Worth knowing before citing it.
+          </p>
+        </section>
+      )}
+
+      {/*
         A database that could not be ingested as one dataset is the case this
         answers: the message above says which tables it holds, and this is how
         one of them is chosen. It renders nothing for a source that is not a

@@ -1,4 +1,30 @@
-"""The prompt-injection security boundary.
+"""Prompt injection: what is detected here, and where the fence actually is.
+
+**Read this before hardening anything in this file.** There are two
+implementations of structural fencing in this repository and only one of them
+runs. Every model call goes through `throughline_model`, and both providers —
+Ollama and Anthropic — wrap untrusted content in a per-call random nonce there.
+`build_prompt` below is a second, more elaborate version of the same idea that
+**nothing imports**. It is kept because its trust-level check has no equivalent
+in the providers and is worth porting one day; it is recorded here because a
+security boundary with an unused twin is a trap, and the obvious failure is
+somebody strengthening the copy that is not in the path.
+`test_which_fence_is_live` fails if that arrangement changes in either
+direction.
+
+What this module contributes to the running system is **detection**, which the
+providers do not do: `scan_for_injection` finds text inside a document that is
+addressed to a system rather than describing research, and
+`note_injection_attempt` records it against the source. Nothing is blocked and
+nothing is edited — the content is already untrusted and already fenced. The
+point is that the researcher is told, because a paper carrying hidden
+instructions to a reviewing model is a fact about that paper worth knowing
+before citing it.
+
+The original description of this module follows, and remains true of the design
+even where the implementation lives elsewhere.
+
+The prompt-injection security boundary.
 
 Everything the platform retrieves — papers, datasets, web pages, Drive
 documents, connector responses — is UNTRUSTED DATA. A document may contain text
@@ -20,6 +46,7 @@ to place retrieved text into a prompt.
 
 from __future__ import annotations
 
+import json
 import re
 import secrets
 from dataclasses import dataclass
@@ -48,7 +75,11 @@ class TrustBoundaryError(RuntimeError):
 #: surfaced to the researcher and the audit log.
 _INJECTION_SIGNALS = re.compile(
     r"(?:ignore|disregard|forget)\s+(?:all\s+|any\s+|the\s+|your\s+|previous\s+|prior\s+)*"
-    r"(?:instruction|prompt|rule|direction|system)"
+    # The plural matters now that the matched phrase is quoted back to a
+    # researcher: without it, "ignore all previous instructions" was
+    # reported as "ignore all previous instruction", which reads as a typo
+    # in their document rather than as what the document actually says.
+    r"(?:instruction|prompt|rule|direction|system)s?"
     r"|you\s+are\s+now\s+(?:a|an|in)\b"
     r"|new\s+(?:system\s+)?(?:instruction|prompt)s?\b"
     r"|<\s*/?\s*(?:system|instruction)s?\s*>"
@@ -66,6 +97,46 @@ def scan_for_injection(text: str) -> list[str]:
     safe.
     """
     return sorted({m.group(0).strip() for m in _INJECTION_SIGNALS.finditer(text or "")})
+
+
+def note_injection_attempt(cur, *, project_id: str, source_id: str,
+                          text: str, actor: str = "ingestion") -> list[str]:
+    """Record that an ingested document contains text addressed to a system.
+
+    The detector above has existed since this module was written, with a
+    comment promising its findings are "surfaced to the researcher and the
+    audit log". Nothing called it, so that promise was false — and it is the
+    half of this module that is *not* duplicated by the providers' fence,
+    which stops such text being obeyed but says nothing to the person who
+    uploaded the paper.
+
+    **Nothing is blocked and nothing is edited.** The content is already
+    untrusted and already fenced; removing the phrases would imply the
+    document became safe, and rejecting the upload would lose a paper somebody
+    needs to read. What changes is that the researcher is told, because a
+    preprint carrying hidden instructions to a reviewing model is a fact about
+    that paper worth knowing before citing it.
+    """
+    from .events import audit
+
+    signals = scan_for_injection(text)
+    if not signals:
+        return []
+
+    cur.execute(
+        "UPDATE sources SET metadata = metadata || %s::jsonb, updated_at = now() "
+        "WHERE id = %s AND project_id = %s",
+        (json.dumps({"injection_signals": signals}), source_id, project_id))
+    if not cur.rowcount:
+        # The source is not in this project, so nothing was flagged. Recording
+        # the audit entry anyway would put a security event in a project's
+        # history against a source it does not have.
+        return []
+
+    audit(cur, project_id=project_id, actor=actor, action="flagged",
+          object_type="source", object_id=source_id,
+          detail={"injection_signals": signals})
+    return signals
 
 
 def build_prompt(

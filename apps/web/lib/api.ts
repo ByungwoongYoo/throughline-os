@@ -126,6 +126,12 @@ export type Source = {
   trust_level: string;
   created_at: string;
   passage_count?: number;
+  /**
+   * What ingestion noticed about the source itself. `injection_signals` holds
+   * phrases in the document addressed to an AI system rather than describing
+   * research — recorded, never acted on.
+   */
+  metadata?: { injection_signals?: string[] } & Record<string, unknown>;
   paper?: { id: string; title: string; page_count: number } | null;
   dataset?: {
     dataset_id: string;
