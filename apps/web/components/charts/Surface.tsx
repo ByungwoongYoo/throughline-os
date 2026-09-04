@@ -397,6 +397,18 @@ export function Surface({
   }, [cells, scene, width, height, grid, style]);
 
   useEffect(() => {
+    /*
+     * Anything that restarts this loop needs a frame drawn.
+     *
+     * The loop paints only when something has marked the scene dirty, which
+     * is right for a camera that has not moved and wrong for every other
+     * dependency this effect lists — a new selection, a new layout, a new
+     * size. Those change what belongs on the canvas while leaving the flag
+     * false, so the figure kept whatever it had until the reader happened to
+     * drag it. Found in the volume, where a theme change repainted nothing;
+     * the same shape was in six charts.
+     */
+    dirtyRef.current = true;
     let frame = 0;
     const tick = () => {
       if (dirtyRef.current) { dirtyRef.current = false; draw(); }
