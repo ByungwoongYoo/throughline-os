@@ -3001,7 +3001,13 @@ def capabilities() -> dict[str, Any]:
     quietly given worse results.
     """
     embedder = embeddings.provider()
+    from throughline_visual.renderers import blender as blender_renderer
+
     return {
+        # An external application rather than a Python package, so it is found
+        # on the filesystem and asked its version — `extras` would report it
+        # present the moment anything shipped a module of the same name.
+        "blender": blender_renderer.availability(),
         "retrieval": {
             "lexical": True,
             "semantic": embedder is not None,
