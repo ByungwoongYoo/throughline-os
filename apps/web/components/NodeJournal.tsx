@@ -23,6 +23,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { ObjectVersions } from "./objectversions";
 import { currentView } from "@/lib/view-context";
 import { Failure, Loading } from "./primitives";
 
@@ -262,6 +263,13 @@ export function NodeJournal({ projectId, objectId, onClose, onOpen }: {
           </section>
         </>
       )}
+      {/*
+        Under the notes rather than above them. Somebody opens this panel to
+        read or write a note; the history is context for that, and it renders
+        nothing at all for an object that has never been edited.
+      */}
+      <ObjectVersions projectId={projectId} objectId={objectId}
+                      onRestored={(id) => onOpen?.(id)} />
     </aside>
   );
 }

@@ -4858,3 +4858,31 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   letter-spacing: 0.04em;
 }
 .dbtables .done { font-size: 12px; color: var(--ink-soft); }
+
+
+/* An object's version chain.
+
+   An ordered list rather than a table: the sequence is the information, and a
+   table invites reading down a column when what matters is what came after
+   what. The current version is marked instead of the others being dimmed —
+   the older ones are still real, still cited, and dimming them would suggest
+   otherwise. */
+.versions { margin: 1.2rem 0; }
+.versions .chain { list-style: none; margin: 0.6rem 0; padding: 0; }
+.versions .chain li {
+  display: grid; grid-template-columns: 1fr auto; gap: 0.2rem 1rem;
+  padding: 0.5rem 0; border-bottom: 1px solid var(--line);
+  align-items: baseline;
+}
+.versions .chain li.current { background: var(--panel); }
+.versions .what { display: flex; gap: 0.5rem; align-items: baseline;
+                  flex-wrap: wrap; }
+.versions .ver { font-variant-numeric: tabular-nums; color: var(--ink-faint);
+                 font-size: 12px; }
+.versions .title { font-size: 13px; }
+.versions .who { grid-column: 1; font-size: 12px; color: var(--ink-soft); }
+.versions .tag {
+  font-size: 11px; color: var(--ink-faint); text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.versions .chain li .btn { grid-row: 1 / span 2; grid-column: 2; }

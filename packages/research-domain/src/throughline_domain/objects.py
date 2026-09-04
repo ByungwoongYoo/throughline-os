@@ -307,6 +307,94 @@ def new_version(
     return version_id
 
 
+def versions_of(cur, *, object_id: str) -> list[dict[str, Any]]:
+    """Every version in this object's chain, oldest first.
+
+    **Written by every edit and, until now, read by nothing.** `new_version`
+    has kept a full chain since it was written — the old row untouched, linked
+    as an ancestor, marked superseded — and no route or component ever asked
+    for it. A record kept by one part of the system and read by none is this
+    repository's named recurring defect, and here it had a second cost: §43's
+    "restore to a previous state" was not missing a mechanism, it was missing
+    the two operations that would let anybody see or use the one already there.
+
+    Walks the lineage edges rather than trusting the `version` integer,
+    because the integer says where a row sits in *a* chain and the edges say
+    which chain — two objects can each be at version 3.
+    """
+    cur.execute(
+        """
+        WITH RECURSIVE back AS (
+            SELECT id, parent_object_id FROM research_objects WHERE id = %s
+            UNION
+            SELECT o.id, o.parent_object_id
+              FROM research_objects o
+              JOIN artifact_lineage_edges e ON e.source_artifact_id = o.id
+              JOIN back b ON e.target_artifact_id = b.id
+             WHERE e.lineage_type = 'transformed_from'
+        ),
+        forward AS (
+            SELECT id FROM back
+            UNION
+            SELECT o.id
+              FROM research_objects o
+              JOIN artifact_lineage_edges e ON e.target_artifact_id = o.id
+              JOIN forward f ON e.source_artifact_id = f.id
+             WHERE e.lineage_type = 'transformed_from'
+        )
+        SELECT o.id, o.title, o.description, o.status, o.version, o.metadata,
+               o.created_by, o.created_at
+          FROM research_objects o
+          JOIN forward f ON f.id = o.id
+         ORDER BY o.version, o.created_at
+        """,
+        (object_id,),
+    )
+    return [dict(row) for row in cur.fetchall()]
+
+
+def restore_version(cur, *, object_id: str, version_id: str, actor: str,
+                    reason: str = "") -> str:
+    """Bring an earlier version's content back, as a *new* version.
+
+    **Nothing is rewritten and nothing is deleted.** Restoring by editing the
+    row back would make the record say the intervening versions never
+    happened, and what a researcher believed at each point is evidence about
+    how they reached a conclusion — the journal already refuses to offer an
+    edit endpoint for exactly this reason. So a restore is an ordinary forward
+    step whose content happens to be an old one's, and the chain shows that
+    somebody went back.
+
+    Refuses a version from another chain. Restoring the content of an
+    unrelated object would look, ever afterwards, like this object had once
+    said something it never said.
+    """
+    chain = versions_of(cur, object_id=object_id)
+    by_id = {row["id"]: row for row in chain}
+    if version_id not in by_id:
+        raise ObjectError(
+            "That version does not belong to this object's history.")
+
+    latest = chain[-1]
+    if version_id == latest["id"]:
+        # Not an error worth a traceback, but not a silent success either: a
+        # no-op version would sit in the history saying a change was made.
+        raise ObjectError(
+            "That is already the current version, so there is nothing to "
+            "restore.")
+
+    target = by_id[version_id]
+    return new_version(
+        cur,
+        object_id=latest["id"],
+        actor=actor,
+        title=target["title"],
+        description=target["description"],
+        metadata=target["metadata"],
+        reason=reason or f"Restored the state of version {target['version']}",
+    )
+
+
 def update_object(
     cur,
     *,

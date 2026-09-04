@@ -725,6 +725,125 @@ def create_object(project_id: str, payload: ObjectCreate,
     return {"object_id": object_id}
 
 
+class ObjectEdit(BaseModel):
+    """A correction to an object's own description of itself."""
+
+    title: str | None = None
+    description: str | None = None
+    metadata: dict[str, Any] | None = None
+
+
+class RestoreRequest(BaseModel):
+    version_id: str
+    reason: str = ""
+
+
+def _object_in_project(cur, *, project_id: str, object_id: str) -> dict[str, Any]:
+    cur.execute(
+        "SELECT id, title, project_id FROM research_objects "
+        "WHERE id = %s AND project_id = %s",
+        (object_id, project_id))
+    row = cur.fetchone()
+    if row is None:
+        raise HTTPException(404, "No such object in this project.")
+    return dict(row)
+
+
+@app.patch("/api/projects/{project_id}/objects/{object_id}")
+def edit_object(project_id: str, object_id: str, payload: ObjectEdit,
+                user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Correct an object's title, description or metadata.
+
+    **This is what made the versioning reachable.** `update_object` and
+    `new_version` have been correct since they were written, and nothing
+    outside the tests called either — so a researcher could not edit a
+    research object at all, and the mechanism that keeps an edit safe when
+    other work depends on it was written by nothing in production.
+
+    The domain decides which kind of edit this is, and the answer is returned
+    rather than assumed: an object nothing was derived from is edited in
+    place; one that other work cites is superseded by a new version, so the
+    evidence pointing at the old state still resolves to what it described.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        _object_in_project(cur, project_id=project_id, object_id=object_id)
+        try:
+            now_at = objects.update_object(
+                cur, object_id=object_id, actor=user["id"],
+                title=payload.title, description=payload.description,
+                metadata=payload.metadata)
+        except objects.ObjectError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        events.audit(cur, project_id=project_id, actor=user["id"],
+                     action="edited", object_type="research_object",
+                     object_id=now_at)
+
+    versioned = now_at != object_id
+    return {
+        "object_id": now_at,
+        "versioned": versioned,
+        "note": ("Other work is derived from this, so the edit was recorded as "
+                 "a new version and the old one still stands where it was "
+                 "cited." if versioned else
+                 "Nothing is derived from this yet, so it was edited in place."),
+    }
+
+
+@app.get("/api/projects/{project_id}/objects/{object_id}/versions")
+def object_versions(project_id: str, object_id: str,
+                    user: dict = Depends(current_user)) -> dict[str, Any]:
+    """This object's chain, oldest first."""
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        _object_in_project(cur, project_id=project_id, object_id=object_id)
+        chain = objects.versions_of(cur, object_id=object_id)
+    return {
+        "object_id": object_id,
+        "versions": chain,
+        "current": chain[-1]["id"] if chain else object_id,
+    }
+
+
+@app.post("/api/projects/{project_id}/objects/{object_id}/restore",
+          status_code=201)
+def restore_object_version(project_id: str, object_id: str,
+                           payload: RestoreRequest,
+                           user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Bring an earlier version's content back, as a new version.
+
+    §43 recorded this as missing, and it was missing the operation rather than
+    the data: the chain has been kept in full all along. Nothing is rewritten
+    — a restore is a forward step whose content happens to be an old one's, so
+    the history shows that somebody went back rather than pretending the
+    intervening versions never happened.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        _object_in_project(cur, project_id=project_id, object_id=object_id)
+        try:
+            restored = objects.restore_version(
+                cur, object_id=object_id, version_id=payload.version_id,
+                actor=user["id"], reason=payload.reason)
+        except objects.ObjectError as exc:
+            # 422: a version from another object's history, or one that is
+            # already current, is the caller's to fix and the message says
+            # which.
+            raise HTTPException(422, str(exc)) from exc
+        events.audit(cur, project_id=project_id, actor=user["id"],
+                     action="restored", object_type="research_object",
+                     object_id=restored,
+                     detail={"from_version": payload.version_id})
+    return {
+        "object_id": restored,
+        "note": ("The earlier content is current again, recorded as a new "
+                 "version. Nothing was deleted — the versions in between are "
+                 "still in the history."),
+    }
+
+
 @app.get("/api/objects/{object_id}/provenance")
 def object_provenance(object_id: str, user: dict = Depends(current_user)) -> dict[str, Any]:
     """"How was this made?" resolved through the lineage graph."""
