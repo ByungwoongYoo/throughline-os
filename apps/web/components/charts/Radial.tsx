@@ -199,7 +199,7 @@ export function Radial({
                   d={`M${arc(inner, a0, a1)} L${r * Math.cos(a1)},${r * Math.sin(a1)} `
                      + `A${r},${r} 0 0 0 ${r * Math.cos(a0)},${r * Math.sin(a0)} Z`}
                   fill={categorical[0]}
-                  fillOpacity={0.82}
+                  fillOpacity={1}
                 />
               );
             })

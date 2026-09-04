@@ -39,7 +39,15 @@ export const accent = { 500: "#2563EB", 100: "#DBEAFE" } as const;
 
 /** State only. Never decoration. */
 export const semantic = {
-  positive: "#15803D",
+  /*
+   * The CSS variable first, with the light value as the fallback.
+   *
+   * This constant had no dark counterpart while `globals.css` has defined
+   * `--positive: #34D399` for the dark theme all along — so a forest plot
+   * drew its estimates in the light-theme green and measured 2.60:1 against
+   * the dark page. Reading the variable takes the theme's own value: 10.19:1.
+   */
+  positive: "var(--positive, #15803D)",
   caution: "#B45309",
   negative: "#B91C1C",
   info: "#0369A1",

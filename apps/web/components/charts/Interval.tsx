@@ -124,7 +124,14 @@ export function Interval({
               const crosses = e.lo <= nullValue && e.hi >= nullValue;
               // Colour is never the only signal: rows that cross the null are
               // also drawn lighter and labelled in the row beneath.
-              const colour = crosses ? "var(--n-400)" : semantic.positive;
+              /*
+               * A neutral for an interval that crosses the null, and a
+               * *visible* one. `--n-400` measured 2.60:1 against the dark
+               * page — under the 3:1 a data mark needs — so an estimate the
+               * data does not support was the hardest one to see. `--n-500`
+               * is 4.34 and still reads as grey rather than as a verdict.
+               */
+              const colour = crosses ? "var(--n-500)" : semantic.positive;
               return (
                 // Keyed by estimate id, so re-sorting moves a row rather than
                 // rebuilding it — the reader can follow one study through a

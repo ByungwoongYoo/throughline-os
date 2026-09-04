@@ -242,7 +242,7 @@ export function Ribbon({
               d={sankeyLinkHorizontal()(l as never) ?? undefined}
               fill="none"
               stroke={categorical[l.source.index % categorical.length]}
-              strokeOpacity={0.34}
+              strokeOpacity={0.9}
               strokeWidth={Math.max(1, l.width)}
             >
               <title>

@@ -175,7 +175,7 @@ export function Projection({
                   fill={p.group
                     ? categorical[groups.indexOf(p.group) % categorical.length]
                     : categorical[0]}
-                  fillOpacity={dim ? 0.14 : 0.8}
+                  fillOpacity={dim ? 0.14 : 1}
                   tabIndex={0}
                   role="button"
                   aria-label={`${p.label}${p.group ? `, ${p.group}` : ""}`}

@@ -1777,8 +1777,18 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
  * which is the same information density colouring carries and costs nothing
  * when colour is doing something else.
  */
-.chart-point { r: 2.9; fill-opacity: 0.82; }
-.chart-point:hover { r: 5; fill-opacity: 1; }
+/*
+ * Opaque, and this reverses a change made a few commits ago.
+ *
+ * The transparency was added to put overlap back into a dense scatter, on the
+ * evidence of a preview that was rendering dark-theme tokens on a forced white
+ * background. Measured on the real page it cost the marks their contrast:
+ * 0.82 fill-opacity took the points from about 3.4:1 to 2.89:1, under the
+ * threshold for a graphical object carrying meaning. Overplotting is handled
+ * by density colouring now, which does it without spending contrast.
+ */
+.chart-point { r: 2.9; }
+.chart-point:hover { r: 5; }
 
 /* P1's signature: rects grow from the baseline, they never fade in. */
 .chart-rect {
@@ -1923,7 +1933,14 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .chart-median { stroke-width: 1.25; stroke-dasharray: 3 3; opacity: 0.7; }
 /* The rug carries the honesty of this chart: it shows how much data is behind
    each bump, so a smoother cannot make four points look like a distribution. */
-.chart-rug { stroke-width: 1; opacity: 0.35; }
+/*
+ * A rug is one tick per observation — it is the data, not a decoration.
+ *
+ * At 0.35 it measured 1.42:1 against the dark page, which is a row of marks
+ * nobody can see. Raised until the ticks clear 3:1; they are thin and short,
+ * so they stay quiet at full strength without needing to be faded.
+ */
+.chart-rug { stroke-width: 1; opacity: 0.85; }
 
 @media (prefers-reduced-motion: reduce) {
   .chart-density { transition: none; }

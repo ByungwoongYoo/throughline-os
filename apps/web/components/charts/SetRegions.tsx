@@ -173,7 +173,7 @@ export function SetRegions({
               <rect x={M.left} y={y - 8} height={16} rx={1}
                     width={Math.max(0, scale(row.count))}
                     fill={row.count === 0 ? "transparent" : categorical[0]}
-                    fillOpacity={0.82} />
+                    fillOpacity={1} />
               {/* Printed for every row, including the zeroes — a bar of length
                   zero is invisible and the count is the point. */}
               <text x={M.left + Math.max(0, scale(row.count)) + 7} y={y} dy="0.32em"
