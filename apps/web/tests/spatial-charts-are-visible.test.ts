@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { volumeColour } from "@/components/charts/VoxelVolume";
 import { DEFAULT_VOLUME } from "@/lib/charts3d/voxels";
+import { isDarkPage } from "@/lib/charts/theme";
 
 function luminance([r, g, b]: [number, number, number]): number {
   const f = (c: number) => {
@@ -116,5 +117,34 @@ describe("the globe is an object in front of the page", () => {
     const n500Light: [number, number, number] = [0x6b, 0x6b, 0x66];
     expect(contrast(n500Dark, DARK_PAGE)).toBeGreaterThanOrEqual(3);
     expect(contrast(n500Light, LIGHT_PAGE)).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("a canvas chart follows the reader's choice of page", () => {
+  /**
+   * An SVG chart reads CSS variables and follows the theme for free. A canvas
+   * is painted with literal colours, so it has to ask — and keep asking.
+   */
+  it("lets an explicit choice beat the operating system", () => {
+    /**
+     * The complaint a theme toggle exists to answer: a researcher who chooses
+     * light on a dark machine must get light. Reversed, the choice does
+     * nothing.
+     */
+    expect(isDarkPage("light", true)).toBe(false);
+    expect(isDarkPage("dark", false)).toBe(true);
+  });
+
+  it("falls back to the system when nothing was chosen", () => {
+    expect(isDarkPage(null, true)).toBe(true);
+    expect(isDarkPage(null, false)).toBe(false);
+  });
+
+  it("does not guess at a value it does not recognise", () => {
+    // An empty attribute, a typo, a theme from a later build: the system
+    // decides rather than the string being interpreted.
+    expect(isDarkPage("", true)).toBe(true);
+    expect(isDarkPage("Dark", false)).toBe(false);
+    expect(isDarkPage("sepia", true)).toBe(true);
   });
 });

@@ -35,6 +35,7 @@ import {
 import {
   Camera, DEFAULT_CAMERA, insidePolygon, resetCamera, rotateCamera, toCanvas, zoomCamera,
 } from "@/lib/charts/scene3d";
+import { isDarkPage } from "@/lib/charts/theme";
 import { useSpatialKeys } from "@/lib/charts/spatialKeys";
 import { drawLitSphere } from "@/lib/charts3d/shading";
 import { ChartExport } from "@/components/charts/ChartExport";
@@ -94,11 +95,30 @@ export function VoxelVolume({
   const [dark, setDark] = useState(true);
   useEffect(() => {
     const query = window.matchMedia("(prefers-color-scheme: dark)");
-    const stamped = document.documentElement.getAttribute("data-theme");
-    const read = () => setDark(stamped ? stamped === "dark" : query.matches);
+    /*
+     * Read on every change, not captured once.
+     *
+     * The first version of this read `data-theme` when the effect ran and
+     * closed over the answer, so a researcher who switched theme with the
+     * figure on screen kept the ramp built for the other background — which
+     * is the exact state the theme-aware ramp exists to prevent. Measured
+     * with the page stamped light and the system dark, the volume was still
+     * drawing its bright end on white and reached 1.95:1.
+     *
+     * The stamp wins where there is one, because it is the reader's explicit
+     * choice; the system preference answers when there is not.
+     */
+    const read = () => setDark(isDarkPage(
+      document.documentElement.getAttribute("data-theme"), query.matches));
     read();
     query.addEventListener("change", read);
-    return () => query.removeEventListener("change", read);
+    const watching = new MutationObserver(read);
+    watching.observe(document.documentElement,
+                     { attributes: true, attributeFilter: ["data-theme"] });
+    return () => {
+      query.removeEventListener("change", read);
+      watching.disconnect();
+    };
   }, []);
   const [selected, setSelected] = useState<number | null>(null);
 
