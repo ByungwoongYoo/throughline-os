@@ -36,6 +36,14 @@
     ".next/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    // The exported bundle. Turbopack copies a worker's TypeScript source into
+    // `out/` as an asset, and with `**/*.ts` including everything, a
+    // type-check run after a build type-checks the build — reporting a module
+    // the emitted copy cannot resolve, in a file nobody wrote. Building the
+    // interface should not break checking it.
+    "out",
+    ".next",
+    ".next-check"
   ]
 }
