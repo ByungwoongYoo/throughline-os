@@ -24,6 +24,7 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
+from throughline_visual import spec as visual_spec
 from pydantic import ValidationError as PayloadInvalid
 from throughline_domain import (
     snapshot,
@@ -4456,6 +4457,46 @@ def download_visual(visual_id: str, format: str = Query("png"),
         path,
         media_type=FIGURE_MEDIA_TYPES.get(format.lower(), "application/octet-stream"),
         filename=f"{visual_id}{size}.{format.lower()}")
+
+
+@app.get("/api/visuals/{visual_id}/scene.zip")
+def download_visual_geometry(visual_id: str,
+                             user: dict = Depends(current_user)) -> Response:
+    """
+    A surface figure as geometry, for Blender or any other 3D tool.
+
+    Figures leave here as SVG, PDF, PNG and TIFF — pictures from one chosen
+    angle. A fitted surface is genuinely three-dimensional, and a researcher
+    who wants to light it, turn it, or place it in a poster at another angle
+    has until now had to rebuild it by hand from the numbers.
+
+    The archive keeps the model and the measurements in separate, named files,
+    because in a rendered image they are visibly different things and in a mesh
+    file they would both be geometry. A poster showing a fitted plane captioned
+    as measurements is the failure this product exists to prevent.
+    """
+    from throughline_visual.renderers import geometry
+
+    with transaction() as cur:
+        try:
+            row = visuals.load_visual(cur, visual_id)
+        except visuals.VisualError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        scoped_project(row["project_id"], user)
+
+    spec = visual_spec.ResearchVisualSpec.model_validate(row["spec"])
+    data = visual_spec.VisualData.model_validate(row["data"])
+    try:
+        payload = geometry.bundle(spec, data)
+    except geometry.GeometryError as exc:
+        # 400 and not 404: the figure exists, and the message says why this
+        # particular one has no third axis rather than implying it is missing.
+        raise HTTPException(400, str(exc)) from exc
+
+    return Response(
+        content=payload, media_type="application/zip",
+        headers={"Content-Disposition":
+                 f'attachment; filename="{visual_id}-scene.zip"'})
 
 
 @app.patch("/api/visuals/{visual_id}")

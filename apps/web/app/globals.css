@@ -4886,3 +4886,11 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   letter-spacing: 0.04em;
 }
 .versions .chain li .btn { grid-row: 1 / span 2; grid-column: 2; }
+
+
+/* The 3D export, under the publication formats rather than beside them: it is
+   a different kind of output — geometry to keep working on, not a finished
+   picture — and putting it in the same row would read as one more file format. */
+.scene { margin-top: 0.9rem; display: flex; gap: 0.75rem; align-items: baseline;
+         flex-wrap: wrap; }
+.scene p { flex: 1; min-width: 18rem; margin: 0; font-size: 12px; }

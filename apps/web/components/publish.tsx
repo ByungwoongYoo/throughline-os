@@ -44,6 +44,13 @@ export type Created = {
   visual_id: string;
   publishable: boolean;
   critique: { publishable: boolean; critiques: Critique[] };
+  /*
+   * The stored spec, which is how this panel knows whether the figure has a
+   * third axis. Asked for rather than guessed: offering a 3D export on a bar
+   * chart would be a control that always fails, and hiding it on a surface
+   * would be the capability going unreachable again.
+   */
+  spec?: { visual_type?: string };
 };
 
 /**
@@ -108,6 +115,30 @@ export function PublishFigure({ projectId, analysisRunId, spec, findingId }: {
         spec: spec ?? null,
         finding_id: findingId ?? null,
       }));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * The figure as geometry, for Blender and anything else that opens a mesh.
+   *
+   * Only for a fitted surface: every other figure here is flat, and a mesh of
+   * a bar chart is a bar chart standing up, not a three-dimensional object.
+   * The archive keeps the fitted model and the observations in separate named
+   * files, because in a picture they look different and in a mesh they would
+   * not.
+   */
+  async function downloadScene() {
+    if (!created) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const bytes = await api.getForBytes(
+        `/api/visuals/${created.visual_id}/scene.zip`);
+      save(bytes, `${created.visual_id}-scene.zip`, "application/zip");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {
@@ -219,6 +250,20 @@ export function PublishFigure({ projectId, analysisRunId, spec, findingId }: {
               {busy ? "Rendering…" : "Download"}
             </button>
           </div>
+          {created.spec?.visual_type === "surface" && (
+            <div className="scene">
+              <button className="btn" disabled={busy}
+                      onClick={() => void downloadScene()}>
+                Download 3D scene
+              </button>
+              <p style={{ color: "var(--ink-faint)" }}>
+                The fitted surface and the observations as a mesh and a point
+                cloud, for Blender or another 3D tool. Each axis is scaled
+                separately, so a slope measured on the mesh is not the slope in
+                the data — the archive states the ranges that map it back.
+              </p>
+            </div>
+          )}
           {/* A vector format has no pixel size, and the server refuses a height
               for one rather than ignoring it. Saying so is better than hiding
               the field and leaving the researcher to wonder where it went. */}
