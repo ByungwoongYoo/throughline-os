@@ -22,7 +22,7 @@
  * physical rather than redrawn.
  */
 
-import { useCallback, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { extent, max } from "d3-array";
 import { scaleBand, scaleLinear } from "d3-scale";
 import { line as d3line, area as d3area, curveMonotoneX } from "d3-shape";
@@ -30,6 +30,7 @@ import { categorical } from "@/lib/tokens";
 import { densityNote, densityOf } from "@/lib/charts/density";
 import { sequential } from "@/lib/charts/sequential";
 import { ChartTooltip, readable, useChartHover } from "./interaction";
+import { useLinkedSelection } from "./linked";
 import { ChartTable } from "./ChartTable";
 
 export type Datum = {
@@ -84,6 +85,15 @@ export type CartesianProps = {
   xTransform?: string;
   yTransform?: string;
   /**
+   * Which observations this figure draws, for linked selection.
+   *
+   * A dataset version, a run — whatever identifies the rows. Charts sharing a
+   * key share selections; a chart without one does not participate, so two
+   * figures of different data whose ids collide can never light each other
+   * up. See `linked.tsx`.
+   */
+  linkKey?: string;
+  /**
    * How many observations the figure has, when more than are drawn.
    *
    * A reader looking at twenty thousand marks from a hundred thousand rows is
@@ -97,9 +107,14 @@ const M = { top: 12, right: 16, bottom: 44, left: 56 };
 export function Cartesian({
   data, mark, xLabel, yLabel, xUnit, yUnit, title, caption,
   width = 620, height = 360, fit = null, zeroBaseline,
-  densityColour = false, totalPoints, xTransform, yTransform,
+  densityColour = false, totalPoints, xTransform, yTransform, linkKey,
 }: CartesianProps) {
   const clipId = useId();
+  // This figure's own identity, so it can tell its selection from one it is
+  // echoing. `useId` is stable across renders and unique per instance, which
+  // is exactly the question being asked.
+  const chartId = useId();
+  const linked = useLinkedSelection();
   const hover = useChartHover();
   // Brush: an x-range the reader drags out. null until they do.
   const [brush, setBrush] = useState<{ from: number; to: number } | null>(null);
@@ -189,8 +204,26 @@ export function Cartesian({
     // percentage that quietly meant something else would be the worst kind of
     // wrong here: precise, plausible, and about a different denominator.
     const share = data.length ? count / data.length : 0;
-    return { from, to, count, share };
+    const ids = data
+      .filter((d) => Number(d.x) >= from && Number(d.x) <= to)
+      .map((d) => d.id);
+    return { from, to, count, share, ids };
   }, [brush, categorical_x, xScale, data]);
+
+  /*
+   * Publish the region to any figure of the same observations. In an effect
+   * rather than in the drag handler, because the ids come from `brushed`,
+   * which is derived — computing them twice is how the picture and the
+   * highlight drift apart.
+   */
+  useEffect(() => {
+    if (!linkKey) return;
+    linked.select(linkKey, chartId, brushed ? brushed.ids : []);
+  }, [linkKey, chartId, brushed, linked.select]);
+
+  const echoed = linkKey
+    ? linked.echoCount(linkKey, chartId, data.map((d) => d.id))
+    : null;
 
   const xTicks = categorical_x
     ? (xScale as ReturnType<typeof scaleBand<string>>).domain()
@@ -320,7 +353,11 @@ export function Cartesian({
                   fill: density
                     ? sequential(density.levels[index])
                     : colourOf(d.group),
-                  opacity: hover.emphasis(d.id),
+                  // Two reasons a mark dims: the pointer is on another
+                  // one, or a selection elsewhere excludes it. The lower wins,
+                  // so neither can quietly undo the other.
+                  opacity: Math.min(hover.emphasis(d.id),
+                                    linked.emphasisFor(linkKey, d.id)),
                 }}
                 {...hover.markProps(d.id)}
               />
@@ -413,6 +450,24 @@ export function Cartesian({
             </span>
           ))}
         </div>
+      )}
+
+      {/*
+        Why this figure is half dimmed. A reader who arrives at one and cannot
+        see the reason will read the dimming as a property of the data.
+
+        The count is of *this* figure's marks, not the size of the selection:
+        a chart drawing four hundred of a thousand selected observations that
+        announced "1,000 highlighted" would be quoting a number about
+        somewhere else. And it says "indicated", because points somebody drew
+        a box around are not a group the data has licensed.
+      */}
+      {echoed !== null && (
+        <p className="chart-echo" role="status">
+          {echoed.toLocaleString()} of {data.length.toLocaleString()} drawn here
+          are in the region indicated on another figure
+          <button type="button" onClick={() => linked.clear()}>clear</button>
+        </p>
       )}
 
       {brushed !== null && (

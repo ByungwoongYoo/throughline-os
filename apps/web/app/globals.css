@@ -4950,3 +4950,19 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   fill: var(--ink); paint-order: stroke;
   stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round;
 }
+
+
+/* Why a figure is dimmed by a selection made on another one.
+
+   Same weight as the figure's own selection readout, because it is the same
+   kind of fact — what is highlighted and why — and a quieter treatment would
+   read as a footnote about the chart rather than an explanation of what the
+   reader is looking at. */
+.chart-echo {
+  font-size: 12px; color: var(--ink-soft); margin: 0.3rem 0 0;
+  display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap;
+}
+.chart-echo button {
+  font-size: 12px; background: none; border: 0; padding: 0;
+  color: var(--accent, var(--ink)); text-decoration: underline; cursor: pointer;
+}
