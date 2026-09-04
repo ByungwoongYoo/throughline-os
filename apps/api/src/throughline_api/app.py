@@ -30,6 +30,7 @@ from throughline_domain import (
     snapshot,
     digitise as digitise_module,
     code_export,
+    cohorts,
     provenance_log,
     research_context,
     tables,
@@ -3571,6 +3572,94 @@ def validate_connection(connection_id: str, payload: ValidateRequest,
             idempotency_key=f"validate:{connection_id}:{','.join(sorted(payload.confounders))}",
         )
     return {"connection_id": connection_id, "status": "queued"}
+
+
+class CohortRequest(BaseModel):
+    """A named subset somebody drew, and where it sits in the chain."""
+
+    dataset_version_id: str
+    name: str
+    definition: list[dict[str, Any]]
+    parent_id: str | None = None
+
+
+def _dataset_version(cur, version_id: str) -> dict[str, Any]:
+    cur.execute(
+        "SELECT dv.storage_key, dv.content_hash, d.project_id, d.format, "
+        "s.title FROM dataset_versions dv "
+        "JOIN datasets d ON d.id = dv.dataset_id "
+        "JOIN sources s ON s.id = d.source_id WHERE dv.id = %s",
+        (version_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "That dataset version does not exist.")
+    return dict(row)
+
+
+@app.post("/api/projects/{project_id}/cohorts", status_code=201)
+def define_cohort(project_id: str, payload: CohortRequest,
+                  user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Record a named subset, counted against the dataset's own rows.
+
+    The counts are computed here rather than accepted from the caller. A
+    client that could send its own would be able to make a subset claim
+    anything, and a share whose numerator nobody checked is the kind of number
+    this product exists not to produce.
+    """
+    from throughline_ingestion.datasets import read_dataset
+
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        version = _dataset_version(cur, payload.dataset_version_id)
+        if version["project_id"] != project_id:
+            raise HTTPException(404, "That dataset version does not exist.")
+
+    path = storage.path_for(version["storage_key"])
+    # Content-addressed storage has no extension, so the format comes from the
+    # recorded one rather than from the path.
+    suffix = (Path(version["title"] or "").suffix.lower()
+              or f".{(version['format'] or 'csv').lower()}")
+    try:
+        frame, _ = read_dataset(path, suffix=suffix)
+    except Exception as exc:  # noqa: BLE001 — any read failure is unusable here
+        raise HTTPException(
+            422, f"This dataset could not be read, so a subset of it cannot "
+                 f"be counted: {exc}") from exc
+
+    with transaction() as cur:
+        try:
+            return cohorts.define(
+                cur, project_id=project_id,
+                dataset_version_id=payload.dataset_version_id,
+                name=payload.name, definition=payload.definition,
+                rows=frame.to_dict("records"), actor=user["id"],
+                parent_id=payload.parent_id,
+                content_hash=str(version["content_hash"] or ""))
+        except cohorts.CohortError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+
+@app.get("/api/dataset-versions/{version_id}/cohorts")
+def list_cohorts(version_id: str,
+                 user: dict = Depends(current_user)) -> dict[str, Any]:
+    """The subsets of one dataset version, parents before children."""
+    with transaction() as cur:
+        version = _dataset_version(cur, version_id)
+        scoped_project(version["project_id"], user)
+        found = cohorts.tree(cur, dataset_version_id=version_id)
+
+    stale = [row["id"] for row in found
+             if row["content_hash"]
+             and row["content_hash"] != str(version["content_hash"] or "")]
+    return {
+        "dataset_version_id": version_id,
+        "cohorts": found,
+        # A count shown against data it was not computed on is the failure the
+        # stored hash exists to prevent, so the answer names them rather than
+        # quietly serving numbers from other bytes.
+        "counted_on_other_data": stale,
+    }
 
 
 @app.get("/api/connections/{connection_id}/fragility")

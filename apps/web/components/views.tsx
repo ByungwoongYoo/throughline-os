@@ -23,6 +23,7 @@ import { PlainSummary, ResultCard } from "./ResultCard";
 import { Empty, Failure, Loading, Meter, Num, Stat, Status } from "./primitives";
 import { Fragility } from "./fragility";
 import { DatabaseTables } from "./databasetables";
+import { CohortTree } from "./cohorts";
 import { RecordFinding } from "./recordfinding";
 import { Approvals } from "./approvals";
 import { WhatTheSweepDid } from "./sweep";
@@ -404,6 +405,16 @@ export function SourceDetail({ projectId, sourceId, onDiscover }: {
               Every candidate relationship, and every method chosen to test one, follows
               from these types.
             </p>
+
+            {/*
+              The subsetting decisions behind any number computed from this
+              dataset. Above the schema because the chain determines which rows
+              every column statistic below is about — a reader who meets the
+              profile first has already been told a number without being told
+              what it counted.
+            */}
+            <CohortTree projectId={projectId}
+                        datasetVersionId={data.dataset.dataset_version_id} />
 
             {columns.loading && <Loading rows={4} label="Reading the profile" />}
             {columns.error ? <Failure error={columns.error} retry={columns.reload} /> : null}
