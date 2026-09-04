@@ -4938,3 +4938,15 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .chart-density-note {
   font-size: 11px; color: var(--ink-faint); font-variant-numeric: tabular-nums;
 }
+
+
+/* The share inside a brushed region, printed on the region.
+
+   Sits at the top of the band so it never lands on the marks it is counting,
+   and takes the panel colour behind it because a number over a dense scatter
+   is unreadable otherwise. Tabular figures so two regions line up. */
+.chart-brush-label {
+  font-size: 11px; font-variant-numeric: tabular-nums;
+  fill: var(--ink); paint-order: stroke;
+  stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round;
+}

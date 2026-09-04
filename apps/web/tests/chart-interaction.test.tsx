@@ -129,8 +129,16 @@ describe("brushing a range", () => {
 
     const readout = container.querySelector(".chart-selection");
     expect(readout, "brushing produced no readout").not.toBeNull();
-    // A count of selected points, not a pixel range.
-    expect(readout!.textContent).toMatch(/\d+ of 3 selected/);
+    /*
+     * A count of the points in the region, not a pixel range — and the
+     * wording changed deliberately. "Selected" left the denominator implicit
+     * and the noun vague; the readout now says how many *of what is drawn*
+     * fall in the region, because on a sampled figure the drawn count is not
+     * the dataset, and because points somebody dragged a box around are a
+     * region rather than a group.
+     */
+    expect(readout!.textContent).toMatch(/\d+ of 3 drawn/);
+    expect(readout!.textContent).toMatch(/in the region/);
     expect(readout!.textContent).toContain("Antibiotic consumption");
   });
 

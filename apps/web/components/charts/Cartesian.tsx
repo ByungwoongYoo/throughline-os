@@ -71,6 +71,19 @@ export type CartesianProps = {
    */
   densityColour?: boolean;
   /**
+   * The transform each axis is drawn on, when it is not the identity.
+   *
+   * Stated on the axis rather than in a caption, and this is not a
+   * preference. A log axis read as linear is wrong by orders of magnitude at
+   * one end and nearly right at the other — the most convincing kind of wrong
+   * — and it is the same failure the figure digitiser refuses to guess at
+   * from the other direction. The renderer never infers this: it prints what
+   * the analysis recorded, and prints nothing when nothing was recorded,
+   * because inventing "linear" would be a claim of its own.
+   */
+  xTransform?: string;
+  yTransform?: string;
+  /**
    * How many observations the figure has, when more than are drawn.
    *
    * A reader looking at twenty thousand marks from a hundred thousand rows is
@@ -84,7 +97,7 @@ const M = { top: 12, right: 16, bottom: 44, left: 56 };
 export function Cartesian({
   data, mark, xLabel, yLabel, xUnit, yUnit, title, caption,
   width = 620, height = 360, fit = null, zeroBaseline,
-  densityColour = false, totalPoints,
+  densityColour = false, totalPoints, xTransform, yTransform,
 }: CartesianProps) {
   const clipId = useId();
   const hover = useChartHover();
@@ -171,7 +184,12 @@ export function Cartesian({
     const from = scale.invert(brush.from);
     const to = scale.invert(brush.to);
     const count = data.filter((d) => Number(d.x) >= from && Number(d.x) <= to).length;
-    return { from, to, count };
+    // The share of what is *drawn*, which is not necessarily the share of the
+    // dataset — a figure showing a sample says so in `totalPoints`, and a
+    // percentage that quietly meant something else would be the worst kind of
+    // wrong here: precise, plausible, and about a different denominator.
+    const share = data.length ? count / data.length : 0;
+    return { from, to, count, share };
   }, [brush, categorical_x, xScale, data]);
 
   const xTicks = categorical_x
@@ -179,8 +197,19 @@ export function Cartesian({
     : (xScale as ReturnType<typeof scaleLinear<number, number>>).ticks(6);
   const yTicks = yScale.ticks(5);
 
-  const axisTitle = (label: string, unit?: string) =>
-    unit ? `${label} (${unit})` : label;
+  /**
+   * The axis title: the name, its unit, and the transform it is drawn on.
+   *
+   * The transform goes in brackets after the unit — `CD4 (counts) [asinh
+   * c=150]` — where a reader looking at the axis will see it, rather than in a
+   * caption they may never reach. Absent when the analysis recorded none: an
+   * axis that said "[linear]" everywhere would train people to stop reading
+   * the brackets, and the brackets are the whole point.
+   */
+  const axisTitle = (label: string, unit?: string, transform?: string) => {
+    const named = unit ? `${label} (${unit})` : label;
+    return transform ? `${named} [${transform}]` : named;
+  };
 
   // Group / interval columns only appear when the data actually carries them —
   // an all-empty column would be noise the reader has to rule out by hand.
@@ -328,6 +357,25 @@ export function Cartesian({
                   width={Math.max(1, brush.to - brush.from)} height={inner.h}
                   pointerEvents="none" />
           )}
+          {/*
+            The share on the region itself, not only in the readout below.
+            A reader comparing two regions is looking at the plot, and a
+            number they have to look away to find is one they will estimate
+            from the picture instead.
+
+            It says "drawn" because that is what the denominator is. This is a
+            region somebody dragged out — it is not a cluster, a population or
+            a group in any sense the data has licensed, and nothing here calls
+            it one.
+          */}
+          {brush && brushed && (
+            <text className="chart-brush-label"
+                  x={(brush.from + brush.to) / 2} y={14}
+                  textAnchor="middle" pointerEvents="none">
+              {(brushed.share * 100).toFixed(1)}% of drawn
+              {" · "}{brushed.count.toLocaleString()}
+            </text>
+          )}
 
           {/* Axes last, so marks never paint over them. */}
           <line className="chart-axis" x1={0} x2={inner.w} y1={inner.h} y2={inner.h} />
@@ -349,10 +397,10 @@ export function Cartesian({
           ))}
 
           <text className="chart-axis-label" x={inner.w / 2} y={inner.h + 36}
-                textAnchor="middle">{axisTitle(xLabel, xUnit)}</text>
+                textAnchor="middle">{axisTitle(xLabel, xUnit, xTransform)}</text>
           <text className="chart-axis-label"
                 transform={`translate(${-M.left + 14},${inner.h / 2}) rotate(-90)`}
-                textAnchor="middle">{axisTitle(yLabel, yUnit)}</text>
+                textAnchor="middle">{axisTitle(yLabel, yUnit, yTransform)}</text>
         </g>
       </svg>
 
@@ -371,7 +419,8 @@ export function Cartesian({
         // What a selection is *for*: the count, and where it starts and ends in
         // the reader's own units rather than in pixels.
         <p className="chart-selection" role="status">
-          {brushed.count.toLocaleString()} of {data.length.toLocaleString()} selected
+          {brushed.count.toLocaleString()} of {data.length.toLocaleString()} drawn
+          {" ("}{(brushed.share * 100).toFixed(1)}%{")"} in the region
           {" · "}{xLabel} {readable(brushed.from)} to {readable(brushed.to)}
           <button type="button" onClick={() => setBrush(null)}>clear</button>
         </p>

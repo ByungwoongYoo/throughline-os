@@ -34,8 +34,12 @@ type Recommendation = {
   interpretation?: string;
   alternatives?: Array<{ visual_type: string; reason: string }>;
   spec: {
-    x?: { field: string; label?: string; unit?: string };
-    y?: { field: string; label?: string; unit?: string };
+    /*
+      `scale` was sent by the API and absent from this type, so the axis could
+      not say what it was drawn on even though the analysis had recorded it.
+    */
+    x?: { field: string; label?: string; unit?: string; scale?: string };
+    y?: { field: string; label?: string; unit?: string; scale?: string };
     title?: string;
   };
 };
@@ -136,6 +140,19 @@ export function figureName(
     .map((name) => labels[name] ?? name)
     .join(" · ");
 }
+
+/**
+ * The axis note for a recorded scale, or nothing.
+ *
+ * `linear` returns nothing on purpose: an axis that always carried a bracket
+ * would teach a reader to skip it, and the bracket exists for the one case
+ * that matters — a log axis read as linear is wrong by orders of magnitude at
+ * one end and nearly right at the other.
+ */
+function transformOf(scale?: string): string | undefined {
+  return scale && scale !== "linear" ? scale : undefined;
+}
+
 
 export function Figures({ projectId, runs }: {
   projectId: string;
@@ -617,6 +634,21 @@ function Figure({ run, recommendation, labels, projectId }: {
             mark={mark}
             xLabel={xLabel}
             yLabel={yLabel}
+            /*
+              What the analysis recorded, not what the renderer guesses. The
+              spec carries a scale per encoding; a linear one prints nothing,
+              because an axis reading "[linear]" everywhere trains people to
+              stop reading the brackets.
+            */
+            xTransform={transformOf(recommendation.spec?.x?.scale)}
+            yTransform={transformOf(recommendation.spec?.y?.scale)}
+            /*
+              A scatter is where overplotting hides the shape, so it is
+              coloured by density. The component declines where the points
+              carry a group — colour cannot say what a point is and how
+              crowded it is at once.
+            */
+            densityColour={mark === "point"}
             title={recommendation.spec?.title}
             caption={recommendation.caption}
           />
