@@ -132,6 +132,22 @@ export type Source = {
    * research — recorded, never acted on.
    */
   metadata?: { injection_signals?: string[] } & Record<string, unknown>;
+  /**
+   * Where a dataset came from, when it was not a file somebody dropped on the
+   * window (D211).
+   *
+   * Find data brings a record in from a repository, and the import records all
+   * four: which connector fetched it, the record at its origin, the
+   * repository's name and the licence it stated. An uploaded file has none of
+   * them and every one arrives null — not "", which would print as a
+   * provenance line with nothing in it. `original_uri` is what makes the
+   * provenance checkable rather than merely asserted: the researcher can open
+   * the record and read it themselves.
+   */
+  connector_id?: string | null;
+  original_uri?: string | null;
+  repository?: string | null;
+  licence?: string | null;
   paper?: { id: string; title: string; page_count: number } | null;
   dataset?: {
     dataset_id: string;

@@ -18,6 +18,8 @@ import {
 } from "@/lib/api";
 import { columnNotices } from "@/lib/column-notices";
 import { ApiState, useApi } from "@/lib/useApi";
+import { ObjectKind, useObjectId } from "@/lib/useObjectId";
+import { ObjectHistory } from "./objecthistory";
 import { SECTIONS, Section } from "./Shell";
 import { PlainSummary, ResultCard } from "./ResultCard";
 import { Empty, Failure, Loading, Meter, Num, Stat, Status } from "./primitives";
@@ -340,6 +342,36 @@ export function Sources({ sources, onSelect, upload, uploading, uploadError }: {
                   <span className="mono" style={{ color: "var(--ink-faint)" }}>
                     {source.source_type} · {source.trust_level}
                   </span>
+                  {/*
+                    Where an imported dataset came from (D211). The import has
+                    always recorded the repository, the record's own URL and the
+                    licence, and the one screen that lists sources showed none of
+                    it — so provenance the product stores was invisible exactly
+                    where a researcher decides whether to trust a row.
+
+                    A link, because that is what a record at its origin is: the
+                    claim "from Zenodo" is checkable only if it can be opened.
+                    An uploaded file gets no line at all rather than "from —",
+                    which would be a sentence about nothing.
+                  */}
+                  {source.repository && (
+                    <span style={{ display: "block", fontSize: 11, color: "var(--ink-faint)" }}>
+                      from{" "}
+                      {/* The row opens the source and this link leaves for the
+                          repository, so the click has to stop here: without
+                          that, a reader who asked for the record at its origin
+                          would also be moved to another screen — one press,
+                          two answers (§123). Where there is no URL the name is
+                          words rather than a control that goes nowhere. */}
+                      {source.original_uri ? (
+                        <a href={source.original_uri} target="_blank" rel="noreferrer"
+                           onClick={(event) => event.stopPropagation()}>
+                          {source.repository}
+                        </a>
+                      ) : source.repository}
+                      {source.licence ? ` · ${source.licence}` : ""}
+                    </span>
+                  )}
                 </td>
                 <td>
                   <Status value={source.ingestion_status} />
@@ -387,6 +419,62 @@ export function Sources({ sources, onSelect, upload, uploading, uploadError }: {
   );
 }
 
+/** What to call the thing on screen, so the sentence below is about it. */
+const NOUN: Record<ObjectKind, string> = {
+  finding: "finding",
+  source: "source",
+  analysis_run: "analysis",
+};
+
+/**
+ * The history of the object a finding, a source or a run is recorded as
+ * (D213).
+ *
+ * `<ObjectHistory>` takes an `obj_…` id and these three screens hold a finding
+ * id, a source id and a run id, so Slice 2 mounted the history on the board's
+ * card and left it off the details rather than mounting something that 404s.
+ * The lookup closes that gap; this is the one place that joins it to the
+ * panel, because three screens writing the same four lines is three places for
+ * the absent case to be got wrong.
+ *
+ * Three states, and only one of them renders a heading:
+ *
+ *  - resolving: nothing. A heading over a spinner is a promise the lookup has
+ *    not yet made good on.
+ *  - resolved: the panel, headed and findable.
+ *  - no such object: one quiet sentence saying so and why. The section is
+ *    *not* rendered empty — an empty heading is a claim of absence dressed as
+ *    a claim of presence, and a reader who scrolls to "History and versions"
+ *    and finds nothing under it learns nothing about which of the two it is.
+ */
+export function ObjectHistoryFor({ projectId, kind, id, onOpenObject }: {
+  projectId: string | null;
+  kind: ObjectKind;
+  id: string | null;
+  /** Follow a lineage link, or land on what a restore just made. */
+  onOpenObject?: (objectId: string) => void;
+}) {
+  const { objectId, loading, missing } = useObjectId(projectId, kind, id);
+
+  if (loading) return null;
+  if (missing) {
+    return (
+      <p className="note" style={{ marginTop: 20 }}>
+        This {NOUN[kind]} has no history yet. Notes and versions are kept on the
+        research object a {NOUN[kind]} becomes, and anything recorded before this
+        project kept those objects never had one — so there is nothing to show
+        here rather than something lost.
+      </p>
+    );
+  }
+  if (!projectId || !objectId) return null;
+
+  return (
+    <ObjectHistory projectId={projectId} objectId={objectId}
+                   onOpenObject={onOpenObject} />
+  );
+}
+
 /**
  * What ingestion actually made of a file (§24, §26).
  *
@@ -395,7 +483,7 @@ export function Sources({ sources, onSelect, upload, uploading, uploadError }: {
  * that profile is what every later method choice depends on.
  */
 export function SourceDetail({ projectId, sourceId, onDiscover, onOpenSource,
-                               onGo, labels }: {
+                               onGo, labels, onOpenObject }: {
   projectId: string;
   sourceId: string;
   onDiscover: (datasetVersionId: string) => void;
@@ -431,6 +519,16 @@ export function SourceDetail({ projectId, sourceId, onDiscover, onOpenSource,
    * copies that drift — the note on `Sources` above is the same rule.
    */
   labels?: Record<string, string>;
+  /**
+   * Open a research object — a lineage link in this source's history, or the
+   * object a restore just brought forward (D213).
+   *
+   * Optional for the reason `onOpenSource` above is: the history is worth
+   * reading on a host with nowhere to send a click, and `NodeJournal` renders
+   * a lineage name as plain text rather than a dead control where the handler
+   * is absent.
+   */
+  onOpenObject?: (objectId: string) => void;
 }) {
   const { data, error, loading, reload } =
     useApi<Source>(`/api/projects/${projectId}/sources/${sourceId}`);
@@ -727,6 +825,14 @@ export function SourceDetail({ projectId, sourceId, onDiscover, onOpenSource,
           hint="The file was read, but it produced neither a paper nor a dataset."
         />
       )}
+
+      {/*
+        Last, because it is the record of the screen above it rather than part
+        of it: what was written about this source and what it used to say
+        (D213, plan §4.6.2).
+      */}
+      <ObjectHistoryFor projectId={projectId} kind="source" id={sourceId}
+                        onOpenObject={onOpenObject} />
     </>
   );
 }
@@ -1575,8 +1681,18 @@ export function EvidenceGraphView({ findingId, onOpenAnalysis, onLoaded }: {
 // Analyses (§44, §47)
 // ---------------------------------------------------------------------------
 
-export function AnalysisDetail({ runId, onMethod }: {
+export function AnalysisDetail({ runId, projectId, onMethod, onOpenObject }: {
   runId: string;
+  /**
+   * Which project this run belongs to (D213).
+   *
+   * Passed in, because `GET /api/analyses/{id}` does not carry it and the
+   * history routes are all scoped to a project. Optional: a host that does not
+   * know the project cannot ask the lookup, and the run itself reads perfectly
+   * well without its history — better than a section that asks the server a
+   * question with a blank in it.
+   */
+  projectId?: string;
   /*
    * Reported upward rather than fetched twice. The panel below this one offers
    * a branch that swaps the method for its rank-based counterpart, and it needs
@@ -1584,6 +1700,8 @@ export function AnalysisDetail({ runId, onMethod }: {
    * be a second copy of this run that can drift from the one on screen.
    */
   onMethod?: (method: string) => void;
+  /** Follow a lineage link in this run's history. See `SourceDetail`. */
+  onOpenObject?: (objectId: string) => void;
 }) {
   const { data, error, loading, reload } = useApi<AnalysisRun>(`/api/analyses/${runId}`);
   const method = data?.method;
@@ -1663,6 +1781,14 @@ export function AnalysisDetail({ runId, onMethod }: {
           </div>
         </>
       )}
+
+      {/*
+        Outside the completed branch, deliberately: a run that failed still has
+        whatever was written about it, and that is usually the reason somebody
+        opened a failure (D213).
+      */}
+      <ObjectHistoryFor projectId={projectId ?? null} kind="analysis_run"
+                        id={runId} onOpenObject={onOpenObject} />
     </>
   );
 }

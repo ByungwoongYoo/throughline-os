@@ -179,3 +179,91 @@ describe("design tokens", () => {
     expect(varsInComponents.length).toBeGreaterThan(10);
   });
 });
+
+/**
+ * The dark theme is written twice, and the two copies have to say the same
+ * thing.
+ *
+ * A reader arrives in dark by one of two routes — the toggle stamps
+ * `data-theme="dark"`, or the operating system says dark and nothing is
+ * stamped — and CSS cannot express both in one selector, because one of them
+ * lives inside a media query. So the block is duplicated, and a duplicated
+ * block drifts.
+ *
+ * It already has. `--bg` and `--warn` were once declared only in the
+ * `[data-theme="dark"]` copy, so a reader whose machine was dark and who had
+ * never touched the toggle got a different page background and the *light*
+ * amber for `--warn` — 3.77:1 where the other path gave 8.81:1. The copy that
+ * was wrong was the one almost everybody gets, and nothing failed.
+ *
+ * Comparing declarations rather than text: the two copies may be indented
+ * differently, but they may not disagree about a single value.
+ */
+describe("the two dark blocks", () => {
+  /** `globals.css` with comments removed, so a quoted selector cannot match. */
+  const CSS = sources.find((s) => s.name === "app/globals.css")!.text
+    .replace(/\/\*[\s\S]*?\*\//g, "");
+
+  /** The brace-matched body of the first rule matching `selector`. */
+  function body(css: string, selector: string): string {
+    const at = css.indexOf(selector);
+    expect(at, `no \`${selector}\` rule`).toBeGreaterThan(-1);
+    const open = css.indexOf("{", at);
+    let depth = 0;
+    for (let i = open; i < css.length; i += 1) {
+      if (css[i] === "{") depth += 1;
+      if (css[i] === "}") {
+        depth -= 1;
+        if (depth === 0) return css.slice(open + 1, i);
+      }
+    }
+    throw new Error(`unbalanced braces after ${selector}`);
+  }
+
+  /** Every declaration in a rule body, normalised for whitespace. */
+  function declarations(rule: string): string[] {
+    return [...rule.matchAll(/([a-z0-9-]+)\s*:\s*([^;]+);/gi)]
+      .map((m) => `${m[1]}: ${m[2].trim().replace(/\s+/g, " ")}`);
+  }
+
+  // The theme blocks come first in the file; the `prefers-contrast: more`
+  // overrides of the same two selectors come far later. Splitting there keeps
+  // each pair being compared against its own counterpart.
+  const split = CSS.indexOf("@media (prefers-contrast: more)");
+  expect(split, "no prefers-contrast block to split on").toBeGreaterThan(-1);
+  const themes = CSS.slice(0, split);
+  const highContrast = CSS.slice(split);
+
+  const STAMPED = ':root[data-theme="dark"] {';
+  const SYSTEM = ':root:not([data-theme="light"]) {';
+
+  it("declare the same things in the same order", () => {
+    expect(declarations(body(themes, STAMPED)))
+      .toEqual(declarations(body(themes, SYSTEM)));
+  });
+
+  it("agree in the high-contrast remap too", () => {
+    // Added when dark became the default: `:root[data-theme="dark"]` outranks
+    // the `:root` this block remaps, so the stamped path needs its own copy or
+    // it reaches none of these. Two copies, same drift risk.
+    expect(declarations(body(highContrast, STAMPED)))
+      .toEqual(declarations(body(highContrast, SYSTEM)));
+  });
+
+  it("are really being read, so agreement cannot be vacuous", () => {
+    // Two empty bodies are equal. The theme block carries the whole ramp.
+    const stamped = declarations(body(themes, STAMPED));
+    expect(stamped.length).toBeGreaterThan(30);
+    expect(stamped).toContain("--n-0: #06070a");
+    expect(stamped.some((d) => d.startsWith("--accent:"))).toBe(true);
+    expect(declarations(body(highContrast, STAMPED)).length).toBeGreaterThan(4);
+  });
+
+  it("can tell two blocks apart when they differ", () => {
+    /** The mutation, so a comparison that has stopped comparing shows up. */
+    expect(declarations("--a: 1; --b: 2;"))
+      .not.toEqual(declarations("--a: 1; --b: 3;"));
+    // And whitespace alone is not a difference.
+    expect(declarations("--a:   1 ;")).toEqual(declarations("--a: 1;"));
+  });
+});

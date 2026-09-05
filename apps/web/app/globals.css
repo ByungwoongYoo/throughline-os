@@ -34,7 +34,7 @@
    * Text drawn *on* the accent.
    *
    * Not `--n-0`, which is what this used to be. `--n-0` is the neutral
-   * extreme and flips with the theme — white in light, #0A0C0F in dark —
+   * extreme and flips with the theme — white in light, #06070a in dark —
    * while `--accent` does not flip at all. So every primary button in the
    * product was white on blue in light mode and near-black on the same blue
    * in dark mode: 3.79:1, under the 4.5:1 that normal text needs. It was
@@ -53,8 +53,9 @@
    *
    * #1443B8 is 6.82:1 on the tint and is not invented here — it is the accent
    * this file's own `prefers-contrast: more` block already picks for light.
-   * In dark the accent is light enough that the tint pairing already passes at
-   * 6.68:1, so this simply follows the accent there. */
+   * The dark theme states its own: its tint is the site's amber-tinted dark
+   * and its readable side is the site's *brighter* amber, 8.53:1 on it against
+   * the accent's own 6.67:1 — the same question, answered from that palette. */
   --on-accent-soft: #1443B8;
 
   /* Semantic — state only, never decoration. */
@@ -71,6 +72,20 @@
   --replicated:  var(--positive);
   --conflicted:  var(--negative);
   --deprecated:  var(--n-500);
+
+  /*
+   * Which palette the *browser* draws with — scrollbars, form controls, the
+   * canvas behind an overscroll.
+   *
+   * The `<meta name="color-scheme">` in the layout can only say which schemes
+   * the page supports; the browser then resolves it from the operating system.
+   * That was close enough while the default theme followed the operating
+   * system too. It is not any more: dark is now the default stamp, so a reader
+   * on a light machine would get a near-black page with white scrollbars and
+   * light native controls. Declared here and in the dark blocks, it follows
+   * the theme that actually resolved.
+   */
+  color-scheme: light;
 
   /* Roles, so components never reach into the ramp directly. */
   --paper: var(--n-25);
@@ -90,7 +105,8 @@
    * Its own token because a globe is an object in front of the page, not a
    * panel that is part of it. Drawn in `--panel` it measured 1.03:1 against
    * the dark page — the land was there and could not be seen. `--n-500`
-   * clears 3:1 in both themes; `--n-400` reaches only 2.60 on dark, which is
+   * clears 3:1 in both themes; on the warm dark ramp it is 5.19:1 on the page
+   * and 4.75:1 on a card, while `--n-400` reaches only 2.79 and 2.56, which is
    * how this was chosen rather than eyeballed.
    */
   --sphere: var(--n-500);
@@ -119,6 +135,11 @@
   --surface-2: var(--hover);
   --danger: #B91C1C;
   --danger-soft: #FEE2E2;
+  /* The readable side of `--danger`, for the same reason `--on-accent` exists:
+     `.btn-danger` paints text *on* it, and in dark `--danger` is a light red,
+     so a literal `#fff` there is a guess that survives only until the token
+     moves. White on #B91C1C is 6.47:1; the dark theme states its own. */
+  --on-danger: #FFFFFF;
 
   --ease-out-expo:     cubic-bezier(0.16, 1, 0.3, 1);
   --ease-out-quart:    cubic-bezier(0.25, 1, 0.5, 1);
@@ -173,74 +194,167 @@
    who picks light gets the media query's dark values anyway, because the media
    query would still match. */
 :root[data-theme="dark"] {
-    /* In dark theme elevation is lightness, not shadow: surfaces get lighter as
-       they rise, because a shadow on a near-black surface is invisible. */
-    --n-0:   #0A0C0F;
-    --n-25:  #0E1116;
-    --n-50:  #14181F;
-    --n-100: #1B2028;
-    --n-200: #262C36;
-    --n-300: #333A45;
-    --n-400: #4C5563;
-    --n-500: #6E7787;
-    --n-600: #97A0AE;
-    --n-800: #D5DAE2;
-    --n-900: #F0F2F5;
+    /*
+     * The workspace wears the product's own palette.
+     *
+     * None of these are new colours. They are the ones the public site and this
+     * app's own landing page are already built from: the near-black the
+     * black-hole imagery sits in, the pale mist it is written in, and the amber
+     * that imagery casts. `app/landing.css` names them `--deep #0b0d10`,
+     * `--mist #f4f2ee`, `--amber #c8a45c`, `--glow #7fa8d4`; the deployed page
+     * adds the page ground `#06070a`, the brighter amber `#e8b76a` and the
+     * amber-tinted dark `#2a2214`. The dark workspace was a cool blue-grey navy
+     * ramp with a blue accent, so the product had two identities and the tool
+     * wore the one nobody had designed.
+     *
+     * Every ratio below is the WCAG relative-luminance contrast against the two
+     * grounds text actually sits on here — the page (`--bg`/`--paper`, #06070a)
+     * and a card (`--panel`, #10141a) — computed, not judged by eye. Where a
+     * number replaces an older one, the older one is quoted beside it.
+     *
+     * This block exists twice — once for the toggle's `[data-theme="dark"]`,
+     * once for `prefers-color-scheme: dark` — and the two copies are identical
+     * token for token, which `css-tokens.test.ts` now holds them to. They
+     * disagreed once before, on `--bg` and `--warn`, and the copy that was
+     * wrong was the one most readers actually get.
+     */
 
-    /* Faint text needs one step further here than in light.
+    /* Surfaces. In dark theme elevation is lightness, not shadow: a shadow on a
+       near-black surface is invisible. The first three are the site's own three
+       grounds; #171c24 continues the same step for `--hover`, which the site
+       has no equivalent of because it has nothing to hover. */
+    --n-0:   #06070a;
+    --n-25:  #0b0d10;
+    --n-50:  #10141a;
+    --n-100: #171c24;
+
+    /* Lines and text: the site's mist #f4f2ee at alpha tiers, composited over
+     * the page so each value is opaque and reads the same on any surface. Two
+     * of the alphas are the site's own named tiers — .34 is `--mist-faint`, .66
+     * is `--mist-soft` — which is the check that the two systems agree rather
+     * than merely resemble each other.
      *
-     * The scale flips with the theme, so the same token is a different colour:
-     * measured against the two grounds faint text actually sits on — a card at
-     * #14181F and the page at #0E1116 — n-400 is 2.36:1 and 2.51:1, and n-500
-     * is still only 3.94:1 and 4.19:1. Both fail the 4.5:1 that normal text
-     * needs. n-600 is 6.74:1 and 7.16:1.
+     * The alphas that are *not* the site's were chosen to hold the weight this
+     * ramp already had. The old `--line` (#262C36 on the old card #14181F) was
+     * 1.27:1; mist at .11 — the site's hairline, which sits on its lighter page
+     * — would be 1.15:1 here, so the rules a dense table depends on would have
+     * gone quieter. .14 restores 1.25:1. The site is airy and this is an
+     * instrument; the same alpha is not the same line.
      *
-     * It is also the value `prefers-contrast: more` already remaps this token
-     * to, which is the tell: the accessible answer was in the palette, offered
-     * only to readers who knew to ask the operating system for it. */
+     * Ratios below are page / card. */
+    --n-200: #27282a;  /* mist .14 — 1.37 / 1.25, matching the old 1.39 / 1.27 */
+    --n-300: #363638;  /* mist .20 — 1.67 / 1.53, matching the old 1.70 / 1.55 */
+    --n-400: #575758;  /* mist .34, the site's --mist-faint — 2.79 / 2.56 */
+    --n-500: #828181;  /* mist .52 — 5.19 / 4.75; see the note below */
+    --n-600: #a3a2a0;  /* mist .66, the site's --mist-soft — 7.90 / 7.24 */
+    --n-800: #d0cfcc;  /* mist .85 — 12.93 / 11.85 */
+    --n-900: #f4f2ee;  /* the site's --mist itself — 18.02 / 16.52 */
+
+    /* Why n-500 sits at .52 rather than the .49 that would space the ramp
+       evenly: `--deprecated` is n-500 and it is *text* — `.status-deprecated`
+       and `.status-rejected` — so it needs the 4.5:1 that normal text needs,
+       on a card as well as on the page. .49 reaches 4.32:1 on a card; .52
+       reaches 4.75:1. The old dark n-500 (#6E7787) reached 3.94:1 there, a
+       number this file already recorded while rejecting it for `--ink-faint`,
+       and then went on using for `--deprecated` anyway. */
+
+    /* Faint text still takes one step further than in light.
+     *
+     * n-500 now passes on both grounds (5.19:1 and 4.75:1), so this is no
+     * longer a failure being avoided — it is headroom being kept. `--ink-faint`
+     * carries the rail's group labels, the context note, step descriptions,
+     * captions and counts, which is most of the quiet text in the product, and
+     * n-600 gives it 7.90:1 and 7.24:1 rather than a pass with 0.25 to spare. */
     --ink-faint: var(--n-600);
-
-    /* The three semantic colours that never got a dark variant.
-     *
-     * `--warn` was given one; `--caution` and `--positive` were not, and
-     * `--caution` is the *same* colour as light `--warn` (#B45309), so they
-     * should share the dark one too. Measured on the grounds they sit on — a
-     * card at #14181F and the page at #0E1116 — the light values give
-     * candidate/exploratory 3.54:1 and a completed step 3.55:1, both under the
-     * 4.5:1 normal text needs. These are 8.29:1 and 9.26:1.
-     *
-     * Same defect as `--n-0` on `--accent` before it: a pairing chosen for one
-     * theme and inherited by the other. */
-    --caution: #F59E0B;
-    --positive: #34D399;
 
     /* The accent, and the side of it that stays readable.
      *
-     * `--accent: #2563EB` was chosen against a white page and never flipped, so
-     * on a dark ground it is 3.44:1 — under the 4.5:1 normal text needs. That
-     * matters more than one label: the stylesheet uses the accent as a *text*
-     * colour in 45 places and as a background in 10, so the failing role is the
-     * common one.
+     * The amber the site's imagery casts. Two candidates, and contrast does not
+     * separate them: #c8a45c is 8.56:1 on the page and 7.85:1 on a card,
+     * #e8b76a is 10.95:1 and 10.04:1, and since the stylesheet uses the accent
+     * as a *text* colour in 45 rules and as a background in 10, both clear the
+     * 4.5:1 normal text needs with room to spare.
      *
-     * #7FA8FF is 7.58:1 on a card and 8.06:1 on the page, and is not invented
-     * here — it is what this file's own `prefers-contrast: more` block already
-     * chose for dark, offered until now only to readers who knew to ask their
-     * operating system for it.
+     * What decides it is a different measurement: the accent must not be
+     * mistaken for `--caution`/`--warn` (#F59E0B), the one warm hue chrome is
+     * allowed to use for state. As CIE76 ΔE in Lab, #c8a45c is 38.4 from it and
+     * #e8b76a only 33.5. The deeper amber is the more separable of the two, and
+     * it is the one the site and `landing.css` actually name `--amber`; the
+     * brighter one keeps its site role as the emphasis on a tinted ground.
      *
      * A light accent flips which side is readable, so `--on-accent` moves with
-     * it: white on #7FA8FF is 2.33:1, near-black is over 9:1. That pairing is
-     * the entire reason `--on-accent` is a token rather than a literal, and
-     * `accent-contrast.test.ts` holds the two together. */
-    --accent: #7FA8FF;
-    --on-accent: #0A0C0F;
-    --on-accent-soft: var(--accent);
+     * it: the page ground on #c8a45c is 8.56:1, white would be 2.35:1. That
+     * pairing is the entire reason `--on-accent` is a token rather than a
+     * literal, and `accent-contrast.test.ts` holds the two together.
+     *
+     * The tint is the site's own #2a2214, at 1.18:1 against a card — a shade
+     * *more* present than the blue tint it replaces (#16233C was 1.14:1 on the
+     * old card), so a selected row has not gone quieter. `--on-accent-soft` is
+     * the brighter amber, 8.53:1 on it. */
+    --accent: #c8a45c;
+    --on-accent: #06070a;
+    --accent-soft: #2a2214;
+    --on-accent-soft: #e8b76a;
 
+    /* State colours.
+     *
+     * `--caution`, `--warn` and `--positive` keep the dark variants this file
+     * already measured. On the new, darker grounds they went up rather than
+     * down: caution 9.38 / 8.60 (was 9.12 / 8.29), positive 10.48 / 9.61 (was
+     * 10.19 / 9.26).
+     *
+     * `--negative` and `--info` never got a dark variant at all, and measuring
+     * them is what shows why that mattered: #B91C1C is 3.11 / 2.85 here and
+     * #0369A1 is 3.39 / 3.11, both under 4.5:1, and both were under it on the
+     * *old* dark grounds too (3.03 / 2.75 and 3.30 / 3.00). The warm ground did
+     * not cause this — it is the third instance of the defect the notes above
+     * describe twice, a pairing chosen for the light theme and inherited by the
+     * dark one. Nine rules paint `--negative` and four paint `--info`, all of
+     * them as text or as a left rule on a card.
+     *
+     * `--info` takes the site's cool `--glow` #7fa8d4: 8.11 / 7.44, and it is
+     * the only cool hue in this palette, which is what "info" wants to be next
+     * to a warm caution.
+     *
+     * `--negative` takes #F87171 — the red-400 sibling of the amber-500 and
+     * emerald-400 already standing here — at 7.28 / 6.68. The site's own
+     * `--rust` #c47b5f also passes (6.09 / 5.58) and was rejected on
+     * separation: ΔE 27.7 from the accent, close enough that a conflicted
+     * finding would read as a selected one. #F87171 is 50.3 from the accent and
+     * 57.8 from caution. */
+    --caution:  #F59E0B;
+    --positive: #34D399;
+    --negative: #F87171;
+    --info:     #7fa8d4;
+
+    /* `--danger` is `--negative` under the name the buttons and dialogs use, so
+     * it moves with it — but it is also the only state colour used as a
+     * *background* (`.btn-danger`), where the readable side flips exactly as it
+     * does for the accent. Hence `--on-danger`, and hence the literal
+     * `color: #fff` that rule carried is now a token: white on the light
+     * #B91C1C is 6.47:1, the page ground on the dark #F87171 is 7.28:1.
+     *
+     * `--danger-soft` follows too. #FEE2E2 is a near-white pink — 15.12:1
+     * against a card — so in dark it painted a bright chip on a near-black
+     * page. #321a1d is the dark negative laid over the page at the same 18%
+     * that makes the site's #2a2214 out of its amber: 1.14:1 against a card,
+     * with the danger text on it at 5.83:1. */
+    --danger:      #F87171;
+    --on-danger:   #06070a;
+    --danger-soft: #321a1d;
+
+    /* Scrollbars, form controls and the overscroll canvas follow the theme
+       that resolved, not the operating system. See the light block's note. */
+    color-scheme: dark;
+
+    /* Roles. `--bg` and `--warn` are stated here rather than inherited: they
+       were once defined in only one of the two dark blocks, and the block that
+       lacked them was the one most readers actually get. */
     --paper: var(--n-0);
-    --bg: var(--n-0);
-    --warn: #F59E0B;
+    --bg:    var(--n-0);
+    --warn:  #F59E0B;
     --panel: var(--n-50);
     --hover: var(--n-100);
-    --accent-soft: #16233C;
 
     --e1: none;
     --e2: none;
@@ -250,82 +364,167 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    /* `--bg` and `--warn` restated here, not inherited.
+    /*
+     * The workspace wears the product's own palette.
      *
-     * These two were defined only in the `[data-theme="dark"]` block, so the
-     * two dark paths disagreed — and the one that disagreed is the common one.
-     * A reader whose system is dark and who never touched the toggle got
-     * `--bg: #0E1116` against the toggle's `#0A0C0F`, and `--warn: #B45309`,
-     * the *light* amber, at 3.77:1 instead of 8.81:1. Measured in the browser
-     * by reading both paths, not inferred. */
-    --bg: var(--n-0);
-    --warn: #F59E0B;
-    /* In dark theme elevation is lightness, not shadow: surfaces get lighter as
-       they rise, because a shadow on a near-black surface is invisible. */
-    --n-0:   #0A0C0F;
-    --n-25:  #0E1116;
-    --n-50:  #14181F;
-    --n-100: #1B2028;
-    --n-200: #262C36;
-    --n-300: #333A45;
-    --n-400: #4C5563;
-    --n-500: #6E7787;
-    --n-600: #97A0AE;
-    --n-800: #D5DAE2;
-    --n-900: #F0F2F5;
+     * None of these are new colours. They are the ones the public site and this
+     * app's own landing page are already built from: the near-black the
+     * black-hole imagery sits in, the pale mist it is written in, and the amber
+     * that imagery casts. `app/landing.css` names them `--deep #0b0d10`,
+     * `--mist #f4f2ee`, `--amber #c8a45c`, `--glow #7fa8d4`; the deployed page
+     * adds the page ground `#06070a`, the brighter amber `#e8b76a` and the
+     * amber-tinted dark `#2a2214`. The dark workspace was a cool blue-grey navy
+     * ramp with a blue accent, so the product had two identities and the tool
+     * wore the one nobody had designed.
+     *
+     * Every ratio below is the WCAG relative-luminance contrast against the two
+     * grounds text actually sits on here — the page (`--bg`/`--paper`, #06070a)
+     * and a card (`--panel`, #10141a) — computed, not judged by eye. Where a
+     * number replaces an older one, the older one is quoted beside it.
+     *
+     * This block exists twice — once for the toggle's `[data-theme="dark"]`,
+     * once for `prefers-color-scheme: dark` — and the two copies are identical
+     * token for token, which `css-tokens.test.ts` now holds them to. They
+     * disagreed once before, on `--bg` and `--warn`, and the copy that was
+     * wrong was the one most readers actually get.
+     */
 
-    /* Faint text needs one step further here than in light.
+    /* Surfaces. In dark theme elevation is lightness, not shadow: a shadow on a
+       near-black surface is invisible. The first three are the site's own three
+       grounds; #171c24 continues the same step for `--hover`, which the site
+       has no equivalent of because it has nothing to hover. */
+    --n-0:   #06070a;
+    --n-25:  #0b0d10;
+    --n-50:  #10141a;
+    --n-100: #171c24;
+
+    /* Lines and text: the site's mist #f4f2ee at alpha tiers, composited over
+     * the page so each value is opaque and reads the same on any surface. Two
+     * of the alphas are the site's own named tiers — .34 is `--mist-faint`, .66
+     * is `--mist-soft` — which is the check that the two systems agree rather
+     * than merely resemble each other.
      *
-     * The scale flips with the theme, so the same token is a different colour:
-     * measured against the two grounds faint text actually sits on — a card at
-     * #14181F and the page at #0E1116 — n-400 is 2.36:1 and 2.51:1, and n-500
-     * is still only 3.94:1 and 4.19:1. Both fail the 4.5:1 that normal text
-     * needs. n-600 is 6.74:1 and 7.16:1.
+     * The alphas that are *not* the site's were chosen to hold the weight this
+     * ramp already had. The old `--line` (#262C36 on the old card #14181F) was
+     * 1.27:1; mist at .11 — the site's hairline, which sits on its lighter page
+     * — would be 1.15:1 here, so the rules a dense table depends on would have
+     * gone quieter. .14 restores 1.25:1. The site is airy and this is an
+     * instrument; the same alpha is not the same line.
      *
-     * It is also the value `prefers-contrast: more` already remaps this token
-     * to, which is the tell: the accessible answer was in the palette, offered
-     * only to readers who knew to ask the operating system for it. */
+     * Ratios below are page / card. */
+    --n-200: #27282a;  /* mist .14 — 1.37 / 1.25, matching the old 1.39 / 1.27 */
+    --n-300: #363638;  /* mist .20 — 1.67 / 1.53, matching the old 1.70 / 1.55 */
+    --n-400: #575758;  /* mist .34, the site's --mist-faint — 2.79 / 2.56 */
+    --n-500: #828181;  /* mist .52 — 5.19 / 4.75; see the note below */
+    --n-600: #a3a2a0;  /* mist .66, the site's --mist-soft — 7.90 / 7.24 */
+    --n-800: #d0cfcc;  /* mist .85 — 12.93 / 11.85 */
+    --n-900: #f4f2ee;  /* the site's --mist itself — 18.02 / 16.52 */
+
+    /* Why n-500 sits at .52 rather than the .49 that would space the ramp
+       evenly: `--deprecated` is n-500 and it is *text* — `.status-deprecated`
+       and `.status-rejected` — so it needs the 4.5:1 that normal text needs,
+       on a card as well as on the page. .49 reaches 4.32:1 on a card; .52
+       reaches 4.75:1. The old dark n-500 (#6E7787) reached 3.94:1 there, a
+       number this file already recorded while rejecting it for `--ink-faint`,
+       and then went on using for `--deprecated` anyway. */
+
+    /* Faint text still takes one step further than in light.
+     *
+     * n-500 now passes on both grounds (5.19:1 and 4.75:1), so this is no
+     * longer a failure being avoided — it is headroom being kept. `--ink-faint`
+     * carries the rail's group labels, the context note, step descriptions,
+     * captions and counts, which is most of the quiet text in the product, and
+     * n-600 gives it 7.90:1 and 7.24:1 rather than a pass with 0.25 to spare. */
     --ink-faint: var(--n-600);
-
-    /* The three semantic colours that never got a dark variant.
-     *
-     * `--warn` was given one; `--caution` and `--positive` were not, and
-     * `--caution` is the *same* colour as light `--warn` (#B45309), so they
-     * should share the dark one too. Measured on the grounds they sit on — a
-     * card at #14181F and the page at #0E1116 — the light values give
-     * candidate/exploratory 3.54:1 and a completed step 3.55:1, both under the
-     * 4.5:1 normal text needs. These are 8.29:1 and 9.26:1.
-     *
-     * Same defect as `--n-0` on `--accent` before it: a pairing chosen for one
-     * theme and inherited by the other. */
-    --caution: #F59E0B;
-    --positive: #34D399;
 
     /* The accent, and the side of it that stays readable.
      *
-     * `--accent: #2563EB` was chosen against a white page and never flipped, so
-     * on a dark ground it is 3.44:1 — under the 4.5:1 normal text needs. That
-     * matters more than one label: the stylesheet uses the accent as a *text*
-     * colour in 45 places and as a background in 10, so the failing role is the
-     * common one.
+     * The amber the site's imagery casts. Two candidates, and contrast does not
+     * separate them: #c8a45c is 8.56:1 on the page and 7.85:1 on a card,
+     * #e8b76a is 10.95:1 and 10.04:1, and since the stylesheet uses the accent
+     * as a *text* colour in 45 rules and as a background in 10, both clear the
+     * 4.5:1 normal text needs with room to spare.
      *
-     * #7FA8FF is 7.58:1 on a card and 8.06:1 on the page, and is not invented
-     * here — it is what this file's own `prefers-contrast: more` block already
-     * chose for dark, offered until now only to readers who knew to ask their
-     * operating system for it.
+     * What decides it is a different measurement: the accent must not be
+     * mistaken for `--caution`/`--warn` (#F59E0B), the one warm hue chrome is
+     * allowed to use for state. As CIE76 ΔE in Lab, #c8a45c is 38.4 from it and
+     * #e8b76a only 33.5. The deeper amber is the more separable of the two, and
+     * it is the one the site and `landing.css` actually name `--amber`; the
+     * brighter one keeps its site role as the emphasis on a tinted ground.
      *
      * A light accent flips which side is readable, so `--on-accent` moves with
-     * it: white on #7FA8FF is 2.33:1, near-black is over 9:1. That pairing is
-     * the entire reason `--on-accent` is a token rather than a literal, and
-     * `accent-contrast.test.ts` holds the two together. */
-    --accent: #7FA8FF;
-    --on-accent: #0A0C0F;
-    --on-accent-soft: var(--accent);
+     * it: the page ground on #c8a45c is 8.56:1, white would be 2.35:1. That
+     * pairing is the entire reason `--on-accent` is a token rather than a
+     * literal, and `accent-contrast.test.ts` holds the two together.
+     *
+     * The tint is the site's own #2a2214, at 1.18:1 against a card — a shade
+     * *more* present than the blue tint it replaces (#16233C was 1.14:1 on the
+     * old card), so a selected row has not gone quieter. `--on-accent-soft` is
+     * the brighter amber, 8.53:1 on it. */
+    --accent: #c8a45c;
+    --on-accent: #06070a;
+    --accent-soft: #2a2214;
+    --on-accent-soft: #e8b76a;
 
+    /* State colours.
+     *
+     * `--caution`, `--warn` and `--positive` keep the dark variants this file
+     * already measured. On the new, darker grounds they went up rather than
+     * down: caution 9.38 / 8.60 (was 9.12 / 8.29), positive 10.48 / 9.61 (was
+     * 10.19 / 9.26).
+     *
+     * `--negative` and `--info` never got a dark variant at all, and measuring
+     * them is what shows why that mattered: #B91C1C is 3.11 / 2.85 here and
+     * #0369A1 is 3.39 / 3.11, both under 4.5:1, and both were under it on the
+     * *old* dark grounds too (3.03 / 2.75 and 3.30 / 3.00). The warm ground did
+     * not cause this — it is the third instance of the defect the notes above
+     * describe twice, a pairing chosen for the light theme and inherited by the
+     * dark one. Nine rules paint `--negative` and four paint `--info`, all of
+     * them as text or as a left rule on a card.
+     *
+     * `--info` takes the site's cool `--glow` #7fa8d4: 8.11 / 7.44, and it is
+     * the only cool hue in this palette, which is what "info" wants to be next
+     * to a warm caution.
+     *
+     * `--negative` takes #F87171 — the red-400 sibling of the amber-500 and
+     * emerald-400 already standing here — at 7.28 / 6.68. The site's own
+     * `--rust` #c47b5f also passes (6.09 / 5.58) and was rejected on
+     * separation: ΔE 27.7 from the accent, close enough that a conflicted
+     * finding would read as a selected one. #F87171 is 50.3 from the accent and
+     * 57.8 from caution. */
+    --caution:  #F59E0B;
+    --positive: #34D399;
+    --negative: #F87171;
+    --info:     #7fa8d4;
+
+    /* `--danger` is `--negative` under the name the buttons and dialogs use, so
+     * it moves with it — but it is also the only state colour used as a
+     * *background* (`.btn-danger`), where the readable side flips exactly as it
+     * does for the accent. Hence `--on-danger`, and hence the literal
+     * `color: #fff` that rule carried is now a token: white on the light
+     * #B91C1C is 6.47:1, the page ground on the dark #F87171 is 7.28:1.
+     *
+     * `--danger-soft` follows too. #FEE2E2 is a near-white pink — 15.12:1
+     * against a card — so in dark it painted a bright chip on a near-black
+     * page. #321a1d is the dark negative laid over the page at the same 18%
+     * that makes the site's #2a2214 out of its amber: 1.14:1 against a card,
+     * with the danger text on it at 5.83:1. */
+    --danger:      #F87171;
+    --on-danger:   #06070a;
+    --danger-soft: #321a1d;
+
+    /* Scrollbars, form controls and the overscroll canvas follow the theme
+       that resolved, not the operating system. See the light block's note. */
+    color-scheme: dark;
+
+    /* Roles. `--bg` and `--warn` are stated here rather than inherited: they
+       were once defined in only one of the two dark blocks, and the block that
+       lacked them was the one most readers actually get. */
     --paper: var(--n-0);
+    --bg:    var(--n-0);
+    --warn:  #F59E0B;
     --panel: var(--n-50);
     --hover: var(--n-100);
-    --accent-soft: #16233C;
 
     --e1: none;
     --e2: none;
@@ -583,7 +782,31 @@ a { color: inherit; }
   justify-content: space-between;
 }
 
-h1 { font-size: 19px; font-weight: 640; letter-spacing: -0.015em; margin: 0 0 3px; }
+/*
+ * Page headings are set in the serif, upright.
+ *
+ * The serif was reserved for text lifted out of a paper, which left the
+ * workspace with no display voice at all while the landing page and the public
+ * site both head themselves in Source Serif 4 — the same product speaking in
+ * two typefaces depending on which door you came through.
+ *
+ * Upright at 600, not the site's italic 400. Two reasons, and the second is
+ * measurable: an instrument's headings are read in passing, dozens per session,
+ * where an italic reads as emphasis rather than as level; and `fonts.css`
+ * self-hosts only upright faces (`font-style: normal`), so an italic here would
+ * be a browser-synthesised oblique — a slanted upright, not the typeface.
+ *
+ * Only the family and the weight change. Size, tracking and margin are the same
+ * numbers as before, so nothing reflows. `.gate h1`, `.first-inner h1` and
+ * `.l-display` keep their own weights, which they already state.
+ */
+h1 {
+  font-family: var(--serif);
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin: 0 0 3px;
+}
 h2 { font-size: 14px; font-weight: 620; margin: 0 0 10px; letter-spacing: -0.005em; }
 h3 { font-size: 12px; font-weight: 620; margin: 0 0 6px; }
 p  { margin: 0 0 8px; color: var(--ink-soft); }
@@ -3242,7 +3465,7 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .btn:active:not(:disabled) { transform: translateY(1px); }
 .btn-lg { padding: 9px 16px; font-size: 13.5px; border-radius: 5px; }
 .btn-danger {
-  background: var(--danger); border-color: var(--danger); color: #fff;
+  background: var(--danger); border-color: var(--danger); color: var(--on-danger);
 }
 .btn-danger:hover:not(:disabled) { filter: brightness(1.08); background: var(--danger); }
 
@@ -3764,32 +3987,45 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
     --on-accent: #FFFFFF;
   }
 
+  /*
+   * Dark reaches this block by two routes, and until now only one of them
+   * arrived.
+   *
+   * `:root[data-theme="dark"]` scores (0,2,0) and the `:root` above scores
+   * (0,1,0), so a reader whose theme is stamped dark keeps their theme's
+   * `--accent` and never sees a high-contrast one; only the tokens the dark
+   * theme leaves alone — `--line` among them — were reaching the remap, and
+   * they were reaching the *light* branch's version of it. That was a corner
+   * while dark had to be chosen deliberately. Dark is now the default stamp,
+   * so it is the ordinary case, which is why the same body is stated for the
+   * attribute as for the media query. The two are identical declaration for
+   * declaration and `css-tokens.test.ts` holds them that way.
+   *
+   * The accent brightens rather than darkens, because in dark the readable
+   * side is the light one: #e8b76a is the site's brighter amber at 10.95:1 on
+   * the page and 10.04:1 on a card, against #c8a45c's 8.56:1 and 7.85:1. The
+   * pairing follows it — the page ground on #e8b76a is 10.95:1, white is
+   * 1.84:1 — which is the whole reason `--on-accent` is a token.
+   */
+  :root[data-theme="dark"] {
+    --line: var(--n-500);
+    --line-strong: var(--n-600);
+    --ink-faint: var(--n-600);
+    --ink-soft: var(--n-800);
+    --ink: var(--n-900);
+    --accent: #e8b76a;
+    --on-accent: #06070a;
+  }
+
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --line: var(--n-500);
       --line-strong: var(--n-600);
       --ink-faint: var(--n-600);
-
-    /* The three semantic colours that never got a dark variant.
-     *
-     * `--warn` was given one; `--caution` and `--positive` were not, and
-     * `--caution` is the *same* colour as light `--warn` (#B45309), so they
-     * should share the dark one too. Measured on the grounds they sit on — a
-     * card at #14181F and the page at #0E1116 — the light values give
-     * candidate/exploratory 3.54:1 and a completed step 3.55:1, both under the
-     * 4.5:1 normal text needs. These are 8.29:1 and 9.26:1.
-     *
-     * Same defect as `--n-0` on `--accent` before it: a pairing chosen for one
-     * theme and inherited by the other. */
-    --caution: #F59E0B;
-    --positive: #34D399;
       --ink-soft: var(--n-800);
       --ink: var(--n-900);
-      --accent: #7FA8FF;
-      /* This accent is *light*, so the readable side flips: white on it is
-         2.33:1, near-black is over 9:1. The pairing follows the accent, which
-         is the whole reason this is a token of its own. */
-      --on-accent: #0A0C0F;
+      --accent: #e8b76a;
+      --on-accent: #06070a;
     }
   }
 

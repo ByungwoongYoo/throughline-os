@@ -21,7 +21,8 @@ import { Crumb, PAGES, SECTIONS, Section, Shell } from "@/components/Shell";
 import { CommandPalette, buildCommands } from "@/components/CommandPalette";
 import {
   AnalysisDetail, ConnectionDetail, ConnectionsTable, Discover, EvidenceGraphView,
-  EvidenceGraphSummary, Findings, Overview, Search, SourceDetail, Sources,
+  EvidenceGraphSummary, Findings, ObjectHistoryFor, Overview, Search, SourceDetail,
+  Sources,
 } from "@/components/views";
 import { TakeItFurther } from "@/components/takeitfurther";
 import { canDraftReport } from "@/components/reports";
@@ -696,6 +697,7 @@ function Workspace({ user }: { user: SignedInUser }) {
                 onOpenSource={select("source")}
                 onGo={goSection}
                 labels={variables.data?.labels}
+                onOpenObject={select("object")}
               />
             : <>
                 {/*
@@ -811,13 +813,25 @@ function Workspace({ user }: { user: SignedInUser }) {
                   />
                 )}
                 <LibraryNote projectId={project.id} findingId={selection.id} />
+                {/*
+                  Last on the screen: what was written about this finding and
+                  what it used to say (D213, plan §4.6.2). It goes after the
+                  library note because a note being written is part of the
+                  argument above; the journal is the record of that argument
+                  having been made, and the versions are how you go back.
+                */}
+                <ObjectHistoryFor projectId={project.id} kind="finding"
+                                  id={selection.id}
+                                  onOpenObject={select("object")} />
               </>
             : <Findings projectId={project.id} onSelect={select("finding")} />
         )}
         {section === "analyses" && (
           selection?.kind === "analysis"
             ? <>
-                <AnalysisDetail runId={selection.id} onMethod={setRunMethod} />
+                <AnalysisDetail runId={selection.id} projectId={project.id}
+                                onMethod={setRunMethod}
+                                onOpenObject={select("object")} />
                 {/*
                   §75. Beside the run, because "how was this computed" is
                   asked while looking at the number.

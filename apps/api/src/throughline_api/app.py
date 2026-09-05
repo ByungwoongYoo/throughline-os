@@ -16,7 +16,7 @@ import tempfile
 
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import (
     Cookie, Depends, FastAPI, File, Form, HTTPException, Query, Request,
@@ -658,11 +658,35 @@ async def upload_source(
 
 @app.get("/api/projects/{project_id}/sources")
 def list_sources(project_id: str, user: dict = Depends(current_user)) -> list[dict[str, Any]]:
+    """Every source in the project, with what ingestion made of it — and where
+    it came from.
+
+    **The provenance is selected because the product already stores it and no
+    screen could say it (D211).** `POST /api/projects/{id}/datasets/import`
+    writes the repository, the address and the licence onto the source — the
+    route's own note promises the researcher that Sources will show them — and
+    this list selected none of the three, so an imported dataset was
+    indistinguishable from a file somebody dragged in.
+
+    `repository` and `licence` are lifted out of `metadata` to the top level
+    rather than handing the whole blob over: the rest of that object is the
+    importer's bookkeeping (the redirect it followed, the byte count), and a
+    list that ships it invites a screen to render whatever happens to be in
+    there. Both are null when absent, and *null is not a licence* — "not
+    stated" and "openly licensed" are different facts and the interface has to
+    be able to tell them apart, which it cannot if a missing licence arrives as
+    an empty string.
+    """
     scoped_project(project_id, user)
     with transaction() as cur:
         cur.execute(
             "SELECT id, title, source_type, ingestion_status, ingestion_detail, "
-            "trust_level, content_hash, created_at FROM sources "
+            "trust_level, content_hash, created_at, connector_id, original_uri, "
+            # `->>` yields SQL NULL for a key that is absent and for a JSON
+            # null alike, which is the answer in both cases: nothing was stated.
+            "metadata->>'repository' AS repository, "
+            "metadata->>'licence' AS licence "
+            "FROM sources "
             "WHERE project_id = %s ORDER BY created_at DESC",
             (project_id,),
         )
@@ -751,6 +775,60 @@ def _object_in_project(cur, *, project_id: str, object_id: str) -> dict[str, Any
     if row is None:
         raise HTTPException(404, "No such object in this project.")
     return dict(row)
+
+
+#: Why a lookup came back empty, said in the caller's terms.
+#:
+#: Each names the ordinary state that produces it, because every one of them is
+#: reachable without anything being broken and a bare "not found" would read as
+#: a fault. An id that belongs to another project, or to nothing at all, gets
+#: the same sentence on purpose — the same reason `scoped_project` answers 404
+#: rather than 403, so that an account cannot learn what exists elsewhere.
+_NOTHING_TO_SHOW = {
+    "finding": ("No research object stands for this finding, so there is no "
+                "history to show. A finding recorded before findings had "
+                "objects, or one recorded with no connection behind it, has "
+                "none."),
+    "analysis_run": ("No research object stands for this analysis run, so "
+                     "there is no history to show. A run becomes an object "
+                     "when it completes; one that failed or has not finished "
+                     "has none."),
+    "source": ("No research object stands for this source, so there is no "
+               "history to show. Ingestion has not produced a paper or a "
+               "dataset from it."),
+}
+
+
+@app.get("/api/projects/{project_id}/objects/lookup")
+def lookup_object(project_id: str,
+                  kind: Literal["finding", "analysis_run", "source"],
+                  id: str,
+                  user: dict = Depends(current_user)) -> dict[str, Any]:
+    """The research object standing for a finding, an analysis run or a source.
+
+    **This is the join that lets object history be mounted anywhere but the
+    board (D213).** The journal and the version chain are addressed by research
+    object id, and the finding, source and analysis screens each hold a domain
+    id instead — so the history sat on the card detail alone, because mounting
+    it on the other three would have 404ed on every request.
+
+    A GET with the domain id in the query string rather than in the path: the
+    id being resolved is not a sub-resource of `objects`, and putting it in the
+    path would claim `/objects/fnd_…` names an object, which is the confusion
+    this route exists to remove.
+
+    `kind` is a closed set, so a value outside it is refused by validation as a
+    422 before any query runs — an unknown kind is a caller's mistake, and
+    answering it with 404 would let a screen asking for the wrong thing look
+    like a screen asking about something that does not exist.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        found = objects.object_for(cur, project_id=project_id, kind=kind,
+                                   ref_id=id)
+    if found is None:
+        raise HTTPException(404, _NOTHING_TO_SHOW[kind])
+    return found
 
 
 @app.patch("/api/projects/{project_id}/objects/{object_id}")
