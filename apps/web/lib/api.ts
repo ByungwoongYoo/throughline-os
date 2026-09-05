@@ -214,6 +214,12 @@ export type DiscoveryMap = {
   connections: Record<string, number>;
   top_connections: Connection[];
   recommended_next_action: string;
+  /**
+   * Which loop step the recommendation is about, as an id the interface can
+   * act on (`lib/loop.ts`), beside the sentence a person reads. Absent from
+   * older servers, and null when nothing is left to do or work is in flight.
+   */
+  recommended_step?: "sources" | "profile" | "discover" | "validate" | "record" | "communicate" | null;
 };
 
 export type Capabilities = {

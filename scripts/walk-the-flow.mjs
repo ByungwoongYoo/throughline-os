@@ -11,6 +11,7 @@
  * *intended* behaviour, so the fixes for those rows can be proven rather
  * than eyeballed:
  *
+ *   C0  the landing page shows its call to action without scrolling
  *   C1  the overview catches up on its own once the example's pipeline
  *       finishes, with no click and no reload
  *   C2  a finding's "Computations behind it" link opens the analysis, not
@@ -24,6 +25,11 @@
  *   C6  switching back to another project and reloading keeps that project,
  *       even from deep inside a section
  *   C7  the machine pages (/gesture-check, /air-ink) link back to /workspace
+ *   C9  a hit on Search sources opens the source the passage came from
+ *   C10 every value in the connections table sits under its own heading
+ *   C11 every section carries the step strip, its action inside the fold
+ *   C12 the connection screen offers record and report on arrival
+ *   C13 the Overview's current step is a button that opens its object
  *   C8  informational only: distinct console errors, page errors and HTTP
  *       >= 400 responses seen along the way -- this one never fails the run
  *
@@ -213,10 +219,30 @@ let fatal = null;
 try {
   // ---------------------------------------------------------------- 1. landing
   await gotoSafe(`${WALK_URL}/`);
+  // Let the reveal animation finish before measuring or photographing.
+  await settle(3000);
   await shot("landing");
   const ctas = await page.evaluate(() =>
     [...document.querySelectorAll("a.l-btn")].map((a) => `${a.textContent.trim()} -> ${a.getAttribute("href")}`));
   log("landing CTAs:", JSON.stringify(ctas));
+
+  // ---------------------------------------------------------------- C0
+  // Measured here rather than through check(): a failure must not navigate
+  // away, because the next step is to press the very control being measured.
+  {
+    const cta = await page.evaluate(() => {
+      const el = document.querySelector(".l-hero .l-cta-row");
+      if (!el) return null;
+      const box = el.getBoundingClientRect();
+      return { bottom: Math.round(box.bottom), viewport: window.innerHeight };
+    });
+    const ok = Boolean(cta && cta.bottom <= cta.viewport);
+    const detail = cta
+      ? `call to action ends at ${cta.bottom}px in a ${cta.viewport}px viewport`
+      : "no call to action found in the hero";
+    results.push({ id: "C0", description: "the landing page shows its way in without scrolling (D200)", status: ok ? "PASS" : "FAIL", detail });
+    log(`\n${ok ? "PASS" : "FAIL"} C0 -- the landing page shows its way in without scrolling\n   ${detail}`);
+  }
   await page.locator("a.l-btn-primary").first().click();
   await page.waitForSelector(".gate, .shell, .first", { timeout: 30000 });
   await say("after clicking Open the workspace");
@@ -359,6 +385,126 @@ try {
     const detail = `rail=${result.s.railCurrent} url=${result.s.url} h1=${JSON.stringify(result.s.h1)}`;
     if (!result.ok) throw new Error(detail);
     return detail;
+  });
+
+  // ---------------------------------------------------------------- C9
+  await check("C9", "a search hit opens its source (D203)", async () => {
+    await railClick("Search sources");
+    await settle(800);
+    await page.getByLabel("Search the sources in this project").fill("resistance");
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    await page.locator("main .card-tight").first().waitFor({ timeout: 30000 });
+    await shot("search-results");
+    await page.getByRole("button", { name: /open the source/i }).first().click();
+    const outcome = await pollUntil(async () => {
+      const s = await state();
+      return { ok: /^Sources/.test(s.railCurrent ?? "") && /section=sources/.test(s.url) && /item=src_/.test(s.url), s };
+    }, 15000);
+    await say("after opening a search hit's source");
+    await shot("search-hit-source");
+    if (!outcome.ok) throw new Error(`did not land on the source: rail=${outcome.s.railCurrent} url=${outcome.s.url}`);
+    return `rail=${outcome.s.railCurrent} url=${outcome.s.url} h1=${JSON.stringify(outcome.s.h1)}`;
+  });
+
+  // ---------------------------------------------------------------- C10
+  await check("C10", "every connections-table value sits under its own heading (D209)", async () => {
+    await railClick("Connections");
+    await page.locator("main tbody tr").first().waitFor({ timeout: 30000 });
+    const shape = await page.evaluate(() => {
+      const headers = [...document.querySelectorAll("main thead th")].map((th) => th.textContent.trim());
+      const cells = [...document.querySelector("main tbody tr").querySelectorAll("td")].map((td) => td.textContent.trim());
+      return { headers, cells };
+    });
+    const q = shape.cells[shape.headers.indexOf("q-value")];
+    const ok = shape.headers.length === shape.cells.length && q !== undefined && /^\d|^—|e-/.test(q) && Number(q.replace("—", "0")) <= 1;
+    if (!ok) throw new Error(`headers=${JSON.stringify(shape.headers)} cells=${JSON.stringify(shape.cells)}`);
+    return `${shape.headers.length} headers, ${shape.cells.length} cells; under "q-value": ${q}`;
+  });
+
+  // ---------------------------------------------------------------- C11
+  await check("C11", "every section names the loop's step and keeps its action inside the fold", async () => {
+    const project = new URL(page.url()).searchParams.get("project");
+    const ids = ["board", "overview", "sources", "variables", "search", "discover", "compare",
+      "patterns", "connections", "findings", "analyses", "graph", "embedding", "reports",
+      "figures", "gallery", "notebook", "journal", "activity", "literature", "datasearch",
+      "readfigure", "settings"];
+    const bad = [];
+    let stripOnOverview = "";
+    let nextOnOverview = "";
+    for (const id of ids) {
+      await gotoSafe(`${WALK_URL}/workspace?project=${project}&section=${id}`);
+      await page.locator(".step-strip").waitFor({ timeout: 30000 });
+      const m = await page.evaluate(() => {
+        const strip = document.querySelector(".step-strip");
+        const button = strip ? strip.querySelector(".btn-primary") : null;
+        const box = button ? button.getBoundingClientRect() : null;
+        return {
+          text: (strip ? strip.textContent : "").trim().replace(/\s+/g, " "),
+          hasButton: Boolean(button),
+          bottom: box ? Math.round(box.bottom) : null,
+          viewport: window.innerHeight,
+          next: (document.querySelector('.steps li[data-next="true"] b') || {}).textContent || "",
+        };
+      });
+      if (!/step \d of \d|you are here|every step is done|working/i.test(m.text)) bad.push(`${id}: strip says "${m.text}"`);
+      if (m.hasButton && m.bottom > m.viewport) bad.push(`${id}: action ends at ${m.bottom}px in ${m.viewport}px`);
+      if (id === "overview") { stripOnOverview = m.text; nextOnOverview = m.next.trim(); }
+    }
+    if (nextOnOverview && !stripOnOverview.includes(nextOnOverview)) {
+      bad.push(`overview: strip "${stripOnOverview}" does not name the row marked next ("${nextOnOverview}")`);
+    }
+    await shot("step-strip");
+    if (bad.length) throw new Error(bad.join("; "));
+    return `${ids.length} sections carry the strip; on Overview it names "${nextOnOverview}"`;
+  });
+
+  // ---------------------------------------------------------------- C12
+  await check("C12", "the connection screen offers record and report on arrival", async () => {
+    await railClick("Connections");
+    await page.locator("main tbody tr").first().waitFor({ timeout: 30000 });
+    const row = page.locator("main tbody tr").first();
+    if (await row.locator("button").count()) await row.locator("button").first().click(); else await row.click();
+    await page.locator("main .oa").waitFor({ timeout: 30000 });
+    await settle(800);
+    await shot("connection-actions");
+    const m = await page.evaluate(() => {
+      const main = document.querySelector("main");
+      const controls = [...main.querySelectorAll("button, a, .oa-note")];
+      const record = controls.find((c) => /record .*finding/i.test(c.textContent || ""));
+      const report = controls.find((c) => /report/i.test(c.textContent || ""));
+      const box = record ? record.getBoundingClientRect() : null;
+      return { record: record ? record.textContent.trim() : null, recordBottom: box ? Math.round(box.bottom) : null,
+               report: report ? report.textContent.trim().slice(0, 80) : null, viewport: window.innerHeight };
+    });
+    if (!m.record) throw new Error("no record-a-finding control on the connection screen");
+    if (m.recordBottom > m.viewport) throw new Error(`record control ends at ${m.recordBottom}px in ${m.viewport}px`);
+    if (!m.report) throw new Error("no report control or stated reason on the connection screen");
+    await page.getByRole("button", { name: /record this as a finding/i }).first().click();
+    await settle(600);
+    const focused = await page.evaluate(() => {
+      const el = document.activeElement;
+      return el && el !== document.body ? `${el.tagName.toLowerCase()} "${(el.textContent || "").trim().slice(0, 40)}"` : null;
+    });
+    if (!focused) throw new Error("pressing the record control moved focus nowhere");
+    return `record control ends at ${m.recordBottom}px; report control: "${m.report}"; focus moved to ${focused}`;
+  });
+
+  // ---------------------------------------------------------------- C13
+  await check("C13", "the Overview's next step is a button that opens the object it names", async () => {
+    await railClick("Overview");
+    await page.locator(".steps").waitFor({ timeout: 30000 });
+    await settle(800);
+    await shot("overview-next-step");
+    const next = page.locator('.steps li[data-next="true"] .btn-primary');
+    if (!(await next.count())) throw new Error("the current loop row carries no primary control");
+    const label = (await next.textContent()).trim();
+    await next.click();
+    const outcome = await pollUntil(async () => {
+      const s = await state();
+      return { ok: s.h1.some((h) => / and |×/.test(h)) || /item=/.test(s.url), s };
+    }, 15000);
+    if (!outcome.ok) throw new Error(`pressing "${label}" landed on h1=${JSON.stringify(outcome.s.h1)} url=${outcome.s.url}`);
+    return `"${label}" opened ${JSON.stringify(outcome.s.h1)} at ${outcome.s.url}`;
   });
 
   // ---------------------------------------------------------------- C5

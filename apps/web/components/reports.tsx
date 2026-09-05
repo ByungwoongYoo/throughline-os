@@ -26,6 +26,40 @@ import {
 
 const FORMATS = ["markdown", "html", "docx", "pptx"] as const;
 
+/**
+ * §80 — whether a report can start from this connection.
+ *
+ * A report is written from something that was tested, so the only starting
+ * points offered are connections with a recorded analysis run. The rule lived
+ * inside this screen's filter, which was fine while this screen was the only
+ * place a report could be drafted from. It is not any more: the connection
+ * detail offers the same act on the object itself, and a rule copied to a
+ * second call site is a rule that will disagree with itself the first time one
+ * copy is amended. One rule, two callers.
+ */
+/**
+ * Draft a report from a connection, and check its citations at once.
+ *
+ * One routine with two callers — this screen and the connection detail's
+ * actions band — because the check is part of what "drafted" means here: a
+ * report whose citations were never checked would show no integrity
+ * verdict, and the export gate below reads that verdict. A second caller that
+ * copied only the first request would produce a report that looked drafted
+ * and was not checked, which is the shape of drift this file exists to
+ * prevent (T135).
+ */
+export async function draftReport(projectId: string, connectionId: string):
+    Promise<{ artifact_id: string }> {
+  const created = await api.post<{ artifact_id: string }>(
+    `/api/projects/${projectId}/artifacts/draft`, { connection_id: connectionId });
+  await api.post(`/api/artifacts/${created.artifact_id}/check-citations`);
+  return created;
+}
+
+export function canDraftReport(connection: { analysis_run_id: string | null }): boolean {
+  return Boolean(connection.analysis_run_id);
+}
+
 export function Reports({ projectId, connections, onSelect }: {
   projectId: string;
   connections: ApiState<Connection[]>;
@@ -36,17 +70,14 @@ export function Reports({ projectId, connections, onSelect }: {
   const [drafting, setDrafting] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
-  // §80 — a report is written from something that was tested, so the only
-  // starting points offered are connections that have a recorded analysis.
-  const eligible = (connections.data ?? []).filter((c) => c.analysis_run_id);
+  // §80, from the one rule above, which the connection detail also asks.
+  const eligible = (connections.data ?? []).filter(canDraftReport);
 
   async function draft(connectionId: string) {
     setDrafting(true);
     setError(null);
     try {
-      const created = await api.post<{ artifact_id: string }>(
-        `/api/projects/${projectId}/artifacts/draft`, { connection_id: connectionId });
-      await api.post(`/api/artifacts/${created.artifact_id}/check-citations`);
+      const created = await draftReport(projectId, connectionId);
       artifacts.reload();
       citations.reload();
       onSelect(created.artifact_id);

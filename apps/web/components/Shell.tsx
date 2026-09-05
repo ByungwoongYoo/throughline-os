@@ -41,9 +41,34 @@ export type Section =
 
 export type Crumb = { label: string; onClick?: () => void };
 
-const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; count?: keyof CountMap }> }> = [
+type RailItem = {
+  id: Section; label: string; count?: keyof CountMap;
+  /**
+   * One clause on what the entry is for, shown beside the label when the rail
+   * is wide enough to carry it (see `.rail-note`). Three consecutive one-word
+   * labels sharing one glyph — Notebook, Journal, Activity — told a researcher
+   * their names and nothing else; the distinction lived in code comments.
+   */
+  note?: string;
+};
+
+/*
+ * Five groups. The first four are kinds of screen a researcher uses in the
+ * order the work happens — the project itself, gathering, discovering and
+ * testing, communicating — and the fifth is this machine. Groups are named,
+ * never numbered: only four of the twenty-three sections are destinations of
+ * a loop step, and a numbered eyebrow over Compare or the research graph would
+ * claim a sequence the screen is not part of. The loop's numbering lives in
+ * the step strip, which knows the project's state (T135).
+ *
+ * "Research" used to hold a canvas, a dashboard, two object lists and four
+ * tools under one word. Splitting the two whole-project surfaces out is the
+ * only structural change; every id, label, icon, count and within-group order
+ * is unchanged, so no address, saved link or palette result changes meaning.
+ */
+const GROUPS: Array<{ label: string; items: RailItem[] }> = [
   {
-    label: "Research",
+    label: "The project",
     items: [
       /*
        * First, because §4 calls the workboard "the central operating surface
@@ -53,6 +78,11 @@ const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; 
        */
       { id: "board", label: "Workboard" },
       { id: "overview", label: "Overview" },
+    ],
+  },
+  {
+    label: "Gather",
+    items: [
       { id: "sources", label: "Sources", count: "sources" },
       /*
        * Beside Sources, because that is what it is about: what the columns of
@@ -84,7 +114,7 @@ const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; 
     ],
   },
   {
-    label: "Discover",
+    label: "Discover and test",
     items: [
       /*
        * "Discovery", matching the screen. The rail said "Discovery map",
@@ -131,7 +161,7 @@ const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; 
     items: [
       { id: "reports", label: "Reports", count: "reports" },
       { id: "figures", label: "Figures", count: "figures" },
-      { id: "notebook", label: "Notebook" },
+      { id: "notebook", label: "Notebook", note: "your pages, and what they link to" },
       /*
        * Beside the notebook, because both are writing — but they are not the
        * same view of it. The notebook is pages and links; the journal is
@@ -139,7 +169,7 @@ const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; 
        * including what a model wrote, which is the only place that can be
        * read across objects rather than one object at a time.
        */
-      { id: "journal", label: "Journal" },
+      { id: "journal", label: "Journal", note: "everything written, in order" },
       /*
        * Beside the journal for the same reason the journal sits beside the
        * notebook, and the distinction is the same one: the journal is
@@ -151,10 +181,18 @@ const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; 
        * this repository's named recurring defect at table scale. A route
        * without a screen would have recreated it one layer up.
        */
-      { id: "activity", label: "Activity" },
+      { id: "activity", label: "Activity", note: "everything done, in order" },
     ],
   },
   {
+    /*
+     * Rendered as the rail's pinned footer rather than as its last scrolling
+     * group. At 1440×900 the rail has 848 px for about 1,020 px of entries,
+     * and what fell off the bottom was this group — Settings, model choice,
+     * feature packs, the version, and the three pages that were URL-only
+     * until they were filed here. A group that exists to rescue entries from
+     * being unreachable must itself stay on screen.
+     */
     label: "This machine",
     items: [
       /*
@@ -173,11 +211,14 @@ const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; 
        * Keeping it away from the figure-making surface keeps the two from
        * reading as alternatives.
        */
-      { id: "gallery", label: "Chart primitives" },
+      { id: "gallery", label: "Chart primitives", note: "every chart, drawn against illustrative data" },
       { id: "settings", label: "Settings" },
     ],
   },
 ];
+
+/** The group rendered as the rail's pinned footer. */
+const MACHINE = "This machine";
 
 /**
  * Pages that are routes of their own rather than sections of the workspace.
@@ -287,7 +328,7 @@ function useRoomForInspector(): boolean {
 
 export function Shell({
   section, onSection, map, children, inspector, onCommand, projectName, crumbs,
-  onDropFiles, projectMenu, accountMenu,
+  onDropFiles, projectMenu, accountMenu, strip,
 }: {
   section: Section;
   onSection: (s: Section) => void;
@@ -301,6 +342,11 @@ export function Shell({
   /** The project switcher. Rendered here so the topbar owns its layout. */
   projectMenu?: ReactNode;
   accountMenu?: ReactNode;
+  /**
+   * The step strip (`StepStrip`), rendered above the workspace's scroll
+   * region so the loop's next action cannot be scrolled out of sight.
+   */
+  strip?: ReactNode;
 }) {
   const counts: CountMap = {
     sources: map?.counts.sources ?? 0,
@@ -346,6 +392,48 @@ export function Shell({
   // Group starts from, and re-reading it while dragging would fight the drag.
   const [saved] = useState(readLayout);
 
+  const renderGroup = (group: { label: string; items: RailItem[] }) => (
+    <div className="rail-group" key={group.label}>
+      <span className="eyebrow">{group.label}</span>
+      {group.items.map((item) => (
+        <button
+          key={item.id}
+          className="rail-item"
+          aria-current={section === item.id}
+          onClick={() => onSection(item.id)}
+        >
+          {/* Decorative: the label beside it is the accessible name. */}
+          <span className="rail-icon" aria-hidden>
+            {ICONS[item.id]?.({ size: 16 })}
+          </span>
+          <span>
+            {item.label}
+            {item.note && <small className="rail-note">{item.note}</small>}
+          </span>
+          {item.count && counts[item.count] > 0 && (
+            <span className="rail-count">{counts[item.count]}</span>
+          )}
+        </button>
+      ))}
+
+      {/* Real links, because these are separate pages and leaving the
+          workspace is what pressing them does. A button that navigated
+          would break opening one in a new tab. */}
+      {group.label === MACHINE && MACHINE_PAGES.map((page) => (
+        <a key={page.href} className="rail-item" href={page.href}
+           title={page.note}>
+          <span className="rail-icon" aria-hidden>
+            {IconHand({ size: 16 })}
+          </span>
+          <span>
+            {page.label}
+            <small className="rail-note">{page.note}</small>
+          </span>
+        </a>
+      ))}
+    </div>
+  );
+
   return (
     <div
       className="shell"
@@ -386,42 +474,18 @@ export function Shell({
       >
       <Panel id={RAIL} className="rail-panel"
              defaultSize={RAIL_DEFAULT} minSize={RAIL_MIN} maxSize={RAIL_MAX}>
+      {/*
+        Two navs, not one. The first scrolls; the second is pinned. The obvious
+        alternative — `margin-top: auto` on the last group — is inert while
+        `.rail` is a block, and resolves to zero the moment a flex column
+        overflows, which is the only case that matters. A sibling outside the
+        scroll region is the mechanism that actually holds.
+      */}
       <nav className="rail" aria-label="Sections">
-        {GROUPS.map((group) => (
-          <div className="rail-group" key={group.label}>
-            <span className="eyebrow">{group.label}</span>
-            {group.items.map((item) => (
-              <button
-                key={item.id}
-                className="rail-item"
-                aria-current={section === item.id}
-                onClick={() => onSection(item.id)}
-              >
-                {/* Decorative: the label beside it is the accessible name. */}
-                <span className="rail-icon" aria-hidden>
-                  {ICONS[item.id]?.({ size: 16 })}
-                </span>
-                <span>{item.label}</span>
-                {item.count && counts[item.count] > 0 && (
-                  <span className="rail-count">{counts[item.count]}</span>
-                )}
-              </button>
-            ))}
-
-            {/* Real links, because these are separate pages and leaving the
-                workspace is what pressing them does. A button that navigated
-                would break opening one in a new tab. */}
-            {group.label === "This machine" && MACHINE_PAGES.map((page) => (
-              <a key={page.href} className="rail-item" href={page.href}
-                 title={page.note}>
-                <span className="rail-icon" aria-hidden>
-                  {IconHand({ size: 16 })}
-                </span>
-                <span>{page.label}</span>
-              </a>
-            ))}
-          </div>
-        ))}
+        {GROUPS.filter((group) => group.label !== MACHINE).map(renderGroup)}
+      </nav>
+      <nav className="rail-footer" aria-label={MACHINE}>
+        {GROUPS.filter((group) => group.label === MACHINE).map(renderGroup)}
       </nav>
 
       </Panel>
@@ -432,6 +496,7 @@ export function Shell({
       <Separator className="shell-divider" aria-label="Resize the navigation" />
 
       <Panel id={WORKSPACE} className="workspace-panel" minSize={320}>
+        {strip}
         {/* `key` restarts the enter transition on navigation, so a view change
             reads as a change rather than a silent content swap (§116). */}
         <main className="workspace" key={section}>{children}</main>

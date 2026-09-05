@@ -45,6 +45,11 @@ def _advice(cur, project_id: str) -> str:
     return graphs.discovery_map(cur, project_id=project_id)["recommended_next_action"]
 
 
+def _step(cur, project_id: str) -> str | None:
+    """The same advice as a loop step id, which is what a control acts on."""
+    return graphs.discovery_map(cur, project_id=project_id)["recommended_step"]
+
+
 def _a_source(cur, project_id: str) -> None:
     """An ingested source, so the ladder's first rung is behind us."""
     cur.execute(
@@ -118,6 +123,21 @@ class TestTheScreenCanTellNotYetFromNothing:
         assert "still running" in advice, (
             f"work is in flight and the screen says: {advice!r}")
 
+    def test_and_names_no_step_for_a_person_to_take(self, cur, project):
+        """The sentence says wait, so the step must not say click.
+
+        `recommended_step` is what the interface opens a screen and labels a
+        button from, and there is no step for a person while the machine is
+        working. Naming the one the counts happen to suggest would put an "Add
+        a dataset" control under a sentence saying the dataset is being
+        profiled — D194 again, in a button rather than in a sentence, and
+        harder to notice because nothing reads it aloud.
+        """
+        _queue(cur, project)
+
+        assert _step(cur, project) is None, (
+            f"work is in flight and a step was offered: {_advice(cur, project)!r}")
+
     def test_the_defect_itself_advice_about_the_dataset_being_profiled(
             self, cur, project):
         """D194 as it was measured.
@@ -152,6 +172,10 @@ class TestWhatIsNotTheMachinesWork:
 
         assert _in_flight(cur, project) == 0
         assert "Add sources" in _advice(cur, project)
+        # And the step comes back with it: a `None` that outlived the work
+        # would leave every screen with nothing to offer for the rest of the
+        # project's life.
+        assert _step(cur, project) == "sources"
 
     def test_a_failed_run_is_not_still_running(self, cur, project):
         """Failure is an ending too.

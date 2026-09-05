@@ -14,6 +14,8 @@ import {
 import {
   Kind, lastProject, placeFor, rememberProject, selectionAt,
 } from "@/lib/place";
+import { currentStep, loopSteps, stepTarget } from "@/lib/loop";
+import { StepStrip } from "@/components/StepStrip";
 import { Centered, Failure, Loading } from "@/components/primitives";
 import { Crumb, SECTIONS, Section, Shell } from "@/components/Shell";
 import { CommandPalette, buildCommands } from "@/components/CommandPalette";
@@ -547,6 +549,38 @@ function Workspace({ user }: { user: SignedInUser }) {
     crumbs.push({ label: named ?? selection.id });
   }
 
+  /*
+   * Where the project is in the loop, and what to do about it, computed once
+   * here and read by the strip above the workspace and by the inspector — so
+   * the two cannot name different steps. `here` is true when this screen is
+   * the step's destination, and then the strip offers no button: the real
+   * control is on the page (T135).
+   */
+  const loopMap = map.data;
+  const steps = loopMap ? loopSteps(loopMap) : [];
+  const step = loopMap ? currentStep(loopMap) : null;
+  const target = step && loopMap
+    ? stepTarget(step, loopMap, variables.data?.labels) : null;
+  const here = !!target && section === target.section
+    && (target.item ? place.item === target.item : true);
+  const takeStep = () => {
+    if (!target) return;
+    if (target.item) open("connection", target.item);
+    else goSection(target.section);
+  };
+  const strip = loopMap ? (
+    <StepStrip
+      step={step}
+      index={step ? steps.findIndex((s) => s.id === step.id) + 1 : 0}
+      total={steps.length}
+      here={here}
+      actionLabel={target?.label ?? null}
+      onAction={takeStep}
+      onShowLoop={() => goSection("overview")}
+      working={inFlight}
+    />
+  ) : null;
+
   const commands = buildCommands({
     labels: variables.data?.labels ?? {},
     sections: SECTIONS,
@@ -579,8 +613,10 @@ function Workspace({ user }: { user: SignedInUser }) {
           />
         }
         accountMenu={<AccountMenu user={user} />}
+        strip={strip}
         inspector={
-          <Inspector selection={selection} capabilities={capabilities.data} map={map.data} />
+          <Inspector selection={selection} capabilities={capabilities.data} map={map.data}
+                     action={target && !here ? { label: target.label, onSelect: takeStep } : null} />
         }
       >
         {section === "board" && (
@@ -594,7 +630,9 @@ function Workspace({ user }: { user: SignedInUser }) {
 
         {section === "overview" && (
           <>
-            <Overview project={project} map={map.data} onGo={goSection} />
+            <Overview project={project} map={map.data} onGo={goSection}
+                      onOpen={(kind, id) => open(kind, id)} onAddSources={upload}
+                      labels={variables.data?.labels} />
             {/*
               Directly under the meters, because the Contradictions meter is
               what this panel makes honest. The count read from a table nothing
@@ -630,11 +668,14 @@ function Workspace({ user }: { user: SignedInUser }) {
               </>
         )}
         {section === "variables" && <Variables projectId={project.id} />}
-        {section === "search" && <Search projectId={project.id} />}
+        {section === "search" && (
+          <Search projectId={project.id} onOpenSource={select("source")} />
+        )}
         {section === "discover" && (
           selection?.kind === "connection"
             ? <ConnectionDetail connectionId={selection.id} projectId={project.id}
-                                  onRecordFinding={(id) => { reloadFindings(); open("finding", id); }} />
+                                  onRecordFinding={(id) => { reloadFindings(); open("finding", id); }}
+                                  onDraftedReport={(id) => { reloadMap(); open("artifact", id); }} />
             : <Discover
                 projectId={project.id} sources={sources}
                 onSelectConnection={select("connection")}
@@ -644,7 +685,8 @@ function Workspace({ user }: { user: SignedInUser }) {
         {section === "connections" && (
           selection?.kind === "connection"
             ? <ConnectionDetail connectionId={selection.id} projectId={project.id}
-                                  onRecordFinding={(id) => { reloadFindings(); open("finding", id); }} />
+                                  onRecordFinding={(id) => { reloadFindings(); open("finding", id); }}
+                                  onDraftedReport={(id) => { reloadMap(); open("artifact", id); }} />
             : <>
                 <ConnectionList projectId={project.id} onSelect={select("connection")} />
                 {/*
@@ -789,7 +831,15 @@ function Workspace({ user }: { user: SignedInUser }) {
         {section === "embedding" && <EmbeddingSpace projectId={project.id} />}
         {section === "gallery" && <Gallery />}
         {section === "datasearch" && <DataSearch />}
-        {section === "readfigure" && <ReadFigure projectId={project.id} />}
+        {section === "readfigure" && (
+          /*
+           * The digitised points go in as a dataset, and the researcher goes
+           * with them: the new source's screen shows it being profiled, the
+           * same way a recorded finding is shown rather than announced.
+           */
+          <ReadFigure projectId={project.id}
+                      onAdded={(id) => { reloadSources(); reloadMap(); open("source", id); }} />
+        )}
 
         {section === "figures" && (
           <Figures projectId={project.id} runs={analyses} />
@@ -846,10 +896,18 @@ function ConnectionList({ projectId, onSelect }: { projectId: string; onSelect: 
 // be imported — the component was module-private, so the one control standing
 // between a new researcher and a working project was the one control no test
 // could touch.
-function Inspector({ selection, capabilities, map }: {
+function Inspector({ selection, capabilities, map, action }: {
   selection: { kind: string; id: string } | null;
   capabilities: Capabilities | null;
   map: DiscoveryMap | null;
+  /**
+   * The loop's next action, as a control. The recommendation used to be a
+   * sentence with nothing to press, shown only while nothing was selected —
+   * the one panel that knew what to do next could not do it (D204). It is a
+   * readout still, not a location: below 1101 px this panel is not rendered,
+   * so nothing lives only here; the same action sits in the step strip.
+   */
+  action?: { label: string; onSelect: () => void } | null;
 }) {
   return (
     <>
@@ -860,8 +918,16 @@ function Inspector({ selection, capabilities, map }: {
           bootstrap resampling, outlier exclusion and adjustment for confounders.
         </p>
       )}
-      {!selection && map && (
-        <p className="note">{map.recommended_next_action}</p>
+      {map && (
+        <>
+          <p className="note">{map.recommended_next_action}</p>
+          {action && (
+            <button type="button" className="btn" onClick={action.onSelect}
+                    style={{ marginTop: 6 }}>
+              {action.label} →
+            </button>
+          )}
+        </>
       )}
 
       <h3 className="eyebrow" style={{ marginTop: 20 }}>This installation</h3>

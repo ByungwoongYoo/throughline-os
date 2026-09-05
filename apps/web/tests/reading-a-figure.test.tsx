@@ -204,4 +204,40 @@ describe("reading a figure", () => {
     await waitFor(() => expect(screen.getByText(/G5/)).toBeTruthy());
     expect(screen.queryByRole("link", { name: /download as csv/i })).toBeNull();
   });
+  it("puts the digitised points into the project as a dataset, titled as digitised", async () => {
+    /**
+     * The screen ended at a download (D206): numbers just recovered from a
+     * picture left the product instead of entering it. They go in through the
+     * same door a dropped file uses, and the title carries the caveat so the
+     * Sources list and every figure drawn from it say the values were read from
+     * pixels — nothing about them can pass as measured.
+     */
+    vi.spyOn(api, "uploadWith").mockResolvedValue(READING as never);
+    const uploaded: Array<{ path: string; file: File }> = [];
+    vi.spyOn(api, "upload").mockImplementation(async (path, file) => {
+      uploaded.push({ path, file });
+      return { source_id: "src_new" } as never;
+    });
+    const onAdded = vi.fn();
+
+    render(<ReadFigure projectId="prj_1" onAdded={onAdded} />);
+    pickFigure();
+    calibrate([[50, 180], [150, 180], [20, 190], [20, 50]]);
+    typeValues({ x1: "0", x2: "60", y1: "0", y2: "40" });
+    fireEvent.click(screen.getByRole("button", { name: /read the points/i }));
+    await waitFor(() => expect(screen.getByText(/10\.00/)).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /add to this project as a dataset/i }));
+
+    await waitFor(() => expect(onAdded).toHaveBeenCalledWith("src_new"));
+    expect(uploaded).toHaveLength(1);
+    expect(uploaded[0].path).toBe("/api/projects/prj_1/sources");
+    expect(uploaded[0].file.name).toMatch(/digitised/);
+    expect(uploaded[0].file.name).toMatch(/not measured/);
+    // A comment line would become the dataset's header row.
+    const text = await uploaded[0].file.text();
+    expect(text.split("\n")[0]).toBe("x,y,x_error,y_error");
+    expect(text).not.toMatch(/^#/m);
+    expect(screen.getByRole("button", { name: /added to this project/i })).toBeDisabled();
+  });
 });
