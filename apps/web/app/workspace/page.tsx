@@ -1,15 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AnalysisRunRow, ArtifactSummary, Capabilities, Connection, DiscoveryMap,
   Finding, Project, Source, api,
 } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import {
-  DEFAULT_SECTION, searchForSection, sectionFromSearch,
+  DEFAULT_SECTION, Place, placeFromSearch, projectFromSearch, searchForPlace,
+  searchForProject,
 } from "@/lib/section-url";
+import {
+  Kind, lastProject, placeFor, rememberProject, selectionAt,
+} from "@/lib/place";
 import { Centered, Failure, Loading } from "@/components/primitives";
 import { Crumb, SECTIONS, Section, Shell } from "@/components/Shell";
 import { CommandPalette, buildCommands } from "@/components/CommandPalette";
@@ -201,6 +205,15 @@ function Gate({ status, onDone }: { status: AuthStatus; onDone: () => void }) {
 const SECTION_LABEL: Record<Section, string> = Object.fromEntries(
   SECTIONS.map((s) => [s.id, s.label])) as Record<Section, string>;
 
+/**
+ * How often the project's counts are re-read while something is running.
+ *
+ * Only while: the discovery map says how many workflow runs are still in
+ * flight, and the interval exists for exactly as long as that is not zero. A
+ * workspace left open overnight makes no requests.
+ */
+const REFRESH_WHILE_BUSY_MS = 2500;
+
 function Workspace({ user }: { user: SignedInUser }) {
   /*
    * `creating` opens the create-project flow on demand, so a researcher who
@@ -211,43 +224,130 @@ function Workspace({ user }: { user: SignedInUser }) {
   const [creating, setCreating] = useState(false);
   const projects = useApi<Project[]>("/api/projects");
   const capabilities = useApi<Capabilities>("/api/system/capabilities");
-  const [projectId, setProjectId] = useState<string | null>(null);
+
   /*
-   * The section is read from the address bar, not merely mirrored into it.
+   * Where the researcher is, read from the address bar rather than merely
+   * mirrored into it — and all three parts of it, not one (D196).
    *
-   * Held in `useState` alone, four ordinary things did not work: the view
-   * could not be linked to, a reload went back to Overview however deep the
-   * researcher was, so did reopening the app, and the browser's Back gesture
-   * left the product entirely rather than going back one section. See
-   * `lib/section-url.ts` for why this is the URL and not `localStorage`.
+   * The section alone was put in the URL by T108, and four ordinary things
+   * started working: the view could be linked to, a reload kept the screen,
+   * reopening the app did too, and Back went back one section. But a section
+   * is not a place. `?section=findings` named a screen in whichever project
+   * happened to be newest, so a reload from deep inside one project landed
+   * in another; and the finding that was open was not in the address at all,
+   * so Back from a detail left the section instead of closing the detail.
+   *
+   * So the address carries the project, the section and the item. Which
+   * project, in order of authority: the one the address names; failing that,
+   * the one this account had open last on this browser; failing that, the
+   * newest — and the list is the arbiter of all three, because an id from a
+   * bookmark or from storage may belong to a project that was deleted, or to
+   * a different account on the same machine.
    *
    * Initialised from `window.location` inside the initialiser rather than in
-   * an effect, so a deep link renders its own section on the first paint
+   * an effect, so a deep link renders its own place on the first paint
    * instead of showing Overview and then replacing it — a flash that reads as
    * the link having failed.
    */
-  const [section, setSectionState] = useState<Section>(() =>
+  const [place, setPlaceState] = useState<Place>(() =>
     typeof window === "undefined"
-      ? DEFAULT_SECTION
-      : sectionFromSearch(window.location.search));
+      ? { section: DEFAULT_SECTION, item: null }
+      : placeFromSearch(window.location.search));
+  const [projectId, setProjectIdState] = useState<string | null>(() =>
+    typeof window === "undefined"
+      ? null
+      : projectFromSearch(window.location.search) ?? lastProject(user.id));
+
+  // Read by callbacks that must see the current value without being
+  // recreated on every navigation.
+  const placeRef = useRef(place);
+  placeRef.current = place;
+  const projectRef = useRef(projectId);
+  projectRef.current = projectId;
+
+  const project = projects.data?.find((p) => p.id === projectId) ?? null;
+  const activeId = project?.id ?? null;
 
   /**
-   * Move to a section, leaving a history entry behind.
+   * Move to a place, leaving a history entry behind.
    *
-   * `pushState`, so Back goes back one section. `replaceState` would fix the
-   * link and the reload and leave Back doing what it did before, which was the
-   * complaint that started this.
+   * `pushState`, so Back goes back one step — one section, or from a detail
+   * to its list. `replaceState` would fix the link and the reload and leave
+   * Back doing what it did before, which was the complaint that started this.
+   * The project goes into the address on every navigation, so that anything
+   * copied or reloaded from here on comes back to the same project.
    */
-  const setSection = useCallback((next: Section) => {
-    setSectionState(next);
+  const go = useCallback((next: Place, options: { project?: string; replace?: boolean } = {}) => {
+    setPlaceState(next);
     if (typeof window === "undefined") return;
-    const search = searchForSection(next, window.location.search);
-    window.history.pushState(null, "",
-      `${window.location.pathname}${search}${window.location.hash}`);
+    const search = searchForProject(
+      options.project ?? projectRef.current,
+      searchForPlace(next, window.location.search));
+    const url = `${window.location.pathname}${search}${window.location.hash}`;
+    if (options.replace) window.history.replaceState(null, "", url);
+    else window.history.pushState(null, "", url);
   }, []);
 
+  /**
+   * Open a thing of a kind, in the section that shows it (D195).
+   *
+   * This is the one rule every in-view link follows now. Before, a link set
+   * the selection and left the section alone, and because each section renders
+   * a detail only for its own kind, the finding's "computations behind it"
+   * showed the Findings *list* with a run id in the breadcrumb, and recording a
+   * finding from a connection left the researcher on the Connections list,
+   * never seeing what they had just made.
+   */
+  const open = useCallback((kind: Kind, id: string, options: { replace?: boolean } = {}) => {
+    go(placeFor(kind, id, placeRef.current.section), options);
+  }, [go]);
+
+  /** Switch project: a different project is a different place, so it starts at the front. */
+  const chooseProject = useCallback((id: string) => {
+    setProjectIdState(id);
+    go({ section: DEFAULT_SECTION, item: null }, { project: id });
+  }, [go]);
+
+  /**
+   * Take up a project that was just made — by the form or the worked example —
+   * and open it. The row goes into the list at once so the shell can render it
+   * before the refetch lands; the refetch then replaces the whole list with the
+   * server's, which is the copy that counts.
+   */
+  const adopt = useCallback((created: Project) => {
+    projects.setData([created, ...(projects.data ?? []).filter((p) => p.id !== created.id)]);
+    setCreating(false);
+    chooseProject(created.id);
+    projects.reload();
+  }, [projects, chooseProject]);
+
   /*
-   * Back and Forward move between sections rather than out of the product.
+   * The list is the arbiter of which project is open.
+   *
+   * An id from the address or from storage may name a project that was
+   * deleted, or one that belongs to another account on this machine. Either
+   * way the newest project is the honest fallback — and if the *address* was
+   * the source of the bad id, it is corrected in place, so a reload does not
+   * repeat the same wrong turn.
+   */
+  useEffect(() => {
+    const list = projects.data;
+    if (!list?.length || project) return;
+    setProjectIdState(list[0].id);
+    if (typeof window !== "undefined" && projectFromSearch(window.location.search)) {
+      const search = searchForProject(list[0].id, window.location.search);
+      window.history.replaceState(null, "",
+        `${window.location.pathname}${search}${window.location.hash}`);
+    }
+  }, [projects.data, project]);
+
+  // Remembered per account, so opening the app fresh comes back here.
+  useEffect(() => {
+    if (activeId) rememberProject(user.id, activeId);
+  }, [activeId, user.id]);
+
+  /*
+   * Back and Forward move between places rather than out of the product.
    *
    * `popstate` is the only signal for this: the browser changes the URL
    * without React hearing about it, so without this the address bar and the
@@ -255,10 +355,17 @@ function Workspace({ user }: { user: SignedInUser }) {
    * it at all, because the URL then lies about what is shown.
    */
   useEffect(() => {
-    const onPop = () => setSectionState(sectionFromSearch(window.location.search));
+    const onPop = () => {
+      setPlaceState(placeFromSearch(window.location.search));
+      const named = projectFromSearch(window.location.search);
+      if (named) setProjectIdState(named);
+    };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
+
+  const section = place.section;
+  const selection = selectionAt(place);
 
   /*
    * §36. The assistant is told which screen the question was asked from, and
@@ -268,7 +375,6 @@ function Workspace({ user }: { user: SignedInUser }) {
    * qualifying it with a filter nobody has in force any more.
    */
   useEffect(() => { enterScreen(section); }, [section]);
-  const [selection, setSelection] = useState<{ kind: string; id: string } | null>(null);
   /*
    * The method of the analysis on screen, reported up by the detail view so the
    * branch panel below it can offer a fork that swaps it. Held here rather than
@@ -280,30 +386,66 @@ function Workspace({ user }: { user: SignedInUser }) {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<unknown>(null);
 
-  useEffect(() => {
-    if (!projectId && projects.data?.length) setProjectId(projects.data[0].id);
-  }, [projects.data, projectId]);
-
-  const map = useApi<DiscoveryMap>(projectId ? `/api/projects/${projectId}/discovery-map` : null);
-  const sources = useApi<Source[]>(projectId ? `/api/projects/${projectId}/sources` : null);
+  /*
+   * Re-read on every navigation (the `[section]` dependency), because these
+   * are what the rail's counts, the Overview's meters and the breadcrumbs are
+   * drawn from, and a researcher looks at those precisely when they arrive
+   * somewhere. Fetched once per project, they went stale the moment anything
+   * happened in the background (D194): the worked example finished building
+   * in seconds while the screen kept saying nothing had.
+   */
+  const map = useApi<DiscoveryMap>(
+    activeId ? `/api/projects/${activeId}/discovery-map` : null, [section]);
+  const sources = useApi<Source[]>(
+    activeId ? `/api/projects/${activeId}/sources` : null, [section]);
   /*
    * Every analysis in the project, not only the ones discovery turned into a
    * connection. The Figures screen draws a run, and a run a researcher
    * specified belongs to no connection.
    */
   const analyses = useApi<AnalysisRunRow[]>(
-    projectId ? `/api/projects/${projectId}/analyses?limit=200` : null,
-    [projectId]);
+    activeId ? `/api/projects/${activeId}/analyses?limit=200` : null, [section]);
   const connections = useApi<Connection[]>(
-    projectId ? `/api/projects/${projectId}/connections?limit=200` : null);
-  const findings = useApi<Finding[]>(projectId ? `/api/projects/${projectId}/findings` : null);
+    activeId ? `/api/projects/${activeId}/connections?limit=200` : null, [section]);
+  const findings = useApi<Finding[]>(
+    activeId ? `/api/projects/${activeId}/findings` : null, [section]);
   // Approved display names, so breadcrumbs and the palette never show a raw
   // column name either (Part C: zero raw names outside the mapping screen).
   const variables = useApi<{ labels: Record<string, string> }>(
-    projectId ? `/api/projects/${projectId}/variables` : null);
+    activeId ? `/api/projects/${activeId}/variables` : null);
   const artifacts = useApi<ArtifactSummary[]>(
-    projectId ? `/api/projects/${projectId}/artifacts` : null);
-  const project = projects.data?.find((p) => p.id === projectId);
+    activeId ? `/api/projects/${activeId}/artifacts` : null);
+
+  /*
+   * While the project has work in flight, keep the counts current; the moment
+   * it finishes, re-read the lists the work will have changed.
+   *
+   * The server says how many workflow runs are still queued or running
+   * (`counts.in_flight`), so this polls for exactly as long as that is true
+   * and not a second longer — the alternative, guessing a duration, is how a
+   * screen ends up either stale or hammering a local API forever. The lists
+   * are refreshed once, on the transition to idle, because that is when the
+   * analyses, connections and findings the run produced have all landed.
+   */
+  const inFlight = map.data?.counts.in_flight ?? 0;
+  const wasBusy = useRef(false);
+  const { reload: reloadMap } = map;
+  const { reload: reloadSources } = sources;
+  const { reload: reloadAnalyses } = analyses;
+  const { reload: reloadConnections } = connections;
+  const { reload: reloadFindings } = findings;
+  useEffect(() => {
+    if (inFlight > 0) {
+      wasBusy.current = true;
+      const timer = window.setInterval(reloadMap, REFRESH_WHILE_BUSY_MS);
+      return () => window.clearInterval(timer);
+    }
+    if (wasBusy.current) {
+      wasBusy.current = false;
+      reloadSources(); reloadAnalyses(); reloadConnections(); reloadFindings();
+    }
+    return undefined;
+  }, [inFlight, reloadMap, reloadSources, reloadAnalyses, reloadConnections, reloadFindings]);
 
   /*
    * Global keys. ⌘K opens the palette; Escape leaves a detail view for the list
@@ -326,58 +468,61 @@ function Workspace({ user }: { user: SignedInUser }) {
         // Don't steal Escape from a field the researcher is typing in.
         const tag = (event.target as HTMLElement | null)?.tagName;
         if (tag === "INPUT" || tag === "TEXTAREA") return;
-        setSelection((current) => (current ? null : current));
+        const current = placeRef.current;
+        if (current.item) go({ section: current.section, item: null });
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [paletteOpen]);
+  }, [paletteOpen, go]);
 
   const upload = useCallback(async (files: FileList | null) => {
-    if (!files?.length || !projectId) return;
+    if (!files?.length || !activeId) return;
     setUploading(true);
     setUploadError(null);
-    setSection("sources");
-    setSelection(null);
+    go({ section: "sources", item: null });
     try {
       for (const file of Array.from(files)) {
-        await api.upload(`/api/projects/${projectId}/sources`, file);
+        await api.upload(`/api/projects/${activeId}/sources`, file);
       }
-      sources.reload();
-      map.reload();
+      reloadSources();
+      reloadMap();
     } catch (err) {
       setUploadError(err);
     } finally {
       setUploading(false);
     }
-  }, [projectId, sources, map]);
+  }, [activeId, go, reloadSources, reloadMap]);
 
-  if (projects.loading) return <Centered><Loading rows={3} label="Loading projects" /></Centered>;
+  // `!projects.data`, not `loading` alone: the list is refetched after a
+  // project is created or deleted, and a refetch must not blank the screen
+  // that is already showing the rest of the workspace.
+  if (projects.loading && !projects.data) {
+    return <Centered><Loading rows={3} label="Loading projects" /></Centered>;
+  }
   if (projects.error) return <Centered><Failure error={projects.error} retry={projects.reload} /></Centered>;
   if (!projects.data?.length) {
-    return <FirstProject onCreated={() => { setCreating(false); projects.reload(); }}
-                         user={user} />;
+    return <FirstProject onCreated={adopt} user={user} />;
   }
   if (creating) {
-    return <NewProject onCreated={() => { setCreating(false); projects.reload(); }}
-                       onCancel={() => setCreating(false)} />;
+    return <NewProject onCreated={adopt} onCancel={() => setCreating(false)}
+                       offerExample />;
   }
   if (!project) return <Centered><Loading rows={2} /></Centered>;
 
-  function select(kind: string) {
-    return (id: string) => { setSelection({ kind, id }); };
+  function select(kind: Kind) {
+    return (id: string) => open(kind, id);
   }
 
   function goSection(next: Section) {
-    setSection(next);
-    setSelection(null);
+    go({ section: next, item: null });
   }
 
   // The breadcrumb is what makes a detail view escapable by mouse, and what
   // tells the researcher where a palette jump just landed them.
   const crumbs: Crumb[] = [{
     label: SECTION_LABEL[section],
-    onClick: selection ? () => setSelection(null) : undefined,
+    onClick: selection ? () => go({ section, item: null }) : undefined,
   }];
   if (selection) {
     const named =
@@ -392,7 +537,13 @@ function Workspace({ user }: { user: SignedInUser }) {
             ? findings.data?.find((f) => f.id === selection.id)?.title
             : selection.kind === "artifact"
               ? artifacts.data?.find((a) => a.id === selection.id)?.title
-              : undefined;
+              : selection.kind === "analysis"
+                // The method, as the detail's own heading spells it; a run id
+                // in a breadcrumb tells the researcher nothing about where
+                // they are.
+                ? analyses.data?.find((a) => a.id === selection.id)?.method
+                    .replace(/_/g, " ")
+                : undefined;
     crumbs.push({ label: named ?? selection.id });
   }
 
@@ -403,7 +554,7 @@ function Workspace({ user }: { user: SignedInUser }) {
     connections: connections.data ?? [],
     findings: findings.data ?? [],
     go: goSection,
-    open: (target, kind, id) => { setSection(target); setSelection({ kind, id }); },
+    open: (target, _kind, id) => go({ section: target, item: id }),
   });
 
   return (
@@ -417,19 +568,11 @@ function Workspace({ user }: { user: SignedInUser }) {
         projectMenu={
           <ProjectMenu
             projects={projects.data}
-            currentId={projectId}
-            onSelect={(id) => {
-              // Clear anything scoped to the project being left, so nothing
-              // from the previous one can render against the new one.
-              setSelection(null);
-              setSection("overview");
-              setProjectId(id);
-            }}
+            currentId={project.id}
+            onSelect={chooseProject}
             onChanged={() => {
-              // The deleted project may be the one on screen. Drop the
-              // selection and let the effect below pick the first survivor.
-              setSelection(null);
-              setProjectId(null);
+              // The deleted project may be the one on screen. Refetch, and let
+              // the effect above pick the first survivor.
               projects.reload();
             }}
             onCreate={() => setCreating(true)}
@@ -491,7 +634,7 @@ function Workspace({ user }: { user: SignedInUser }) {
         {section === "discover" && (
           selection?.kind === "connection"
             ? <ConnectionDetail connectionId={selection.id} projectId={project.id}
-                                  onRecordFinding={select("finding")} />
+                                  onRecordFinding={(id) => { reloadFindings(); open("finding", id); }} />
             : <Discover
                 projectId={project.id} sources={sources}
                 onSelectConnection={select("connection")}
@@ -501,7 +644,7 @@ function Workspace({ user }: { user: SignedInUser }) {
         {section === "connections" && (
           selection?.kind === "connection"
             ? <ConnectionDetail connectionId={selection.id} projectId={project.id}
-                                  onRecordFinding={select("finding")} />
+                                  onRecordFinding={(id) => { reloadFindings(); open("finding", id); }} />
             : <>
                 <ConnectionList projectId={project.id} onSelect={select("connection")} />
                 {/*
@@ -571,7 +714,7 @@ function Workspace({ user }: { user: SignedInUser }) {
                 */}
                 <ForkLineage projectId={project.id} runId={selection.id}
                              method={runMethod}
-                             onOpen={(id) => select("analysis")(id)} />
+                             onOpen={select("analysis")} />
               </>
             : <AnalysisList projectId={project.id} onSelect={select("analysis")} />
         )}
@@ -620,12 +763,28 @@ function Workspace({ user }: { user: SignedInUser }) {
         )}
         {section === "notebook" && <Notebook projectId={project.id} />}
         {section === "journal" && (
-          <Journal projectId={project.id} onOpenObject={select("analysis")} />
+          /*
+           * An entry is about a research object, and the place that shows one
+           * is the research graph, with the object's own journal open beside
+           * it. This used to hand the id to the analysis detail, which reads
+           * run ids, and to leave the section on Journal — so the link changed
+           * the breadcrumb and nothing else (D195).
+           */
+          <Journal projectId={project.id} onOpenObject={select("object")} />
         )}
         {section === "activity" && <ProjectActivity projectId={project.id} />}
         {section === "settings" && <Settings />}
         {section === "graph" && (
-          <GraphView projectId={project.id} onSelect={select("object")} />
+          /*
+           * `replace`, not push: a graph is browsed by clicking node after
+           * node, and a history entry per node would make Back walk through
+           * every one of them before it left the screen. The address still
+           * names the open object, so a reload or a copied link comes back to
+           * it.
+           */
+          <GraphView projectId={project.id}
+                     focus={selection?.kind === "object" ? selection.id : null}
+                     onSelect={(id) => open("object", id, { replace: true })} />
         )}
         {section === "embedding" && <EmbeddingSpace projectId={project.id} />}
         {section === "gallery" && <Gallery />}

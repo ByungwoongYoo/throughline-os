@@ -13,10 +13,25 @@ here is bounded and expands from a focus node outward.
 from __future__ import annotations
 
 from typing import Any, Sequence
-from throughline_schemas.words import counted
+from throughline_schemas.enums import WorkflowState
+from throughline_schemas.words import counted, plural
 
 #:  — a hard ceiling, not a suggestion.
 MAX_NODES = 300
+
+#: Workflow states the machine is still working through, for `counts.in_flight`.
+#: The same three `claim_next` will pick up — queued and retrying are waiting
+#: for a worker, running is either leased or about to be reclaimed — so this
+#: agrees with what the worker itself treats as unfinished.
+#:
+#: `awaiting_user` and `awaiting_approval` are deliberately excluded. Those wait
+#: on a person, not on the machine, and a client that polls until this reaches
+#: zero would poll for as long as nobody answered.
+IN_FLIGHT_WORKFLOW_STATES = (
+    WorkflowState.QUEUED,
+    WorkflowState.RUNNING,
+    WorkflowState.RETRYING,
+)
 
 
 def knowledge_graph(
@@ -232,6 +247,23 @@ def discovery_map(cur, *, project_id: str) -> dict[str, Any]:
         cur.execute(query, (project_id,))
         counts[label] = int(cur.fetchone()["n"])
 
+    # Whether the machine is still working, which the screen could not ask.
+    # The overview is drawn while the pipeline behind a new project is still
+    # running, and with no way to tell "nothing here" from "not yet" it showed
+    # the empty counts as though they were the answer and advised on them —
+    # "add a dataset" while the dataset was being profiled (D194). A client
+    # polls the map while this is above zero.
+    #
+    # Scoped by project like every other count: a run with no project of its
+    # own — `system.echo`, a connector sync — belongs to no project's overview,
+    # and `project_id = %s` never matches NULL.
+    cur.execute(
+        "SELECT COUNT(*) AS n FROM workflow_runs WHERE project_id = %s "
+        "AND state = ANY(%s)",
+        (project_id, [str(state) for state in IN_FLIGHT_WORKFLOW_STATES]),
+    )
+    counts["in_flight"] = int(cur.fetchone()["n"])
+
     cur.execute(
         "SELECT lifecycle_status, COUNT(*) AS n FROM findings WHERE project_id = %s "
         "GROUP BY lifecycle_status",
@@ -280,14 +312,25 @@ def discovery_map(cur, *, project_id: str) -> dict[str, Any]:
         "top_connections": top_connections,
         "recommended_next_action": _recommend(
             counts, findings_by_status, connections_by_status,
-            candidates_without_evidence=candidates_without_evidence),
+            candidates_without_evidence=candidates_without_evidence,
+            in_flight=counts["in_flight"]),
     }
 
 
 def _recommend(counts: dict[str, Any], findings: dict[str, int],
                connections: dict[str, int], *,
-               candidates_without_evidence: int = 0) -> str:
+               candidates_without_evidence: int = 0,
+               in_flight: int = 0) -> str:
     """One concrete next step, chosen from the project's actual state."""
+    # Above every other rung, because a project whose work is still running has
+    # not finished telling this function what its state is. Read mid-pipeline,
+    # the ladder below sends a researcher to add the dataset that is being
+    # profiled as they read it — and advice that is wrong is worse than none,
+    # which is the whole argument of this file.
+    if in_flight:
+        return (f"{counted(in_flight, 'step')} {plural(in_flight, 'is', 'are')} "
+                "still running in the background — this screen updates as each "
+                "one finishes.")
     if not counts["sources"]:
         return "Add sources: upload papers or a dataset to begin."
     if not counts["datasets"]:

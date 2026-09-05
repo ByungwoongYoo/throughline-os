@@ -15,7 +15,9 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  DEFAULT_SECTION, SECTION_IDS, isSection, searchForSection, sectionFromSearch,
+  DEFAULT_SECTION, SECTION_IDS, isSection, itemFromSearch, placeFromSearch,
+  projectFromSearch, searchForPlace, searchForProject, searchForSection,
+  sectionFromSearch,
 } from "@/lib/section-url";
 
 describe("a URL names a section", () => {
@@ -102,5 +104,73 @@ describe("the runtime list and the compile-time union agree", () => {
 
   it("has a default that is really a section", () => {
     expect(isSection(DEFAULT_SECTION)).toBe(true);
+  });
+});
+
+describe("a URL names a place: project, section and item (D196)", () => {
+  /**
+   * The section alone stopped one level short. `?section=findings` named a
+   * screen in whichever project happened to be newest, so a reload from deep
+   * inside one project landed in another, and the finding that was open was
+   * not in the address at all. These are the other two thirds of "where am I".
+   */
+  it("reads the project and the item a link asks for", () => {
+    const search = "?project=prj_7&section=findings&item=fnd_1a2b";
+    expect(projectFromSearch(search)).toBe("prj_7");
+    expect(placeFromSearch(search)).toEqual({ section: "findings", item: "fnd_1a2b" });
+  });
+
+  it("treats an absent or implausible id as none, never as an error", () => {
+    /** Typed by a stranger and flowing into a request path: the shape check
+     *  is the same courtesy `isSection` extends to the section. */
+    for (const bad of ["", "?", "?item=", "?project=", "?item=<script>",
+                       "?item=../../etc", "?project=a%20b", "?item=" + "x".repeat(81)]) {
+      expect(itemFromSearch(bad)).toBeNull();
+      expect(projectFromSearch(bad)).toBeNull();
+      expect(placeFromSearch(bad).item).toBeNull();
+    }
+  });
+
+  it("round-trips a place, and drops the item when the place has none", () => {
+    const open = { section: "analyses" as const, item: "arun_9" };
+    expect(placeFromSearch(searchForPlace(open, ""))).toEqual(open);
+
+    /** Closing a detail must leave a clean list address behind, or Back
+     *  from the list reopens the detail it just left. */
+    const closed = searchForPlace({ section: "analyses", item: null },
+                                  "?section=analyses&item=arun_9");
+    expect(new URLSearchParams(closed).has("item")).toBe(false);
+    expect(placeFromSearch(closed)).toEqual({ section: "analyses", item: null });
+  });
+
+  it("keeps the front door bare", () => {
+    expect(searchForPlace({ section: DEFAULT_SECTION, item: null }, "")).toBe("");
+  });
+
+  it("writes the project without disturbing the place, and removes it on null", () => {
+    const withProject = searchForProject("prj_7", "?section=graph&item=obj_1");
+    const params = new URLSearchParams(withProject);
+    expect(params.get("project")).toBe("prj_7");
+    expect(params.get("section")).toBe("graph");
+    expect(params.get("item")).toBe("obj_1");
+
+    expect(new URLSearchParams(searchForProject(null, withProject)).has("project"))
+      .toBe(false);
+  });
+
+  it("lets the section, the item and the project each be changed alone", () => {
+    /** Three writers to one address. Each must leave the others' parameter
+     *  where it found it, or a navigation in one dimension silently resets
+     *  another — the failure `searchForSection` already guards against for
+     *  parameters it does not own. */
+    let search = searchForProject("prj_7", "");
+    search = searchForPlace({ section: "findings", item: "fnd_1" }, search);
+    search = searchForPlace({ section: "analyses", item: "arun_2" }, search);
+    expect(projectFromSearch(search)).toBe("prj_7");
+    expect(placeFromSearch(search)).toEqual({ section: "analyses", item: "arun_2" });
+
+    search = searchForProject("prj_8", search);
+    expect(placeFromSearch(search)).toEqual({ section: "analyses", item: "arun_2" });
+    expect(projectFromSearch(search)).toBe("prj_8");
   });
 });

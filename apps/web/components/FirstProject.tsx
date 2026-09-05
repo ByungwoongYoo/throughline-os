@@ -18,13 +18,31 @@
 
 import { useState } from "react";
 
-import { api } from "@/lib/api";
+import { Project, api } from "@/lib/api";
 import { SignedInUser } from "@/components/AccountMenu";
 import { IconPlus, IconSpark } from "@/components/icons";
 import { Centered, Failure } from "@/components/primitives";
 
+/**
+ * Ask the server for the worked example, and get back the project it lives in.
+ *
+ * The endpoint is idempotent per account — asking twice returns the project
+ * that already exists — which is what lets this be offered from more than the
+ * empty-account screen (D199) without ever making a second copy. The project
+ * comes back so the caller can *open* it: a screen that created something and
+ * then did not show it was the shape of D196.
+ */
+export async function openWorkedExample(): Promise<Project & { created: boolean }> {
+  const response = await fetch("/api/projects/example", { method: "POST" });
+  if (!response.ok) {
+    throw new Error(await response.text() || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
 export function FirstProject({ onCreated, user }: {
-  onCreated: () => void; user: SignedInUser;
+  /** Called with the project that now exists, so the workspace can open it. */
+  onCreated: (project: Project) => void; user: SignedInUser;
 }) {
   const [started, setStarted] = useState(false);
   const [loadingExample, setLoadingExample] = useState(false);
@@ -37,11 +55,7 @@ export function FirstProject({ onCreated, user }: {
     setLoadingExample(true);
     setExampleError("");
     try {
-      const response = await fetch("/api/projects/example", { method: "POST" });
-      if (!response.ok) {
-        throw new Error(await response.text() || `HTTP ${response.status}`);
-      }
-      onCreated();
+      onCreated(await openWorkedExample());
     } catch (error) {
       // §104 — say what failed. A dead button teaches nothing.
       setExampleError(
@@ -118,8 +132,16 @@ export function FirstProject({ onCreated, user }: {
 }
 
 
-export function NewProject({ onCreated, onCancel }: {
-  onCreated: () => void; onCancel?: () => void;
+export function NewProject({ onCreated, onCancel, offerExample = false }: {
+  /** Called with the project that now exists, so the workspace can open it. */
+  onCreated: (project: Project) => void;
+  onCancel?: () => void;
+  /**
+   * Also offer the worked example. On from the project switcher, where a
+   * researcher who began with their own question has no other way to reach it
+   * (D199); off on the first-run screen, which offers it beside this form.
+   */
+  offerExample?: boolean;
 }) {
   const [question, setQuestion] = useState("");
   const [name, setName] = useState("");
@@ -130,11 +152,18 @@ export function NewProject({ onCreated, onCancel }: {
     event.preventDefault();
     setBusy(true); setError(null);
     try {
-      await api.post("/api/projects", {
+      const project = await api.post<Project>("/api/projects", {
         name: name || question.slice(0, 60) || "Untitled project",
         research_question: question,
       });
-      onCreated();
+      onCreated(project);
+    } catch (err) { setError(err); } finally { setBusy(false); }
+  }
+
+  async function example() {
+    setBusy(true); setError(null);
+    try {
+      onCreated(await openWorkedExample());
     } catch (err) { setError(err); } finally { setBusy(false); }
   }
 
@@ -163,6 +192,13 @@ export function NewProject({ onCreated, onCancel }: {
           {onCancel && (
             <button className="btn" type="button" onClick={onCancel} disabled={busy}>
               Cancel
+            </button>
+          )}
+          {offerExample && (
+            <button className="btn" type="button" onClick={() => void example()}
+                    disabled={busy}>
+              <IconSpark size={15} />
+              Open the worked example
             </button>
           )}
         </div>

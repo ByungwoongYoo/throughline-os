@@ -23,6 +23,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Volume } from "@/components/charts/Volume";
 import { Surface } from "@/components/charts/Surface";
 import { InkLayer, InkSurface } from "@/components/spatial/InkLayer";
@@ -374,6 +375,12 @@ export default function AirInkPage() {
         Drawing in mid-air, over a chart. Nothing here leaves your machine: the
         cloud is synthetic, no project is loaded, and the camera feed is
         processed in the browser and never uploaded.
+      </p>
+      <p style={{ color: "var(--ink-soft)", marginTop: 0 }}>
+        {/* Arrived at from the rail, and reachable no other way from inside
+            the page: without this link, leaving means the browser's Back
+            button, which a reload has already thrown away. */}
+        <Link href="/workspace">Back to the workspace</Link>
       </p>
 
       <SpatialControl controllerRef={chartRef}

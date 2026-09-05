@@ -19,9 +19,14 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 const USER = { display_name: "Dr Chen" } as never;
 
+/** The project the example lives in, as the endpoint returns it. */
+const EXAMPLE = { id: "prj_example", name: "Example · Antibiotic consumption", created: true };
+
 function stubFetch(response: Partial<Response> & { ok: boolean }) {
   return vi.spyOn(globalThis, "fetch")
-    .mockResolvedValue({ text: async () => "", ...response } as Response);
+    .mockResolvedValue({
+      text: async () => "", json: async () => EXAMPLE, ...response,
+    } as Response);
 }
 
 describe("opening the worked example", () => {
@@ -35,14 +40,19 @@ describe("opening the worked example", () => {
       "/api/projects/example", { method: "POST" }));
   });
 
-  it("tells the workspace to reload once it exists", async () => {
-    /** Without this the project is created and the screen never moves. */
+  it("hands the workspace the project it made, so it can be opened", async () => {
+    /**
+     * Without this the project is created and the screen never moves. And it
+     * has to be *this* project: the workspace used to be told only "something
+     * changed" and then showed whichever project was first in the list, which
+     * after the first one was never the one just created (D196).
+     */
     stubFetch({ ok: true });
     const onCreated = vi.fn();
     render(<FirstProject onCreated={onCreated} user={USER} />);
 
     fireEvent.click(screen.getByRole("button", { name: /Open a worked example/ }));
-    await waitFor(() => expect(onCreated).toHaveBeenCalled());
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(EXAMPLE));
   });
 
   it("says what failed rather than going quiet", async () => {

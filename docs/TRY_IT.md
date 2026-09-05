@@ -112,7 +112,23 @@ the queries — projects are scoped by owner — rather than of the interface hi
 rows, which matters because only one of those two survives somebody writing a
 new page. Once in, **Open a worked example** seeds a real project with two
 ingested and analysed sources, which is the quickest way to have something on
-screen.
+screen. It is offered on the first screen of a new account and again on the
+**New project** screen (project switcher, top left), so an account that began
+with its own question can still open it; asking twice opens the one that
+already exists rather than making a second copy.
+
+The example builds in the background. The Overview's counts and *The loop*
+checklist move on their own while it does — the screen re-reads the project
+for as long as the server says work is still running, and stops asking once
+it is not — so if the numbers sit at zero for more than a minute, look at
+**Sources** for a source stuck at *queued*: that means no worker is running.
+
+**The address bar is where you are.** It carries the project, the section
+and the object that is open (`/workspace?project=…&section=findings&item=…`),
+so a reload, a bookmark or a link pasted to a colleague comes back to the
+same screen in the same project, and the browser's Back closes a detail
+before it leaves a section. Opening the app fresh at `/workspace` returns to
+the project this account had open last on this browser.
 
 ---
 

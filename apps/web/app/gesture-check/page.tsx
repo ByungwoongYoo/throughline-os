@@ -28,6 +28,7 @@
  */
 
 import { useCallback, useRef, useState } from "react";
+import Link from "next/link";
 import { Volume } from "@/components/charts/Volume";
 import { Surface } from "@/components/charts/Surface";
 import { HandMeasurement, SpatialControl }
@@ -230,6 +231,12 @@ export default function GestureCheck() {
         A page for finding out whether hand tracking works on this machine. It
         uses no project data and needs no account. Camera frames are read in
         this tab and never leave it.
+      </p>
+      <p>
+        {/* The rail is what brought a researcher to this URL, and the page
+            offers no other way out — without this, the only route back is
+            the browser's history, and a reload here erases even that. */}
+        <Link href="/workspace">Back to the workspace</Link>
       </p>
 
       {(() => {
