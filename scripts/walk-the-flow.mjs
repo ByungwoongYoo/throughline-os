@@ -30,6 +30,17 @@
  *   C11 every section carries the step strip, its action inside the fold
  *   C12 the connection screen offers record and report on arrival
  *   C13 the Overview's current step is a button that opens its object
+ *   C14 a board card's relations can be followed (passes with a note when the board has no cards)
+ *   C15 a finding offers to publish a figure or draft a report
+ *   C17 a search says where it looked; no bare retrieval id outside a control
+ *   C18 the palette reaches the machine pages and an analysis by its id
+ *   C19 the camera controls are on the first screen of /gesture-check
+ *   C20 a fresh browser is offered account creation first, as a button
+ *   C21 Reports offers the take-away exports without opening a document
+ *   C22 Discovery shows the ledger, offers a hypothesis, explains the correction first
+ *   C23 the notebook's check says what it checks
+ *   C25 a new project can be started without opening the menu
+ *   C26 every rail entry fits a 900 px laptop without scrolling
  *   C8  informational only: distinct console errors, page errors and HTTP
  *       >= 400 responses seen along the way -- this one never fails the run
  *
@@ -251,6 +262,19 @@ try {
   // ---------------------------------------------------------------- 2. gate (three modes)
   let gateH1 = (await page.locator(".gate h1").textContent()).trim();
   log("gate heading:", gateH1);
+  // ---------------------------------------------------------------- C20
+  // Measured in place (not via check()), because a failure must not navigate
+  // away from the gate the walk is about to go through.
+  {
+    const pressed = await page.evaluate(() => {
+      const el = document.querySelector('.gate [aria-pressed="true"]');
+      return el ? el.textContent.trim() : null;
+    });
+    const ok = pressed === "Create an account" && /Create your account/i.test(gateH1);
+    const detail = `leading choice: ${JSON.stringify(pressed)}; heading: "${gateH1}"`;
+    results.push({ id: "C20", description: "a fresh browser is offered account creation first, as a button", status: ok ? "PASS" : "FAIL", detail });
+    log(`\n${ok ? "PASS" : "FAIL"} C20 -- a fresh browser is offered account creation first\n   ${detail}`);
+  }
   if (/Welcome back/i.test(gateH1)) {
     await page.locator(".gate").getByRole("button", { name: "Create an account" }).click();
     gateH1 = (await page.locator(".gate h1").textContent()).trim();
@@ -458,6 +482,26 @@ try {
     return `${ids.length} sections carry the strip; on Overview it names "${nextOnOverview}"`;
   });
 
+  // ---------------------------------------------------------------- C26
+  await check("C26", "every rail entry fits a 900 px laptop without scrolling", async () => {
+    await railClick("Overview");
+    await settle(500);
+    const m = await page.evaluate(() => {
+      const body = document.querySelector("nav.rail");
+      const footer = document.querySelector("nav.rail-footer");
+      const items = [...document.querySelectorAll(".rail-item")];
+      const hidden = items.filter((el) => {
+        const b = el.getBoundingClientRect();
+        return b.bottom > window.innerHeight + 1 || b.top < 52;
+      }).map((el) => el.textContent.trim().slice(0, 20));
+      return { count: items.length, overflow: body.scrollHeight - body.clientHeight, hidden,
+               footer: footer ? footer.textContent.trim().replace(/\s+/g, " ").slice(0, 60) : null };
+    });
+    if (m.count < 26) throw new Error(`only ${m.count} rail entries in the DOM`);
+    if (m.overflow > 2 || m.hidden.length) throw new Error(`rail overflows by ${m.overflow}px; off-screen: ${JSON.stringify(m.hidden)}`);
+    return `${m.count} entries, overflow ${m.overflow}px, footer "${m.footer}"`;
+  });
+
   // ---------------------------------------------------------------- C12
   await check("C12", "the connection screen offers record and report on arrival", async () => {
     await railClick("Connections");
@@ -505,6 +549,147 @@ try {
     }, 15000);
     if (!outcome.ok) throw new Error(`pressing "${label}" landed on h1=${JSON.stringify(outcome.s.h1)} url=${outcome.s.url}`);
     return `"${label}" opened ${JSON.stringify(outcome.s.h1)} at ${outcome.s.url}`;
+  });
+
+  // ---------------------------------------------------------------- C14
+  await check("C14", "a board card's relations can be followed", async () => {
+    await railClick("Workboard");
+    await settle(1500);
+    const cards = page.locator(".board-card");
+    if (!(await cards.count())) return "no card on this board to open (the example places none)";
+    const opener = cards.first().locator("button").first();
+    await opener.click();
+    await page.locator("#built-on-heading").waitFor({ timeout: 15000 });
+    const first = page.locator("#built-on-heading ~ * button.pick, .board-detail button.pick").first();
+    if (!(await first.count())) return "card opened; it has no dependents to follow";
+    const label = (await first.textContent()).trim();
+    await first.click();
+    const outcome = await pollUntil(async () => {
+      const s = await state();
+      return { ok: /item=/.test(s.url) && !/^Workboard/.test(s.railCurrent ?? ""), s };
+    }, 10000);
+    if (!outcome.ok) throw new Error(`following "${label}" left rail=${outcome.s.railCurrent} url=${outcome.s.url}`);
+    return `followed "${label}" to ${outcome.s.url}`;
+  });
+
+  // ---------------------------------------------------------------- C15
+  await check("C15", "a finding offers to publish a figure or draft a report", async () => {
+    await railClick("Findings");
+    await page.locator("main .card").first().waitFor({ timeout: 15000 });
+    await page.locator("main .card").first().click();
+    const found = await pollUntil(async () => {
+      const t = await page.locator("main").textContent();
+      return { ok: /Export for publication|Draft a report from this finding|nothing yet for a report|no run behind/i.test(t ?? ""), t: (t ?? "").slice(0, 80) };
+    }, 15000);
+    await shot("finding-take-it-further");
+    if (!found.ok) throw new Error("neither a figure control nor a report control (nor a stated reason) on the finding");
+    const controls = await page.evaluate(() => [...document.querySelectorAll("main button")].map((b) => b.textContent.trim()).filter((t) => /Export for publication|Draft a report from this finding/i.test(t)));
+    return `controls: ${JSON.stringify(controls)}`;
+  });
+
+  // ---------------------------------------------------------------- C17
+  await check("C17", "a search says where it looked, and nothing is a bare id", async () => {
+    await railClick("Search sources");
+    await settle(600);
+    await page.getByLabel("Search the sources in this project").fill("resistance");
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    await page.locator("main .card-tight").first().waitFor({ timeout: 30000 });
+    const summary = page.getByText(/which passages this search was built from/i).first();
+    if (!(await summary.count())) throw new Error("no 'which passages' disclosure");
+    const bare = await page.evaluate(() => {
+      const main = document.querySelector("main");
+      const walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT);
+      const hits = [];
+      let n; while ((n = walker.nextNode())) {
+        if (/\bret_[a-z0-9]+/i.test(n.textContent) && !n.parentElement.closest("details, button")) hits.push(n.textContent.trim().slice(0, 60));
+      }
+      return hits;
+    });
+    if (bare.length) throw new Error(`bare retrieval id outside a control: ${JSON.stringify(bare)}`);
+    await summary.click();
+    await settle(1500);
+    await shot("search-disclosure");
+    return "disclosure present; no bare retrieval id in the results";
+  });
+
+  // ---------------------------------------------------------------- C18
+  await check("C18", "the palette reaches the machine pages and an analysis by id", async () => {
+    await railClick("Overview");
+    await settle(500);
+    await page.keyboard.press("Control+k");
+    await page.locator("[role=dialog] input, .palette input").first().waitFor({ timeout: 10000 });
+    await page.keyboard.type("air");
+    await settle(400);
+    const air = await page.getByText(/draw in the air/i).first().count();
+    await page.keyboard.press("Escape");
+    const project = new URL(page.url()).searchParams.get("project");
+    const runs = await (await page.request.get(`${WALK_URL}/api/projects/${project}/analyses?limit=1`)).json();
+    const runId = runs[0]?.id;
+    await page.keyboard.press("Control+k");
+    await page.locator("[role=dialog] input, .palette input").first().waitFor({ timeout: 10000 });
+    await page.keyboard.type(runId ?? "arun_");
+    await settle(400);
+    // Whatever method the first run used, the id must bring up that run and
+    // nothing else: one option, in the Analysis group.
+    const offered = await page.evaluate(() => [...document.querySelectorAll("[role=option]")]
+      .map((o) => o.textContent.trim().replace(/\s+/g, " ")));
+    await shot("palette-by-id");
+    await page.keyboard.press("Escape");
+    if (!air) throw new Error("typing 'air' offered no 'Draw in the air'");
+    if (offered.length !== 1 || !/Analysis$/.test(offered[0])) throw new Error(`typing ${runId} offered ${JSON.stringify(offered)}`);
+    return `'air' → Draw in the air; ${runId} → "${offered[0]}"`;
+  });
+
+  // ---------------------------------------------------------------- C21
+  await check("C21", "Reports offers the take-away exports without opening a document", async () => {
+    await railClick("Reports");
+    await page.getByRole("heading", { name: /take this away/i }).waitFor({ timeout: 15000 });
+    const csv = await page.locator('a[href$="results.csv"]').count();
+    const zip = await page.locator('a[href$="snapshot.zip"]').count();
+    await shot("reports-take-away");
+    if (!csv || !zip) throw new Error(`results.csv link: ${csv}; snapshot.zip link: ${zip}`);
+    return "results.csv and snapshot.zip are on the Reports screen";
+  });
+
+  // ---------------------------------------------------------------- C22
+  await check("C22", "Discovery shows the ledger, offers a hypothesis, and explains the correction first", async () => {
+    await railClick("Discovery");
+    await page.getByRole("heading", { name: /this line of enquiry/i }).waitFor({ timeout: 15000 });
+    const register = await page.getByRole("button", { name: /register a hypothesis/i }).count();
+    const order = await page.evaluate(() => {
+      const main = document.querySelector("main");
+      const table = main.querySelector("table");
+      const walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT);
+      let n; while ((n = walker.nextNode())) {
+        if (/corrected for how many tests ran/i.test(n.textContent)) {
+          return table ? Boolean(n.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING) : "no-table";
+        }
+      }
+      return "no-caption";
+    });
+    await shot("discovery");
+    if (!register) throw new Error("no 'Register a hypothesis' control on Discovery");
+    if (order !== true && order !== "no-table") throw new Error(`the correction caption is ${order === "no-caption" ? "missing" : "below the table"}`);
+    return `ledger heading present; register control present; caption ${order === "no-table" ? "present (no table yet)" : "precedes the table"}`;
+  });
+
+  // ---------------------------------------------------------------- C23
+  await check("C23", "the notebook's check says what it checks", async () => {
+    await railClick("Notebook");
+    const button = page.locator("main .nb-lint button").first();
+    await button.waitFor({ timeout: 15000 });
+    const name = (await button.textContent()).trim();
+    if (name.split(/\s+/).length < 4 || !/stale|link|page|source|evidence|check/i.test(name)) throw new Error(`the check's label says only "${name}"`);
+    return `check control reads "${name}"`;
+  });
+
+  // ---------------------------------------------------------------- C25
+  await check("C25", "a new project can be started without opening the menu", async () => {
+    const btn = page.getByRole("button", { name: /new project/i }).first();
+    if (!(await btn.count())) throw new Error("no 'New project' control outside the menu");
+    const inMenu = await btn.evaluate((el) => Boolean(el.closest("[role=menu]")));
+    if (inMenu) throw new Error("'New project' is only inside the menu");
+    return "visible in the topbar";
   });
 
   // ---------------------------------------------------------------- C5
@@ -575,6 +760,18 @@ try {
       const hasLink = await page.locator('a[href="/workspace"]').count();
       log(`   ${path}: a[href="/workspace"] count=${hasLink}`);
       if (!hasLink) missing.push(path);
+      if (path === "/gesture-check") {
+        // C19, measured in place: the banner names the camera buttons, so
+        // they must be on the first screen, not two chart-heights down.
+        const box = await page.evaluate(() => {
+          const el = [...document.querySelectorAll("button")].find((b) => /try hand gestures/i.test(b.textContent || ""));
+          return el ? Math.round(el.getBoundingClientRect().bottom) : null;
+        });
+        const ok = box !== null && box <= 900;
+        const detail = box === null ? "no 'Try hand gestures' control found" : `control ends at ${box}px of 900`;
+        results.push({ id: "C19", description: "the camera controls are on the first screen of /gesture-check", status: ok ? "PASS" : "FAIL", detail });
+        log(`\n${ok ? "PASS" : "FAIL"} C19 -- the camera controls are on the first screen of /gesture-check\n   ${detail}`);
+      }
     }
     if (missing.length) throw new Error(`no a[href="/workspace"] found on: ${missing.join(", ")}`);
     return "both machine pages link back to /workspace";

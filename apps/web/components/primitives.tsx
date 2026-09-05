@@ -7,6 +7,11 @@
 
 import { ReactNode } from "react";
 
+// The one lifecycle vocabulary (item 2.10). `ResultCard` holds it because this
+// module is imported by almost everything and must not import back into a
+// module that imports it.
+import { LIFECYCLE } from "./ResultCard";
+
 /**
  * A single panel centred in the viewport — the gate, and the first-run screen.
  *
@@ -102,9 +107,57 @@ export function Failure({ error, retry }: { error: unknown; retry?: () => void }
   );
 }
 
-/** §118 — status is a word plus a dot, never a colour alone. */
-export function Status({ value }: { value: string }) {
-  return <span className={`status status-${value}`}>{value.replace(/_/g, " ")}</span>;
+/**
+ * §118 — status is a word plus a dot, never a colour alone.
+ *
+ * For a lifecycle state it is now the *plain phrase* plus a dot (plan §4.6.3,
+ * item 2.10). This pill printed `exploratory` while `ResultCard` two files
+ * away printed "Tested — needs replication" for the same finding, so the
+ * product taught its internal vocabulary on every list screen and the plain
+ * one only on the card. The phrase leads; the raw state word stays beside it,
+ * smaller, because it is what the API returns and what a researcher will see
+ * in an export, a URL or a support thread — dropping it would trade one
+ * hidden vocabulary for another.
+ *
+ * Only lifecycle states are translated. Run states, ingestion states,
+ * assumption outcomes and citation entailments are separate vocabularies that
+ * happen to share this pill (`globals.css` says so at `.status-passed`), and
+ * they are printed as they arrive.
+ */
+export function Status({ value, raw = false }: {
+  value: string;
+  /**
+   * Print `value` verbatim even if it collides with a lifecycle state.
+   *
+   * For a caller that synthesises a status word for something that is not a
+   * finding or a connection — a verdict rendered as "validated"/"conflicted",
+   * say. Without this, such a caller would silently start claiming that a
+   * check "has been replicated".
+   */
+  raw?: boolean;
+}) {
+  const known = raw ? undefined : LIFECYCLE[value];
+  const word = value.replace(/_/g, " ");
+  return (
+    <span className={`status status-${value}`}>
+      {/* The pill's own rule is upper-case single words; a phrase set in caps
+          shouts and cannot break, so the phrase opts out in place. A
+          `.status-phrase` class in globals.css would carry this better. */}
+      <span style={known ? { textTransform: "none", letterSpacing: 0, fontSize: 11.5 } : undefined}>
+        {known ? known.label : word}
+      </span>
+      {known && (
+        <>
+          {/* A space in the text, not only a flex gap: without it a screen
+              reader runs the phrase and the machine word together. */}
+          {" "}
+          <span className="mono" style={{ color: "var(--ink-faint)", textTransform: "none" }}>
+            {word}
+          </span>
+        </>
+      )}
+    </span>
+  );
 }
 
 export function Stat({ label, one, value }: {

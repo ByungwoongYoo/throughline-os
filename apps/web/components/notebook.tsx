@@ -97,6 +97,31 @@ type Listing = {
                       first_mentioned_in: string }>;
 };
 
+/**
+ * The four things the check looks for, each named in words (plan §4.13.1).
+ *
+ * The button used to read "Check the notebook", which states neither what is
+ * checked nor what a result means, and the findings came back as four
+ * collapsed rows whose only label was a lowercase fragment — "evidence
+ * changed", "not written". The inventory ranked this sixth among capabilities
+ * that are fully built and effectively invisible (docs/audit/capability-inventory-2026-09-05.md
+ * §6), and an unlabelled button on a screen nobody opens is why.
+ *
+ * The order is the domain's own (`notebook.py` `lint()`), not a ranking this
+ * screen invented: stale evidence, then unwritten pages, then isolated notes,
+ * then figures with nothing behind them.
+ */
+const LINT_KINDS: ReadonlyArray<{ kind: LintFinding["kind"]; heading: string }> = [
+  { kind: "stale_evidence",
+    heading: "Evidence changed after the note was written" },
+  { kind: "unwritten_page",
+    heading: "Linked to, but never written" },
+  { kind: "isolated",
+    heading: "Nothing links to it, and it links to nothing" },
+  { kind: "unsourced_figure",
+    heading: "States a number with no source behind it" },
+];
+
 export function Notebook({ projectId }: { projectId: string }) {
   const [view, setView] = useState<"pages" | "graph">("pages");
   const [listing, setListing] = useState<Listing | null>(null);
@@ -239,10 +264,10 @@ export function Notebook({ projectId }: { projectId: string }) {
         <div className="nb">
           <aside className="nb-list">
             <div className="nb-actions">
-              <button className="nj-primary" onClick={() => void openToday()}>
+              <button className="btn btn-primary" onClick={() => void openToday()}>
                 Today
               </button>
-              <button className="ct-dataset" onClick={() => setNaming(true)}>
+              <button className="btn" onClick={() => setNaming(true)}>
                 New note
               </button>
             </div>
@@ -267,11 +292,11 @@ export function Notebook({ projectId }: { projectId: string }) {
                   }}
                 />
                 <div className="row">
-                  <button type="submit" className="nj-primary"
+                  <button type="submit" className="btn btn-primary"
                           disabled={!title.trim()}>
                     Create
                   </button>
-                  <button type="button" className="ct-dataset"
+                  <button type="button" className="btn"
                           onClick={() => { setNaming(false); setTitle(""); }}>
                     Cancel
                   </button>
@@ -279,30 +304,16 @@ export function Notebook({ projectId }: { projectId: string }) {
               </form>
             )}
 
-            {listing?.notes.length === 0 && (
-              <Empty
-                title="Nothing written yet"
-                hint="Open today's page and start typing. Use [[double brackets]] to link to anything in the project."
-              />
-            )}
+            {/*
+              Both of these answer "what should I write next", so both sit
+              above the list of pages rather than under it (plan §4.13.2). They
+              used to follow a list that grows without limit, which put the two
+              blocks that orient a returning writer below the fold on arrival
+              on every notebook with more than a screenful of notes.
 
-            <ul className="nb-index">
-              {listing?.notes.map((note) => (
-                <li key={note.id}>
-                  <button
-                    data-open={open?.id === note.id}
-                    onClick={() => void openNote(note.id)}
-                  >
-                    <span className="nb-title">{note.title}</span>
-                    <span className="nb-counts numeric">
-                      {note.link_count > 0 && `→${note.link_count}`}
-                      {note.backlink_count > 0 && ` ←${note.backlink_count}`}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-
+              "Where to start" first: it is orientation, and the to-do list
+              below it only means anything once you know where you were.
+            */}
             {index && index.entry_points.length > 0 && (
               <section className="nb-index">
                 <h3 className="eyebrow">Where to start</h3>
@@ -337,42 +348,6 @@ export function Notebook({ projectId }: { projectId: string }) {
               </section>
             )}
 
-            <section className="nb-lint">
-              <button className="btn" disabled={linting} onClick={async () => {
-                setLinting(true);
-                try {
-                  setLint(await api.get<Lint>(
-                    `/api/projects/${projectId}/notebook/lint`));
-                } finally { setLinting(false); }
-              }}>
-                {linting ? "Checking…" : "Check the notebook"}
-              </button>
-
-              {lint && (
-                <div className="nb-lint-out">
-                  <p className="nb-lint-note">{lint.note}</p>
-                  {lint.findings.map((finding, i) => (
-                    <details key={i} className="nb-lint-item"
-                             data-kind={finding.kind}>
-                      <summary>
-                        <span className="nb-lint-kind">
-                          {finding.kind === "stale_evidence" ? "evidence changed"
-                            : finding.kind === "unwritten_page" ? "not written"
-                            : finding.kind === "isolated" ? "unlinked"
-                            : "no source"}
-                        </span>
-                        {finding.detail}
-                      </summary>
-                      {/* Why it matters, then what to do. A lint entry that only
-                          names a problem gets ignored. */}
-                      <p className="nb-lint-why">{finding.why}</p>
-                      <p className="nb-lint-do">{finding.do}</p>
-                    </details>
-                  ))}
-                </div>
-              )}
-            </section>
-
             {listing && listing.unresolved.length > 0 && (
               // A to-do list the researcher wrote without meaning to.
               <section className="nb-unresolved">
@@ -389,6 +364,117 @@ export function Notebook({ projectId }: { projectId: string }) {
                 </ul>
               </section>
             )}
+
+            {listing?.notes.length === 0 && (
+              <Empty
+                title="Nothing written yet"
+                hint="Open today's page and start typing. Use [[double brackets]] to link to anything in the project."
+              />
+            )}
+
+            <ul className="nb-index">
+              {listing?.notes.map((note) => (
+                <li key={note.id}>
+                  <button
+                    data-open={open?.id === note.id}
+                    onClick={() => void openNote(note.id)}
+                  >
+                    <span className="nb-title">{note.title}</span>
+                    <span className="nb-counts numeric">
+                      {note.link_count > 0 && `→${note.link_count}`}
+                      {note.backlink_count > 0 && ` ←${note.backlink_count}`}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+
+            <section className="nb-lint">
+              {/*
+                §4.13.1 — the control names what it checks.
+                "Check the notebook" named the object and not the question, so
+                the only way to learn what pressing it would do was to press it.
+                The four things it looks for are the four the domain reports,
+                and they are worth naming here because the first one — evidence
+                that has changed underneath a note — is the one nobody can find
+                by rereading.
+              */}
+              <button className="btn" disabled={linting} onClick={async () => {
+                setLinting(true);
+                try {
+                  setLint(await api.get<Lint>(
+                    `/api/projects/${projectId}/notebook/lint`));
+                } finally { setLinting(false); }
+              }}>
+                {linting
+                  ? "Checking the notebook…"
+                  : "Check for stale evidence, unwritten pages, unlinked notes"
+                    + " and unsourced figures"}
+              </button>
+
+              {lint && (
+                <div className="nb-lint-out">
+                  <p className="nb-lint-note">{lint.note}</p>
+                  {/*
+                    Named blocks, not four collapsed rows (§4.13.1). A finding
+                    whose kind was a two-word fragment behind a closed
+                    `<summary>` told a reader neither what kind of problem it
+                    was nor that there were four kinds; principle 4 allows a
+                    layer, never a label that is only visible once opened.
+                    The count in each heading is `by_kind`, the server's own —
+                    nothing here counts anything.
+                  */}
+                  {LINT_KINDS.map(({ kind, heading }) => {
+                    const found = lint.findings.filter((f) => f.kind === kind);
+                    if (found.length === 0) return null;
+                    return (
+                      /* No class of its own: `nb-lint-group` and
+                         `nb-lint-detail` would be classes `globals.css` does
+                         not define, and a className no stylesheet knows is a
+                         silent no-op (D025). Both are listed for the
+                         stylesheet's owner; until then the spacing is
+                         inline. */
+                      <section key={kind} style={{ marginBottom: 14 }}>
+                        <h4 className="eyebrow">
+                          {heading}
+                          <span className="numeric"> · {lint.by_kind[kind]}</span>
+                        </h4>
+                        {found.map((finding, i) => (
+                          <div key={i} className="nb-lint-item"
+                               data-kind={finding.kind}>
+                            <p style={{ margin: 0, fontSize: 12.5 }}>
+                              {finding.detail}
+                            </p>
+                            {/* Why it matters, then what to do. A lint entry
+                                that only names a problem gets ignored. */}
+                            <p className="nb-lint-why">{finding.why}</p>
+                            <p className="nb-lint-do">{finding.do}</p>
+                          </div>
+                        ))}
+                      </section>
+                    );
+                  })}
+                  {/*
+                    A kind this build does not know about is still shown. The
+                    domain can add a fifth check, and silently dropping its
+                    findings would make the notebook look clean because the
+                    interface is old.
+                  */}
+                  {lint.findings
+                    .filter((f) => !LINT_KINDS.some((k) => k.kind === f.kind))
+                    .map((finding, i) => (
+                      <div key={`other-${i}`} className="nb-lint-item"
+                           data-kind={finding.kind}>
+                        <p style={{ margin: 0, fontSize: 12.5 }}>
+                          {finding.detail}
+                        </p>
+                        <p className="nb-lint-why">{finding.why}</p>
+                        <p className="nb-lint-do">{finding.do}</p>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </section>
           </aside>
 
           <section className="nb-page">

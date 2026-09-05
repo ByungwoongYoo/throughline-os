@@ -175,3 +175,64 @@ describe("the switcher answers a keyboard", () => {
     expect(trigger).toHaveAttribute("aria-expanded", "true");
   });
 });
+
+/**
+ * "New project" is not behind the caret (plan §4.16.2, C25).
+ *
+ * The capability inventory counted this topbar at 8 capabilities, 2 visible
+ * and **6 behind_menu** — the class the brief forbids outright. Creating a
+ * project is the first thing anybody does with this product, and it was behind
+ * a control whose label and tooltip both said *switch*: somebody who had never
+ * opened the caret had no way to learn a project could be made at all.
+ *
+ * The menu keeps its copy. Two doors onto one room is this plan's pattern; a
+ * person who opened the list looking for a project they have not got should
+ * find the way to make one there too.
+ */
+describe("creating a project is visible without opening anything", () => {
+  it("offers a control in the topbar itself", () => {
+    mount();
+    expect(screen.getByRole("button", { name: /new project/i }))
+      .toBeInTheDocument();
+  });
+
+  it("sits beside the project name, not somewhere else on the page", () => {
+    const trigger = mount();
+    const button = screen.getByRole("button", { name: /new project/i });
+    expect(button.closest(".pm")).toBe(trigger.closest(".pm"));
+  });
+
+  it("creates without the menu ever being opened", async () => {
+    const onCreate = vi.fn();
+    mount(vi.fn(), onCreate);
+
+    await userEvent.click(screen.getByRole("button", { name: /new project/i }));
+
+    expect(onCreate).toHaveBeenCalled();
+    // And nothing was expanded on the way — this is the whole claim.
+    expect(document.querySelector(".pm-trigger"))
+      .toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("still answers a keyboard, like every other control here", async () => {
+    /** §30. A button reached only by pointer would be the same defect this
+     *  file was written for, one control further along. */
+    const onCreate = vi.fn();
+    mount(vi.fn(), onCreate);
+
+    screen.getByRole("button", { name: /new project/i }).focus();
+    await userEvent.keyboard("{Enter}");
+
+    expect(onCreate).toHaveBeenCalled();
+  });
+
+  it("keeps it in the menu as well", async () => {
+    // The list is where somebody who is switching looks; the topbar is where
+    // somebody who has just arrived looks. Removing either is a regression.
+    const trigger = mount();
+    await userEvent.click(trigger);
+
+    expect(await screen.findByRole("menuitem", { name: /New project/ }))
+      .toBeInTheDocument();
+  });
+});

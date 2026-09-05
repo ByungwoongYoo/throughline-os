@@ -256,6 +256,27 @@ const MACHINE_PAGES: Array<{ href: string; label: string; note: string }> = [
 export const SECTIONS = GROUPS.flatMap((g) =>
   g.items.map((i) => ({ id: i.id, label: i.label, group: g.label })));
 
+/**
+ * The three machine pages, for the command palette (plan §4.3.6).
+ *
+ * Deliberately a second export rather than three more rows in `SECTIONS`, and
+ * the reason is what a caller has to *do* with one. A section is a view of
+ * this page, reached by calling `onSection`; these are routes of their own,
+ * reached by a real page load. Folding them together would hand the palette a
+ * list whose entries need two different mechanisms and no way to tell which —
+ * and `tests/rail-follows-the-work.test.ts` reads `SECTIONS` as the rail's own
+ * order and asserts that no id in it is `charts-3d`, which is right to.
+ *
+ * The rail already links to all three (`MACHINE_PAGES`, and the links are real
+ * `<a>`s so a new tab still works). This is the second door: 26 rail rows do
+ * not fit 848 px, and somebody who reaches for ⌘K should not have to know
+ * which of them scrolled off the bottom.
+ */
+export const PAGES: Array<{ href: string; label: string; group: string }> =
+  MACHINE_PAGES.map((page) => ({
+    href: page.href, label: page.label, group: MACHINE,
+  }));
+
 type CountMap = { sources: number; connections: number; findings: number;
                   analyses: number; figures: number; reports: number };
 
@@ -463,6 +484,27 @@ export function Shell({
             to reach for it is usually "I am about to export a figure and
             exports render light", which is a ten-second errand. */}
         <ThemeToggle />
+        {/*
+          The account menu keeps its three items — the identity readout, the
+          local-only reassurance and sign out — behind the menu, and that is a
+          **stated exception** to "nothing is hidden" rather than an oversight
+          (plan §6, §4.16.2).
+
+          Two reasons, and both are about what the items are. They are
+          properties of the *session*, not of a research object, so the
+          placement law — an action lives on the object that produced it — has
+          no object to put them on; there is no source, connection or finding
+          that "sign out" acts upon. And a sign-out control sitting permanently
+          in the topbar is a hazard, not a capability: the only thing a
+          persistent one can do to a researcher three hours into an analysis is
+          end their session by accident.
+
+          "New project" went the other way for the opposite reason — it acts on
+          the project, which is the object the topbar is already naming, so it
+          is now a visible button beside the name (`ProjectMenu.tsx`). An
+          omission that is argued is not a hidden capability; this comment is
+          the argument, and `librarynote.tsx:92-97` is the template for it.
+        */}
         {accountMenu}
       </header>
 

@@ -707,7 +707,7 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
 
       {!running && !explaining && (
         <div className="spatial-row">
-          <button type="button" onClick={() => setExplaining(true)}>
+          <button type="button" className="btn" onClick={() => setExplaining(true)}>
             Set up hand gestures
           </button>
           <button type="button" className="spatial-quiet"
@@ -733,7 +733,7 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
                 work, it does not replace one.</li>
           </ul>
           <div className="spatial-row">
-            <button type="button" onClick={start}>
+            <button type="button" className="btn" onClick={start}>
               Turn on the camera
             </button>
             <button type="button" className="spatial-quiet"
@@ -773,7 +773,7 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
                 <span style={{ width: `${Math.round(progress * 100)}%` }} />
               </div>
               <div className="spatial-row">
-                <button type="button" disabled={progress < 1}
+                <button type="button" className="btn" disabled={progress < 1}
                         onClick={advanceCalibration}>
                   {step === "open" ? "Next" : "Finish"}
                 </button>
@@ -790,7 +790,7 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
             <p className="spatial-failure" role="alert">{calibrationProblem}</p>
           )}
           <div className="spatial-row">
-            <button type="button"
+            <button type="button" className="btn"
                     onClick={() => {
                       if (state === "PAUSED") {
                         sessionRef.current?.resume();
@@ -801,7 +801,7 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
                     }}>
               {state === "PAUSED" ? "Resume" : "Pause"}
             </button>
-            <button type="button" onClick={stop}>
+            <button type="button" className="btn" onClick={stop}>
               Turn off the camera
             </button>
             {!calibrating && (

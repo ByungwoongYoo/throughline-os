@@ -255,7 +255,7 @@ export function Synthesis({ projectId, sources }: {
 
       <div className="syn-actions">
         <button
-          className="nj-primary"
+          className="btn btn-primary"
           disabled={chosen.length < 2 || busy !== null}
           onClick={() => void build(chosen)}
         >

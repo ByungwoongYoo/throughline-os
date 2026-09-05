@@ -248,6 +248,34 @@ export default function GestureCheck() {
         );
       })()}
 
+      {/*
+        * Directly under the banner that names its buttons (plan §4.16.1).
+        *
+        * The verdict above reads 'The camera is not on yet. Press "Try hand
+        * gestures", then "Turn on the camera"' — and both buttons used to sit
+        * two full chart-heights below it, off the first screen, so the page's
+        * own instruction pointed at nothing a reader could see and the only
+        * control in the first viewport was "Reset the view". Nothing about the
+        * consent sequence moves with it: this component starts nothing on
+        * mount and still explains the camera before requesting it
+        * (`SpatialControl.tsx:1-19`). The charts are what you check *after*
+        * the camera is on, which is why they now follow it.
+        *
+        * Both figures, so the hand can address either (§189). `surfaceRef`
+        * existed and was passed to the chart and to nothing else, which meant
+        * the saddle was dead to every gesture on this page — the "written by
+        * one part of the system and read by none" defect the README names, in
+        * the one place where it looks like broken tracking rather than a
+        * missing wire.
+        */}
+      <SpatialControl controllerRef={controllerRef}
+                      alsoControls={[surfaceRef]}
+                      label="this test cloud"
+                      onTelemetry={onTelemetry} onFrameRate={onFrameRate}
+                      onTracker={onTracker} onMeasurement={onMeasurement}
+                      onLatency={(read) => { readLatency.current = read; }}
+                      onInferenceLatency={(read) => { readInference.current = read; }} />
+
       <Volume points={CLOUD} controllerRef={controllerRef}
               onDetent={(moment) => deviceFeedback.emit(moment)}
               xLabel="x" yLabel="y" zLabel="z" valueLabel="group"
@@ -265,23 +293,6 @@ export default function GestureCheck() {
                onDetent={(moment) => deviceFeedback.emit(moment)}
                xLabel="dose" yLabel="duration" zLabel="response"
                title="A saddle, fitted over two predictors" />
-
-      {/*
-        * Both figures, so the hand can address either (§189).
-        *
-        * `surfaceRef` existed and was passed to the chart and to nothing else,
-        * which meant the saddle was dead to every gesture on this page — the
-        * "written by one part of the system and read by none" defect the README
-        * names, in the one place where it looks like broken tracking rather
-        * than a missing wire.
-        */}
-      <SpatialControl controllerRef={controllerRef}
-                      alsoControls={[surfaceRef]}
-                      label="this test cloud"
-                      onTelemetry={onTelemetry} onFrameRate={onFrameRate}
-                      onTracker={onTracker} onMeasurement={onMeasurement}
-                      onLatency={(read) => { readLatency.current = read; }}
-                      onInferenceLatency={(read) => { readInference.current = read; }} />
 
       <section className="gc-numbers">
         <h2>What the tracker is doing</h2>

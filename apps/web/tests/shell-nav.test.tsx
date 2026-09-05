@@ -14,7 +14,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { Shell } from "@/components/Shell";
+import { PAGES, SECTIONS, Shell } from "@/components/Shell";
 
 function shell() {
   return render(
@@ -78,5 +78,49 @@ describe("the hand-tracking pages are reachable from the product", () => {
     shell();
     expect(screen.getByRole("link", { name: /check hand tracking/i }))
       .toHaveAttribute("title", expect.stringMatching(/camera/i));
+  });
+});
+
+describe("the standalone pages are offered to the palette as well as the rail", () => {
+  /**
+   * The rail is 26 rows in 848px at 1440x900, so the bottom of it scrolls. A
+   * page that is only in the rail is a page somebody has to scroll to find,
+   * and ⌘K is what a researcher reaches for instead — so `PAGES` exists to
+   * give the palette the same three destinations (plan §4.3.6).
+   */
+  it("exports all three, with where they live", () => {
+    expect(PAGES.map((p) => p.href).sort())
+      .toEqual(["/air-ink", "/charts-3d", "/gesture-check"]);
+    for (const page of PAGES) {
+      expect(page.group, page.href).toBe("This machine");
+      expect(page.label.length, page.href).toBeGreaterThan(3);
+    }
+  });
+
+  it("keeps them out of SECTIONS, which is the rail's own order", () => {
+    /**
+     * Not a tidiness rule. A section is reached by calling `onSection`; a page
+     * is reached by loading a URL, and `rail-follows-the-work.test.ts` reads
+     * `SECTIONS` as the order of the research steps and asserts no id in it is
+     * `charts-3d`. Merging the two lists would hand the palette entries that
+     * need two different mechanisms with no way to tell them apart.
+     */
+    const ids = new Set(SECTIONS.map((section) => section.id as string));
+    for (const page of PAGES) {
+      expect(ids.has(page.href), page.href).toBe(false);
+      expect(ids.has(page.href.replace("/", "")), page.href).toBe(false);
+    }
+  });
+
+  it("names the same three pages the rail links to", () => {
+    // Two doors onto one room. If a page is added to one list and not the
+    // other, one of the two surfaces is silently missing it.
+    shell();
+    for (const page of PAGES) {
+      // A substring, because the rail row's accessible name is the label plus
+      // the one-clause note beside it — the palette shows the label alone.
+      expect(screen.getByRole("link", { name: (name) => name.includes(page.label) }))
+        .toHaveAttribute("href", page.href);
+    }
   });
 });

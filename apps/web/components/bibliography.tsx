@@ -11,6 +11,12 @@
  * Shown rather than downloaded. A `.bib` that turns out to be a comment saying
  * nothing was cited is better discovered on screen than in a submission, and
  * the incomplete entries are worth reading before the file is saved.
+ *
+ * All three panels head at `<h3>` because §4.11.3 gathered them under one
+ * named block on the Reports screen ("Take this away"), which owns the `<h2>`.
+ * A heading level is a claim about what contains what, and three `<h2>`s
+ * inside another heading's section is that claim made wrongly — the one thing
+ * a screen reader has to navigate this page by. The words are untouched.
  */
 
 import { useState } from "react";
@@ -37,7 +43,7 @@ type Bibliography = {
 export function ResultsTable({ projectId }: { projectId: string }) {
   return (
     <section className="bib">
-      <h2>Results table</h2>
+      <h3>Results table</h3>
       <p className="lede">
         Every candidate that was tested, with its estimate, its p-value and the
         q-value after correction — as CSV, for a paper&rsquo;s table or for
@@ -67,7 +73,7 @@ export function ResultsTable({ projectId }: { projectId: string }) {
 export function SnapshotPanel({ projectId }: { projectId: string }) {
   return (
     <section className="bib">
-      <h2>Snapshot</h2>
+      <h3>Snapshot</h3>
       <p className="lede">
         Everything recorded about this project, with the files it ingested, as
         a single zip. For keeping a copy or moving the project to another
@@ -93,7 +99,7 @@ export function BibliographyPanel({ projectId }: { projectId: string }) {
 
   return (
     <section className="bib">
-      <h2>Bibliography</h2>
+      <h3>Bibliography</h3>
       <p className="lede">
         Every paper this project cites, as BibTeX. Ordered so that two exports
         of an unchanged project are identical — a bibliography that reshuffles
@@ -126,7 +132,7 @@ export function BibliographyPanel({ projectId }: { projectId: string }) {
                   proofs. */}
               {bibliography.data.incomplete.length > 0 && (
                 <div className="bib-gaps">
-                  <h3 className="eyebrow">Short of a field</h3>
+                  <h4 className="eyebrow">Short of a field</h4>
                   <ul>
                     {bibliography.data.incomplete.map((entry) => (
                       <li key={entry.key}>

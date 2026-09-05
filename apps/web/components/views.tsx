@@ -11,8 +11,8 @@
 
 import { Fragment, useEffect, useRef, useState } from "react";
 import {
-  AnalysisRun, Connection, DatasetColumn, DiscoveryMap, EvidenceGraph, Finding,
-  objectTypeName,
+  AnalysisRun, ApiError, Connection, DatasetColumn, DiscoveryMap, EvidenceGraph,
+  Finding, objectTypeName,
   INGESTION_STAGES, Provenance, SearchResult, Source, ValidationReport, api,
   ingestionStep, isIngesting,
 } from "@/lib/api";
@@ -30,6 +30,7 @@ import { WhatTheSweepDid } from "./sweep";
 import { currentStep, loopSteps, stepTarget } from "@/lib/loop";
 import { ObjectAction, ObjectActions } from "./objectactions";
 import { canDraftReport, draftReport } from "./reports";
+import { Term } from "./term";
 
 // ---------------------------------------------------------------------------
 // Overview (§70)
@@ -215,7 +216,7 @@ function LifecycleBreakdown({ title, counts }: { title: string; counts: Record<s
   if (!entries.length) return null;
   return (
     <div className="card">
-      <h2>{title} by lifecycle state</h2>
+      <h2>{title} by <Term id="lifecycle state" /></h2>
       <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
         {entries.map(([state, count]) => (
           <div key={state}>
@@ -235,6 +236,27 @@ function LifecycleBreakdown({ title, counts }: { title: string; counts: Record<s
 // ---------------------------------------------------------------------------
 // Sources (§24, §26)
 // ---------------------------------------------------------------------------
+
+/**
+ * Whether a failed ingestion is a database somebody still has to choose from.
+ *
+ * Read out of the server's own refusal rather than invented here: a multi-table
+ * file is refused with "This database holds N tables and a dataset is one
+ * table, so which one to read is not something to guess: …"
+ * (`packages/ingestion/src/throughline_ingestion/datasets.py:439-443`), and the
+ * worker records that sentence verbatim as `ingestion_detail`
+ * (`services/workers/src/throughline_workers/handlers.py:107-112`). The list
+ * endpoint sends the field (`app.py:663`), so no second request is needed.
+ *
+ * Deliberately narrow. If that sentence is ever reworded the match fails and
+ * the row shows one word less — it never shows the *wrong* word, and the full
+ * refusal is still printed in the cell beside it, which is the failure mode to
+ * choose when a client is reading prose the server wrote.
+ */
+function hasImportableTables(source: Source): boolean {
+  return source.ingestion_status === "failed"
+    && /database holds \d+ tables/i.test(source.ingestion_detail ?? "");
+}
 
 export function Sources({ sources, onSelect, upload, uploading, uploadError }: {
   /*
@@ -327,6 +349,16 @@ export function Sources({ sources, onSelect, upload, uploading, uploadError }: {
                   {isIngesting(source.ingestion_status) && (
                     <Ingesting status={source.ingestion_status} />
                   )}
+                  {/*
+                    A failed ingestion that is really a choice waiting to be
+                    made. Importing a table is reachable only from the detail
+                    of a failed source, and the list gave no signal at all —
+                    so the capability was discoverable only by opening the
+                    failures one at a time (plan §4.8.2). One word, beside the
+                    state it qualifies, and the refusal's own sentence is
+                    already in the cell to the right of it.
+                  */}
+                  {hasImportableTables(source) && <Status value="importable" />}
                 </td>
                 <td style={{ color: "var(--ink-soft)" }}>
                   {isIngesting(source.ingestion_status) && (
@@ -362,10 +394,43 @@ export function Sources({ sources, onSelect, upload, uploading, uploadError }: {
  * row was the whole truth. It is not: a dataset row hides a profiled schema, and
  * that profile is what every later method choice depends on.
  */
-export function SourceDetail({ projectId, sourceId, onDiscover }: {
+export function SourceDetail({ projectId, sourceId, onDiscover, onOpenSource,
+                               onGo, labels }: {
   projectId: string;
   sourceId: string;
   onDiscover: (datasetVersionId: string) => void;
+  /**
+   * Open the source an imported table became (D205, plan §4.8.1).
+   *
+   * `DatabaseTables` has always returned the new source's id through
+   * `onImported` and nothing ever supplied the handler, so importing a table
+   * left the researcher standing on a *failed* source with no route to the
+   * dataset they had just made — the third instance of the defect
+   * `board/CardDetail.tsx:6-9` names by hand.
+   *
+   * Optional, because a host with nowhere to send a click is better off with
+   * the plain "Imported" the table row already shows than with a jump that
+   * goes nowhere.
+   */
+  onOpenSource?: (sourceId: string) => void;
+  /**
+   * Open a section of the workspace — only ever `"variables"` from here.
+   *
+   * Typed to the one section this screen links to rather than to `Section`, so
+   * the bridge below cannot quietly become a second navigation surface.
+   */
+  onGo?: (section: "variables") => void;
+  /**
+   * Approved display names by raw column name, exactly as
+   * `GET /api/projects/{id}/variables` sends them — and the route is explicit
+   * that only approved labels appear there ("Only approved labels are used
+   * anywhere. An unreviewed suggestion changes nothing on screen").
+   *
+   * Passed in rather than fetched here because the workspace already holds
+   * this request (`page.tsx:435-436`), and two hooks on one path are two
+   * copies that drift — the note on `Sources` above is the same rule.
+   */
+  labels?: Record<string, string>;
 }) {
   const { data, error, loading, reload } =
     useApi<Source>(`/api/projects/${projectId}/sources/${sourceId}`);
@@ -373,8 +438,55 @@ export function SourceDetail({ projectId, sourceId, onDiscover }: {
     data?.dataset ? `/api/dataset-versions/${data.dataset.dataset_version_id}/columns` : null,
   );
 
+  /*
+   * Which profiled column a subset sent us to, and what to say when it sent us
+   * nowhere.
+   *
+   * The highlight is a word as well as a background (§118): a row lit only by
+   * colour tells a reader who cannot see the colour nothing at all, so the
+   * sentence under the table names the column and the subset that pointed at
+   * it.
+   */
+  const [jumpedTo, setJumpedTo] = useState<
+    { column: string; subset: string } | null>(null);
+  const [jumpFailed, setJumpFailed] = useState<string | null>(null);
+  const jumpedRow = useRef<HTMLTableRowElement | null>(null);
+
+  /*
+   * Take the reader to the highlighted row once it exists.
+   *
+   * After the state change rather than inside the handler, because the row is
+   * only marked — and therefore only `tabIndex={-1}` and focusable — on the
+   * render that follows. `scrollIntoView` is checked rather than called, for
+   * the reason `reveal` below records: the test environments have no layout
+   * engine and a missing method would take the whole screen down.
+   */
+  useEffect(() => {
+    const row = jumpedRow.current;
+    if (!jumpedTo || !row) return;
+    if (typeof row.scrollIntoView === "function") row.scrollIntoView({ block: "center" });
+    // §30 — the keyboard goes where the pointer went, or the next Tab
+    // continues from the top of the document past everything just skipped.
+    row.focus();
+  }, [jumpedTo]);
+
   if (error) return <Failure error={error} retry={reload} />;
   if (loading || !data) return <Loading rows={5} label="Reading the source" />;
+
+  /*
+   * How many profiled columns still have no approved label, and how many there
+   * are — a count of what is on this screen, not a statistic.
+   *
+   * "Nothing is computed in the browser" is about numbers that describe the
+   * data: an average, a share, a q-value. This is a count of rows in a table
+   * the reader is looking at against a map the server sent, and computing it
+   * on the server would mean a request whose answer is already here twice
+   * over. Nothing about the dataset is being measured.
+   */
+  const profiled = columns.data ?? [];
+  const unlabelled = labels
+    ? profiled.filter((column) => !labels[column.name]).length
+    : null;
 
   return (
     <>
@@ -427,7 +539,14 @@ export function SourceDetail({ projectId, sourceId, onDiscover }: {
         database, so it costs an ordinary failed ingestion nothing.
       */}
       {data.ingestion_status === "failed" && (
-        <DatabaseTables projectId={projectId} sourceId={sourceId} />
+        /*
+          The handler that was declared and never passed (D205). Importing a
+          table creates a source of its own and returns its id; without this
+          the researcher was left on the failed database with nothing naming
+          where the rows had gone.
+        */
+        <DatabaseTables projectId={projectId} sourceId={sourceId}
+                        onImported={onOpenSource} />
       )}
 
       {data.paper && (
@@ -467,8 +586,37 @@ export function SourceDetail({ projectId, sourceId, onDiscover }: {
               profile first has already been told a number without being told
               what it counted.
             */}
-            <CohortTree projectId={projectId}
-                        datasetVersionId={data.dataset.dataset_version_id} />
+            <CohortTree
+              projectId={projectId}
+              datasetVersionId={data.dataset.dataset_version_id}
+              /*
+                The other handler D205 names. A subset is a range on a column,
+                so the thing to show a reader who presses one is the profiled
+                column it was drawn on — which is on this same screen, a few
+                hundred pixels down.
+
+                Supplied only once the profile has arrived: with no schema
+                below there is nowhere to jump to, and the tree renders the
+                names as text rather than as controls that do nothing.
+              */
+              onSelect={profiled.length === 0 ? undefined : (subset) => {
+                const named = subset.columns.find(
+                  (name) => profiled.some((column) => column.name === name));
+                if (!named) {
+                  // Stated, not swallowed. A subset drawn on a column this
+                  // version no longer profiles is a real fact about the
+                  // chain, and silence would read as a broken control.
+                  setJumpedTo(null);
+                  setJumpFailed(
+                    subset.columns.length === 0
+                      ? `“${subset.name}” does not record which column it was drawn on, so there is no row here to show you.`
+                      : `“${subset.name}” was drawn on ${subset.columns.join(", ")}, which this profile does not have.`);
+                  return;
+                }
+                setJumpFailed(null);
+                setJumpedTo({ column: named, subset: subset.name });
+              }}
+            />
 
             {columns.loading && <Loading rows={4} label="Reading the profile" />}
             {columns.error ? <Failure error={columns.error} retry={columns.reload} /> : null}
@@ -487,9 +635,15 @@ export function SourceDetail({ projectId, sourceId, onDiscover }: {
                        every average until somebody is told about it. */
                     const notices = columnNotices(
                       column.statistics, column.physical_type);
+                    /* Lit because a subset above points at it. */
+                    const lit = jumpedTo?.column === column.name;
                     return (
                     <Fragment key={column.name}>
-                    <tr>
+                    <tr
+                      ref={lit ? jumpedRow : undefined}
+                      tabIndex={lit ? -1 : undefined}
+                      style={lit ? { background: "var(--hover)" } : undefined}
+                    >
                       <td className="mono" style={{ color: "var(--ink)" }}>{column.name}</td>
                       <td style={{ color: "var(--ink-soft)" }}>
                         {column.semantic_type || column.physical_type}
@@ -520,6 +674,48 @@ export function SourceDetail({ projectId, sourceId, onDiscover }: {
                   })}
                 </tbody>
               </table>
+            )}
+
+            {/*
+              What the jump did, in words. §118 — the row above is lit, and a
+              highlight that is only a background says nothing to a reader who
+              cannot see it.
+            */}
+            {jumpedTo && (
+              <p className="note" style={{ marginTop: 8 }}>
+                Showing <span className="mono">{jumpedTo.column}</span>, the
+                column “{jumpedTo.subset}” is drawn on.
+              </p>
+            )}
+            {jumpFailed && <p className="note" style={{ marginTop: 8 }}>{jumpFailed}</p>}
+
+            {/*
+              The bridge to Variables, from the schema that needs it (plan
+              §4.8.3). Variables is the reason a chart stops being titled
+              `resistance_pct` (`Shell.tsx:56-63`), and nothing anywhere linked
+              forward to it from the data it describes.
+
+              A route, not a duplicated control: the approve/reject cards stay
+              on Variables, where the alias dropdown is built from the
+              variables the project actually has (`variables.tsx:317-320`).
+            */}
+            {unlabelled !== null && profiled.length > 0 && (
+              <p className="note" style={{ marginTop: 10 }}>
+                {unlabelled === 0
+                  ? `Every one of these ${profiled.length} columns has an approved label.`
+                  : `${unlabelled} of ${profiled.length} columns have no approved label.`}
+                {" "}
+                {/* §123 — offered as a control only where there is somewhere
+                    to send it. Where there is not, the count still stands and
+                    the sentence names the screen instead. */}
+                {onGo ? (
+                  <button type="button" className="pick"
+                          style={{ display: "inline", width: "auto" }}
+                          onClick={() => onGo("variables")}>
+                    {unlabelled === 0 ? "See them on Variables →" : "Review them →"}
+                  </button>
+                ) : "They are reviewed on the Variables screen."}
+              </p>
             )}
           </div>
         </>
@@ -558,6 +754,42 @@ function Ingesting({ status }: { status: string }) {
 // Search (§29, §30)
 // ---------------------------------------------------------------------------
 
+/**
+ * One retrieval event, and the passages the answer was built from.
+ *
+ * Typed here rather than in `lib/api.ts` because this is the only caller.
+ * `retrieval.retrieval_provenance` is the authority: it returns the
+ * `retrieval_events` row itself plus a `results` list joined to the passages
+ * and their sources
+ * (`packages/research-domain/src/throughline_domain/retrieval.py:170-189`).
+ */
+type RetrievalAudit = {
+  id: string;
+  project_id: string;
+  query: string;
+  strategy: string;
+  filters: Record<string, unknown>;
+  result_count: number;
+  created_at: string;
+  results: Array<{
+    rank: number;
+    passage_id: string;
+    source_id: string;
+    /** The document's title — the one thing the hit list above cannot show. */
+    source_title: string;
+    content: string;
+    locator: string;
+    page: number | null;
+    section: string;
+    lexical_score: number | null;
+    semantic_score: number | null;
+    fused_score: number;
+    rerank_score: number | null;
+    char_start: number | null;
+    char_end: number | null;
+  }>;
+};
+
 export function Search({ projectId, onOpenSource }: {
   projectId: string;
   /**
@@ -572,6 +804,32 @@ export function Search({ projectId, onOpenSource }: {
   const [submitted, setSubmitted] = useState<string | null>(null);
   const path = submitted ? `/api/projects/${projectId}/search?q=${encodeURIComponent(submitted)}&limit=12` : null;
   const { data, error, loading, reload } = useApi<SearchResult>(path);
+
+  /*
+   * Whether the passage audit has been asked for (D203, plan §4.9.1).
+   *
+   * `GET /api/retrievals/{event_id}` is the route that answers "which passages
+   * was this built from", and it had no caller anywhere in `apps/web` — the
+   * inventory's one dead end by omission rather than by design. It is fetched
+   * on opening rather than with the search, because every search would
+   * otherwise pay for an audit almost nobody opens.
+   *
+   * Set and never unset: closing the disclosure is not a reason to throw the
+   * answer away and fetch it again on the next open.
+   */
+  const [auditing, setAuditing] = useState(false);
+  const eventId = data?.retrieval_event_id ?? null;
+  const audit = useApi<RetrievalAudit>(
+    auditing && eventId ? `/api/retrievals/${eventId}` : null);
+
+  /*
+   * A new search is a new event, so the panel goes back to unasked.
+   *
+   * Without this the previous search's passages would sit under this search's
+   * summary — a provenance panel showing the provenance of something else,
+   * which is worse than showing none.
+   */
+  useEffect(() => { setAuditing(false); }, [eventId]);
 
   return (
     <>
@@ -600,11 +858,146 @@ export function Search({ projectId, onOpenSource }: {
 
       {data && (
         <>
-          <div className="mono" style={{ color: "var(--ink-faint)", marginBottom: 12 }}>
-            strategy: {data.strategy} · lexical {data.lexical_candidates} · semantic{" "}
-            {data.semantic_candidates} · event {data.retrieval_event_id}
-          </div>
+          {/*
+            One sentence, then two disclosures that each name their own
+            contents (D203, plan §4.9.1).
+
+            What was here before was a single grey line of five machine facts
+            ending in a bare `ret_…` id — the one identifier printed beside
+            every search, and the one thing on the screen that could not be
+            opened. The scope sentence is what a reader actually needs first;
+            the strategy and the two candidate counts are still visible in a
+            summary rather than folded away under a label that does not
+            mention them, which is `ChartTable`'s law (`ChartTable.tsx:1-21`)
+            and this plan's principle 4.
+
+            The claim is exact: the view sends no `source_id` filter, so
+            `hybrid_search` runs over every passage in the project
+            (`app.py:931-943`).
+          */}
+          <p style={{ margin: "0 0 10px" }}>Searched every passage in this project.</p>
+
+          {/* `onToggle` on the details, not a click on the summary: the
+              audit is fetched however the disclosure is opened — pointer,
+              keyboard or assistive technology — and the summary stays the
+              native control it already is (§30). */}
+          <details className="disclosure" style={{ marginBottom: 6 }}
+                   onToggle={(e) => { if (e.currentTarget.open) setAuditing(true); }}>
+            <summary>
+              Which passages this search was built from
+            </summary>
+
+            <div style={{ margin: "8px 0 0 4px" }}>
+              {/* The raw id, kept where it can be quoted. It is what a
+                  methods section cites when it says an answer was built from
+                  a recorded retrieval. */}
+              <p className="note" style={{ margin: "0 0 8px" }}>
+                Recorded as retrieval event{" "}
+                <span className="mono">{eventId ?? "—"}</span>. Every passage
+                below was stored with its rank and both scores, so this list is
+                the record rather than a repeat of the search.
+              </p>
+
+              {audit.error ? <Failure error={audit.error} retry={audit.reload} /> : null}
+              {audit.loading && <Loading rows={3} label="Reading the retrieval record" />}
+              {/*
+                Guarded on the event id: `useApi` keeps the last body when its
+                path goes null, and rendering the previous search's passages
+                here would be exactly the mislabelling this panel exists to
+                prevent.
+              */}
+              {audit.data && audit.data.id === eventId && (
+                audit.data.results.length === 0 ? (
+                  <Empty
+                    title="This retrieval recorded no passages"
+                    hint="The search ran and matched nothing, which is a different fact from the record being missing."
+                  />
+                ) : (
+                  <ol style={{ margin: 0, paddingLeft: "1.2rem" }}>
+                    {audit.data.results.map((row) => (
+                      <li key={row.passage_id} style={{ marginBottom: 8 }}>
+                        {/* The document's title, which the hit list above
+                            does not carry at all — a passage nobody can name
+                            the source of is not a citation. */}
+                        <div style={{ fontWeight: 540 }}>{row.source_title}</div>
+                        <div className="mono" style={{ color: "var(--ink-faint)" }}>
+                          #{row.rank} · {row.locator}
+                          {row.section ? ` · ${row.section}` : ""} ·{" "}
+                          <span className="numeric">{row.passage_id}</span>
+                        </div>
+                        <div style={{ color: "var(--ink-soft)", fontSize: 12.5 }}>
+                          {row.content.slice(0, 240)}
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                )
+              )}
+            </div>
+          </details>
+
+          <details style={{ marginBottom: 14 }}>
+            <summary className="pick"
+                     style={{ display: "list-item", width: "auto", cursor: "pointer" }}>
+              How this search ran: {data.strategy}, {data.lexical_candidates} lexical
+              and {data.semantic_candidates} semantic candidates
+            </summary>
+            <div className="note" style={{ margin: "8px 0 0 4px" }}>
+              {/*
+                Every sentence here is a fact about `retrieval.hybrid_search`
+                (`retrieval.py:92-146`) and its module header, not a
+                description of search in general.
+              */}
+              <p style={{ marginTop: 0 }}>
+                {data.strategy === "hybrid"
+                  ? "Hybrid: the keyword index and the meaning index were both asked, and the two rankings were fused."
+                  : `Strategy “${data.strategy}”: only the keyword index answered. Semantic search returns nothing when no embedding model is installed, and the strategy names what actually ran rather than what was intended.`}
+              </p>
+              <p>
+                {data.lexical_candidates} passages came back from the keyword
+                index and {data.semantic_candidates} from the meaning index.
+                A passage can be in both counts. Those are the candidates
+                considered; {data.results.length} are listed below.
+              </p>
+              <p style={{ marginBottom: 0 }}>
+                The two are combined by rank, not by score: a keyword rank and
+                a cosine similarity are not on a common scale, and normalising
+                one against the other would invent a comparability that does
+                not exist.
+              </p>
+            </div>
+          </details>
+
           {data.results.length === 0 && <Empty title="Nothing matched" hint="Try different words, or add more sources." />}
+
+          {/*
+            Why there is no "Take this passage" here, stated rather than left
+            as an absence (plan §4.9.3, principle 7).
+
+            The board Find papers keeps is the §205 excerpt board, and the
+            server refuses an excerpt that cannot fill §205's list — source
+            paper, page, **bounding region**, citation, original context
+            (`throughline_domain/excerpts.py:44-77`, and `region` is required
+            by `ExcerptRequest` at `app.py:1427-1441`). A search hit is text
+            the index matched: `SearchResult.results` carries no region and
+            the `passages` table stores none, so a passage taken from here
+            could only be stored by inventing coordinates. An excerpt on the
+            board with an invented region is exactly the orphan §205 exists to
+            keep off it. So this says so, in place, rather than offering a
+            control that would either fail or lie.
+          */}
+          {data.results.length > 0 && (
+            <p className="note" style={{ marginBottom: 12 }}>
+              <b>Taking a passage.</b> The board on Find papers keeps a piece of
+              a paper with everything a citation needs — the document, the page,
+              the region circled on it, the citation and the words around it. A
+              passage found here is matched text with no circled region, and an
+              excerpt stored without one would sit on the board looking exactly
+              like one that can be traced. So nothing here writes to that board;
+              open the source to read the passage in place.
+            </p>
+          )}
+
           {data.results.map((hit) => (
             <div className="card card-tight" key={hit.passage_id}>
               <div className="row" style={{ marginBottom: 5 }}>
@@ -637,7 +1030,8 @@ export function Search({ projectId, onOpenSource }: {
 // Discovery (§48, §49)
 // ---------------------------------------------------------------------------
 
-export function Discover({ projectId, sources, onSelectConnection, startWith, onStarted }: {
+export function Discover({ projectId, sources, onSelectConnection, startWith,
+                          onStarted, connectionTotal }: {
   projectId: string;
   /** Owned by the workspace — see the note on Sources. */
   sources: ApiState<Source[]>;
@@ -645,6 +1039,15 @@ export function Discover({ projectId, sources, onSelectConnection, startWith, on
   /** Set when the researcher pressed "Discover connections" on a source. */
   startWith?: string | null;
   onStarted?: () => void;
+  /**
+   * How many connections this project has, for the table's truncation line.
+   *
+   * This screen's list is capped at 100 and said so nowhere (D201). The count
+   * comes from the workspace's discovery map rather than from a second
+   * request, and it is optional so a caller that does not have it makes the
+   * table say nothing rather than guess.
+   */
+  connectionTotal?: number;
 }) {
   const connections = useApi<Connection[]>(`/api/projects/${projectId}/connections?limit=100`);
   const [running, setRunning] = useState(false);
@@ -813,15 +1216,34 @@ export function Discover({ projectId, sources, onSelectConnection, startWith, on
         connections={connections.data} error={connections.error}
         loading={connections.loading} reload={connections.reload}
         onSelect={onSelectConnection}
+        total={connectionTotal}
       />
     </>
   );
 }
 
-export function ConnectionsTable({ connections, error, loading, reload, onSelect }: {
+export function ConnectionsTable({ connections, error, loading, reload, onSelect,
+                                  total }: {
   connections: Connection[] | null;
   error: unknown; loading: boolean; reload: () => void;
   onSelect: (id: string) => void;
+  /**
+   * How many connections this project has, against however many are shown.
+   *
+   * Both lists that draw this table are capped — 100 on Discovery, 200 on
+   * Connections — and neither said so, while `ChartTable` one directory away
+   * discloses truncation in its *closed* summary (`ChartTable.tsx:74-78`).
+   * D201: a table that quietly shows the first 200 rows is a table that lies
+   * about the data.
+   *
+   * The total comes from the caller because only the caller has it: the
+   * discovery map already counts every connection by lifecycle state
+   * (`DiscoveryMap.connections`), so no new request is needed and this
+   * component still computes nothing. Optional, because a caller that does not
+   * know the total must not be made to invent one — and where it is absent the
+   * table says nothing rather than guessing.
+   */
+  total?: number;
 }) {
   if (error) return <Failure error={error} retry={reload} />;
   if (loading && !connections) return <Loading rows={4} label="Reading connections" />;
@@ -831,6 +1253,36 @@ export function ConnectionsTable({ connections, error, loading, reload, onSelect
 
   return (
     <div style={{ marginTop: 18 }}>
+      {/*
+        Truncation, disclosed above the rows rather than discovered by
+        counting them (D201).
+      */}
+      {total !== undefined && connections.length < total && (
+        <p className="note" style={{ margin: "0 0 8px" }}>
+          Showing the first {connections.length} of {total}.
+        </p>
+      )}
+
+      {/*
+        The correction, as the table's caption rather than as a footnote
+        (plan §4.10.1).
+
+        A first-timer reading top to bottom met 7.44e-39 in the q-value column
+        before anything on the screen said what a q-value is or what it was
+        corrected across — three separate files state that a q-value means
+        nothing without the number of tests it was corrected over
+        (`sweep.tsx:12-13`, `ledger.tsx:6-9`), and this one stated it *after*
+        the table. The gloss carries the meaning ("corrected for how many tests
+        ran") before the method is named, which is the order a reader needs
+        them in (D207).
+      */}
+      <p className="note" style={{ margin: "0 0 8px" }}>
+        Every <Term id="q-value" /> in this table is corrected by{" "}
+        <Term id="Benjamini–Hochberg" />, across every test in the discovery
+        run. An uncorrected p-value would call roughly one in twenty of these
+        significant by chance.
+      </p>
+
       <table>
         <thead>
           {/*
@@ -874,10 +1326,6 @@ export function ConnectionsTable({ connections, error, loading, reload, onSelect
           ))}
         </tbody>
       </table>
-      <p className="note">
-        q-values are Benjamini-Hochberg corrected across every test in the discovery run.
-        An uncorrected p-value would call roughly one in twenty of these significant by chance.
-      </p>
     </div>
   );
 }
@@ -959,7 +1407,28 @@ export function Findings({ projectId, onSelect }: {
   );
 }
 
-export function EvidenceGraphView({ findingId, onOpenAnalysis }: {
+/**
+ * The two lists the finding detail needs from the evidence graph.
+ *
+ * Deliberately narrower than `EvidenceGraph` itself: the callback promises
+ * exactly the fields a "Take it further" card reads — the run id a figure is
+ * published against, and enough of each connection to ask
+ * `canDraftReport` and to name the pair — so the finding detail cannot quietly
+ * grow a dependency on the rest of the payload and then break when that
+ * payload changes shape. Structurally assignable from `EvidenceGraph`, which
+ * is what makes the hand-off free.
+ */
+export type EvidenceGraphSummary = {
+  analyses: Array<{ id: string; method: string }>;
+  connections: Array<{
+    id: string;
+    analysis_run_id: string | null;
+    left_variable: string;
+    right_variable: string;
+  }>;
+};
+
+export function EvidenceGraphView({ findingId, onOpenAnalysis, onLoaded }: {
   findingId: string;
   /**
    * Open the analysis a finding rests on.
@@ -973,10 +1442,45 @@ export function EvidenceGraphView({ findingId, onOpenAnalysis }: {
    * to, where a button that did nothing would be worse than a plain row.
    */
   onOpenAnalysis?: (runId: string) => void;
+  /**
+   * Hand the evidence graph up once it has arrived (plan §4.6.1).
+   *
+   * The finding detail's "Take it further" card needs two ids that are already
+   * on this wire: the run a figure is published against
+   * (`evidence.analyses[0].id`) and the connection a report can start from
+   * (`evidence.connections.find(canDraftReport)`). Lifting them through a
+   * callback rather than letting `page.tsx` fetch
+   * `/api/findings/{id}/evidence-graph` a second time keeps one request and
+   * one answer: two fetches of the same path are two copies that drift, which
+   * is the rule the note on `Sources` above states for the source list.
+   *
+   * Called once per graph, from an effect rather than during render — calling
+   * a parent's setter while rendering a child is the React warning that turns
+   * into an update loop.
+   */
+  onLoaded?: (graph: EvidenceGraphSummary) => void;
 }) {
   const { data, error, loading, reload } = useApi<EvidenceGraph>(
     `/api/findings/${findingId}/evidence-graph`,
   );
+
+  /*
+   * Once per arrival, and not once per render.
+   *
+   * Keyed on `data` so a re-render with the same body does not fire again, and
+   * so a *different* finding's graph does fire — the panel is remounted by key
+   * on some screens and reused on others, and only the payload identity is
+   * true in both cases.
+   */
+  useEffect(() => {
+    if (!data) return;
+    onLoaded?.({ analyses: data.analyses, connections: data.connections });
+    // `onLoaded` is deliberately not a dependency: a caller that passes an
+    // inline arrow would otherwise re-fire this on every parent render, which
+    // is the loop this effect exists to avoid.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
   if (error) return <Failure error={error} retry={reload} />;
   if (loading || !data) return <Loading rows={5} label="Assembling the evidence" />;
 
@@ -1031,11 +1535,11 @@ export function EvidenceGraphView({ findingId, onOpenAnalysis }: {
                   knowing where to look.
                 */}
                 {onOpenAnalysis ? (
-                  <button type="button"
-                          onClick={() => onOpenAnalysis(a.id)}
-                          style={{ border: "none", background: "none", padding: 0,
-                                   font: "inherit", color: "var(--accent)",
-                                   cursor: "pointer", textAlign: "left" }}>
+                  /* `.pick`, the shared in-list opener, rather than the inline
+                     text-button this used to hand-roll: the same rank of action
+                     looks the same on every screen (§4.6.4). */
+                  <button type="button" className="pick"
+                          onClick={() => onOpenAnalysis(a.id)}>
                     <span className="mono">{a.method}</span>
                   </button>
                 ) : <span className="mono">{a.method}</span>}
@@ -1054,7 +1558,10 @@ export function EvidenceGraphView({ findingId, onOpenAnalysis }: {
           <h2>Challenges</h2>
           {data.challenges.map((c) => (
             <div className="card card-tight" key={c.id}>
-              <Status value={c.verdict === "holds" ? "validated" : "conflicted"} />
+              {/* `raw`: these are the pill's colours borrowed for a challenge
+                  verdict, not lifecycle states, so the lifecycle phrases
+                  must not be printed for them. */}
+              <Status raw value={c.verdict === "holds" ? "validated" : "conflicted"} />
               <div style={{ marginTop: 5 }}>{c.summary}</div>
             </div>
           ))}
@@ -1215,6 +1722,184 @@ function reveal(section: HTMLElement | null, control?: HTMLElement | null) {
   (control ?? section.querySelector<HTMLElement>("button") ?? section).focus();
 }
 
+/**
+ * The shape `graph_projection.shortest_path` answers with
+ * (`packages/research-domain/src/throughline_domain/graph_projection.py:279-305`).
+ *
+ * Local rather than in `lib/api.ts` because this is the only caller. Two
+ * different bodies come back from one route: an unconnected pair carries a
+ * `note` and an empty path, a connected one carries the nodes and the relation
+ * kinds between them. Both are real answers, and neither is an error.
+ */
+type GraphPath = {
+  connected: boolean;
+  path: Array<{ id: string; title: string | null; object_type: string }>;
+  relations?: string[];
+  length?: number;
+  /** Whether the projection has caught up with the record, in its own words. */
+  staleness: { current: boolean; note: string } | null;
+  store?: string;
+  /** Present when nothing was found within the depth the route bounded. */
+  note?: string;
+};
+
+/**
+ * How two objects in this project are related at all (plan §4.5.4, slice 3.4).
+ *
+ * `GET /api/projects/{id}/graph/path` is one of the orphan routes the inventory
+ * lists in §3: built, bounded, and reachable from nowhere. It sits beside Trace
+ * with the distinction stated once, because this is the product's *fourth*
+ * provenance surface and the inventory already records provenance being
+ * duplicated across three unrelated mechanisms (§7) — an unexplained fourth
+ * would compound exactly that confusion. Trace answers how this number was
+ * made; this answers how two objects are related at all, which is a different
+ * question with a different answer shape.
+ *
+ * **The other object is chosen from what this project already has.** The
+ * connections list is already on the connection detail, and each row carries
+ * the object id of the run that produced it, so the picker costs no request
+ * and offers nothing that does not exist — the same rule that builds the alias
+ * dropdown from the project's own variables (`variables.tsx:317-320`).
+ *
+ * **No projection is a reduced feature set, not a failure** (ADR 0002). The
+ * route answers 503 with the sentence `ProjectionUnavailable` carries, which
+ * already says what still works, and that sentence is printed rather than
+ * paraphrased (§104) — in the same shape as the Settings readout
+ * (`settings.tsx:980-1000`) so the two cannot read as different situations.
+ */
+function ConnectedHow({ projectId, sourceObjectId, others }: {
+  projectId: string;
+  /** The object for the run behind this connection, or null if it had none. */
+  sourceObjectId: string | null;
+  /** Every other result in this project that has an object to path to. */
+  others: Array<{ objectId: string; name: string }>;
+}) {
+  const [chosen, setChosen] = useState("");
+  const [asked, setAsked] = useState<string | null>(null);
+  /** Pressed with nothing chosen. A refusal is a sentence, never a grey button. */
+  const [needsTarget, setNeedsTarget] = useState(false);
+  const answer = useApi<GraphPath>(
+    asked && sourceObjectId
+      ? `/api/projects/${projectId}/graph/path`
+        + `?source_id=${encodeURIComponent(sourceObjectId)}`
+        + `&target_id=${encodeURIComponent(asked)}`
+      : null);
+
+  // 503 is the one status these routes raise for absence, and its detail is the
+  // sentence that says what still works. Any other failure is a real failure:
+  // flattening the two would tell a researcher with a broken session that their
+  // graph store is merely unconfigured.
+  const reduced = answer.error instanceof ApiError && answer.error.status === 503
+    ? answer.error.message : null;
+
+  return (
+    <div className="card card-tight" id="connection-graph-path" tabIndex={-1}>
+      <h3 className="eyebrow">Where this came from, and how it relates to another result</h3>
+      <p className="note" style={{ marginTop: 0 }}>
+        Trace, on the result above, answers how this number was made. This
+        answers how two objects in the project are related at all — through
+        whatever chain of recorded relationships joins them, or not at all.
+      </p>
+
+      {sourceObjectId === null ? (
+        // Principle 7: the control stays and says why, because a missing one
+        // teaches that the product cannot do this.
+        <p className="note" style={{ marginBottom: 0 }}>
+          There is no object in the graph for this connection to start from.
+          That object is created by the run that computes a result, and this
+          connection has none — a path needs two recorded objects.
+        </p>
+      ) : others.length === 0 ? (
+        <p className="note" style={{ marginBottom: 0 }}>
+          Nothing else in this project has a recorded object to path to yet.
+          Another result computed from a discovery run is the second object this
+          needs.
+        </p>
+      ) : (
+        <>
+          <div className="row" style={{ marginTop: 10 }}>
+            <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <span className="eyebrow" style={{ margin: 0 }}>Related to</span>
+              <select value={chosen} aria-label="Another result in this project"
+                      onChange={(event) => setChosen(event.target.value)}>
+                <option value="">choose a result…</option>
+                {others.map((other) => (
+                  <option key={other.objectId} value={other.objectId}>{other.name}</option>
+                ))}
+              </select>
+            </label>
+            {/*
+              Not disabled while nothing is chosen. A greyed control states
+              nothing and cannot even take the keyboard, which is how the
+              band's jump lands on the block and stops — the refusal is a
+              sentence in place instead.
+            */}
+            <button type="button" className="btn"
+                    onClick={() => {
+                      if (!chosen) { setNeedsTarget(true); return; }
+                      setNeedsTarget(false);
+                      setAsked(chosen);
+                    }}>
+              How are these connected?
+            </button>
+          </div>
+
+          {needsTarget && !chosen && (
+            <p className="note">
+              Choose the other result first. A path runs between two recorded
+              objects, and only one of them is this screen.
+            </p>
+          )}
+
+          {reduced !== null && <p className="note">{reduced}</p>}
+          {reduced === null && answer.error
+            ? <Failure error={answer.error} retry={answer.reload} /> : null}
+          {answer.loading && <Loading rows={2} label="Following the recorded relationships" />}
+
+          {answer.data && (
+            answer.data.connected ? (
+              <>
+                <ol className="chain" style={{ marginTop: 10 }}>
+                  {answer.data.path.map((node, index) => (
+                    <li key={`${node.id}-${index}`}>
+                      <span style={{ color: "var(--ink)", fontWeight: 540 }}>
+                        {node.title || node.id}
+                      </span>{" "}
+                      <span className="mono" style={{ color: "var(--ink-faint)" }}>
+                        {objectTypeName(node.object_type)}
+                        {/* The relation that got here, named as the graph
+                            records it — not summarised into "related to". */}
+                        {index > 0 && answer.data!.relations?.[index - 1]
+                          ? ` · ${answer.data!.relations![index - 1].replace(/_/g, " ")}`
+                          : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+                <p className="note" style={{ marginBottom: 0 }}>
+                  {answer.data.length} step{answer.data.length === 1 ? "" : "s"} apart.
+                  A path says the two are related through recorded work. It does
+                  not say either one is evidence for the other.
+                </p>
+              </>
+            ) : (
+              // The server's own sentence for "no path within the bound",
+              // which is careful to say what it does not know.
+              <p className="note" style={{ marginBottom: 0 }}>{answer.data.note}</p>
+            )
+          )}
+
+          {answer.data?.staleness && !answer.data.staleness.current && (
+            <p className="note" style={{ marginBottom: 0 }}>
+              {answer.data.staleness.note}
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export function ConnectionDetail({ connectionId, projectId, onRecordFinding,
                                   onDraftedReport }: {
   connectionId: string;
@@ -1257,6 +1942,8 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding,
   const validateCard = useRef<HTMLDivElement | null>(null);
   const validateButton = useRef<HTMLButtonElement | null>(null);
   const recordCard = useRef<HTMLDivElement | null>(null);
+  /** The path panel, so the band can move to it rather than repeat it. */
+  const pathCard = useRef<HTMLDivElement | null>(null);
 
   /** The report drafted from this connection, if one has been drafted here. */
   const [drafted, setDrafted] = useState<string | null>(null);
@@ -1396,6 +2083,16 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding,
       onSelect: () => reveal(recordCard.current),
     },
     reportAction,
+    /*
+     * The fourth provenance question, named in the band and answered once, in
+     * the panel below. A `scroll` rather than an `action` for the same reason
+     * Validate is: the panel owns which other object was chosen, and a second
+     * control here would be a second thing to keep in step with it.
+     */
+    {
+      label: "How are these connected? ↓", kind: "scroll",
+      onSelect: () => reveal(pathCard.current),
+    },
   ];
 
   return (
@@ -1445,6 +2142,32 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding,
       <ObjectActions items={actions} />
       {draftError ? <Failure error={draftError} /> : null}
 
+      {/*
+        Beside Trace, under one heading with the distinction between them
+        stated (plan §4.5.4). The list of other results is built from the
+        connections this screen already fetched, so the picker costs no
+        request: each row carries `analysis_object_id`, the addressable object
+        for the run that produced it (`discovery.py:477-482`).
+      */}
+      {/* `tabIndex={-1}` so the band can put the keyboard here even in the two
+          cases where the panel states a reason instead of offering a control
+          — `reveal` focuses the block when there is no button inside it. */}
+      <div ref={pathCard} tabIndex={-1}>
+        <ConnectedHow
+          projectId={projectId}
+          sourceObjectId={connection.analysis_object_id ?? null}
+          others={(connections.data ?? [])
+            .filter((other) => other.id !== connectionId && other.analysis_object_id)
+            .map((other) => ({
+              objectId: other.analysis_object_id as string,
+              // Named the way every other surface names it — approved labels,
+              // never a raw column (Part C).
+              name: `${labels[other.left_variable] ?? other.left_variable}`
+                + ` and ${labels[other.right_variable] ?? other.right_variable}`,
+            }))}
+        />
+      </div>
+
       <EvidenceGrade
         runId={connection.analysis_run_id}
         quality={connection.evidence_quality}
@@ -1476,18 +2199,18 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding,
         {candidates.length > 0 && (
           <div className="picker">
             {candidates.map((column) => (
-              <label className="pick" key={column.name} data-on={chosen.includes(column.name)}>
+              <label className="pick-option" key={column.name} data-on={chosen.includes(column.name)}>
                 <input
                   type="checkbox"
                   checked={chosen.includes(column.name)}
                   onChange={() => toggle(column.name)}
                 />
-                <span className="pick-name">
+                <span className="pick-option-name">
                   {(variables.data?.labels ?? {})[column.name] ?? column.name}
                 </span>
                 {/* The profile is shown because it is what makes a column a
                     plausible confounder — type, spread, and how much is missing. */}
-                <span className="pick-meta">
+                <span className="pick-option-meta">
                   {column.semantic_type || column.physical_type}
                   {column.unit ? ` · ${column.unit}` : ""}
                   {column.missing_count > 0 ? ` · ${column.missing_count} missing` : ""}
@@ -1620,6 +2343,114 @@ function EvidenceGrade({ runId, quality }: { runId: string | null; quality: stri
 }
 
 /**
+ * One validation report, read from its own route (plan §4.5.5, slice 3.4).
+ *
+ * `GET /api/validations/{report_id}` was built, tested and called by nothing in
+ * `apps/web` (inventory §3). It answers with the whole
+ * `validation_reports` row plus every check's `evidence` — the numbers the
+ * check was decided on, which `validation.py` records for all three checks
+ * (`q_value`/`p_value`, `dropped_rows`/`rows_used`/`fraction`, and the columns
+ * `flagged`) and which the list above renders nowhere. That is what this
+ * opens: not a repeat of the summary, but the arithmetic under each verdict.
+ *
+ * Fetched on opening. A connection can carry several reports and almost nobody
+ * opens all of them, so the request follows the gesture.
+ */
+type ValidationEvidence = Record<string, unknown>;
+
+type ValidationReportDetail = {
+  id: string;
+  status: string;
+  passed: boolean | null;
+  summary: string;
+  created_at: string;
+  /** Null while the run is still going. */
+  finished_at: string | null;
+  check_details: Array<{
+    name: string;
+    outcome: string;
+    detail: string;
+    analysis_run_id: string | null;
+    evidence: ValidationEvidence;
+  }>;
+};
+
+/** A recorded value, as words. Never rounded, never recomputed — printed. */
+function evidenceValue(value: unknown): string {
+  if (value === null || value === undefined) return "—";
+  if (Array.isArray(value)) return value.length ? value.map(String).join(", ") : "none";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function ValidationReportEvidence({ reportId }: { reportId: string }) {
+  const [opened, setOpened] = useState(false);
+  const { data, error, loading, reload } = useApi<ValidationReportDetail>(
+    opened ? `/api/validations/${reportId}` : null);
+
+  return (
+    <details className="disclosure" style={{ marginTop: 10 }}
+             onToggle={(e) => { if (e.currentTarget.open) setOpened(true); }}>
+      {/* The closed summary states what is inside it (principle 4,
+          `ChartTable.tsx:1-21`) — never "more", never a chevron alone. The
+          fetch hangs on the toggle, so opening from the keyboard fetches too. */}
+      <summary>
+        What each check measured, and when this run finished
+      </summary>
+
+      <div style={{ marginTop: 8 }}>
+        {error ? <Failure error={error} retry={reload} /> : null}
+        {loading && <Loading rows={2} label="Reading the validation report" />}
+        {data && (
+          <>
+            <dl className="kv" style={{ marginBottom: 10 }}>
+              <dt>Report</dt><dd className="mono">{data.id}</dd>
+              <dt>Started</dt><dd>{data.created_at}</dd>
+              <dt>Finished</dt>
+              <dd>
+                {/* Null is a state, not a blank: a run still going has not
+                    finished, and an em dash would read as "not recorded". */}
+                {data.finished_at ?? "still running"}
+              </dd>
+            </dl>
+
+            {data.check_details.length === 0 ? (
+              <p className="note" style={{ margin: 0 }}>
+                This report recorded no checks. That is not a pass — nothing was
+                supplied for it to test.
+              </p>
+            ) : (
+              data.check_details.map((check) => (
+                <div key={check.name} style={{ marginBottom: 10 }}>
+                  <div className="row">
+                    <span className="mono">{check.name.replace(/_/g, " ")}</span>
+                    <Status value={check.outcome} />
+                  </div>
+                  {Object.keys(check.evidence ?? {}).length === 0 ? (
+                    <p className="note" style={{ margin: "4px 0 0" }}>
+                      No figures were recorded for this check.
+                    </p>
+                  ) : (
+                    <dl className="kv" style={{ marginTop: 4 }}>
+                      {Object.entries(check.evidence).map(([key, value]) => (
+                        <Fragment key={key}>
+                          <dt>{key.replace(/_/g, " ")}</dt>
+                          <dd className="numeric">{evidenceValue(value)}</dd>
+                        </Fragment>
+                      ))}
+                    </dl>
+                  )}
+                </div>
+              ))
+            )}
+          </>
+        )}
+      </div>
+    </details>
+  );
+}
+
+/**
  * The §51 report, which until now the interface ran but never showed.
  *
  * A lifecycle state that changes with no visible reasoning is an unaccountable
@@ -1673,6 +2504,7 @@ function ValidationReports({ reports }: {
             A check recorded as <b>not tested</b> is not a pass. It means nothing was
             supplied for it to test.
           </p>
+          <ValidationReportEvidence reportId={report.id} />
         </div>
       ))}
     </>

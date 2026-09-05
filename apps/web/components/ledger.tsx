@@ -58,7 +58,22 @@ type Ledger = {
   note: string;
 };
 
-export function ExplorationLedger({ projectId }: { projectId: string }) {
+export function ExplorationLedger({ projectId, discoveryTestCount }: {
+  projectId: string;
+  /**
+   * How many tests the discovery run on this screen performed, if one is on
+   * screen — `Sweep.tests_run` from `GET /api/discoveries/{run_id}`
+   * (`sweep.tsx:31`), passed straight through.
+   *
+   * Optional because Connections shows no single run. It exists for the
+   * defect §4.10.2 names: a table of corrected tests sits about 200 px above a
+   * panel reading "0 looks", and a reader can only conclude that the ledger is
+   * broken or the q-values are uncorrected — both of which are wrong. The two
+   * numbers count different things, and the empty state can only say so if it
+   * is given the other one.
+   */
+  discoveryTestCount?: number;
+}) {
   const [enquiry, setEnquiry] = useState<Enquiry | null>(null);
   const [failure, setFailure] = useState<unknown>(null);
   const [showPast, setShowPast] = useState(false);
@@ -87,7 +102,8 @@ export function ExplorationLedger({ projectId }: { projectId: string }) {
 
       {showPast && <PastEnquiries projectId={projectId} currentId={enquiry.id} />}
 
-      <Family projectId={projectId} enquiryId={enquiry.id} />
+      <Family projectId={projectId} enquiryId={enquiry.id}
+              discoveryTestCount={discoveryTestCount} />
     </section>
   );
 }
@@ -247,9 +263,10 @@ function PastEnquiries({ projectId, currentId }: {
   );
 }
 
-function Family({ projectId, enquiryId }: {
+function Family({ projectId, enquiryId, discoveryTestCount }: {
   projectId: string;
   enquiryId: string;
+  discoveryTestCount?: number;
 }) {
   const { data, error, loading, reload } = useApi<Ledger>(
     `/api/projects/${projectId}/exploration/${enquiryId}`, [enquiryId],
@@ -261,10 +278,37 @@ function Family({ projectId, enquiryId }: {
   }
 
   if (data.looks === 0) {
+    /*
+     * The empty state names its boundary (plan §4.10.2).
+     *
+     * "Nothing tested yet" is true of *this line of enquiry* and reads, on a
+     * screen showing six corrected q-values two hundred pixels above it, as a
+     * claim that nothing has been tested at all. The two counts measure
+     * different things: the ledger counts the looks taken since this line of
+     * enquiry was opened, and a discovery run performed its own tests before
+     * it began. Saying which is which is the whole fix.
+     *
+     * Still no warning, no threshold and no colour: the tone rule at the top
+     * of this file holds. This is a boundary, not a problem.
+     */
     return (
       <Empty
         title="Nothing tested yet in this line of enquiry"
-        hint="The first result needs no correction. The twentieth does."
+        hint={
+          "This line of enquiry counts the looks taken since it was opened. "
+          + "The results above were produced before it began. The first "
+          + "result needs no correction. The twentieth does."
+        }
+        action={discoveryTestCount === undefined ? null : (
+          // The run's own number, passed in from the run. This screen counts
+          // nothing and adds nothing to it.
+          <p className="note" style={{ marginTop: 0 }}>
+            The discovery run on this screen performed{" "}
+            <b className="numeric">{discoveryTestCount}</b>{" "}
+            test{discoveryTestCount === 1 ? "" : "s"}, and the q-values above
+            were corrected across those.
+          </p>
+        )}
       />
     );
   }

@@ -41,6 +41,7 @@ from throughline_domain import (
     graph_projection, graphs,
     harmonize, images, interpret, journal, lineage, notebook, objects, observability,
     arrange, authoring, board, citations, communication, embedding_space,
+    dataset_import,
     excerpts, extras,
     haptics,
     marks,
@@ -1561,6 +1562,126 @@ def search_dataset_repositories(
                                limit=payload.limit, mailto=contact)
     except Exception as exc:  # noqa: BLE001 — a search failure is not a crash
         raise HTTPException(502, f"The search could not be completed ({exc}).")
+
+
+class DatasetImportRequest(BaseModel):
+    """One dataset record chosen from the repository search.
+
+    The three fields beside the URL are the record's own, carried from the
+    search result rather than re-fetched: what it is called, which repository
+    it was found in, and the licence it states. `licence` is nullable and
+    means "the repository did not say", which the dataset search is careful to
+    distinguish from "open" — flattening it to an empty string here would
+    undo that distinction one layer down.
+    """
+
+    url: str
+    title: str = Field(min_length=1, max_length=300)
+    repository: str = Field(min_length=1, max_length=60)
+    licence: str | None = None
+
+
+@app.post("/api/projects/{project_id}/datasets/import", status_code=202)
+def import_dataset(project_id: str, payload: DatasetImportRequest,
+                   user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Bring a dataset found on Find data into the project (D202).
+
+    **The same door an upload uses**, deliberately: the bytes are registered
+    with `storage.register_file`, the source is created by `objects.create_source`
+    and ingestion is queued as `ingest.source`, so a dataset that arrived from
+    Zenodo deduplicates, profiles, audits and appears in the Sources list
+    exactly like one dragged off a desktop. A second path would be a second set
+    of bugs — the reasoning `import_database_table` gives for writing a CSV out
+    and handing it to the ordinary ingestion rather than teaching the pipeline
+    a new kind of source.
+
+    202 rather than 200 for the reason `upload_source` gives: the file is on
+    disk and the work is durably queued, and nothing has been parsed yet.
+
+    Which addresses may be fetched at all is decided in
+    `throughline_domain.dataset_import`, where the SSRF reasoning lives — the
+    host must belong to a repository this installation actually searches, and
+    every redirect hop is checked again.
+    """
+    scoped_project(project_id, user)
+
+    try:
+        fetched = dataset_import.fetch_dataset(payload.url)
+    except dataset_import.DatasetImportRefused as exc:
+        # 422 with the sentence intact: every refusal names the host, the
+        # format or the cap, and the screen shows it in place of the control
+        # rather than translating it into "something went wrong" (§104).
+        raise HTTPException(422, str(exc)) from exc
+    except dataset_import.DatasetImportUnreachable as exc:
+        # 502, as the dataset search itself answers when a repository is down:
+        # nothing about this import was refused, the repository did not answer.
+        raise HTTPException(502, str(exc)) from exc
+
+    with transaction() as cur:
+        record = storage.register_file(
+            cur, project_id=project_id, filename=fetched.filename,
+            stream=io.BytesIO(fetched.content), media_type=fetched.media_type)
+
+        # Scoped to CONNECTOR, which is what `find_source_by_content_hash`
+        # documents: an upload and a repository import of the same bytes are
+        # two sources with different provenance, but importing the same record
+        # twice is one act done twice — and answering it with the source that
+        # already holds those bytes is the only way that does not leave a row
+        # behind whose ingestion run belongs to something else.
+        existing = objects.find_source_by_content_hash(
+            cur, project_id=project_id,
+            content_hash=str(record["content_hash"]),
+            source_type=SourceType.CONNECTOR)
+        if existing is not None:
+            return {
+                "source_id": existing["id"],
+                "file": record,
+                "workflow_run_id": existing["ingest_run_id"],
+                "ingestion_status": existing["ingestion_status"],
+                "source_reused": True,
+                "note": (f"These bytes are already in this project as "
+                         f"{existing['title']!r}, currently "
+                         f"{existing['ingestion_status']}. No second source "
+                         f"was created."),
+            }
+
+        source_id = objects.create_source(
+            cur, project_id=project_id, source_type=SourceType.CONNECTOR,
+            title=payload.title, actor=user["id"],
+            original_uri=payload.url, connector_id=payload.repository,
+            file_id=str(record["id"]),
+            content_hash=str(record["content_hash"]),
+            # Where it came from, kept on the source itself so the Sources list
+            # can say so. `licence` is carried as the repository stated it,
+            # null included: "not stated" is not "open".
+            metadata={"repository": payload.repository,
+                      "url": payload.url,
+                      "downloaded_from": fetched.url,
+                      "licence": payload.licence,
+                      "filename": fetched.filename,
+                      "size_bytes": fetched.size_bytes})
+        run_id = workflow.enqueue(
+            cur, workflow_name="ingest.source", project_id=project_id,
+            payload={"source_id": source_id},
+            # Keyed per source, for the reason the upload route gives at
+            # length: a retried POST collapses into one run, and a source that
+            # is created can never end up with no run to finish it.
+            idempotency_key=f"ingest:{source_id}")
+        events.audit(cur, project_id=project_id, actor=user["id"],
+                     action="imported", object_type="source",
+                     object_id=source_id,
+                     detail={"repository": payload.repository,
+                             "url": payload.url})
+
+    return {
+        "source_id": source_id, "file": record, "workflow_run_id": run_id,
+        "ingestion_status": "uploaded",
+        "source_reused": False,
+        "note": (f"{fetched.filename} is being profiled. It will appear in "
+                 f"Sources, with {payload.repository} and its licence "
+                 f"recorded as where it came from."),
+    }
 
 
 @app.post("/api/literature/pdf")

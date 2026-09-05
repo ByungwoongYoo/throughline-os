@@ -665,6 +665,11 @@ tbody tr:hover { background: var(--hover); }
 }
 .btn:hover:not(:disabled) { background: var(--hover); border-color: var(--accent); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+/* An anchor wearing `.btn` is a button to the reader, so it must not also be
+   a link to the eye. `a { color: inherit }` above resets the colour and leaves
+   the underline, which is why four same-rank controls on the finding detail
+   had four appearances — one of them underlined (§4.6.4). */
+a.btn { text-decoration: none; }
 .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .btn-primary:hover:not(:disabled) { filter: brightness(1.1); background: var(--accent); }
 
@@ -1144,6 +1149,10 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 
 /* --- confounder picker --------------------------------------------------- */
 
+/* The confounder picker's option card. Was `.pick`, which collided with
+   the in-list opener of the same name defined later in this file — the
+   later rule won, and this grid card had been losing its `display: grid`
+   ever since (T136). */
 .picker {
   display: grid;
   gap: 6px;
@@ -1151,7 +1160,7 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
 }
 
-.pick {
+.pick-option {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 3px 9px;
@@ -1162,12 +1171,12 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   cursor: pointer;
   transition: border-color 160ms ease, background 160ms ease;
 }
-.pick:hover { border-color: var(--line-strong); }
+.pick-option:hover { border-color: var(--line-strong); }
 /* Selected reads as a border, a background *and* the checkbox itself (§118). */
-.pick[data-on="true"] { border-color: var(--accent); background: var(--hover); }
-.pick input { margin: 0; grid-row: span 2; }
-.pick-name { font-family: var(--mono); font-size: 12.5px; color: var(--ink); word-break: break-word; }
-.pick-meta { grid-column: 2; font-size: 11px; color: var(--ink-faint); }
+.pick-option[data-on="true"] { border-color: var(--accent); background: var(--hover); }
+.pick-option input { margin: 0; grid-row: span 2; }
+.pick-option-name { font-family: var(--mono); font-size: 12.5px; color: var(--ink); word-break: break-word; }
+.pick-option-meta { grid-column: 2; font-size: 11px; color: var(--ink-faint); }
 
 /* --- the loop checklist -------------------------------------------------- */
 
@@ -1269,7 +1278,7 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 
 /* --- focus is always visible (§118) -------------------------------------- */
 
-:where(a, button, input, textarea, select, label.pick, [tabindex]):focus-visible {
+:where(a, button, input, textarea, select, label.pick-option, [tabindex]):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 4px;
@@ -2265,19 +2274,6 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   font-size: 13px; color: var(--ink-faint);
 }
-.ct-dataset {
-  padding: 5px 11px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: var(--panel);
-  font-size: 13px;
-  color: var(--ink);
-  cursor: pointer;
-  transition: border-color var(--micro) var(--ease-out-expo),
-              background var(--micro) var(--ease-out-expo);
-}
-.ct-dataset:hover { border-color: var(--accent); background: var(--hover); }
-
 .ct-provenance { margin-top: 14px; font-size: 12px; color: var(--ink-faint); }
 
 /* The three (four) steps. Which one stopped it matters more than that it
@@ -2544,17 +2540,17 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   margin-top: 8px; display: flex; align-items: center; gap: 10px;
 }
 .nj-hint { font-size: 11px; color: var(--ink-faint); }
-.nj-primary {
-  margin-left: auto;
-  padding: 7px 14px;
-  border: 1px solid var(--accent);
-  border-radius: 7px;
-  background: var(--accent);
-  color: var(--on-accent);
-  font-size: 13px;
-  cursor: pointer;
-}
-.nj-primary:disabled { opacity: 0.45; cursor: default; }
+/*
+ * `.nj-primary` used to live here and twelve controls across nine screens
+ * borrowed it, so "Search" was `btn-primary` on Search sources and a second
+ * shape on Find papers and Find data (§4.6.4). It is now `.btn .btn-primary`
+ * everywhere. It also carried `margin-left: auto` — a class that styled *and*
+ * positioned — so every bar that borrowed it inherited a right-edge push it
+ * never asked for. `.btn-primary` only styles; the two bars that actually
+ * wanted the push ask for it, here.
+ */
+.nj-actions .btn-primary,
+.syn-actions .btn-primary { margin-left: auto; }
 
 .nj-ask { margin-top: 14px; display: flex; gap: 8px; }
 .nj-ask input { flex: 1; }
@@ -3651,18 +3647,7 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 }
 /* Only the check that cannot be made by rereading gets an accent. */
 .nb-lint-item[data-kind="stale_evidence"] { border-left-color: var(--warn); }
-.nb-lint-item summary {
-  font-size: 12.5px; cursor: pointer; color: var(--ink); list-style: none;
-}
-.nb-lint-item summary::-webkit-details-marker { display: none; }
-.nb-lint-kind {
-  display: inline-block; margin-right: 8px; font-size: 10.5px;
-  text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint);
-}
-.nb-lint-why, .nb-lint-do {
-  margin: 6px 0 0 0; font-size: 12px; line-height: 1.55; color: var(--ink-soft);
-}
-.nb-lint-do { color: var(--ink-faint); }
+
 
 
 /* --- notebook index -------------------------------------------------------
@@ -4142,18 +4127,14 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   padding-bottom: 0.75rem;
 }
 /*
- * The bar's plain buttons are outlines. `.nj-primary` is not one of them, and
- * this rule used to catch it too: `background: transparent` beat the accent
- * fill on specificity, leaving `--n-0` text — near black — on the dark panel.
- * "Put something on the board" rendered as an empty rectangle, which is a
- * fair description of a board with nothing on it, so it did not look wrong.
+ * The bar used to style its own buttons by descendant selector, with
+ * `:not(.nj-primary)` carved out of it — and when that carve-out was written
+ * `background: transparent` had already beaten the accent fill on
+ * specificity once, leaving near-black text on the dark panel. Both buttons
+ * now carry `.btn` and the primary carries `.btn-primary`, so there is
+ * nothing left to carve out and nothing left to lose a specificity fight
+ * (§4.6.4). Only the bar's layout is the bar's business.
  */
-.board-bar button:not(.nj-primary) {
-  padding: 0.3rem 0.65rem; border-radius: 6px; font: inherit; cursor: pointer;
-  border: 1px solid rgba(120,130,150,0.4); background: transparent;
-}
-.board-bar button:disabled { opacity: 0.45; cursor: default; }
-.board-bar .nj-primary { margin-left: 0; }
 .board-zoom, .board-count { font-size: 0.85rem; opacity: 0.7; }
 .board-problem { color: rgb(150,40,40); margin: 0 0 0.5rem; }
 
@@ -4687,6 +4668,11 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   cursor: pointer;
 }
 .pick:hover { color: var(--accent); }
+/* The full-width target is right in a table cell and wrong in a flex row: on
+   the evidence walk the opener sits beside the run's id, and `width: 100%`
+   there makes the two shrink against each other instead of reading as a name
+   and its identifier (§4.6.4). */
+.row > .pick { width: auto; }
 /* Visible focus, or the whole exercise is pointless — a keyboard user who
    cannot see where they are has gained a tab stop and nothing else. */
 .pick:focus-visible {
@@ -5087,20 +5073,28 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .rail {
   flex: 1 1 auto;
   min-height: 0;
-  padding: 8px 0 8px;
+  padding: 4px 0 4px;
   /* A scroll with a visible edge is not a hide; the fade is the edge. */
   mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
 }
 .rail-footer {
   flex: 0 0 auto;
-  padding: 6px 0 8px;
+  padding: 4px 0 6px;
   border-top: 1px solid var(--line);
   background: var(--panel);
 }
 .rail-footer .rail-group { margin-bottom: 0; }
-.rail-item { padding: 5px 16px; }
-.rail-group { margin-bottom: 9px; }
-.rail-group > .eyebrow { padding-bottom: 4px; }
+/* A 26 px row (3 px padding over a 20 px line): the owner's brief is
+   "nothing hidden", so every one of the 26 entries fits a 900 px laptop and
+   the fade below only appears on shorter screens. 26 px still clears the
+   24 px pointer-target floor. Measured: 26 rows, 5 eyebrows and the pinned
+   footer end at 894 px of 900. */
+.rail-item { padding: 3px 16px; }
+.rail-group { margin-bottom: 6px; }
+.rail-group > .eyebrow { padding-bottom: 3px; }
+
+/* The gate's two doors, as equal labelled buttons above the form. */
+.gate-modes { display: flex; gap: 8px; margin-bottom: 18px; }
 
 /* The one-clause note beside a label, shown only when the rail is wide enough
    to carry it without wrapping the row: a note that pushed rows off the
@@ -5211,3 +5205,74 @@ button.step-strip-where:hover b { color: var(--accent); }
 .oa-item-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .oa-item-primary:hover:not(:disabled) { filter: brightness(1.1); background: var(--accent); }
 .oa-note { font-size: 12.5px; color: var(--ink-soft); }
+
+/* A glossed term (D207): the word, then its one-clause meaning, visible. */
+.term { display: inline; }
+.term-word { font-weight: 560; }
+.term-gloss { color: var(--ink-soft); }
+
+/* Notebook lint: each finding kind is a named block, its detail a sentence.
+   (The findings used to be a row of collapsed <details>; they are open now,
+   because a check whose results are folded away is a check nobody reads.) */
+.nb-lint-group { margin-bottom: 14px; }
+.nb-lint-detail { margin: 0; font-size: 12.5px; color: var(--ink); }
+
+/* The lifecycle pill speaks in phrases: the phrase in sentence case, the
+   machine word small beside it. */
+.status-phrase { text-transform: none; letter-spacing: 0; font-size: 11.5px; }
+.status-word { font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); text-transform: none; }
+
+/* A transition button states its direction on a second, quieter line. */
+.btn-direction { display: block; font-size: 11.5px; font-weight: 400; color: var(--ink-faint); margin-top: 2px; }
+.btn:has(.btn-direction) { text-align: left; }
+
+/* A text-weight control, for the demoted "Save this view" beside the real
+   export. */
+.btn-text { background: none; border: 0; padding: 0; font: inherit; color: var(--ink-faint); cursor: pointer; text-decoration: underline dotted; }
+.btn-text:hover { color: var(--accent); }
+
+/* Export staleness, per document. Only the state where the numbers moved
+   under unchanged prose is coloured as a warning. */
+.status-values_changed { color: var(--conflicted); }
+.status-superseded { color: var(--ink-faint); }
+.status-not_checkable { color: var(--ink-faint); }
+
+/* The one-line provenance footer under a traceable report block: the
+   note's size and colour without its rule, which would repeat down a page. */
+.block-prov-line { font-size: 12px; color: var(--ink-soft); margin: 3px 0 4px; }
+
+/* The three take-away exports, stacked in one card. */
+.take-away .bib:first-child { margin-top: 0; }
+.take-away .bib:last-child { margin-bottom: 0; }
+
+/* A disclosure whose summary states its contents; not tied to charts. */
+.disclosure > summary { cursor: pointer; font-size: 12px; color: var(--ink-faint); padding: 8px 0; list-style-position: outside; }
+.disclosure > summary:hover { color: var(--ink); }
+
+/* An in-list opener used inside a sentence. */
+.pick-inline { display: inline; width: auto; }
+
+/* The topbar's visible "New project": `flex: none` is load-bearing, since
+   `.crumbs > *` may shrink and this must not be what gets squeezed out. */
+.pm-new-inline { flex: none; margin-left: 6px; }
+
+/* A source whose failed ingestion still offers importable tables. */
+.status-importable { color: var(--candidate); }
+
+/* The profiled-schema row a subset jumped to; the scroll margin keeps it out
+   from under the step strip. */
+tr[data-lit="true"] { background: var(--hover); scroll-margin-block: 80px; }
+
+/* NodeJournal embedded in a detail screen: no second frame, no second
+   scroller inside a column that already scrolls. */
+.nj-embedded { max-height: none; overflow: visible; border: 0; padding: 0; background: none; }
+
+/* A cohort name is a control only when something answers it. */
+.cohort-tree .name[data-static] { cursor: default; }
+
+/* Each notebook lint finding: why it matters, then what to do about it. */
+.nb-lint-why { margin: 0 0 4px; font-size: 12.5px; color: var(--ink); }
+.nb-lint-do { margin: 0; font-size: 12px; color: var(--ink-soft); }
+
+/* The saved figure a jump landed on. */
+.card[data-focus="true"] { outline: 2px solid var(--accent); outline-offset: 2px; }

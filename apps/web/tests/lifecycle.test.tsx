@@ -1,6 +1,11 @@
 /**
  * Moving a finding along its lifecycle (LAW 3).
  *
+ * The button copy here is the product's one lifecycle vocabulary (item 2.10):
+ * a button says what it does and which way the move goes, and
+ * `tests/lifecycle-vocabulary.test.tsx` holds down that no component says the
+ * verb "move" plus a raw state word any more.
+ *
  * Nothing could promote a finding, retire one, or mark one conflicted: the
  * transition route had no caller, so every finding stayed where it was created
  * for ever — while the findings screen opened by saying a finding must link to
@@ -30,10 +35,10 @@ const mount = (status: string, evidenceTotal = 3, onMoved?: () => void) =>
 describe("only the moves the server will accept", () => {
   it("offers the legal next states and nothing else", () => {
     mount("candidate");
-    expect(screen.getByRole("button", { name: /Move to exploratory/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Move to deprecated/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Mark it tested/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Retire this finding/ })).toBeTruthy();
     // A candidate may never jump straight to validated.
-    expect(screen.queryByRole("button", { name: /Move to validated/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Validate it against the robustness checks/ })).toBeNull();
   });
 
   it("says a deprecated finding has nowhere to go", () => {
@@ -65,7 +70,7 @@ describe("evidence is named before the attempt, not after the refusal", () => {
 describe("a robustness check has three states, not two", () => {
   it("asks for every check the server requires", async () => {
     mount("exploratory");
-    await userEvent.click(screen.getByRole("button", { name: /Move to validated/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Validate it against the robustness checks/ }));
     for (const check of REQUIRED_CHECKS) {
       expect(screen.getByRole("group", { name: check.replace(/_/g, " ") })).toBeTruthy();
     }
@@ -91,18 +96,18 @@ describe("a robustness check has three states, not two", () => {
     // A default of "passed" would validate findings nobody checked; a default
     // of "failed" would assert failures nobody observed.
     mount("exploratory");
-    await userEvent.click(screen.getByRole("button", { name: /Move to validated/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Validate it against the robustness checks/ }));
     await userEvent.type(screen.getByRole("textbox"), "It held up.");
 
     const post = vi.spyOn(api, "post").mockResolvedValue({});
-    await userEvent.click(screen.getByRole("button", { name: /^Move to validated$/ }));
+    await userEvent.click(screen.getByRole("button", { name: /^Validate it against the robustness checks$/ }));
     await waitFor(() => expect(post).toHaveBeenCalled());
     expect((post.mock.calls[0][1] as Record<string, unknown>).checks).toEqual({});
   });
 
   it("does not ask for checks on a move that does not require them", async () => {
     mount("candidate");
-    await userEvent.click(screen.getByRole("button", { name: /Move to exploratory/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Mark it tested/ }));
     expect(screen.queryByText(/Robustness checks/)).toBeNull();
   });
 });
@@ -111,21 +116,21 @@ describe("what gets sent", () => {
   it("will not move a finding without a recorded reason", async () => {
     const post = vi.spyOn(api, "post").mockResolvedValue({});
     mount("candidate");
-    await userEvent.click(screen.getByRole("button", { name: /Move to exploratory/ }));
-    await userEvent.click(screen.getByRole("button", { name: /^Move to exploratory$/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Mark it tested/ }));
+    await userEvent.click(screen.getByRole("button", { name: /^Mark it tested, and needing replication$/ }));
     expect(post).not.toHaveBeenCalled();
   });
 
   it("sends the target state, the reason and the answered checks", async () => {
     const post = vi.spyOn(api, "post").mockResolvedValue({});
     mount("exploratory");
-    await userEvent.click(screen.getByRole("button", { name: /Move to validated/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Validate it against the robustness checks/ }));
     await userEvent.type(screen.getByRole("textbox"), "Survived every check.");
     for (const check of REQUIRED_CHECKS) {
       const group = screen.getByRole("group", { name: check.replace(/_/g, " ") });
       await userEvent.click(within(group).getByLabelText("passed"));
     }
-    await userEvent.click(screen.getByRole("button", { name: /^Move to validated$/ }));
+    await userEvent.click(screen.getByRole("button", { name: /^Validate it against the robustness checks$/ }));
 
     await waitFor(() => expect(post).toHaveBeenCalled());
     expect(post.mock.calls[0][0]).toBe("/api/findings/fnd_1/transition");
@@ -140,9 +145,9 @@ describe("what gets sent", () => {
     vi.spyOn(api, "post").mockResolvedValue({});
     const moved = vi.fn();
     mount("candidate", 3, moved);
-    await userEvent.click(screen.getByRole("button", { name: /Move to exploratory/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Mark it tested/ }));
     await userEvent.type(screen.getByRole("textbox"), "It replicated.");
-    await userEvent.click(screen.getByRole("button", { name: /^Move to exploratory$/ }));
+    await userEvent.click(screen.getByRole("button", { name: /^Mark it tested, and needing replication$/ }));
     await waitFor(() => expect(moved).toHaveBeenCalled());
   });
 });
@@ -152,9 +157,9 @@ describe("when the server refuses", () => {
     vi.spyOn(api, "post").mockRejectedValue(new ApiError(
       422, "Cannot validate without these robustness checks: missingness, outliers"));
     mount("exploratory");
-    await userEvent.click(screen.getByRole("button", { name: /Move to validated/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Validate it against the robustness checks/ }));
     await userEvent.type(screen.getByRole("textbox"), "Looks fine.");
-    await userEvent.click(screen.getByRole("button", { name: /^Move to validated$/ }));
+    await userEvent.click(screen.getByRole("button", { name: /^Validate it against the robustness checks$/ }));
 
     expect(await screen.findByText(/missingness, outliers/)).toBeTruthy();
   });
@@ -163,15 +168,15 @@ describe("when the server refuses", () => {
     vi.spyOn(api, "post").mockRejectedValue(new ApiError(
       409, "Finding fnd_1 has no linked evidence and cannot become exploratory."));
     mount("candidate", 0);
-    await userEvent.click(screen.getByRole("button", { name: /Move to exploratory/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Mark it tested/ }));
     await userEvent.type(screen.getByRole("textbox"), "It looks real.");
-    await userEvent.click(screen.getByRole("button", { name: /^Move to exploratory$/ }));
+    await userEvent.click(screen.getByRole("button", { name: /^Mark it tested, and needing replication$/ }));
 
     // Specifically in the alert: the standing note above also says there is no
     // evidence, and matching either of them would not prove the refusal was
     // reported at all.
     const refusal = await screen.findByRole("alert");
     expect(refusal.textContent).toContain("no linked evidence");
-    expect(screen.getByRole("button", { name: /^Move to exploratory$/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Mark it tested, and needing replication$/ })).toBeTruthy();
   });
 });

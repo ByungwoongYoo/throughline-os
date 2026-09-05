@@ -97,6 +97,20 @@ export function PublishFigure({ projectId, analysisRunId, spec, findingId }: {
   analysisRunId: string;
   /** The recommendation's spec, when the researcher is looking at one. */
   spec?: Record<string, unknown> | null;
+  /**
+   * The finding this figure illustrates, when there is one.
+   *
+   * Documented and passed to `POST /visuals` since this panel was written, and
+   * for that whole time no caller supplied it — the Figures screen draws a
+   * *run*, and knows no finding. A declared prop with nowhere to land is this
+   * repository's own named recurring defect (`CardDetail.tsx:6-9`), and it was
+   * recurring on the object researchers most want to communicate. §4.6.1's
+   * "Take it further" card is the caller: `takeitfurther.tsx` passes the
+   * finding it is mounted on, so the figure is recorded against it.
+   *
+   * Still optional, because the Figures screen is a legitimate caller that has
+   * no finding to give.
+   */
   findingId?: string | null;
 }) {
   const [created, setCreated] = useState<Created | null>(null);
@@ -177,7 +191,14 @@ export function PublishFigure({ projectId, analysisRunId, spec, findingId }: {
   if (!created) {
     return (
       <div>
-        <button className="btn" disabled={busy} onClick={() => void prepare()}>
+        {/*
+          §4.12 — `btn-primary`, because this is the export that keeps the
+          lineage edge, the critic and the journal formats listed at the top of
+          this file. The DOM save beside it looked identical and lost all
+          three, which made the wrong path the one that reads as the default.
+          Weight is the only thing that changed; both are still one press.
+        */}
+        <button className="btn btn-primary" disabled={busy} onClick={() => void prepare()}>
           {busy ? "Checking the figure…" : "Export for publication"}
         </button>
         {error && <div className="notice" role="alert">{error}</div>}

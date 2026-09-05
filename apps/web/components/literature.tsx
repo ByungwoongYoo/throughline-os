@@ -226,7 +226,7 @@ export function Literature({ projectId }: { projectId: string }) {
     return (
       <>
         <div className="lit-reading-bar">
-          <button className="ct-dataset" onClick={() => setReadingOwn(false)}>
+          <button className="btn" onClick={() => setReadingOwn(false)}>
             Back to search
           </button>
         </div>
@@ -246,7 +246,7 @@ export function Literature({ projectId }: { projectId: string }) {
     return (
       <>
         <div className="lit-reading-bar">
-          <button className="ct-dataset"
+          <button className="btn"
                   onClick={() => { setReading(null); setReadingSource(null); }}>
             Back to results
           </button>
@@ -302,10 +302,10 @@ export function Literature({ projectId }: { projectId: string }) {
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => { if (event.key === "Enter") void search(); }}
         />
-        <button className="nj-primary" disabled={busy} onClick={() => void search()}>
+        <button className="btn btn-primary" disabled={busy} onClick={() => void search()}>
           {busy ? "Searching…" : "Search"}
         </button>
-        <button className="ct-dataset" onClick={() => setReadingOwn(true)}>
+        <button className="btn" onClick={() => setReadingOwn(true)}>
           Read a PDF you have
         </button>
       </div>
@@ -420,13 +420,13 @@ export function Literature({ projectId }: { projectId: string }) {
                             * the deliberate act it describes.
                             */}
                           {record.open_access && record.pdf_url && (
-                            <button className="ct-dataset"
+                            <button className="btn"
                                     onClick={() => void read(record)}>
                               Read and mark
                             </button>
                           )}
                           <button
-                            className="ct-dataset"
+                            className="btn"
                             disabled={imported.has(key)}
                             onClick={() => void add(record)}
                           >

@@ -17,12 +17,16 @@ import {
 import { currentStep, loopSteps, stepTarget } from "@/lib/loop";
 import { StepStrip } from "@/components/StepStrip";
 import { Centered, Failure, Loading } from "@/components/primitives";
-import { Crumb, SECTIONS, Section, Shell } from "@/components/Shell";
+import { Crumb, PAGES, SECTIONS, Section, Shell } from "@/components/Shell";
 import { CommandPalette, buildCommands } from "@/components/CommandPalette";
 import {
   AnalysisDetail, ConnectionDetail, ConnectionsTable, Discover, EvidenceGraphView,
-  Findings, Overview, Search, SourceDetail, Sources,
+  EvidenceGraphSummary, Findings, Overview, Search, SourceDetail, Sources,
 } from "@/components/views";
+import { TakeItFurther } from "@/components/takeitfurther";
+import { canDraftReport } from "@/components/reports";
+import { GraphStats } from "@/components/graphstats";
+import { Preregister } from "@/components/preregister";
 import { ReportDetail, Reports } from "@/components/reports";
 import { GraphView } from "@/components/graphview";
 import { Figures } from "@/components/figures";
@@ -94,7 +98,18 @@ function Gate({ status, onDone }: { status: AuthStatus; onDone: () => void }) {
    * person to open this installation had no way in at all.
    */
   const setup = status.needs_setup;
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  /*
+   * Which path to lead with. A brand-new visitor arrives from the landing
+   * page's only button and used to meet "Welcome back" with account creation
+   * as an underlined link in body text (T135). The browser remembers whether
+   * an account has ever signed in here; until it has, creating one leads.
+   * Both paths are always visible as equal, labelled choices.
+   */
+  const [seen] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try { return window.localStorage.getItem("throughline.account") === "1"; } catch { return false; }
+  });
+  const [mode, setMode] = useState<"signin" | "signup">(seen ? "signin" : "signup");
   const creating = setup || mode === "signup";
 
   async function submit(event: React.FormEvent) {
@@ -110,6 +125,7 @@ function Gate({ status, onDone }: { status: AuthStatus; onDone: () => void }) {
       } else {
         await api.post("/api/auth/login", { email, password });
       }
+      try { window.localStorage.setItem("throughline.account", "1"); } catch { /* a convenience only */ }
       onDone();
     } catch (err) {
       setError(err);
@@ -140,6 +156,26 @@ function Gate({ status, onDone }: { status: AuthStatus; onDone: () => void }) {
             <i aria-hidden />
             <span>Throughline</span>
           </div>
+
+          {/* Not shown during first-run setup: there is nothing to choose
+              between until an account exists. Two equal, labelled choices,
+              never a link hidden in body text. */}
+          {!setup && (
+            <div role="group" aria-label="Sign in or create an account" className="gate-modes">
+              <button type="button"
+                      className={mode === "signup" ? "btn btn-primary" : "btn"}
+                      aria-pressed={mode === "signup"}
+                      onClick={() => { setMode("signup"); setError(null); }}>
+                Create an account
+              </button>
+              <button type="button"
+                      className={mode === "signin" ? "btn btn-primary" : "btn"}
+                      aria-pressed={mode === "signin"}
+                      onClick={() => { setMode("signin"); setError(null); }}>
+                I already have an account
+              </button>
+            </div>
+          )}
 
           <h1>
             {setup ? "Set up this machine"
@@ -183,19 +219,6 @@ function Gate({ status, onDone }: { status: AuthStatus; onDone: () => void }) {
             </button>
           </form>
 
-          {/* Not shown during first-run setup: there is nothing to switch to
-              until an account exists. */}
-          {!setup && (
-            <p className="gate-switch">
-              {mode === "signin" ? "New here?" : "Already have an account?"}{" "}
-              <button type="button" onClick={() => {
-                setMode(mode === "signin" ? "signup" : "signin");
-                setError(null);
-              }}>
-                {mode === "signin" ? "Create an account" : "Sign in instead"}
-              </button>
-            </p>
-          )}
 
           <Link className="gate-back" href="/">← Back</Link>
         </div>
@@ -417,6 +440,21 @@ function Workspace({ user }: { user: SignedInUser }) {
     activeId ? `/api/projects/${activeId}/variables` : null);
   const artifacts = useApi<ArtifactSummary[]>(
     activeId ? `/api/projects/${activeId}/artifacts` : null);
+  // Saved figures, so the palette can jump to one by title or id.
+  const visuals = useApi<Array<{ id: string; title: string | null; visual_type: string }>>(
+    activeId ? `/api/projects/${activeId}/visuals` : null);
+  // Every connection the project has, across lifecycle states: the lists are
+  // capped at 100 and 200 rows, and this is the denominator that lets them
+  // say so (D201).
+  const connectionTotal = Object.values(map.data?.connections ?? {}).reduce((a, b) => a + b, 0);
+  /*
+   * The evidence graph the finding detail has loaded, lifted once so the
+   * "Take it further" card knows which run and which connection to act on
+   * without fetching the graph twice. Reset when the finding changes, or the
+   * previous finding's ids would seed the next card for a moment.
+   */
+  const [evidence, setEvidence] = useState<EvidenceGraphSummary | null>(null);
+  useEffect(() => { setEvidence(null); }, [place.item]);
 
   /*
    * While the project has work in flight, keep the counts current; the moment
@@ -587,6 +625,10 @@ function Workspace({ user }: { user: SignedInUser }) {
     sources: sources.data ?? [],
     connections: connections.data ?? [],
     findings: findings.data ?? [],
+    pages: PAGES,
+    analyses: analyses.data ?? [],
+    reports: artifacts.data ?? [],
+    figures: visuals.data ?? [],
     go: goSection,
     open: (target, _kind, id) => go({ section: target, item: id }),
   });
@@ -625,7 +667,7 @@ function Workspace({ user }: { user: SignedInUser }) {
            * research objects — an analysis, a figure, an excerpt — so arranging
            * the board arranges the work rather than a set of shortcuts to it.
            */
-          <Board projectId={project.id} />
+          <Board projectId={project.id} onOpen={(kind, id) => open(kind, id)} />
         )}
 
         {section === "overview" && (
@@ -651,6 +693,9 @@ function Workspace({ user }: { user: SignedInUser }) {
                   setPendingDiscovery(versionId);
                   goSection("discover");
                 }}
+                onOpenSource={select("source")}
+                onGo={goSection}
+                labels={variables.data?.labels}
               />
             : <>
                 {/*
@@ -676,11 +721,23 @@ function Workspace({ user }: { user: SignedInUser }) {
             ? <ConnectionDetail connectionId={selection.id} projectId={project.id}
                                   onRecordFinding={(id) => { reloadFindings(); open("finding", id); }}
                                   onDraftedReport={(id) => { reloadMap(); open("artifact", id); }} />
-            : <Discover
-                projectId={project.id} sources={sources}
-                onSelectConnection={select("connection")}
-                startWith={pendingDiscovery} onStarted={() => setPendingDiscovery(null)}
-              />
+            : <>
+                <Discover
+                  projectId={project.id} sources={sources}
+                  onSelectConnection={select("connection")}
+                  startWith={pendingDiscovery} onStarted={() => setPendingDiscovery(null)}
+                  connectionTotal={connectionTotal}
+                />
+                {/*
+                  The screen that runs the sweep now shows the running total
+                  the correction depends on, and offers to register a
+                  hypothesis at the one moment registering one is meaningful —
+                  before the next test, not after (plan §4.10). Quiet, because
+                  Discovery's primary belongs to the sweep and the strip.
+                */}
+                <ExplorationLedger projectId={project.id} />
+                <Preregister projectId={project.id} emphasis="secondary" />
+              </>
         )}
         {section === "connections" && (
           selection?.kind === "connection"
@@ -688,7 +745,8 @@ function Workspace({ user }: { user: SignedInUser }) {
                                   onRecordFinding={(id) => { reloadFindings(); open("finding", id); }}
                                   onDraftedReport={(id) => { reloadMap(); open("artifact", id); }} />
             : <>
-                <ConnectionList projectId={project.id} onSelect={select("connection")} />
+                <ConnectionList projectId={project.id} onSelect={select("connection")}
+                                total={connectionTotal} />
                 {/*
                   Under the connections rather than beside the results. The
                   count is context for what has just been read, and a reader who
@@ -702,13 +760,20 @@ function Workspace({ user }: { user: SignedInUser }) {
                   how much of it was the looking that was planned.
                 */}
                 <Deviations projectId={project.id} />
+                {/*
+                  A structural fact about the project's graph, beside the
+                  ledger that counts its tests: which objects it has connected
+                  most. Stated as structure, never as a finding.
+                */}
+                <GraphStats projectId={project.id} onOpen={(id) => open("object", id)} />
               </>
         )}
         {section === "findings" && (
           selection?.kind === "finding"
             ? <>
                 <EvidenceGraphView findingId={selection.id}
-                                   onOpenAnalysis={select("analysis")} />
+                                   onOpenAnalysis={select("analysis")}
+                                   onLoaded={setEvidence} />
                 {/*
                   Directly under the evidence, because the evidence is what
                   decides whether it may move at all: anything past candidate
@@ -729,6 +794,22 @@ function Workspace({ user }: { user: SignedInUser }) {
                   it behind a tab means it is never opened.
                 */}
                 <Challenges projectId={project.id} findingId={selection.id} />
+                {/*
+                  The loop's last step, from the object step 5 produced: publish
+                  a figure of the run behind this finding, or draft a report from
+                  the connection it rests on. Gated on the evidence having
+                  arrived, so a loading screen is not told there is nothing to
+                  draft and then told there is.
+                */}
+                {evidence && (
+                  <TakeItFurther
+                    projectId={project.id}
+                    findingId={selection.id}
+                    analysisRunId={evidence.analyses?.[0]?.id ?? null}
+                    connection={(evidence.connections ?? []).find(canDraftReport) ?? null}
+                    onDrafted={(id) => { reloadMap(); open("artifact", id); }}
+                  />
+                )}
                 <LibraryNote projectId={project.id} findingId={selection.id} />
               </>
             : <Findings projectId={project.id} onSelect={select("finding")} />
@@ -762,7 +843,7 @@ function Workspace({ user }: { user: SignedInUser }) {
         )}
         {section === "reports" && (
           selection?.kind === "artifact"
-            ? <ReportDetail artifactId={selection.id}
+            ? <ReportDetail artifactId={selection.id} projectId={project.id}
                             onOpenArtifact={select("artifact")} />
             : <>
                 {/*
@@ -815,7 +896,7 @@ function Workspace({ user }: { user: SignedInUser }) {
           <Journal projectId={project.id} onOpenObject={select("object")} />
         )}
         {section === "activity" && <ProjectActivity projectId={project.id} />}
-        {section === "settings" && <Settings />}
+        {section === "settings" && <Settings projectId={project.id} />}
         {section === "graph" && (
           /*
            * `replace`, not push: a graph is browsed by clicking node after
@@ -830,7 +911,12 @@ function Workspace({ user }: { user: SignedInUser }) {
         )}
         {section === "embedding" && <EmbeddingSpace projectId={project.id} />}
         {section === "gallery" && <Gallery />}
-        {section === "datasearch" && <DataSearch />}
+        {section === "datasearch" && (
+          /* A found dataset comes in through the same door a dropped file uses,
+             and the researcher goes with it to watch it being profiled. */
+          <DataSearch projectId={project.id}
+                      onImported={(id) => { reloadSources(); reloadMap(); open("source", id); }} />
+        )}
         {section === "readfigure" && (
           /*
            * The digitised points go in as a dataset, and the researcher goes
@@ -842,7 +928,8 @@ function Workspace({ user }: { user: SignedInUser }) {
         )}
 
         {section === "figures" && (
-          <Figures projectId={project.id} runs={analyses} />
+          <Figures projectId={project.id} runs={analyses}
+                   focusId={section === "figures" ? place.item : null} />
         )}
       </Shell>
 
@@ -853,7 +940,12 @@ function Workspace({ user }: { user: SignedInUser }) {
   );
 }
 
-function ConnectionList({ projectId, onSelect }: { projectId: string; onSelect: (id: string) => void }) {
+function ConnectionList({ projectId, onSelect, total }: {
+  projectId: string; onSelect: (id: string) => void;
+  /** How many connections the project has in all, so the capped list can say
+   *  how many it is not showing (D201). */
+  total?: number;
+}) {
   const { data, error, loading, reload } = useApi<Connection[]>(`/api/projects/${projectId}/connections?limit=200`);
   /*
    * The list is capped at two hundred, and a cap miscounts in exactly the way
@@ -872,7 +964,8 @@ function ConnectionList({ projectId, onSelect }: { projectId: string; onSelect: 
       <p className="lede">
         Every candidate that was tested, with its corrected q-value and lifecycle state.
       </p>
-      <ConnectionsTable connections={data} error={error} loading={loading} reload={reload} onSelect={onSelect} />
+      <ConnectionsTable connections={data} error={error} loading={loading} reload={reload}
+                        onSelect={onSelect} total={total} />
     </>
   );
 }
@@ -936,13 +1029,18 @@ function Inspector({ selection, capabilities, map, action }: {
         <div className="kv">
           <dt>Search</dt>
           <dd>{capabilities.retrieval.semantic ? "hybrid" : "lexical only"}</dd>
-          <dt>Model</dt>
-          <dd className="mono">{capabilities.retrieval.model ?? "none"}</dd>
+          {/* Named by what each model does. "Model: none" two lines above
+              "AI provider: configured" read as two contradictory statements
+              about one thing (D204). */}
+          <dt>Search model</dt>
+          <dd className="mono">
+            {capabilities.retrieval.model ?? "none installed — search is lexical only"}
+          </dd>
           <dt>Sandbox</dt>
           <dd>{capabilities.analysis.sandbox ? "enabled" : "unavailable"}</dd>
           <dt>Methods</dt>
           <dd>{capabilities.analysis.methods?.length ?? 0}</dd>
-          <dt>AI provider</dt>
+          <dt>Writing model</dt>
           <dd>{capabilities.llm.configured ? "configured" : "none"}</dd>
         </div>
       )}

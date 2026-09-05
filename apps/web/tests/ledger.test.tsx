@@ -235,3 +235,81 @@ describe("loading and failure", () => {
     expect(screen.queryByText("24")).not.toBeInTheDocument();
   });
 });
+
+/**
+ * The empty state names its boundary (plan §4.10.2).
+ *
+ * The defect this guards is a reading, not a number. Once the ledger renders
+ * on Discovery, a table of six corrected q-values sits about two hundred pixels
+ * above a panel reading "Nothing tested yet" — and a reader can only conclude
+ * that the ledger is broken or that the q-values above it are uncorrected.
+ * Both are wrong: the ledger counts the looks taken since this line of enquiry
+ * was opened, and the run that produced those q-values ran before it began.
+ */
+describe("the empty ledger says what it is empty of", () => {
+  const NOTHING_YET = {
+    enquiry_id: "enq_1", looks: 0, family_size: 0, confirmatory: 0,
+    uncorrectable: 0, surviving: 0, tests: [],
+    note: "No looks yet in this line of enquiry.",
+  };
+
+  it("says the results above were produced before it began", async () => {
+    /** Without this sentence "Nothing tested yet" reads as a claim about the
+     *  whole project, which is the one thing it is not. */
+    withEnquiry();
+    serve(NOTHING_YET);
+    render(<ExplorationLedger projectId="prj_1" />);
+
+    expect(await screen.findByText(
+      /counts the looks taken since it was opened/)).toBeTruthy();
+    expect(screen.getByText(
+      /results above were produced before it began/)).toBeTruthy();
+  });
+
+  it("shows the discovery run's own test count when it is given one", async () => {
+    /**
+     * The number that makes the boundary concrete: the q-values above were
+     * corrected across *these* tests. It comes from the run
+     * (`Sweep.tests_run`), never from arithmetic here.
+     */
+    withEnquiry();
+    serve(NOTHING_YET);
+    render(<ExplorationLedger projectId="prj_1" discoveryTestCount={21} />);
+
+    const line = await screen.findByText(/discovery run on this screen/);
+    expect(line.textContent).toContain("21");
+    expect(line.textContent).toMatch(/corrected across those/);
+  });
+
+  it("says nothing about a run when no run is on screen", async () => {
+    /**
+     * Connections shows no single sweep, so there is no number to name. An
+     * invented one — or a zero — would be a claim the screen cannot support.
+     */
+    withEnquiry();
+    serve(NOTHING_YET);
+    render(<ExplorationLedger projectId="prj_1" />);
+
+    await screen.findByText(/counts the looks taken since it was opened/);
+    expect(screen.queryByText(/discovery run on this screen/)).toBeNull();
+  });
+
+  it("still does not scold", async () => {
+    /**
+     * The tone rule at the top of `ledger.tsx`: exploration is not misconduct,
+     * and a screen that scolds gets closed. A new sentence is the easiest way
+     * to lose that, so it is asserted rather than trusted.
+     */
+    withEnquiry();
+    serve(NOTHING_YET);
+    const { container } = render(
+      <ExplorationLedger projectId="prj_1" discoveryTestCount={21} />);
+    await screen.findByText(/counts the looks taken since it was opened/);
+
+    const text = (container.textContent ?? "").toLowerCase();
+    for (const word of ["too many", "warning", "careful", "risk", "abuse"]) {
+      expect(text).not.toContain(word);
+    }
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+});

@@ -150,6 +150,39 @@ export function ProjectMenu({
           </Menu.Trigger>
 
           {/*
+            "New project", beside the project name rather than only inside the
+            popup (plan §4.16.2).
+
+            The inventory counted this screen at 8 capabilities, 2 visible and
+            6 behind_menu — the class the brief forbids outright. Creating a
+            project is not a rare administrative errand a researcher goes
+            looking for; it is the first thing anybody does, and it was behind a
+            control whose whole label said "switch". Somebody who had never
+            opened the caret had no way to learn the product could make one.
+
+            It stays in the menu as well. The menu is where the *list* lives,
+            and a person who has opened it to look for a project they have not
+            got should find the way to make one there too — the same capability
+            with two doors is this plan's pattern, not a duplicate.
+
+            `flex: none` because `.crumbs > *` sets `min-width: 0` so a long
+            project name can ellipsis; without it this button is what shrinks
+            instead, and a button that is the first thing to be squeezed out of
+            a narrow topbar is exactly the hiding this change undoes. The
+            margin is inline because `.pm` sets no gap and a one-off 6px does
+            not earn a class.
+          */}
+          <button
+            className="btn"
+            style={{ flex: "none", marginLeft: 6 }}
+            onClick={() => onCreate()}
+          >
+            {/* Decorative: the word beside it is the accessible name. */}
+            <IconPlus size={13} />
+            <span>New project</span>
+          </button>
+
+          {/*
             Portalled, so the popup is not clipped by any `overflow` on the
             topbar and does not have to win a `z-index` argument with the rest of
             the shell. `sideOffset` keeps the 6px gap the old absolute

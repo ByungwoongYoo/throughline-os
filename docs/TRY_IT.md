@@ -189,16 +189,25 @@ than the top-line word.
 
 ## 2b. What to look at first
 
-The sidebar is grouped by what you are doing rather than by what the software
-contains. A reasonable first pass:
+Open **Overview** and work **The loop** from the top. Six steps — add sources,
+profile a dataset, generate and test candidates, try to destroy what survived,
+record a finding, communicate it — each ticked from the project's real counts,
+each a button that takes you to where the step happens. The strip at the top of
+every screen carries the same step and the same button, so you can start the
+next step from wherever you are, and the panel on the right says the same thing
+in a sentence.
 
-1. **Overview** — the project, and what state it is in.
-2. **Sources** — what has been ingested, and whether ingestion finished.
-3. **Findings** and **Connections** — results, and what they rest on.
-4. **Chart primitives** — every visualization the product can draw, with real
-   example data. This is the fastest way to see the whole visual language at
-   once, and it needs no project data.
-5. **Embedding space** — your corpus projected into three dimensions.
+Two things the loop cannot tell you:
+
+- **Workboard** is first in the rail because the brief calls it the central
+  operating surface: it is where the project's objects are arranged, not a step.
+- **Chart primitives**, under *This machine*, draws every chart the product has
+  against illustrative data. It needs no project, which is why it is filed with
+  the hand-tracking pages rather than beside Figures.
+
+The rail's five groups are kinds of screen, in the order the work happens: the
+project itself, gathering, discovering and testing, communicating, and this
+machine. Nothing in it is a step; the strip is where the numbering lives.
 
 ---
 

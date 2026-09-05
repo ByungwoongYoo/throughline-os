@@ -259,7 +259,7 @@ export function EmbeddingSpace({ projectId }: { projectId: string }) {
                 <input value={question} placeholder="Why does this sit here?"
                        onChange={(event) => setQuestion(event.target.value)} />
               </label>
-              <button type="button" onClick={ask}
+              <button type="button" className="btn" onClick={ask}
                       disabled={asking || !question.trim()}>
                 {asking ? "Asking…" : "Ask"}
               </button>

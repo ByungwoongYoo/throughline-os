@@ -139,7 +139,7 @@ the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **2265 backend tests and 2647 web tests**.
+The current suite is **2494 backend tests and 3060 web tests**.
 
 How many of those skip depends on which optional extras a machine has
 installed, so the number is not fixed and is not claimed as one: on a checkout

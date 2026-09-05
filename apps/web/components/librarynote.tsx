@@ -48,7 +48,7 @@ export function LibraryNote({ projectId, findingId }: {
   if (!open) {
     return (
       <p style={{ marginTop: 16 }}>
-        <button type="button" onClick={() => setOpen(true)}>
+        <button type="button" className="btn" onClick={() => setOpen(true)}>
           Preview this as a library note
         </button>
       </p>

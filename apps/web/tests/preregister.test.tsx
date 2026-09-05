@@ -174,3 +174,72 @@ describe("afterwards", () => {
     expect(screen.getByRole("button", { name: /Register it/ })).toBeTruthy();
   });
 });
+
+/**
+ * Mounting it somewhere other than Deviations (plan §4.10.3).
+ *
+ * Registering is only worth anything *before* the looking, and until now it was
+ * reachable only from a panel on Connections — after. Discovery mounts the same
+ * component, so what these guard is that it carries nothing from the screen it
+ * was written for: it needs a project id and nothing else, it can be made quiet
+ * enough to sit beside a screen that already has a primary action, and a
+ * researcher can register a second hypothesis without reloading the page.
+ */
+describe("mounted on a screen of its own", () => {
+  it("needs nothing but a project id", async () => {
+    /** No `onRegistered`, no panel around it. A component that only works
+     *  inside Deviations cannot be offered where it matters. */
+    vi.spyOn(api, "post").mockResolvedValue(registered);
+    render(<Preregister projectId="prj_1" />);
+    await userEvent.click(
+      screen.getByRole("button", { name: /Register a hypothesis/ }));
+    await userEvent.type(screen.getByLabelText(/^The hypothesis/), "H");
+    await userEvent.selectOptions(screen.getByRole("combobox"), "increase");
+    await userEvent.click(screen.getByRole("button", { name: /Register it/ }));
+
+    expect(await screen.findByRole("status")).toBeTruthy();
+  });
+
+  it("can be asked to be the quieter control", async () => {
+    /*
+     * Principle 2 gives every screen one `btn-primary`, and on Discovery that
+     * one is the sweep. A second primary beside it makes the screen ask twice,
+     * which is how a page stops having a primary action at all.
+     */
+    render(<Preregister projectId="prj_1" emphasis="secondary" />);
+    const opener = screen.getByRole("button", { name: /Register a hypothesis/ });
+    expect(opener.className).toContain("btn");
+    expect(opener.className).not.toContain("btn-primary");
+  });
+
+  it("stays primary where it always was", async () => {
+    /** Deviations' empty state exists to offer this; nothing about that mount
+     *  changes, which is what makes the prop safe to add. */
+    render(<Preregister projectId="prj_1" />);
+    expect(screen.getByRole("button", { name: /Register a hypothesis/ }).className)
+      .toContain("btn-primary");
+  });
+
+  it("offers a second registration without a reload", async () => {
+    /*
+     * A project has several hypotheses. A confirmation that permanently
+     * replaces the control makes the second one reachable only by reloading
+     * the screen — which on Discovery would also lose the sweep in progress.
+     */
+    vi.spyOn(api, "post").mockResolvedValue(registered);
+    render(<Preregister projectId="prj_1" />);
+    await userEvent.click(
+      screen.getByRole("button", { name: /Register a hypothesis/ }));
+    await userEvent.type(screen.getByLabelText(/^The hypothesis/), "first");
+    await userEvent.selectOptions(screen.getByRole("combobox"), "increase");
+    await userEvent.click(screen.getByRole("button", { name: /Register it/ }));
+
+    await userEvent.click(await screen.findByRole(
+      "button", { name: /Register another hypothesis/ }));
+
+    // Empty, not the first hypothesis again: a covariate list left in place is
+    // how one ends up registered against a plan nobody chose it for.
+    expect((screen.getByLabelText(/^The hypothesis/) as HTMLTextAreaElement).value)
+      .toBe("");
+  });
+});

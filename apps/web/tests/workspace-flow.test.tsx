@@ -66,6 +66,7 @@ const EVIDENCE = {
   balance: { supporting: 1, contradicting: 0 },
   note: null, claims: [],
   analyses: [{ id: RUN.id, method: RUN.method, result: { interpretation: "r = 0.88" } }],
+  connections: [],
   challenges: [],
 };
 

@@ -37,6 +37,24 @@ function detailResponse(url: string): Response | null {
     }), { status: 200 });
   }
   if (url.includes("/mentions")) return new Response("[]", { status: 200 });
+  /*
+   * The card panel now ends with `<ObjectHistory>`, which is `NodeJournal` and
+   * the version chain (plan §4.6.2). Both fetch, and a mock that answered them
+   * with the board payload would make the panel throw — which is how two tests
+   * here once went green over a crash.
+   */
+  if (url.includes("/journal")) {
+    return new Response(JSON.stringify({
+      object: { id: "obj1", object_type: "analysis",
+                title: "Sleep and reaction time",
+                created_by: "usr_1", created_at: "2026-03-01T10:00:00Z" },
+      derived_from: [], used_by: [], notes: [],
+    }), { status: 200 });
+  }
+  if (url.includes("/versions")) {
+    return new Response(JSON.stringify({ current: "obj1", versions: [] }),
+                        { status: 200 });
+  }
   return null;
 }
 
