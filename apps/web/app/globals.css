@@ -2316,6 +2316,30 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 }
 .ct-record-actions { grid-column: 1 / -1; display: flex; gap: 8px; }
 
+/* The units question on a pending mapping. A mapping says two columns mean the
+   same quantity; it says nothing about whether the numbers are in the same
+   units, and approving one converts nothing. */
+.vr-units {
+  margin: 10px 0 0;
+  padding: 9px 11px;
+  border-left: 2px solid var(--caution);
+  background: var(--n-25);
+  border-radius: 0 var(--r-control) var(--r-control) 0;
+  font-size: 13px; line-height: 1.55; color: var(--ink-soft);
+}
+.vr-units > span:first-child {
+  display: block;
+  font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.vr-units em { color: var(--ink-faint); font-style: normal; }
+.vr-units label {
+  margin-top: 6px;
+  display: flex; align-items: flex-start; gap: 7px;
+  cursor: pointer;
+}
+.vr-units input { margin-top: 2px; flex: none; }
+
 @media (max-width: 640px) {
   .ct-record-open { grid-template-columns: minmax(0, 1fr); }
 }

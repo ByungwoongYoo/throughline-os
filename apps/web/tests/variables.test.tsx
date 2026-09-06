@@ -25,11 +25,11 @@ const VARIABLES = {
     { mapping_id: "vm_1", confidence: 0.42, column_name: "res_pct",
       semantic_type: "ratio", canonical_name: "resistance",
       display_label: "Resistance", definition: "Share of isolates resistant.",
-      canonical_unit: "%" },
+      canonical_unit: "%", column_unit: "%" },
     { mapping_id: "vm_2", confidence: 0.91, column_name: "ddd",
       semantic_type: "ratio", canonical_name: "consumption",
       display_label: "Antibiotic consumption", definition: null,
-      canonical_unit: "DDD" },
+      canonical_unit: "DDD", column_unit: "DDD" },
   ],
   equivalent: {},
   note: "Only approved labels are used anywhere.",
@@ -82,7 +82,11 @@ describe("nothing is applied until a person approves it", () => {
       .getByRole("button", { name: /Use this label/ }));
 
     expect(post).toHaveBeenCalledWith(
-      "/api/variable-mappings/vm_1/decide", { approve: true });
+      "/api/variable-mappings/vm_1/decide",
+      // Sent explicitly, including when there is nothing to say. The column
+      // records whether the numbers still need converting, and "not answered"
+      // has to be distinguishable from "nobody was asked".
+      { approve: true, transformation: null });
   });
 
   it("rejects with a decision, not by ignoring it", async () => {
@@ -97,7 +101,7 @@ describe("nothing is applied until a person approves it", () => {
       .getByRole("button", { name: /^Reject$/ }));
 
     expect(post).toHaveBeenCalledWith(
-      "/api/variable-mappings/vm_1/decide", { approve: false });
+      "/api/variable-mappings/vm_1/decide", { approve: false, transformation: null });
   });
 });
 
@@ -338,5 +342,87 @@ describe("teaching the project a term", () => {
     await userEvent.click(screen.getByRole("button", { name: /Propose it/ }));
 
     expect(await screen.findByText(/already has a ruling/)).toBeTruthy();
+  });
+});
+
+
+/**
+ * Whether approving this mapping leaves the numbers needing conversion.
+ *
+ * `variable_mappings.transformation_required` had a reader and no writer.
+ * `visuals.variable_labels` reads it to keep a canonical unit off the axis of
+ * a column whose values are not in it — a worse lie, that module says, than
+ * printing the raw column name. Nothing in the product wrote it, and its one
+ * test passed because the fixture wrote the column directly through a helper
+ * documented as approving "as the mapping screen does", which the mapping
+ * screen could not do.
+ */
+describe("whether the numbers still need converting", () => {
+  const differing = {
+    ...VARIABLES,
+    pending: [{ mapping_id: "vm_1", confidence: 0.42, column_name: "gdp",
+                semantic_type: "ratio", canonical_name: "gdp",
+                display_label: "GDP per capita", definition: null,
+                canonical_unit: "constant 2015 USD", column_unit: null }],
+  };
+
+  it("says nothing when both sides are in the same unit", async () => {
+    serve();
+    render(<Variables projectId="prj_1" />);
+
+    await screen.findByText("res_pct");
+    expect(screen.queryByText(/still need converting/)).toBeNull();
+  });
+
+  it("asks when the column does not say what its values are in", async () => {
+    serve({ variables: differing });
+    render(<Variables projectId="prj_1" />);
+
+    expect(await screen.findByText(/does not say what unit/)).toBeVisible();
+    expect(screen.getByRole("checkbox",
+      { name: /still need converting/ })).toBeVisible();
+  });
+
+  it("records the answer with the approval", async () => {
+    const post = vi.spyOn(api, "post").mockResolvedValue({} as never);
+    serve({ variables: differing });
+    render(<Variables projectId="prj_1" />);
+
+    await userEvent.click(await screen.findByRole("checkbox",
+      { name: /still need converting/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Use this label" }));
+
+    await waitFor(() => expect(post).toHaveBeenCalledWith(
+      "/api/variable-mappings/vm_1/decide",
+      { approve: true,
+        transformation: "values are not in constant 2015 USD" }));
+  });
+
+  it("approves without an answer when nobody gives one", async () => {
+    // Silence is not "the values are fine". The label is approved, nothing is
+    // recorded, and the axis carries no unit rather than a borrowed one.
+    const post = vi.spyOn(api, "post").mockResolvedValue({} as never);
+    serve({ variables: differing });
+    render(<Variables projectId="prj_1" />);
+
+    await userEvent.click(await screen.findByRole("button",
+      { name: "Use this label" }));
+
+    await waitFor(() => expect(post).toHaveBeenCalledWith(
+      "/api/variable-mappings/vm_1/decide",
+      { approve: true, transformation: null }));
+  });
+
+  it("states the conversion rather than asking, when both units are known",
+     async () => {
+    // The database holds both. Making the reviewer retype a fact it already
+    // has is how a form teaches people to click through it.
+    serve({ variables: { ...VARIABLES, pending: [{
+      ...differing.pending[0], column_unit: "current USD" }] } });
+    render(<Variables projectId="prj_1" />);
+
+    expect(await screen.findByText(/is recorded in current USD/)).toBeVisible();
+    expect(screen.queryByRole("checkbox",
+      { name: /still need converting/ })).toBeNull();
   });
 });

@@ -38,6 +38,8 @@ type Pending = {
   display_label: string;
   definition: string | null;
   canonical_unit: string | null;
+  /** What the column itself says its values are in, if anything. */
+  column_unit: string | null;
 };
 
 type Variables = {
@@ -178,50 +180,17 @@ export function Variables({ projectId }: { projectId: string }) {
               and the confident ones are the least interesting to review.
             </p>
             {pending.map((item) => (
-              <div className="card" key={item.mapping_id}>
-                <div className="row">
-                  <div>
-                    <div className="mono">{item.column_name}</div>
-                    <div style={{ fontWeight: 560 }}>
-                      {item.display_label || item.canonical_name}
-                      {item.canonical_unit ? ` (${item.canonical_unit})` : ""}
-                    </div>
-                    {item.definition && (
-                      <p style={{ margin: "4px 0 0" }}>{item.definition}</p>
-                    )}
-                    <div className="mono" style={{ color: "var(--ink-faint)" }}>
-                      {confidenceReads(item.confidence)}
-                      {item.semantic_type ? ` · ${item.semantic_type}` : ""}
-                    </div>
-                  </div>
-                  <div className="row" style={{ gap: "0.4rem" }}>
-                    <button
-                      className="btn btn-primary"
-                      disabled={busy !== null}
-                      onClick={() => act(
-                        item.mapping_id,
-                        () => api.post(
-                          `/api/variable-mappings/${item.mapping_id}/decide`,
-                          { approve: true }),
-                        variables.reload)}
-                    >
-                      Use this label
-                    </button>
-                    <button
-                      className="btn"
-                      disabled={busy !== null}
-                      onClick={() => act(
-                        item.mapping_id,
-                        () => api.post(
-                          `/api/variable-mappings/${item.mapping_id}/decide`,
-                          { approve: false }),
-                        variables.reload)}
-                    >
-                      Reject
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <PendingMapping
+                key={item.mapping_id}
+                item={item}
+                busy={busy !== null}
+                onDecide={(approve, transformation) => act(
+                  item.mapping_id,
+                  () => api.post(
+                    `/api/variable-mappings/${item.mapping_id}/decide`,
+                    { approve, transformation }),
+                  variables.reload)}
+              />
             ))}
           </>
         )}
@@ -404,5 +373,111 @@ function TeachATerm({ projectId, variables, onProposed }: {
       </p>
       {error && <div className="notice" role="alert">{error}</div>}
     </form>
+  );
+}
+
+
+/**
+ * Whether approving this mapping leaves the numbers needing conversion.
+ *
+ * A mapping says two columns mean the same *quantity*. It says nothing about
+ * whether they are in the same *units*, and approving one converts nothing.
+ * `variable_mappings.transformation_required` exists to record the difference
+ * and `visuals.variable_labels` reads it — to keep a canonical unit off the
+ * axis of a column whose values are not in it, which that module calls a worse
+ * lie than printing the raw column name. Nothing in the product wrote it. Its
+ * one test passed because the fixture wrote the column directly, describing
+ * itself as acting "as the mapping screen does" while the mapping screen could
+ * not. So the guard never engaged, and the canonical unit was borrowed onto
+ * every column that declared none.
+ *
+ * Two units known and different is a fact, so the server derives it and this
+ * says so rather than asking. A column that declares no unit is the case only
+ * a person can settle, and the question is put here — where the reviewer is
+ * already looking at both names.
+ */
+export function unitQuestion(item: Pending): string | null {
+  const column = (item.column_unit ?? "").trim();
+  const canonical = (item.canonical_unit ?? "").trim();
+  if (!canonical || column === canonical) return null;
+  if (column) {
+    return `${item.column_name} is recorded in ${column}, and this variable is `
+      + `defined in ${canonical}. Approving does not convert the numbers.`;
+  }
+  return `${item.column_name} does not say what unit its values are in, and `
+    + `this variable is defined in ${canonical}. Only you can say whether the `
+    + `values are already in it.`;
+}
+
+function PendingMapping({ item, busy, onDecide }: {
+  item: Pending;
+  busy: boolean;
+  onDecide: (approve: boolean, transformation: string | null) => void;
+}) {
+  const question = unitQuestion(item);
+  const derived = Boolean((item.column_unit ?? "").trim());
+  const [needsConverting, setNeedsConverting] = useState(false);
+
+  return (
+    <div className="card">
+      <div className="row">
+        <div>
+          <div className="mono">{item.column_name}</div>
+          <div style={{ fontWeight: 560 }}>
+            {item.display_label || item.canonical_name}
+            {item.canonical_unit ? ` (${item.canonical_unit})` : ""}
+          </div>
+          {item.definition && (
+            <p style={{ margin: "4px 0 0" }}>{item.definition}</p>
+          )}
+          <div className="mono" style={{ color: "var(--ink-faint)" }}>
+            {confidenceReads(item.confidence)}
+            {item.semantic_type ? ` · ${item.semantic_type}` : ""}
+          </div>
+        </div>
+        <div className="row" style={{ gap: "0.4rem" }}>
+          <button
+            className="btn btn-primary"
+            disabled={busy}
+            onClick={() => onDecide(
+              true,
+              // Only the unanswerable case is asked about; where both units
+              // are known the server derives the conversion, and sending a
+              // second answer from here would let the two disagree.
+              !derived && needsConverting
+                ? `values are not in ${item.canonical_unit}`
+                : null)}
+          >
+            Use this label
+          </button>
+          <button className="btn" disabled={busy}
+                  onClick={() => onDecide(false, null)}>
+            Reject
+          </button>
+        </div>
+      </div>
+
+      {question && (
+        <p className="vr-units">
+          <span>Units</span> {question}
+          {derived ? (
+            <em> Recorded with the label, so a figure keeps the column&apos;s
+              own unit on its axis.</em>
+          ) : (
+            <label>
+              <input
+                type="checkbox"
+                checked={needsConverting}
+                onChange={(e) => setNeedsConverting(e.target.checked)}
+              />
+              <span>
+                The values still need converting — do not put{" "}
+                {item.canonical_unit} on an axis of them.
+              </span>
+            </label>
+          )}
+        </p>
+      )}
+    </div>
   );
 }

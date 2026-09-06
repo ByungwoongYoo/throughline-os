@@ -5034,6 +5034,14 @@ def approve_workflow_node(run_id: str, node_name: str,
 
 class LabelDecision(BaseModel):
     approve: bool
+    #: What still has to happen to the numbers before they are in the canonical
+    #: unit. Optional, and only a person can supply it when the column declares
+    #: no unit of its own — where both units are known the domain derives it.
+    #:
+    #: `visuals.variable_labels` reads this to keep a canonical unit off the
+    #: axis of a column whose values are not in it. Nothing wrote the column
+    #: until this field existed, so that guard never engaged.
+    transformation: str | None = None
 
 
 class StudyContext(BaseModel):
@@ -5141,7 +5149,8 @@ def decide_label(mapping_id: str, payload: LabelDecision,
         scoped_project(row["project_id"], user)
         try:
             return harmonize.decide(cur, mapping_id=mapping_id,
-                                    approve=payload.approve, user_id=user["id"])
+                                    approve=payload.approve, user_id=user["id"],
+                                    transformation=payload.transformation)
         except harmonize.HarmonizationError as exc:
             raise HTTPException(400, str(exc)) from exc
 
