@@ -19,6 +19,7 @@ import { useState } from "react";
 import { TabPanel, ViewTabs } from "./ViewTabs";
 import { Source, api } from "@/lib/api";
 import { ApiState, useApi } from "@/lib/useApi";
+import { RecordStudyContext } from "./StudyContext";
 import { Empty, Failure, Loading } from "./primitives";
 import { ClaimTest } from "./claimtest";
 import { Consistency } from "./consistency";
@@ -275,7 +276,12 @@ export function Compare({ projectId, sources }: {
 
       {error ? <Failure error={error} /> : null}
       {busy && <Loading rows={3} label="Checking whether these can be compared" />}
-      {assessment && <Verdict assessment={assessment} />}
+      {assessment && (
+        <Verdict
+          assessment={assessment}
+          onRecorded={() => { if (left && right) void assess(left, right); }}
+        />
+      )}
 
       <AlreadyChecked projectId={projectId} datasets={datasets} />
     </>
@@ -366,8 +372,17 @@ function AlreadyChecked({ projectId, datasets }: {
   );
 }
 
-function Verdict({ assessment }: { assessment: Assessment }) {
+function Verdict({ assessment, onRecorded }: {
+  assessment: Assessment;
+  /** Re-run the check, once a side has been given what it was missing. */
+  onRecorded: () => void;
+}) {
   const tone = TONE[assessment.verdict] ?? "caution";
+  // Every side that is missing it, not the first one found. The check itself
+  // reports both when both are unrecorded; offering to fix one of two sends a
+  // researcher back to a verdict that has not moved.
+  const unrecorded = [assessment.left, assessment.right]
+    .filter((side) => side.design === "unknown");
 
   return (
     <article className={`cmp-verdict cmp-${tone}`}>
@@ -411,6 +426,18 @@ function Verdict({ assessment }: { assessment: Assessment }) {
                 </p>
               )}
             </div>
+          ))}
+          {/* "Record how each dataset was collected" named no control until
+              this one existed, so the mismatch was a dead end: the check that
+              could not be established could not be made establishable. */}
+          {unrecorded.map((side) => (
+            <RecordStudyContext
+              key={side.id}
+              datasetVersionId={side.id}
+              datasetName={side.name}
+              missing={["design"]}
+              onRecorded={onRecorded}
+            />
           ))}
         </section>
       )}

@@ -122,3 +122,81 @@ describe("what has already been checked", () => {
     expect(screen.queryByText(/Already checked/)).toBeNull();
   });
 });
+
+/**
+ * The remedy the comparability check names.
+ *
+ * `_check_design` reports "Record how each dataset was collected" whenever
+ * either side's study design is unrecorded — which, until the study context
+ * could be written at all, was every real pair. A remedy stated on a screen
+ * that cannot carry it out is a dead end wearing the appearance of guidance,
+ * so the control belongs here as well as on the claim test.
+ */
+describe("recording a design the comparison stopped for", () => {
+  const ASSESSMENT = {
+    verdict: "NOT_MEANINGFULLY_COMPARABLE",
+    label: "Not meaningfully comparable",
+    shared_dimensions: [],
+    still_possible: [],
+    mismatches: [{
+      dimension: "study design",
+      detail: "Neither Nine countries, 2019 nor Hospital panel records a study "
+        + "design, so what a comparison could claim cannot be established.",
+      ceiling: "CONCEPTUAL",
+      remedy: "Record how each dataset was collected.",
+    }],
+    left: { id: "dsv_1", name: "Nine countries, 2019", rows: 120,
+            design: "unknown" },
+    right: { id: "dsv_2", name: "Hospital panel", rows: 400, design: "unknown" },
+    method: "deterministic",
+  };
+
+  async function assessed(over: Record<string, unknown> = {}) {
+    vi.spyOn(api, "get").mockResolvedValue([] as never);
+    vi.spyOn(api, "post").mockResolvedValue({ ...ASSESSMENT, ...over } as never);
+    show();
+    (await screen.findByText("Nine countries, 2019")).click();
+    (await screen.findByText("Hospital panel")).click();
+    await screen.findByText(/cannot be established/);
+  }
+
+  it("offers to record both sides when neither says anything", async () => {
+    await assessed();
+
+    // Both, not the first found. Fixing one of two leaves the verdict where it
+    // was, and the researcher looking at a remedy they have already carried out.
+    expect(await screen.findByRole("button",
+      { name: /Record Nine countries, 2019's study design/ })).toBeVisible();
+    expect(screen.getByRole("button",
+      { name: /Record Hospital panel's study design/ })).toBeVisible();
+  });
+
+  it("offers it only for the side that is missing it", async () => {
+    await assessed({
+      left: { id: "dsv_1", name: "Nine countries, 2019", rows: 120,
+              design: "cohort" },
+    });
+
+    expect(screen.queryByRole("button",
+      { name: /Record Nine countries, 2019's/ })).toBeNull();
+    expect(screen.getByRole("button",
+      { name: /Record Hospital panel's study design/ })).toBeVisible();
+  });
+
+  it("checks the pair again once a design has been recorded", async () => {
+    await assessed();
+    vi.mocked(api.get).mockResolvedValue({
+      study_design: "unknown", population: "", period_start: null,
+      period_end: null, designs: ["cohort"],
+    } as never);
+    (await screen.findByRole("button",
+      { name: /Record Hospital panel's study design/ })).click();
+
+    await screen.findByLabelText("Study design");
+    vi.spyOn(api, "put").mockResolvedValue({} as never);
+    (await screen.findByRole("button",
+      { name: /Record and test again/ })).click();
+
+    await waitFor(() => expect(vi.mocked(api.post).mock.calls.length).toBe(2));
+  });
+});

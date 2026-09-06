@@ -303,3 +303,30 @@ def test_an_unknown_verdict_falls_back_to_itself(cur, project):
 
     [stored] = compare.list_assessments(cur, project)
     assert stored["label"] == "something_new"
+
+
+def test_two_datasets_that_both_say_nothing_do_not_agree_on_design(cur, project):
+    """
+    Neither side recording a design is not the two of them matching.
+
+    `_check_design` compared the two values before it looked for "unknown", so
+    ("unknown", "unknown") took the equality branch and returned no mismatch at
+    all — the Law 6 check reporting agreement between two datasets that had
+    each said nothing. And until the study context could be recorded, both
+    sides were *always* unknown, so this was every real comparison the product
+    could make: the check never fired once.
+    """
+    left = _dataset(cur, project, name="one", rows=400, columns={"outcome": "%"})
+    right = _dataset(cur, project, name="two", rows=420, columns={"outcome": "%"})
+    _map(cur, project, left["columns"]["outcome"], "outcome_rate", "%")
+    _map(cur, project, right["columns"]["outcome"], "outcome_rate", "%")
+
+    result = compare.assess_datasets(
+        cur, project_id=project,
+        left_version_id=left["version_id"], right_version_id=right["version_id"])
+
+    design = [m for m in result["mismatches"] if m["dimension"] == "study design"]
+    assert design, "two unrecorded designs were read as agreeing"
+    # And it names both sides. Naming one of two sends somebody to fix half a
+    # problem and find the check still unmade.
+    assert "one" in design[0]["detail"] and "two" in design[0]["detail"]

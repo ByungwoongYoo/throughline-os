@@ -241,19 +241,41 @@ def _check_aggregation(left: dict, right: dict) -> Mismatch | None:
 
 
 def _check_design(left: dict, right: dict) -> Mismatch | None:
-    """Different designs support different claims (Law 6)."""
+    """
+    Different designs support different claims (Law 6).
+
+    **Unrecorded is checked before equality, and that order is the whole
+    check.** It used to compare the two values first, so ("unknown",
+    "unknown") took the equality branch and returned no mismatch — two
+    datasets that had each said nothing about how they were collected,
+    reported as agreeing on design. Until the study context could be recorded
+    at all, both sides were *always* unknown, which made that every real
+    comparison the product could make: Law 6 never fired once, and the silence
+    read as a pass.
+
+    The sentence names every side that is missing it. Naming one of two is a
+    true-sounding sentence that sends somebody to record a design on the
+    dataset that already has one, and find the check still unmade.
+    """
     left_design = left.get("study_design") or "unknown"
     right_design = right.get("study_design") or "unknown"
-    if left_design == right_design:
-        return None
-    if "unknown" in (left_design, right_design):
+
+    unrecorded = [name for name, design in
+                  ((left.get("source_title") or "one dataset", left_design),
+                   (right.get("source_title") or "the other", right_design))
+                  if design == "unknown"]
+    if unrecorded:
+        where = (f"Neither {unrecorded[0]} nor {unrecorded[1]} records"
+                 if len(unrecorded) == 2 else f"{unrecorded[0]} does not record")
         return Mismatch(
             dimension="study design",
-            detail=("One dataset's study design is not recorded, so what a "
-                    "comparison could claim cannot be established."),
+            detail=(f"{where} a study design, so what a comparison could claim "
+                    "cannot be established."),
             ceiling=CONCEPTUAL,
             remedy="Record how each dataset was collected.",
         )
+    if left_design == right_design:
+        return None
     return Mismatch(
         dimension="study design",
         detail=(f"One is {left_design.replace('_', ' ')} and the other is "
