@@ -542,7 +542,9 @@ html, body {
   background: var(--paper);
   color: var(--ink);
   font-family: var(--sans);
-  font-size: 13.5px;
+  /* 14px, and everything quiet is 12.5px. Two sizes for interface text, so a
+     screen has one voice and one aside rather than a gradient of six. */
+  font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
@@ -560,11 +562,22 @@ a { color: inherit; }
 .mono { font-family: var(--mono); font-size: 11.5px; }
 .serif { font-family: var(--serif); }
 
+/*
+ * The quiet label, spelled once.
+ *
+ * This and `h3` were the same voice at two sizes — 10px/0.11em/`--ink-faint`
+ * here, 12px/0.04em/`--ink-soft` there — and the markup carries both, often on
+ * the same element, so the first `h3` on the Overview computed to the 10px
+ * one and the density contract's h3 never reached the screen. Two spellings of
+ * one voice is the thing this pass exists to remove, so `.eyebrow` says what
+ * `h3` says. It stays a class because plenty of these labels sit on a `span`
+ * or a `div` where an `h3` would claim a section that is not there.
+ */
 .eyebrow {
-  font-size: 10px;
-  letter-spacing: 0.11em;
+  font-size: 12px;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--ink-faint);
+  color: var(--ink-soft);
   font-weight: 600;
 }
 
@@ -691,7 +704,10 @@ a { color: inherit; }
 }
 
 .rail-group { margin-bottom: 18px; }
-.rail-group > .eyebrow { padding: 0 16px 6px; display: block; }
+/* The group's name is `button.rail-heading` now, not an `.eyebrow` label: it
+   expands and collapses, which is a control. The rule that padded the old
+   label is gone rather than kept for a day it might come back — a selector
+   that matches nothing is a claim about the markup that is no longer true. */
 
 .rail-item {
   display: flex;
@@ -769,7 +785,9 @@ a { color: inherit; }
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--panel);
-  padding: 14px 16px;
+  /* 12/14, down from 14/16. Two pixels a side is nothing on one card and about
+     a card and a half of vertical room over a screen that stacks eight. */
+  padding: 12px 14px;
   margin-bottom: 12px;
 }
 
@@ -790,30 +808,98 @@ a { color: inherit; }
  * site both head themselves in Source Serif 4 — the same product speaking in
  * two typefaces depending on which door you came through.
  *
- * Upright at 600, not the site's italic 400. Two reasons, and the second is
- * measurable: an instrument's headings are read in passing, dozens per session,
- * where an italic reads as emphasis rather than as level; and `fonts.css`
- * self-hosts only upright faces (`font-style: normal`), so an italic here would
- * be a browser-synthesised oblique — a slanted upright, not the typeface.
+ * Upright, not the site's italic. Two reasons, and the second is measurable: an
+ * instrument's headings are read in passing, dozens per session, where an
+ * italic reads as emphasis rather than as level; and `fonts.css` self-hosts
+ * only upright faces (`font-style: normal`), so an italic here would be a
+ * browser-synthesised oblique — a slanted upright, not the typeface.
  *
- * Only the family and the weight change. Size, tracking and margin are the same
- * numbers as before, so nothing reflows. `.gate h1`, `.first-inner h1` and
- * `.l-display` keep their own weights, which they already state.
+ * `.gate h1`, `.first-inner h1` and `.l-display` keep their own weights, which
+ * they already state.
+ *
+ * **Three levels, three kinds of thing (T139).** They were 19/14/12 at weights
+ * 600/620/620, which is one voice at three sizes: a heading, a slightly smaller
+ * heading and a slightly smaller heading again, all of them shouting as loudly
+ * as the body text between them. The owner read a screen of that as "everywhere
+ * it is just writing". So the serif carries the page's name at 20 and drops to
+ * 500, because a display face at 20 does not need weight as well as size; h2 is
+ * a sans label the eye skips between; and h3 is an eyebrow — small, uppercase,
+ * quiet — which is what it had already become in practice everywhere it
+ * appears.
  */
 h1 {
   font-family: var(--serif);
-  font-size: 19px;
-  font-weight: 600;
+  font-size: 20px;
+  font-weight: 500;
   letter-spacing: -0.015em;
+  color: var(--ink-strong);
   margin: 0 0 3px;
 }
-h2 { font-size: 14px; font-weight: 620; margin: 0 0 10px; letter-spacing: -0.005em; }
-h3 { font-size: 12px; font-weight: 620; margin: 0 0 6px; }
+h2 {
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -0.005em;
+  margin: 0 0 10px;
+}
+h3 {
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+  margin: 0 0 6px;
+}
 p  { margin: 0 0 8px; color: var(--ink-soft); }
 
-.lede { color: var(--ink-soft); max-width: 70ch; margin-bottom: 18px; }
+/* The aside voice, stated once so every screen spells it the same way. */
+.muted { font-size: 12.5px; color: var(--ink-soft); }
+
+/* 65ch, not 70: the measure in the type contract. Longer than that and the eye
+   loses the start of the next line on a 1440px screen. */
+.lede { color: var(--ink-soft); max-width: 65ch; margin-bottom: 18px; }
 
 table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+
+/*
+ * A table wider than the column it sits in scrolls. It never clips.
+ *
+ * The connections table is eight columns of fixed vocabulary — the headers
+ * cannot wrap, or "Q-VALUE" reads as two columns — so below about 1300px it
+ * outgrows the workspace column. `main` scrolls vertically only, so the
+ * overrun simply vanished: at 1280 the last header read "ESTIMA" and its cells
+ * were cut in half, which is a number a researcher is reading being hidden by
+ * the furniture.
+ *
+ * `:has(> table)` reaches the table's own wrapper without a class on it, so no
+ * screen has to remember to add one, and `overflow-x: auto` shows a bar only on
+ * the screens that need it. `:not([class])` keeps this to the plain tables the
+ * base rule above styles: `.syn-table` and `.chart-table` have sticky headers,
+ * and a new scroll ancestor would silently stick them to the wrong box.
+ */
+main :is(div, section, li):has(> table:not([class])) { overflow-x: auto; }
+
+/*
+ * And the bar is drawn, not left to the browser's overlay. An overlay
+ * scrollbar appears only once you are already scrolling, so a table with a
+ * column past the edge looks like a table with a column missing — the same
+ * complaint in a quieter voice. Styling the pseudo-element is also what turns
+ * a Blink overlay bar into a permanent one; browsers that do not know these
+ * selectors keep their own bar, which is the behaviour we are asking for
+ * anyway.
+ */
+main :is(div, section, li):has(> table:not([class]))::-webkit-scrollbar {
+  height: 8px;
+}
+main :is(div, section, li):has(> table:not([class]))::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 4px;
+}
+main :is(div, section, li):has(> table:not([class]))::-webkit-scrollbar-track {
+  background: transparent;
+}
 th {
   text-align: left;
   /* Headers and figures must not wrap mid-token; "7.44e-39" split across two
@@ -878,15 +964,29 @@ tbody tr:hover { background: var(--hover); }
 
 /* --- buttons ------------------------------------------------------------- */
 
+/*
+ * `.btn` is the text-weight control and `.btn-primary` is the only filled one.
+ *
+ * Every control on a screen used to be a panel-filled box with a `--line-strong`
+ * edge, so eight of them in a row read as eight equal invitations and the one
+ * that mattered had to shout in the accent to be found at all. A transparent
+ * ground and a hairline make the ordinary control a piece of text you can
+ * press; the fill is then a real signal rather than a decoration, and the step
+ * strip is where it is spent.
+ */
 .btn {
   padding: 5px 11px;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--line);
   border-radius: 4px;
-  background: var(--panel);
+  background: transparent;
+  color: var(--ink);
   font-size: 12px;
   font-weight: 540;
 }
-.btn:hover:not(:disabled) { background: var(--hover); border-color: var(--accent); }
+/* `--hover` is the surface one step up from the panel: `--n-50` in light,
+   which is what the density contract names, and `--n-100` in dark, where
+   `--n-50` *is* the panel and a hover painted in it would not move. */
+.btn:hover:not(:disabled) { background: var(--hover); border-color: var(--line-strong); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 /* An anchor wearing `.btn` is a button to the reader, so it must not also be
    a link to the eye. `a { color: inherit }` above resets the colour and leaves
@@ -5320,14 +5420,73 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   background: var(--panel);
 }
 .rail-footer .rail-group { margin-bottom: 0; }
-/* A 26 px row (3 px padding over a 20 px line): the owner's brief is
-   "nothing hidden", so every one of the 26 entries fits a 900 px laptop and
-   the fade below only appears on shorter screens. 26 px still clears the
-   24 px pointer-target floor. Measured: 26 rows, 5 eyebrows and the pinned
-   footer end at 894 px of 900. */
-.rail-item { padding: 3px 16px; }
-.rail-group { margin-bottom: 6px; }
-.rail-group > .eyebrow { padding-bottom: 3px; }
+
+/*
+ * A 30 px row, back up from the 26 px that fitting all 26 entries on a 900 px
+ * laptop cost. One group is open now — eight rows at the widest — so the rail
+ * has room it did not have, and a 30 px target is the comfortable one.
+ */
+.rail-item { padding: 5px 16px; line-height: 20px; }
+.rail-group { margin-bottom: 4px; }
+
+/*
+ * The group heading: a stage of the loop, its entry count, and a chevron.
+ *
+ * `h3`'s voice — 12 px, uppercase, 0.04em — because that is exactly what this
+ * is, and the count is one step quieter again. The count uses `--ink-faint`
+ * rather than a literal `--n-500`: that is what it resolves to in light, and
+ * in dark the token deliberately takes one further step to `--n-600` for the
+ * reason the token block states, quiet text on a near-black ground being the
+ * first thing to disappear.
+ */
+.rail-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 16px;
+  min-height: 30px;
+  border: 0;
+  background: none;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+.rail-heading:hover { background: var(--hover); color: var(--ink); }
+.rail-heading > span:first-of-type { flex: 1; }
+
+/* The chevron is drawn, not shipped: one glyph per heading is five more
+   files' worth of markup for a triangle. It points down when the group is
+   open, which is the direction its entries went. */
+.rail-heading::before {
+  content: "";
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid var(--n-400);
+  border-bottom: 1.5px solid var(--n-400);
+  transform: rotate(-45deg);
+  transition: transform var(--micro) var(--ease-out-quad);
+}
+.rail-heading[aria-expanded="true"]::before { transform: rotate(45deg); }
+
+.rail-heading-count {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-faint);
+  letter-spacing: 0;
+}
+
+/* Nothing of its own: the rows inside carry the padding. Named so the
+   heading's `aria-controls` points at a region that exists — and deliberately
+   without a `display`, because an author `display: block` here would outrank
+   the user agent's `[hidden] { display: none }` and quietly un-hide a closed
+   group the day somebody renders its rows unconditionally. */
+.rail-entries { min-width: 0; }
 
 /* The gate's two doors, as equal labelled buttons above the form. */
 .gate-modes { display: flex; gap: 8px; margin-bottom: 18px; }
@@ -5357,7 +5516,9 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   padding: 0 26px;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
-  font-size: 13px;
+  /* The aside voice, because the strip is a caption on the project's state;
+     the step it names is the one thing in it drawn at full strength. */
+  font-size: 12.5px;
   color: var(--ink-soft);
 }
 .step-strip-where {
@@ -5372,7 +5533,7 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.step-strip-where b { color: var(--ink); font-weight: 560; }
+.step-strip-where b { color: var(--ink-strong); font-weight: 560; }
 button.step-strip-where { cursor: pointer; }
 button.step-strip-where:hover b { color: var(--accent); }
 .step-strip .btn { white-space: nowrap; flex: 0 0 auto; }
@@ -5438,8 +5599,11 @@ button.step-strip-where:hover b { color: var(--accent); }
 }
 .oa-item:hover:not(:disabled) { background: var(--hover); border-color: var(--accent); }
 .oa-item:disabled { opacity: 0.45; cursor: not-allowed; }
-.oa-item-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-.oa-item-primary:hover:not(:disabled) { filter: brightness(1.1); background: var(--accent); }
+/* The band's first entry points at the screen's act; it is not the act. A
+   fill here would put two gold buttons on one screen (T139: one filled
+   primary per screen), so it is marked by weight and an accent hairline. */
+.oa-item-primary { font-weight: 600; color: var(--ink-strong); border-color: var(--accent); }
+.oa-item-primary:hover:not(:disabled) { background: var(--hover); border-color: var(--accent); }
 .oa-note { font-size: 12.5px; color: var(--ink-soft); }
 
 /* A glossed term (D207): the word, then its one-clause meaning, visible. */
@@ -5512,3 +5676,157 @@ tr[data-lit="true"] { background: var(--hover); scroll-margin-block: 80px; }
 
 /* The saved figure a jump landed on. */
 .card[data-focus="true"] { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* --- the fold, and the one control at the right of the topbar (T139) --------
+ *
+ * Two pieces of the same argument. Nothing is removed and nothing hides behind
+ * a menu; a thing that opens in place, states what it is in one noun phrase and
+ * says how many are behind it, is not a menu. The rail's group headings are the
+ * navigation-sized version of this and live with the rail above; `.fold` is the
+ * content-sized one, and the account control is the stated exception the shell
+ * argues for in its own comment.
+ */
+
+/*
+ * `details.fold` — the disclosure the workspace uses everywhere.
+ *
+ * The count lives in `data-count` and is drawn by CSS rather than written into
+ * the summary, so the markup carries the number as data and only one rule
+ * decides how a count looks. Toggling is observed with `onToggle` on the
+ * `details`; a click handler on the summary would miss the keyboard, which
+ * opens a disclosure without ever dispatching one.
+ */
+details.fold { border-bottom: 1px solid var(--line); }
+
+details.fold > summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 2px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  list-style: none;
+  /* One line. A summary that wraps stops reading as a control. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Safari draws its own triangle from a pseudo-element `list-style` misses. */
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary:hover { background: var(--hover); color: var(--ink); }
+
+details.fold > summary::before {
+  content: "";
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid var(--n-400);
+  border-bottom: 1.5px solid var(--n-400);
+  transform: rotate(-45deg);
+  transition: transform var(--micro) var(--ease-out-quad);
+}
+details.fold[open] > summary::before { transform: rotate(45deg); }
+
+/* The count, drawn from the attribute. `--ink-faint` is `--n-500` in light and
+   one step brighter in dark, for the reason the token block gives. */
+summary[data-count]::after {
+  content: " · " attr(data-count);
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Open, the summary becomes the head of something, so it takes a rule. */
+details.fold[open] > summary { border-bottom: 1px solid var(--line); }
+details.fold > *:not(summary) { padding: 8px 2px 10px; }
+/* Named as well as positional, because a fold whose body is a fragment of
+   several elements has nowhere for the padding to land otherwise. */
+.fold-body { padding: 8px 2px 10px; }
+
+@media (prefers-reduced-motion: reduce) {
+  details.fold > summary::before, .rail-heading::before { transition: none; }
+}
+
+/*
+ * The account control: one button at the right of the topbar, wearing the
+ * signed-in name. The popup reuses the account menu's own rules — `.am-pop`,
+ * `.am-who`, `.am-note`, `.am-out` — because it is that menu with the theme
+ * added, and a second set of near-identical rules is how two menus in one
+ * topbar end up looking different.
+ */
+.acct-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 190px;
+  padding: 3px 8px 3px 3px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: none;
+  color: var(--ink-soft);
+  font-size: 12.5px;
+}
+.acct-trigger:hover { background: var(--hover); border-color: var(--line); color: var(--ink); }
+
+/*
+ * On a narrow screen, the two things in the topbar that can yield, yield.
+ *
+ * The topbar is one 52px row of five things — the project menu, the crumbs,
+ * "New project", the command bar and this control — and below about 780px
+ * their content widths add up to more than the row, so items whose content
+ * refuses to shrink overlap each other instead. Two of them are carrying
+ * something they can do without: the ⌘K hint, which is a keyboard's business
+ * and there is no keyboard here, and the account name, which the initials in
+ * the same button already give. Nothing is hidden — both are still in the
+ * menu and on the key — and the row stops overlapping itself.
+ *
+ * This is the small end of a mobile shell, not the whole of one: a 390px
+ * viewport still asks more of this row than one line can hold.
+ */
+@media (max-width: 780px) {
+  .topbar { gap: 10px; padding: 0 12px; }
+  .command { min-width: 0; }
+  .command kbd { display: none; }
+  .acct-name { display: none; }
+}
+.acct-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The theme as one segmented row, the current choice held.
+   `menuitemradio` rather than three buttons, because Radix moves focus between
+   items only and a row a keyboard cannot reach is a row that is not there. */
+.acct-theme {
+  display: flex;
+  gap: 2px;
+  margin: 6px 4px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+.acct-theme-option {
+  /* Sized from its own label, not into equal thirds: "Match this machine" is
+     three times the width of "Dark", and equal thirds truncated it to "Match
+     thi…" — a control whose third option cannot be read is a control with two
+     options. The free space is still shared, so the row fills its panel. */
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 3px;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acct-theme-option:hover { background: var(--hover); color: var(--ink); }
+.acct-theme-option[data-state="checked"] {
+  background: var(--accent-soft);
+  color: var(--on-accent-soft);
+  font-weight: 560;
+}

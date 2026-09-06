@@ -27,7 +27,7 @@
 import { useState } from "react";
 import { ApiError, api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
-import { Failure, Loading } from "./primitives";
+import { Failure, Fold, Loading } from "./primitives";
 import { lifecycleLabel } from "./ResultCard";
 import { Term } from "./term";
 
@@ -252,10 +252,12 @@ export function FindingLifecycle({
         * panel exists to keep: passing the checks below moves the state, and
         * says nothing about whether anything licenses the word "causes".
         */}
-      <p className="note">
-        That is its <Term id="lifecycle state" /> — not its{" "}
-        <Term id="causal status" />, which no move on this screen changes.
-      </p>
+      <Fold summary="What this state does and does not claim" count={1}>
+        <p className="note" style={{ marginTop: 0 }}>
+          That is its <Term id="lifecycle state" /> — not its{" "}
+          <Term id="causal status" />, which no move on this screen changes.
+        </p>
+      </Fold>
 
       {!target ? (
         <div className="row" style={{ gap: "0.5rem", flexWrap: "wrap" }}>

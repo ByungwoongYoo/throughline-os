@@ -34,6 +34,7 @@ import { useState } from "react";
 import { ApiError } from "@/lib/api";
 import { PublishFigure } from "./publish";
 import { canDraftReport, draftReport } from "./reports";
+import { Fold } from "./primitives";
 
 /**
  * A connection as this card needs to read one.
@@ -114,17 +115,33 @@ export function TakeItFurther({
   return (
     <section className="card" aria-labelledby="take-it-further">
       <h2 id="take-it-further">Take it further</h2>
-      <p className="note" style={{ marginTop: 0 }}>
-        The two ways this finding leaves the workspace: as a figure recorded
-        against the analysis it draws, and as a document that references the
-        analysis rather than copying its numbers.
+      {/*
+        An open band, never a fold (T139): these are the loop's last step and
+        the one act a reader arrives here to take. What folds is the paragraph
+        about *why* the two exports are shaped as they are.
+      */}
+      <p className="note one-line" style={{ marginTop: 0 }}>
+        The two ways this finding leaves the workspace.
       </p>
+      <Fold summary="What each export is, and what it references" count={2}>
+        <p className="note" style={{ marginTop: 0 }}>
+          A figure is recorded against the analysis it draws, so a picture on a
+          slide resolves back to the computation and the dataset underneath.
+        </p>
+        <p className="note">
+          A document references the analysis rather than copying its numbers, so
+          the page cannot disagree with the computation.
+        </p>
+      </Fold>
 
       {analysisRunId ? (
         <PublishFigure
           projectId={projectId}
           analysisRunId={analysisRunId}
           findingId={findingId}
+          /* No DOM save beside it here, and the step strip carries the page's
+             one primary — see `emphasis` in publish.tsx. */
+          emphasis="secondary"
         />
       ) : (
         <p>
@@ -143,29 +160,40 @@ export function TakeItFurther({
                     onClick={() => void draft(eligible.id)}>
               {drafting ? "Assembling…" : "Draft a report from this finding"}
             </button>
-            <p className="note">
+            {/* One line: which connection it would be written from. The rule
+                that makes the number trustworthy is folded above. */}
+            <p className="note one-line">
               Written from{" "}
               {eligible.left_variable && eligible.right_variable
                 ? `${eligible.left_variable} × ${eligible.right_variable}`
                 : "the connection behind this finding"}
-              , and its citations checked as it is drafted. Every number in the
-              document is read from the recorded analysis when the page is
-              produced, so the report cannot disagree with the computation.
+              , citations checked as it is drafted.
             </p>
           </>
         ) : (
-          <p>
-            {connection
-              ? "The connection behind this finding has no recorded analysis "
-                + "run, so a report drafted from it would have no result to "
-                + "cite."
-              : "Nothing this finding was drawn from is a tested connection, "
-                + "so there is no result for a report to cite."}
-            {" "}
-            A report is written from something that was tested. Run the
-            analysis on one of this finding&rsquo;s connections and this offers
-            itself.
-          </p>
+          <>
+            {/* The refusal in one line — §104's rule is that a refusal is a
+                sentence in place, not that it is three (T139). What it would
+                take to lift it is the reading around it, and folds. */}
+            <p className="note one-line">
+              No tested connection to write a report from.
+            </p>
+            <Fold summary="Why not, and what would change it" count={2}>
+              <p className="note" style={{ marginTop: 0 }}>
+                {connection
+                  ? "The connection behind this finding has no recorded analysis "
+                    + "run, so a report drafted from it would have no result to "
+                    + "cite."
+                  : "Nothing this finding was drawn from is a tested connection, "
+                    + "so there is no result for a report to cite."}
+              </p>
+              <p className="note">
+                A report is written from something that was tested. Run the
+                analysis on one of this finding&rsquo;s connections and this
+                offers itself.
+              </p>
+            </Fold>
+          </>
         )}
       </div>
 

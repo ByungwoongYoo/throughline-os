@@ -92,9 +92,23 @@ function save(bytes: Uint8Array, filename: string, type: string) {
   URL.revokeObjectURL(url);
 }
 
-export function PublishFigure({ projectId, analysisRunId, spec, findingId }: {
+export function PublishFigure({ projectId, analysisRunId, spec, findingId,
+                                emphasis = "primary" }: {
   projectId: string;
   analysisRunId: string;
+  /**
+   * How much weight this control takes.
+   *
+   * §4.12 gave it `btn-primary` so it would not read as the equal of the DOM
+   * save sitting under it on the Figures screen — the path that drops the
+   * VISUALIZES edge, the critic and the journal formats. That argument holds
+   * exactly where the pair is on screen together. On the finding's "Take it
+   * further" card there is no save beside it and the step strip above already
+   * carries the page's one primary, so the caller there asks for the plain
+   * button (T139) and nothing it was distinguished from is on screen to be
+   * confused with it.
+   */
+  emphasis?: "primary" | "secondary";
   /** The recommendation's spec, when the researcher is looking at one. */
   spec?: Record<string, unknown> | null;
   /**
@@ -191,14 +205,9 @@ export function PublishFigure({ projectId, analysisRunId, spec, findingId }: {
   if (!created) {
     return (
       <div>
-        {/*
-          §4.12 — `btn-primary`, because this is the export that keeps the
-          lineage edge, the critic and the journal formats listed at the top of
-          this file. The DOM save beside it looked identical and lost all
-          three, which made the wrong path the one that reads as the default.
-          Weight is the only thing that changed; both are still one press.
-        */}
-        <button className="btn btn-primary" disabled={busy} onClick={() => void prepare()}>
+        {/* See `emphasis` above: primary where the DOM save is beside it. */}
+        <button className={emphasis === "primary" ? "btn btn-primary" : "btn"}
+                disabled={busy} onClick={() => void prepare()}>
           {busy ? "Checking the figure…" : "Export for publication"}
         </button>
         {error && <div className="notice" role="alert">{error}</div>}

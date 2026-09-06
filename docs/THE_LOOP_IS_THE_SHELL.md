@@ -64,13 +64,14 @@ Each is one sentence and each is testable.
    `.btn-primary` in the workspace column has `getBoundingClientRect().bottom <= 900`.*
 3. **The rail claims only what it is.** A rail group names a kind of screen, never a loop
    step, because only four of the 23 sections are step destinations; step numbering lives
-   in the strip, which knows the project's state. *Test: no `.eyebrow` in the rail matches
-   `/^\d/`.*
+   in the strip, which knows the project's state. *Test: no `.rail-heading`'s first span (the group's
+   name) matches `/^\d/` — `tests/step-strip.test.tsx`, and C26 of the walk.*
 4. **Nothing is hidden; depth is layered.** A capability may be second in a list, below a
    fold, or inside a `<details>` **whose closed summary states what is inside it**
    (`ChartTable.tsx:1-21`); it may never be behind a mode, an unlabelled toggle, a menu, or
-   a URL. *Test: `tests/pages-are-reachable.test.ts` plus a new assertion that every
-   `<summary>` in the components tree contains at least three words.*
+   a URL. *Test: `tests/pages-are-reachable.test.ts`, plus
+   `tests/one-thing-on-the-screen.test.tsx`: every fold rests closed, its summary is the
+   noun phrase for what it holds, and the count of what it holds is on `data-count`.*
 5. **A scroll with a visible edge is not a hide; a menu is.** The rail may scroll, and it
    must say so with a fade and keep its most consequential rows in the visible box.
    *Test: `reports`, `figures` and `settings` rail rows are inside the rail's visible box

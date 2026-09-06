@@ -1,0 +1,111 @@
+/*
+ * Density: the rules that keep every screen to one thing at a time (T139).
+ * Loaded after globals.css, so an equal-specificity rule here wins.
+ * Owned by the simplification work; the shell and token rules stay in globals.css.
+ *
+ * The counted problem this answers: the Overview carried about 200 words above
+ * the fold and the connection detail about 250, on a screen a researcher opens
+ * twenty times a day. Nothing here removes anything — the words are behind
+ * `details.fold`, whose rules live in globals.css with the rest of the shell.
+ * What is here is the shape of what stays on screen: one line per element, a
+ * second line of metadata at most, and the space that used to hold the third.
+ *
+ * No token is redefined in this file. A density rule that changed a colour
+ * would put the palette in two places and the second one would drift.
+ */
+
+/* --- the totals line ----------------------------------------------------- */
+
+/*
+ * Six counts as one sentence, in the secondary colour, sitting where six
+ * bordered cells used to. `--ink-faint` is `--n-600` in dark, which is the
+ * secondary text the design contract names; the digits are tabular so the
+ * line does not jitter as the project grows.
+ */
+.totals {
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+.totals .numeric { color: var(--ink); font-weight: 540; }
+
+/* --- one-line metadata --------------------------------------------------- */
+
+/*
+ * A `.note` that is a single fact rather than a paragraph.
+ *
+ * `.note` carries a left rule because it is an aside beside the thing it is
+ * about. A one-line label is not an aside — it is the element's own second
+ * line — and the rule beside it reads as a quotation of nothing.
+ */
+.note.one-line {
+  border-left: none;
+  padding-left: 0;
+  margin: 2px 0 8px;
+}
+
+/* --- the loop rows ------------------------------------------------------- */
+
+/*
+ * Only the current row carries a hint now, so every other row is one line of
+ * text in a box built for two. The padding comes down to match, and the whole
+ * card fits the fold rather than running past it.
+ */
+.steps button { padding-top: 6px; padding-bottom: 6px; }
+.steps li[data-next="true"] > button { padding-top: 8px; padding-bottom: 8px; }
+
+/* --- take-away panels ---------------------------------------------------- */
+
+/*
+ * The name and its control on one line, with what the file holds folded
+ * underneath. Three panels that each opened with a paragraph put a hundred
+ * words between a reader and three buttons.
+ */
+.bib-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.bib-head h3 { margin: 0; }
+.bib { margin: 0.75rem 0; }
+
+/* The provenance links took the same shape: control on the line, sentence
+   folded, so the fold needs the full width rather than a flex share. */
+.prov-log { align-items: center; }
+.prov-log details.fold { flex: 1 1 16rem; min-width: 16rem; }
+
+/* --- spacing ------------------------------------------------------------- */
+
+/*
+ * A screen of cards is mostly the gaps between them. Two pixels off each is
+ * invisible on one card and is a card and a half of vertical room over the
+ * eight a detail screen stacks — which is room the fold above it can use.
+ */
+.workspace .card { margin-bottom: 10px; }
+.workspace .lede { margin-bottom: 12px; max-width: 65ch; }
+
+/*
+ * An empty state is a sentence, not a landing page. 26px of padding on every
+ * side made "No figure has been saved yet" a hundred-pixel block on a screen
+ * whose subject is elsewhere.
+ */
+.workspace .empty { padding: 16px; }
+
+
+/* The inspector holds at most three items and none of them is a paragraph;
+   its own text steps down to the secondary size the contract names. */
+.inspector .note { font-size: 12px; }
+
+/*
+ * Without the context panel the workspace column is some 1200 px wide at
+ * 1440. Prose, cards and folds keep a reading measure so a label and the
+ * control that answers it stay within one glance; tables, boards and canvases
+ * are not listed here and may take the whole width.
+ */
+main.workspace > :is(h1, h2, h3, p, .lede, .totals, .card, details.fold, section, .note, .row) {
+  max-width: 980px;
+}
+main.workspace > :is(p, .lede, .note) { max-width: 72ch; }

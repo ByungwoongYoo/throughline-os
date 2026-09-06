@@ -34,7 +34,7 @@
 
 import { ApiError, objectTypeName } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
-import { Empty, Failure, Loading } from "./primitives";
+import { Empty, Failure, Fold, Loading } from "./primitives";
 
 /**
  * The payload shapes, defined locally rather than in `lib/api.ts`.
@@ -129,13 +129,24 @@ export function GraphStats({ projectId, onOpen }: {
 
   return (
     <section aria-labelledby="graphstats-heading" style={{ marginTop: 20 }}>
-      <h2 id="graphstats-heading" className="eyebrow">
+      {/*
+        Folded whole (T139). This is structure about the project, sitting under
+        a table of its results, and it was sixty-five words of qualification
+        before a single number. The refusal it opens with is still the first
+        thing inside — a ranking read first and qualified second has already
+        been read as a finding — and now nobody meets the qualification without
+        having asked for the ranking.
+      */}
+      {/* Outside the fold: the section's `aria-labelledby` must point at a
+          name a closed disclosure has not hidden. */}
+      <h2 id="graphstats-heading" className="sr-only">
         Which objects this project has connected most
       </h2>
+      <Fold summary="Which objects this project has connected most"
+            count={central.data?.ranking?.length ?? 0}>
 
-      {/* The refusal comes before the numbers, not after them, because a
-          ranking read first and qualified second has already been read as a
-          finding. The route's summary is the source of this sentence. */}
+      {/* The refusal comes before the numbers, not after them. The route's
+          summary is the source of this sentence. */}
       <p style={{ fontSize: 13, margin: "0 0 12px", color: "var(--ink-faint)" }}>
         This is a structural fact about the project&rsquo;s recorded
         relationships — how many connections each object has, and which objects
@@ -245,6 +256,7 @@ export function GraphStats({ projectId, onOpen }: {
         // last five uploads is a different object from a current one.
         <p className="note" style={{ marginTop: 12 }}>{staleness.note}</p>
       )}
+      </Fold>
     </section>
   );
 }

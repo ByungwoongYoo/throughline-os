@@ -25,7 +25,7 @@ import {
   Integrity, api,
 } from "@/lib/api";
 import { ApiState, useApi } from "@/lib/useApi";
-import { Empty, Failure, Loading, Status } from "./primitives";
+import { Empty, Failure, Fold, Loading, Status, Totals } from "./primitives";
 import {
   BibliographyPanel, ResultsTable, SnapshotPanel,
 } from "./bibliography";
@@ -94,14 +94,37 @@ export function Reports({ projectId, connections, onSelect }: {
     }
   }
 
+  /** One eligible connection as a row: its name, its state, and the act. */
+  const draftRow = (connection: Connection) => (
+    <div className="row" key={connection.id} style={{ padding: "7px 0" }}>
+      <div>
+        <span style={{ fontWeight: 530 }}>
+          {connection.left_variable} × {connection.right_variable}
+        </span>{" "}
+        <Status value={connection.lifecycle_status} />
+      </div>
+      <button className="btn" disabled={drafting}
+              onClick={() => draft(connection.id)}>
+        {drafting ? "Assembling…" : "Draft report"}
+      </button>
+    </div>
+  );
+
   return (
     <>
       <h1>Reports</h1>
-      <p className="lede">
-        A report references its findings rather than copying them. Every number
-        in it is read from a recorded analysis when the document is produced, so the
-        page cannot disagree with the computation.
-      </p>
+      {/*
+        One sentence at rest, the rest one press away (T139). The second and
+        third sentences say *why* a reference beats a copy, which is worth
+        reading once and is in the way on every later visit.
+      */}
+      <p className="lede">A report references its findings rather than copying them.</p>
+      <Fold summary="Why a reference and not a copy" count={1}>
+        <p className="note" style={{ marginTop: 0 }}>
+          Every number in a report is read from a recorded analysis when the
+          document is produced, so the page cannot disagree with the computation.
+        </p>
+      </Fold>
 
       {error ? <Failure error={error} /> : null}
       <CitationHealth state={citations} />
@@ -123,10 +146,11 @@ export function Reports({ projectId, connections, onSelect }: {
       */}
       <section className="card" aria-labelledby="take-away">
         <h2 id="take-away">Take this away</h2>
-        <p className="note" style={{ marginTop: 0 }}>
-          Three files, each complete on its own — the numbers as a table, the
-          references as BibTeX, and everything recorded about the project as one
-          archive. Nothing here has to be copied by hand off the screens above.
+        {/* The block's own sentence, cut to the clause that is a fact about
+            the three panels rather than a description of each. */}
+        <p className="note one-line" style={{ marginTop: 0 }}>
+          Three files, each complete on its own — nothing here has to be copied
+          by hand off the screens above.
         </p>
         <ResultsTable projectId={projectId} />
         <BibliographyPanel projectId={projectId} />
@@ -141,20 +165,19 @@ export function Reports({ projectId, connections, onSelect }: {
             hint="A report is written from a connection with a recorded analysis. Run discovery first."
           />
         )}
-        {eligible.slice(0, 8).map((connection) => (
-          <div className="row" key={connection.id} style={{ padding: "7px 0" }}>
-            <div>
-              <span style={{ fontWeight: 530 }}>
-                {connection.left_variable} × {connection.right_variable}
-              </span>{" "}
-              <Status value={connection.lifecycle_status} />
-            </div>
-            <button className="btn" disabled={drafting}
-                    onClick={() => draft(connection.id)}>
-              {drafting ? "Assembling…" : "Draft report"}
-            </button>
-          </div>
-        ))}
+        {/*
+          Three at rest, the rest in place (T139). Eight rows and eight buttons
+          is eight decisions offered at once for one act; the first three are
+          the ones the project ranked, and the fold says how many follow rather
+          than truncating them away.
+        */}
+        {eligible.slice(0, 3).map(draftRow)}
+        {eligible.length > 3 && (
+          <Fold summary="More connections to write from"
+                count={eligible.length - 3}>
+            {eligible.slice(3, 8).map(draftRow)}
+          </Fold>
+        )}
       </div>
 
       {artifacts.error ? <Failure error={artifacts.error} retry={artifacts.reload} /> : null}
@@ -206,19 +229,20 @@ function CitationHealth({ state }: { state: ApiState<CitationReport> }) {
   return (
     <div className="card card-tight">
       <h3 className="eyebrow">Citation integrity</h3>
-      <div className="meters" style={{ marginTop: 10, marginBottom: 10 }}>
-        <div className="meter"><b>{report.total}</b><span>citations</span></div>
-        <div className="meter"><b>{report.resolved}</b><span>resolve</span></div>
-        <div className="meter" data-zero={report.dangling.length === 0}>
-          <b>{report.dangling.length}</b><span>dangling</span>
-        </div>
-        <div className="meter"><b>{report.by_entailment.supported ?? 0}</b><span>supported</span></div>
-        <div className="meter" data-zero={(report.by_entailment.unsupported ?? 0) === 0}>
-          <b>{report.by_entailment.unsupported ?? 0}</b><span>unsupported</span>
-        </div>
-        <div className="meter"><b>{unchecked}</b><span>unchecked</span></div>
-      </div>
-      <p className="note" style={{ marginBottom: 0 }}>{report.note}</p>
+      {/* Six integers as one line, the same six facts (T139). */}
+      <Totals parts={[
+        [report.total, "citations", "citation"],
+        [report.resolved, "resolve", "resolves"],
+        [report.dangling.length, "dangling", "dangling"],
+        [report.by_entailment.supported ?? 0, "supported", "supported"],
+        [report.by_entailment.unsupported ?? 0, "unsupported", "unsupported"],
+        [unchecked, "unchecked", "unchecked"],
+      ]} />
+      {/* The server's paragraph on what these numbers can and cannot mean.
+          It does not change between visits, so it is not on screen at rest. */}
+      <Fold summary="What these counts do and do not prove" count={1}>
+        <p className="note" style={{ margin: 0 }}>{report.note}</p>
+      </Fold>
     </div>
   );
 }

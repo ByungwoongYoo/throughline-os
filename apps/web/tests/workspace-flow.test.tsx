@@ -300,19 +300,24 @@ describe("the overview keeps up while work is running (D194)", () => {
     at("/workspace?project=prj_old");
     render(<Home />);
 
-    const meter = (label: RegExp) => {
-      const found = [...document.querySelectorAll(".meter")]
-        .find((m) => label.test(m.querySelector("span")?.textContent ?? ""));
-      return found?.querySelector("b")?.textContent ?? null;
-    };
-    await waitFor(() => expect(meter(/^Datasets?$/)).toBe("0"));
+    /*
+     * The six counts are one line of text now, not six bordered `.meter`
+     * cells (T139). Each number still carries the name of what it counts, in
+     * `data-count-of`, so this reads the count itself rather than searching
+     * the sentence around it — which is the whole reason that attribute is
+     * there. What this test is about did not change: the numbers move on
+     * their own, and then the asking stops.
+     */
+    const count = (of: string) =>
+      document.querySelector(`.totals [data-count-of="${of}"]`)?.textContent ?? null;
+    await waitFor(() => expect(count("datasets")).toBe("0"));
     expect(screen.getAllByText(/still running|Validate the strongest/).length)
       .toBeGreaterThan(0);
 
     /** No click, no reload: the screen has to move on its own. */
     await act(async () => { await vi.advanceTimersByTimeAsync(2600); });
-    await waitFor(() => expect(meter(/^Datasets?$/)).toBe("1"));
-    expect(meter(/^Analys[ei]s$/)).toBe("6");
+    await waitFor(() => expect(count("datasets")).toBe("1"));
+    expect(count("analyses")).toBe("6");
 
     /** And once idle, it must stop asking — a workspace left open overnight
      *  makes no requests. */

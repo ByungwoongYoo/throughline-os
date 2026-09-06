@@ -134,7 +134,7 @@ class TestEachRungNamesItsStep:
 
         assert _recommendation(cur, project) == (
             "validate",
-            "1 exploratory connection are awaiting robustness validation. "
+            "1 exploratory connection is awaiting robustness validation. "
             "Supply candidate confounders and validate them.")
 
     def test_a_validated_connection_with_no_finding_is_sent_to_record(

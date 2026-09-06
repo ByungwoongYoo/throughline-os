@@ -193,7 +193,14 @@ export function RunAnalysis({ projectId, onQueued }: {
 
   if (!open) {
     return (
-      <button className="btn btn-primary" onClick={() => setOpen(true)}>
+      /*
+       * Plain, not filled. Analyses is not a destination of the research loop,
+       * so the strip above this screen is always carrying the project's real
+       * next act — and two gold buttons make two claims about what to do next
+       * (T139). The fill is spent in one place, by the one component that
+       * knows the project's state.
+       */
+      <button className="btn" onClick={() => setOpen(true)}>
         Specify an analysis
       </button>
     );

@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import "./fonts.css";
 import "./globals.css";
+import "./density.css";
+import "./sky.css";
 
 export const metadata: Metadata = {
   title: "Throughline",

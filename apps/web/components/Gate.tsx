@@ -10,6 +10,8 @@
 
 import Link from "next/link";
 import { useState } from "react";
+
+import { Sky } from "@/components/Sky";
 import { api } from "@/lib/api";
 
 export type AuthStatus = {
@@ -72,9 +74,13 @@ export function Gate({ status, onDone }: { status: AuthStatus; onDone: () => voi
   const message = error instanceof Error ? error.message : error ? String(error) : null;
 
   return (
-    <div className="gate">
-      {/* The entrance carries depth; the instrument beyond it does not (§115). */}
+    <div className="gate gate-sky">
+      {/* The entrance carries depth; the instrument beyond it does not (§115).
+          The depth is the site's own black hole, running the site's own
+          shader — behind the panel, never under the words on it. */}
+      <Sky variant="gate" />
       <aside className="gate-art">
+        {/* Under the hole, where the site sets its headline. */}
         <div className="gate-art-copy">
           <h2>An interesting pattern is not a discovery.</h2>
           <p>

@@ -26,6 +26,21 @@
  */
 import { chromium } from "playwright";
 
+/** The rail shows one stage at a time (T139): press headings until the entry exists. */
+async function railRow(page, re) {
+  const row = page.locator("button.rail-item").filter({ hasText: re });
+  if (!(await row.count())) {
+    const heads = page.locator("button.rail-heading");
+    const n = await heads.count();
+    for (let i = 0; i < n; i++) {
+      await heads.nth(i).click();
+      if (await row.count()) break;
+    }
+  }
+  return row;
+}
+
+
 const EMAIL = process.env.MEASURE_EMAIL ?? "measure@local.test";
 const PASSWORD = process.env.MEASURE_PASSWORD ?? "measure-only-local-throwaway";
 const URL = process.env.MEASURE_URL ?? "http://localhost:3100";
@@ -57,14 +72,14 @@ const step = async (locator, label) => {
 };
 
 console.log("\nFrom the overview, the screen a researcher lands on.\n");
-await step(page.locator("button.rail-item").filter({ hasText: /^Findings/ }),
+await step((await railRow(page, /^Findings/)),
            "Findings in the rail");
 await step(page.getByText(/tracks/).first(), "the finding");
 console.log("\n  the finding offers:", JSON.stringify(await affordances()));
 
 console.log("\nSideways, through Connections.\n");
 clicks = 0;
-await step(page.locator("button.rail-item").filter({ hasText: /^Connections/ }),
+await step((await railRow(page, /^Connections/)),
            "Connections in the rail");
 await step(page.getByText(/×|tracks/).first(), "the connection");
 console.log("\n  the connection offers:", JSON.stringify(await affordances()));
@@ -87,7 +102,7 @@ console.log("Now the same route, on Tab and Enter alone.\n");
 await page.goto(BASE + "/workspace", { waitUntil: "networkidle" });
 await page.waitForTimeout(1200);
 
-await page.locator("button.rail-item").filter({ hasText: /^Findings/ }).focus();
+await (await railRow(page, /^Findings/)).focus();
 await page.keyboard.press("Enter");
 await page.waitForTimeout(1000);
 

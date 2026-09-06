@@ -201,7 +201,9 @@ export function DataSearch({ projectId, onImported }: {
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => { if (event.key === "Enter") void search(); }}
         />
-        <button className="btn btn-primary" disabled={busy} onClick={() => void search()}>
+        {/* Plain, for the reason Find papers is: the filled control belongs to
+            the step strip, which is on this screen too (T139). */}
+        <button className="btn" disabled={busy} onClick={() => void search()}>
           {busy ? "Searching…" : "Search"}
         </button>
       </div>

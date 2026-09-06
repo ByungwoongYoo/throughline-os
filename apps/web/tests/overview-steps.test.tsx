@@ -23,7 +23,7 @@
  * server ranks highest once there is one.
  */
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Overview } from "@/components/views";
 import { SECTIONS, Section } from "@/components/Shell";
@@ -63,45 +63,60 @@ function currentRow(container: HTMLElement) {
   return container.querySelector<HTMLElement>('.steps li[data-next="true"]')!;
 }
 
+/**
+ * A row of the checklist, by the label on it.
+ *
+ * `screen.getByText` until T139, when the rows gave up their hint sentences:
+ * only the row the project is on carries one now, and the other five live in
+ * the "What each step is for" fold beneath the list, each beside the step it
+ * belongs to. So every label is on the card twice — once as a row and once as
+ * the fold's term — and a bare text query is ambiguous. The row is the one
+ * inside `.steps`, which is what these tests always meant.
+ */
+function row(container: HTMLElement, label: string): HTMLElement {
+  const steps = container.querySelector<HTMLElement>(".steps")!;
+  return within(steps).getByText(label);
+}
+
 describe("every step goes where the step is taken", () => {
   it("sends recording a finding to the connections, not to the list of them", () => {
     /*
      * The Findings screen cannot record one, and its empty state says to
      * validate a connection first — which is where this now goes.
      */
-    const { go } = open();
-    screen.getByText("Record a finding").click();
+    const { go, container } = open();
+    row(container, "Record a finding").click();
     expect(go).toHaveBeenCalledWith("connections");
   });
 
   it("sends destroying a result to the connections too", () => {
     // Both actions live on a connection; that is one screen, not a conflict.
-    const { go } = open();
-    screen.getByText("Try to destroy what survived").click();
+    const { go, container } = open();
+    row(container, "Try to destroy what survived").click();
     expect(go).toHaveBeenCalledWith("connections");
   });
 
   it("sends generating candidates to discovery", () => {
-    const { go } = open();
-    screen.getByText("Generate and test candidates").click();
+    const { go, container } = open();
+    row(container, "Generate and test candidates").click();
     expect(go).toHaveBeenCalledWith("discover");
   });
 
   it("sends adding sources to the sources", () => {
-    const { go } = open();
-    screen.getByText("Add sources").click();
+    const { go, container } = open();
+    row(container, "Add sources").click();
     expect(go).toHaveBeenCalledWith("sources");
   });
 
   it("names no step it cannot send anybody to", () => {
     // A step with no destination is a to-do the product will not help with.
-    const { go } = open();
+    const { go, container } = open();
     for (const label of ["Add sources", "Profile a dataset",
                          "Generate and test candidates",
                          "Try to destroy what survived", "Record a finding",
                          "Communicate it"]) {
       go.mockClear();
-      screen.getByText(label).click();
+      row(container, label).click();
       expect(go, label).toHaveBeenCalledTimes(1);
     }
   });
@@ -109,9 +124,9 @@ describe("every step goes where the step is taken", () => {
 
 describe("what the checklist claims is done", () => {
   it("ticks a step from the project's real counts, not from optimism", () => {
-    const { go } = open();
+    const { go, container } = open();
     // No findings and no reports recorded, so neither is complete.
-    expect(screen.getByText("Record a finding")).toBeTruthy();
+    expect(row(container, "Record a finding")).toBeTruthy();
     expect(go).not.toHaveBeenCalled();
   });
 });
@@ -153,13 +168,22 @@ describe("where each row goes, said before it is pressed", () => {
 
 describe("the row the project is on carries the step", () => {
   it("gives the current row a control naming where it goes", () => {
-    // §123's converse: the one act the card is recommending should look like
-    // something that can be pressed, and say what pressing it does.
+    /*
+     * §123's converse: the one act the card is recommending should look like
+     * something that can be pressed, and say what pressing it does.
+     *
+     * A plain `.btn` since T139, not `.btn-primary`. The step strip above the
+     * workspace performs this same act and cannot be scrolled away, so two
+     * gold buttons for one action was the duplication the strip exists to end.
+     * What is asserted here is the control and its words, which is what this
+     * test was always about; the weight is the strip's.
+     */
     const { container } = open(mapWith({ recommended_step: "validate",
                                          top_connections: [TOP] }));
-    const primary = currentRow(container).querySelector(".btn-primary")!;
+    const action = currentRow(container).querySelector(".step-action .btn")!;
 
-    expect(primary.textContent)
+    expect(action.classList.contains("btn-primary")).toBe(false);
+    expect(action.textContent)
       .toBe("Validate consumption_ddd × resistance_pct →");
   });
 
@@ -171,7 +195,7 @@ describe("the row the project is on carries the step", () => {
      */
     const { container, onOpen, go } = open(
       mapWith({ recommended_step: "validate", top_connections: [TOP] }));
-    (currentRow(container).querySelector(".btn-primary") as HTMLElement).click();
+    (currentRow(container).querySelector(".step-action .btn") as HTMLElement).click();
 
     expect(onOpen).toHaveBeenCalledWith("connection", "conn_1");
     expect(go).not.toHaveBeenCalled();
@@ -189,7 +213,7 @@ describe("the row the project is on carries the step", () => {
       <Overview project={PROJECT} map={mapWith({ recommended_step: "validate",
                                                  top_connections: [TOP] })}
                 onGo={go} />);
-    (currentRow(container).querySelector(".btn-primary") as HTMLElement).click();
+    (currentRow(container).querySelector(".step-action .btn") as HTMLElement).click();
 
     expect(go).toHaveBeenCalledWith("connections");
   });

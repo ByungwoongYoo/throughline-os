@@ -115,11 +115,14 @@ export function RecordFinding({ projectId, connectionId, defaultTitle, validated
         enforcement of a rule that is already structural, in a place where it
         only removes the researcher's judgement.
       */}
+      {/* One line (T139). It was three sentences saying one thing, and a fold
+          for a fifteen-word clause is a control that earns less than it
+          costs — so the clause stays on the line and the sentence that only
+          restated it is gone. Nothing it said has moved anywhere. */}
       {!validated && (
-        <p className="note" style={{ marginTop: 0 }}>
-          This connection has not survived a validation run yet. It can still be
-          recorded — it will sit as a candidate, which is what an untested result
-          is.
+        <p className="note one-line" style={{ marginTop: 0 }}>
+          This connection has not survived a validation run yet — recorded now,
+          it sits as a candidate, which is what an untested result is.
         </p>
       )}
 

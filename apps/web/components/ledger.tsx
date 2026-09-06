@@ -35,7 +35,7 @@ import {
   type Enquiry, currentEnquiry, endedBecause, listEnquiries, openEnquiry,
   renameEnquiry,
 } from "@/lib/enquiry";
-import { Empty, Failure, Loading } from "./primitives";
+import { Empty, Failure, Fold, Loading } from "./primitives";
 
 type Test = {
   id: string;
@@ -88,9 +88,24 @@ export function ExplorationLedger({ projectId, discoveryTestCount }: {
   if (failure) return <Failure error={failure} retry={resolve} />;
   if (!enquiry) return <Loading rows={2} label="Finding this line of enquiry" />;
 
+  /*
+   * The whole panel folds, and the look count rides on the summary (T139).
+   *
+   * This is bookkeeping beside a table of results — five controls and an empty
+   * state on a screen whose subject is the table — and it was pushing the
+   * connection list off the fold. Folded, it costs one line and still shows
+   * the number the file exists to show, which is the one thing that must not
+   * move: the uncomfortable count is on screen at rest, and what it is made of
+   * is one press away.
+   */
   return (
     <section aria-labelledby="ledger-heading">
-      <h2 id="ledger-heading">This line of enquiry</h2>
+      {/* Outside the fold, not inside it: `aria-labelledby` on the section
+          must point at something a reader can reach, and a closed `details`
+          hides its contents from assistive technology as well as from the
+          eye. The summary is the visible affordance; this is the name. */}
+      <h2 id="ledger-heading" className="sr-only">This line of enquiry</h2>
+      <Fold summary="This line of enquiry" count={enquiry.looks}>
 
       <EnquiryBar
         projectId={projectId}
@@ -104,6 +119,7 @@ export function ExplorationLedger({ projectId, discoveryTestCount }: {
 
       <Family projectId={projectId} enquiryId={enquiry.id}
               discoveryTestCount={discoveryTestCount} />
+      </Fold>
     </section>
   );
 }
@@ -315,7 +331,7 @@ function Family({ projectId, enquiryId, discoveryTestCount }: {
 
   return (
     <>
-      <p className="note">{data.note}</p>
+      <p className="note" style={{ marginTop: 0 }}>{data.note}</p>
 
       <div className="row" style={{ marginBottom: 12, gap: 16 }}>
         <Count label="looks" value={data.looks} />

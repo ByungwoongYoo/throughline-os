@@ -22,7 +22,7 @@ import { Cartesian, CartesianMark, Datum } from "./charts/Cartesian";
 import { Estimate, Interval } from "./charts/Interval";
 import { Cell, Matrix } from "./charts/Matrix";
 import { Density, DensityCurve } from "./charts/Density";
-import { Empty, Failure, Loading } from "./primitives";
+import { Empty, Failure, Fold, Loading } from "./primitives";
 import { SavedFigures } from "./savedfigures";
 import { PublishFigure } from "./publish";
 import { MapView, mappable } from "./mapview";
@@ -211,10 +211,18 @@ export function Figures({ projectId, runs, focusId = null }: {
     <>
       <h1>Figures</h1>
       <p className="lede">
-        The chart is chosen from the shape of the data and the question, and the
-        reason is shown with it. Every figure exports as a vector, and the numbers
-        behind it are one click away.
+        The chart is chosen from the shape of the data and the question.
       </p>
+      <Fold summary="How a figure is chosen and what comes with it" count={2}>
+        <p className="note" style={{ marginTop: 0 }}>
+          The reason for the chart is shown with it, so a figure is never a
+          choice somebody has to take on trust.
+        </p>
+        <p className="note">
+          Every figure exports as a vector, and the numbers behind it are one
+          click away.
+        </p>
+      </Fold>
 
       {/* Two lenses on the same run: everything that was tested, or one
           relationship in detail. The overview is the default because the
@@ -465,7 +473,12 @@ function ForestView({ state }: { state: ApiState<EstimatePayload> }) {
             + `consistent with no relationship.`}
         />
       </div>
-      <p className="note">{note}</p>
+      {/* The caption under the chart already says how many were tested and
+          how many survived; this is the paragraph about what a crossing
+          interval means, which is the same paragraph on every visit. */}
+      <Fold summary="What an interval crossing the line means" count={1}>
+        <p className="note" style={{ margin: 0 }}>{note}</p>
+      </Fold>
 
       {/* Part P — the same figure as a table. */}
       <details className="kg-table">

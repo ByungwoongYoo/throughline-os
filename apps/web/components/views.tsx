@@ -22,7 +22,7 @@ import { ObjectKind, useObjectId } from "@/lib/useObjectId";
 import { ObjectHistory } from "./objecthistory";
 import { SECTIONS, Section } from "./Shell";
 import { PlainSummary, ResultCard } from "./ResultCard";
-import { Empty, Failure, Loading, Meter, Num, Stat, Status } from "./primitives";
+import { Empty, Failure, Fold, Loading, Num, Stat, Status, Totals } from "./primitives";
 import { Fragility } from "./fragility";
 import { DatabaseTables } from "./databasetables";
 import { CohortTree } from "./cohorts";
@@ -102,18 +102,21 @@ export function Overview({ project, map, onGo, onOpen, onAddSources, labels }: {
       </p>
 
       {/*
-        One readout strip rather than six bordered cards. Six numbers deserve
-        one glance, not six hundred pixels of chrome — and a card per integer
-        is the dashboard reflex this deliberately avoids.
+        One line rather than six bordered cells (T139). The cells were already
+        a compression of six cards, and they were still six boxes a reader
+        scanned past; the same six numbers set as a sentence are read as a
+        sentence. Nothing is dropped — a zero still prints, because
+        "0 contradictions" is a claim about the project and a missing cell is
+        not.
       */}
-      <div className="meters">
-        <Meter label="Sources" one="Source" value={map.counts.sources} />
-        <Meter label="Datasets" one="Dataset" value={map.counts.datasets} />
-        <Meter label="Analyses" one="Analysis" value={map.counts.analyses} />
-        <Meter label="Connections" one="Connection" value={connections} />
-        <Meter label="Findings" one="Finding" value={findings} />
-        <Meter label="Contradictions" one="Contradiction" value={map.counts.contradictions} />
-      </div>
+      <Totals parts={[
+        [map.counts.sources, "sources", "source"],
+        [map.counts.datasets, "datasets", "dataset"],
+        [map.counts.analyses, "analyses", "analysis"],
+        [connections, "connections", "connection"],
+        [findings, "findings", "finding"],
+        [map.counts.contradictions, "contradictions", "contradiction"],
+      ]} />
 
       <div className="card">
         <h2>The loop</h2>
@@ -132,9 +135,17 @@ export function Overview({ project, map, onGo, onOpen, onAddSources, labels }: {
               <li key={step.id} data-done={step.done} data-next={here}>
                 <button onClick={() => onGo(step.go)}>
                   <span className="step-tick" aria-hidden />
+                  {/*
+                    One line per row, and the sentence only where it is needed
+                    (T139). Six hints stacked was sixty words of method on the
+                    first screen of the product, five-sixths of it about steps
+                    the reader is not taking. The row the project is on keeps
+                    its hint; the others are a label and a state, and the hint
+                    they lost is one press away in the fold below.
+                  */}
                   <span>
                     <b>{step.label}</b>
-                    <em>{step.hint}</em>
+                    {here && <em>{step.hint}</em>}
                   </span>
                   {/*
                     Where the row goes, said before it is pressed. Every row
@@ -157,8 +168,15 @@ export function Overview({ project, map, onGo, onOpen, onAddSources, labels }: {
                 */}
                 {here && (
                   <span className="step-action">
+                    {/*
+                      Plain, not primary (T139). This control and the step
+                      strip's button perform the same act, and two gold buttons
+                      on one screen for one action is the duplication the strip
+                      was built to end — the strip is the one that cannot be
+                      scrolled away, so the strip keeps the emphasis.
+                    */}
                     {empty && onAddSources ? (
-                      <label className="btn btn-primary" style={{ display: "inline-block" }}>
+                      <label className="btn" style={{ display: "inline-block" }}>
                         Add sources
                         <input
                           type="file" multiple hidden
@@ -168,7 +186,7 @@ export function Overview({ project, map, onGo, onOpen, onAddSources, labels }: {
                       </label>
                     ) : (
                       <button
-                        className="btn btn-primary"
+                        className="btn"
                         onClick={() => (target.item && onOpen
                           ? onOpen("connection", target.item)
                           : onGo(target.section))}
@@ -182,17 +200,31 @@ export function Overview({ project, map, onGo, onOpen, onAddSources, labels }: {
             );
           })}
         </ol>
-        {/*
-          A numbered list reads as an order, and this one is not one. Said
-          plainly, because the alternative is a first-timer concluding the
-          numbers are decoration the first time step 5 ticks above step 4.
-        */}
-        <p className="note steps-note">
-          The steps may be taken out of order — this is where the project is now.
-        </p>
         {/* §70 — the server's own recommendation, which knows things the
-            checklist does not, such as which connection ranks highest. */}
+            checklist does not, such as which connection ranks highest. It is
+            the one sentence on this card that changes as the project moves,
+            so it is the one sentence that stays open. */}
         <p className="note" style={{ marginBottom: 0 }}>{map.recommended_next_action}</p>
+
+        {/*
+          What every step is for, and why the order is not an order — kept, and
+          closed. A numbered list reads as a sequence and this one is not one;
+          a first-timer needs to be told that once, and does not need to be
+          told it on every visit.
+        */}
+        <Fold summary="What each step is for" count={steps.length}>
+          <p className="note steps-note">
+            The steps may be taken out of order — this is where the project is now.
+          </p>
+          <dl className="kv">
+            {steps.map((step) => (
+              <Fragment key={step.id}>
+                <dt>{step.label}</dt>
+                <dd>{step.hint}</dd>
+              </Fragment>
+            ))}
+          </dl>
+        </Fold>
       </div>
 
       <LifecycleBreakdown title="Connections" counts={map.connections} />
@@ -213,12 +245,27 @@ function sectionLabel(section: Section): string {
   return SECTIONS.find((entry) => entry.id === section)?.label ?? section;
 }
 
+/**
+ * How many of a kind sit in each lifecycle state.
+ *
+ * A breakdown is a detail about a total that has already been stated on the
+ * line above, so it opens in place rather than standing as a card of its own
+ * (T139). The summary carries the number of states, which is the thing a
+ * reader wants before deciding to look.
+ */
 function LifecycleBreakdown({ title, counts }: { title: string; counts: Record<string, number> }) {
   const entries = Object.entries(counts);
   if (!entries.length) return null;
   return (
-    <div className="card">
-      <h2>{title} by <Term id="lifecycle state" /></h2>
+    <Fold summary={`${title} by lifecycle state`} count={entries.length}>
+      {/* `Term` prints its own gloss inline, so the sentence around it must
+          not repeat the definition — it read "a lifecycle state — how far a
+          result has got through validation is how far a result has got
+          through validation". */}
+      <p className="note" style={{ marginTop: 0 }}>
+        Counted by <Term id="lifecycle state" />. A candidate is not a discovery:
+        promotion is earned by the robustness checks, never asserted.
+      </p>
       <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
         {entries.map(([state, count]) => (
           <div key={state}>
@@ -227,11 +274,7 @@ function LifecycleBreakdown({ title, counts }: { title: string; counts: Record<s
           </div>
         ))}
       </div>
-      <p className="note">
-        A candidate is not a discovery. Promotion through these states is earned by the
-        robustness checks, never asserted.
-      </p>
-    </div>
+    </Fold>
   );
 }
 
@@ -299,7 +342,8 @@ export function Sources({ sources, onSelect, upload, uploading, uploadError }: {
           <h1>Sources</h1>
           <p style={{ margin: 0 }}>Papers and datasets. Everything here is treated as untrusted until parsed.</p>
         </div>
-        <label className="btn btn-primary" style={{ display: "inline-block" }}>
+        <label className={`btn${(sources.data?.length ?? 0) === 0 ? " btn-primary" : ""}`}
+               style={{ display: "inline-block" }}>
           {uploading ? "Uploading…" : "Add sources"}
           <input
             type="file" multiple hidden disabled={uploading}
@@ -459,12 +503,19 @@ export function ObjectHistoryFor({ projectId, kind, id, onOpenObject }: {
   if (loading) return null;
   if (missing) {
     return (
-      <p className="note" style={{ marginTop: 20 }}>
-        This {NOUN[kind]} has no history yet. Notes and versions are kept on the
-        research object a {NOUN[kind]} becomes, and anything recorded before this
-        project kept those objects never had one — so there is nothing to show
-        here rather than something lost.
-      </p>
+      <div style={{ marginTop: 20 }}>
+        <p className="note one-line" style={{ margin: 0 }}>
+          This {NOUN[kind]} has no history yet.
+        </p>
+        <Fold summary="Why there is no history" count={1}>
+          <p className="note" style={{ marginTop: 0 }}>
+            Notes and versions are kept on the research object a {NOUN[kind]}
+            becomes, and anything recorded before this project kept those objects
+            never had one — so there is nothing to show here rather than
+            something lost.
+          </p>
+        </Fold>
+      </div>
     );
   }
   if (!projectId || !objectId) return null;
@@ -956,7 +1007,9 @@ export function Search({ projectId, onOpenSource }: {
           placeholder="e.g. how many people took part in the trial"
           aria-label="Search the sources in this project"
         />
-        <button className="btn btn-primary" type="submit" disabled={!query.trim()}>Search</button>
+        {/* Plain: Search is not a loop destination, so the strip above always
+            holds the filled control (T139). */}
+        <button className="btn" type="submit" disabled={!query.trim()}>Search</button>
       </form>
 
       {error ? <Failure error={error} retry={reload} /> : null}
@@ -1251,10 +1304,19 @@ export function Discover({ projectId, sources, onSelectConnection, startWith,
     <>
       <h1>Discovery</h1>
       <p className="lede">
-        Candidate relationships are generated from the profiled schema, tested in the
-        sandbox, then corrected for how many tests ran. Rejected candidates stay
-        visible — they were tested, they are simply not discoveries.
+        Candidate relationships are generated from the profiled schema and tested
+        in the sandbox.
       </p>
+      <Fold summary="What happens to a candidate here" count={2}>
+        <p className="note" style={{ marginTop: 0 }}>
+          Every test is corrected for how many tests ran, so a q-value on this
+          screen already knows the size of the family it came from.
+        </p>
+        <p className="note">
+          Rejected candidates stay visible — they were tested, they are simply
+          not discoveries.
+        </p>
+      </Fold>
 
       {error ? <Failure error={error} /> : null}
 
@@ -1290,11 +1352,17 @@ export function Discover({ projectId, sources, onSelectConnection, startWith,
             checked={hold}
             onChange={(event) => setHold(event.target.checked)}
           />
-          <span>
-            Show me the results before anything is recorded. The tests still
-            run; nothing enters the project until you release it.
-          </span>
+          {/* The choice, in one clause. What it does not change — the tests
+              still run — is the reassurance, and it folds beneath. */}
+          <span>Show me the results before anything is recorded.</span>
         </label>
+      )}
+      {datasets.length > 0 && (
+        <Fold summary="What holding the results back does not stop" count={1}>
+          <p className="note" style={{ margin: 0 }}>
+            The tests still run; nothing enters the project until you release it.
+          </p>
+        </Fold>
       )}
 
       {datasets.map((source) => (
@@ -1305,8 +1373,12 @@ export function Discover({ projectId, sources, onSelectConnection, startWith,
               {source.dataset!.row_count} rows · {source.dataset!.column_count} columns
             </div>
           </div>
+          {/* Primary only while nothing has been discovered yet: after that
+              the strip above carries the loop's action, and two gold buttons
+              are two claims about what to do next. */}
           <button
-            className="btn btn-primary" disabled={running}
+            className={`btn${(connections.data?.length ?? 0) === 0 ? " btn-primary" : ""}`}
+            disabled={running}
             onClick={() => discover(source.dataset!.dataset_version_id)}
           >
             {running ? "Testing candidates…" : "Discover connections"}
@@ -1382,12 +1454,14 @@ export function ConnectionsTable({ connections, error, loading, reload, onSelect
         ran") before the method is named, which is the order a reader needs
         them in (D207).
       */}
-      <p className="note" style={{ margin: "0 0 8px" }}>
-        Every <Term id="q-value" /> in this table is corrected by{" "}
-        <Term id="Benjamini–Hochberg" />, across every test in the discovery
-        run. An uncorrected p-value would call roughly one in twenty of these
-        significant by chance.
-      </p>
+      <Fold summary="What the q-value column is corrected across" count={1}>
+        <p className="note" style={{ margin: 0 }}>
+          Every <Term id="q-value" /> in this table is corrected by{" "}
+          <Term id="Benjamini–Hochberg" />, across every test in the discovery
+          run. An uncorrected p-value would call roughly one in twenty of these
+          significant by chance.
+        </p>
+      </Fold>
 
       <table>
         <thead>
@@ -1842,6 +1916,16 @@ export function settled(
  */
 function reveal(section: HTMLElement | null, control?: HTMLElement | null) {
   if (!section) return;
+  /*
+   * A block that folds is opened before it is jumped to (T139). Panels that
+   * used to be open now rest closed, and a jump that lands on a closed summary
+   * puts the reader in front of a control the browser will not let them focus
+   * — the band's whole contract is that it moves to the real control.
+   */
+  section.querySelectorAll?.("details").forEach((fold) => { fold.open = true; });
+  for (let node = section.parentElement; node; node = node.parentElement) {
+    if (node instanceof HTMLDetailsElement) node.open = true;
+  }
   if (typeof section.scrollIntoView === "function") {
     section.scrollIntoView({ block: "start" });
   }
@@ -1920,7 +2004,14 @@ function ConnectedHow({ projectId, sourceObjectId, others }: {
 
   return (
     <div className="card card-tight" id="connection-graph-path" tabIndex={-1}>
-      <h3 className="eyebrow">Where this came from, and how it relates to another result</h3>
+      {/*
+        Closed at rest (T139). The panel is a question a reader asks
+        occasionally and the screen asked it of everyone, twice — once in the
+        heading and once in the paragraph under it. The summary is the
+        question; its count is how many other results there are to path to,
+        which is the fact that decides whether opening it is worth anything.
+      */}
+      <Fold summary="How are these connected?" count={others.length}>
       <p className="note" style={{ marginTop: 0 }}>
         Trace, on the result above, answers how this number was made. This
         answers how two objects in the project are related at all — through
@@ -2022,6 +2113,7 @@ function ConnectedHow({ projectId, sourceObjectId, others }: {
           )}
         </>
       )}
+      </Fold>
     </div>
   );
 }
@@ -2303,14 +2395,22 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding,
           while the Validate control is still loading its schema. */}
       <div className="card" id="connection-validate" tabIndex={-1} ref={validateCard}>
         <h2>Try to destroy it</h2>
-        <p>
-          Bootstrap stability, sensitivity to outliers, missingness, and adjustment for
-          confounders. Naming no confounders is recorded as <b>not tested</b> — not as clean.
-        </p>
+        <Fold summary="What the robustness suite runs" count={4}>
+          <p style={{ marginTop: 0 }}>
+            Bootstrap stability, sensitivity to outliers, missingness, and adjustment for
+            confounders. Naming no confounders is recorded as <b>not tested</b> — not as clean.
+          </p>
+        </Fold>
 
-        <h3 className="eyebrow" style={{ marginTop: 16 }}>
-          Adjust for {chosen.length > 0 && <span className="mono">· {chosen.length} selected</span>}
-        </h3>
+        {/*
+          The columns fold (T139). A dataset with a dozen candidates put a
+          dozen checkboxes between the result and the button that tests it, and
+          the answer for most connections is "none" — which the line under the
+          fold still says out loud. The count is how many columns could be
+          adjusted for, and the selection rides on the summary while it is
+          closed, so nothing chosen can be forgotten behind it.
+        */}
+        <Fold summary="Adjust for" count={candidates.length}>
 
         {columns.loading && <Loading rows={2} label="Reading the dataset schema" />}
         {columns.error ? <Failure error={columns.error} retry={columns.reload} /> : null}
@@ -2346,8 +2446,10 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding,
           </div>
         )}
 
+        </Fold>
+
         <div className="row" style={{ marginTop: 14 }}>
-          <span className="note" style={{ margin: 0 }}>
+          <span className="note one-line" style={{ margin: 0 }}>
             {chosen.length === 0
               ? "No adjustment — the report will say so."
               : `Adjusting for ${chosen.join(", ")}.`}
@@ -2449,8 +2551,14 @@ function EvidenceGrade({ runId, quality }: { runId: string | null; quality: stri
 
   return (
     <div className="card card-tight">
-      <h3 className="eyebrow">Why the evidence is graded {quality}</h3>
-      <p style={{ margin: "6px 0 8px", color: "var(--ink-soft)", fontSize: 12.5 }}>
+      {/*
+        The grade itself is on the result card above; this is the reasoning
+        behind it, and reasoning is what a fold is for (T139). The count is the
+        number of violated assumptions, so a reader learns how much is behind
+        the word before deciding to read it.
+      */}
+      <Fold summary={`Why the evidence is graded ${quality}`} count={violated.length}>
+      <p style={{ margin: "0 0 8px", color: "var(--ink-soft)", fontSize: 12.5 }}>
         The grade comes from the assumptions the method required, not from the
         q-value. A very small q-value with violated assumptions is still weak
         evidence — which are four separate judgements and are kept separate here.
@@ -2464,6 +2572,7 @@ function EvidenceGrade({ runId, quality }: { runId: string | null; quality: stri
           </li>
         ))}
       </ul>
+      </Fold>
     </div>
   );
 }
@@ -2589,6 +2698,9 @@ function ValidationReports({ reports }: {
   if (reports.error) return <Failure error={reports.error} retry={reports.reload} />;
   if (reports.loading && !reports.data) return <Loading rows={3} label="Reading validation reports" />;
   if (!reports.data?.length) {
+    // Not folded. A disclosure whose body is one empty state is a control that
+    // opens onto nothing, and the sentence it would hide is two lines that
+    // already say what the summary would have said.
     return (
       <Empty
         title="Not validated yet"
@@ -2607,6 +2719,12 @@ function ValidationReports({ reports }: {
           </div>
           {report.summary && <p style={{ color: "var(--ink)" }}>{report.summary}</p>}
 
+          {/*
+            The verdict and its sentence stay open; the per-check table is the
+            working behind them (T139). The count is how many checks ran, which
+            is the number that decides whether a pass means anything.
+          */}
+          <Fold summary="What each check found" count={report.check_details.length}>
           {report.check_details.length > 0 && (
             <table>
               <thead>
@@ -2631,6 +2749,7 @@ function ValidationReports({ reports }: {
             supplied for it to test.
           </p>
           <ValidationReportEvidence reportId={report.id} />
+          </Fold>
         </div>
       ))}
     </>

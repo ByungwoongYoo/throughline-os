@@ -40,7 +40,10 @@
  *   C22 Discovery shows the ledger, offers a hypothesis, explains the correction first
  *   C23 the notebook's check says what it checks
  *   C25 a new project can be started without opening the menu
- *   C26 every rail entry fits a 900 px laptop without scrolling
+ *   C26 the rail's five headings and the open group's entries fit a 900 px laptop;
+ *       one group open, none numbered
+ *   C27 every screen shows one thing at a time: prose words and visible controls
+ *       under the cap, never more than one filled primary (T139)
  *   C8  informational only: distinct console errors, page errors and HTTP
  *       >= 400 responses seen along the way -- this one never fails the run
  *
@@ -62,6 +65,7 @@
  *   WALK_OUT       dir for screenshots + report.txt    default <os.tmpdir()>/throughline-walk
  *   WALK_EMAIL     account to sign up                  default walk-<timestamp>@local.test
  *   WALK_PASSWORD  its password                        default a long throwaway
+ *   WALK_ONLY      comma-separated check ids to run    default all
  *
  * A fresh, unique WALK_EMAIL on every run matters, not just for hygiene: the
  * gate only shows the first-project screen (and so the worked example) to an
@@ -146,7 +150,10 @@ const state = async () => page.evaluate(() => {
     crumbs: [...document.querySelectorAll("nav.crumbs .crumb")].map(t),
     project: t(document.querySelector(".pm-name")) || null,
     railCurrent: t(document.querySelector(".rail-item[aria-current='true']")) || null,
-    meters: [...document.querySelectorAll(".meters > *")].map(t),
+    // The Overview's counts are one line (T139); each number carries the
+    // plural it counts, so this reads like the old "6Analyses" cells did.
+    meters: [...document.querySelectorAll(".totals [data-count-of]")]
+      .map((n) => `${n.textContent.trim()}${n.dataset.countOf}`),
     steps: [...document.querySelectorAll("ol.steps li")].map((li) =>
       `${t(li.querySelector("b"))} = ${t(li.querySelector(".step-state"))}`),
     railCounts: [...document.querySelectorAll(".rail-item")]
@@ -171,8 +178,23 @@ const say = async (label) => {
 
 const settle = (ms) => page.waitForTimeout(ms);
 
+/**
+ * The rail shows one stage at a time (T139): a closed group's entries are not
+ * in the DOM. So when the entry is not there, press headings until it appears.
+ * Pressing the heading of the group that is already open is a no-op, so this
+ * loop cannot close the group it wanted and always terminates.
+ */
 const railClick = async (prefix) => {
-  await page.locator("button.rail-item").filter({ hasText: new RegExp(`^${prefix}`) }).click();
+  const row = page.locator("button.rail-item").filter({ hasText: new RegExp(`^${prefix}`) });
+  if (!(await row.count())) {
+    const heads = page.locator("button.rail-heading");
+    const n = await heads.count();
+    for (let i = 0; i < n; i++) {
+      await heads.nth(i).click();
+      if (await row.count()) break;
+    }
+  }
+  await row.first().click();
 };
 
 /** The leading integer off a meter/rail string like "6Analyses" or "0Contradictions". */
@@ -206,7 +228,14 @@ async function pollUntil(probe, timeoutMs, intervalMs = 500) {
 const results = [];
 
 /** Run one check; a thrown error becomes a FAIL, and either way we recover to /workspace. */
+/** `WALK_ONLY=C13,C27` runs just those checks; the rest are recorded as SKIP. */
+const ONLY = (process.env.WALK_ONLY ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+
 async function check(id, description, fn) {
+  if (ONLY.length && !ONLY.includes(id)) {
+    results.push({ id, description, status: "SKIP", detail: "not in WALK_ONLY" });
+    return;
+  }
   try {
     const detail = await fn();
     results.push({ id, description, status: "PASS", detail: detail ?? "" });
@@ -483,23 +512,92 @@ try {
   });
 
   // ---------------------------------------------------------------- C26
-  await check("C26", "every rail entry fits a 900 px laptop without scrolling", async () => {
+  await check("C26", "the rail's five stage headings and the open group's entries fit a 900 px laptop", async () => {
     await railClick("Overview");
     await settle(500);
     const m = await page.evaluate(() => {
       const body = document.querySelector("nav.rail");
-      const footer = document.querySelector("nav.rail-footer");
+      const heads = [...document.querySelectorAll("button.rail-heading")];
+      const open = heads.filter((h) => h.getAttribute("aria-expanded") === "true");
       const items = [...document.querySelectorAll(".rail-item")];
-      const hidden = items.filter((el) => {
+      const off = [...heads, ...items].filter((el) => {
         const b = el.getBoundingClientRect();
         return b.bottom > window.innerHeight + 1 || b.top < 52;
       }).map((el) => el.textContent.trim().slice(0, 20));
-      return { count: items.length, overflow: body.scrollHeight - body.clientHeight, hidden,
-               footer: footer ? footer.textContent.trim().replace(/\s+/g, " ").slice(0, 60) : null };
+      const numbered = heads.map((h) => (h.querySelector("span")?.textContent ?? "").trim()).filter((n) => /^\d/.test(n));
+      return { heads: heads.length, open: open.map((h) => h.querySelector("span")?.textContent.trim()),
+               items: items.length, overflow: body.scrollHeight - body.clientHeight, off, numbered };
     });
-    if (m.count < 26) throw new Error(`only ${m.count} rail entries in the DOM`);
-    if (m.overflow > 2 || m.hidden.length) throw new Error(`rail overflows by ${m.overflow}px; off-screen: ${JSON.stringify(m.hidden)}`);
-    return `${m.count} entries, overflow ${m.overflow}px, footer "${m.footer}"`;
+    if (m.heads !== 5) throw new Error(`${m.heads} rail headings, expected the five stages`);
+    if (m.open.length !== 1) throw new Error(`${m.open.length} groups open: ${JSON.stringify(m.open)}`);
+    if (m.numbered.length) throw new Error(`numbered headings: ${JSON.stringify(m.numbered)} (plan rule 3: named, never numbered)`);
+    if (m.overflow > 2 || m.off.length) throw new Error(`rail overflows by ${m.overflow}px; off-screen: ${JSON.stringify(m.off)}`);
+    return `5 headings, "${m.open[0]}" open with ${m.items} entries, overflow ${m.overflow}px`;
+  });
+
+  // ---------------------------------------------------------------- C27
+  await check("C27", "every screen shows one thing at a time: words and controls under the cap, one primary at most", async () => {
+    // The caps are the hard ones from T139's contract (target 180 words / 12
+    // controls; hard 220 / 15). Prose is what the owner said a reader glances
+    // past, so table cells, code and figure text are data and do not count;
+    // text inside a closed fold has no box and does not count either, which
+    // is the point of the fold (see visible() below for how that is asked).
+    const project = new URL(page.url()).searchParams.get("project");
+    const ids = ["overview", "sources", "connections", "findings", "discover", "reports",
+      "figures", "analyses", "search", "variables"];
+    const WORDS = 220, CONTROLS = 15;
+    const bad = [], seen = [];
+    for (const id of ids) {
+      await gotoSafe(`${WALK_URL}/workspace?project=${project}&section=${id}`);
+      await page.locator(".step-strip").waitFor({ timeout: 30000 });
+      await settle(800);
+      const m = await page.evaluate(() => {
+        const visible = (el) => {
+          // A closed <details> keeps its layout box in Chromium (its content
+          // is content-visibility: hidden, geometry preserved), so a rect test
+          // alone would count exactly the prose the fold was built to hide.
+          if (el.checkVisibility && !el.checkVisibility({
+            checkVisibilityCSS: true, contentVisibilityAuto: true, opacityProperty: true,
+          })) return false;
+          const r = el.getBoundingClientRect();
+          const cs = getComputedStyle(el);
+          return r.width > 0 && r.height > 0 && cs.visibility !== "hidden"
+            && r.top < window.innerHeight && r.bottom > 0;
+        };
+        const main = document.querySelector("main");
+        const inspector = document.querySelector(".inspector");
+        const roots = [main, inspector].filter(Boolean);
+        const controls = roots
+          .flatMap((r) => [...r.querySelectorAll("button, a[href], input, select, textarea, summary")])
+          .filter(visible);
+        let words = 0;
+        if (main) {
+          const walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT);
+          let node;
+          while ((node = walker.nextNode())) {
+            const text = node.textContent.trim();
+            if (!text) continue;
+            const el = node.parentElement;
+            if (!el || !visible(el) || el.closest("table, pre, code, svg, kbd")) continue;
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            const r = range.getBoundingClientRect();
+            if (r.top >= window.innerHeight || r.bottom <= 0) continue;
+            words += text.split(/\s+/).length;
+          }
+        }
+        const primaries = [...document.querySelectorAll(".btn-primary")].filter(visible).length;
+        return { controls: controls.length, words, primaries,
+                 inspector: Boolean(inspector && visible(inspector)) };
+      });
+      seen.push(`${id}: ${m.words} words, ${m.controls} controls, ${m.primaries} primary${m.inspector ? ", inspector" : ""}`);
+      if (m.words > WORDS) bad.push(`${id}: ${m.words} prose words above the fold (cap ${WORDS})`);
+      if (m.controls > CONTROLS) bad.push(`${id}: ${m.controls} visible controls (cap ${CONTROLS})`);
+      if (m.primaries > 1) bad.push(`${id}: ${m.primaries} filled primaries on one screen`);
+    }
+    await shot("density");
+    if (bad.length) throw new Error(bad.join("; "));
+    return seen.join("; ");
   });
 
   // ---------------------------------------------------------------- C12
@@ -539,8 +637,10 @@ try {
     await page.locator(".steps").waitFor({ timeout: 30000 });
     await settle(800);
     await shot("overview-next-step");
-    const next = page.locator('.steps li[data-next="true"] .btn-primary');
-    if (!(await next.count())) throw new Error("the current loop row carries no primary control");
+    // The row's control is a button at text weight: the strip above carries
+    // the screen's one filled primary (T139), and the row names the same act.
+    const next = page.locator('.steps li[data-next="true"] .step-action button');
+    if (!(await next.count())) throw new Error("the current loop row carries no control");
     const label = (await next.textContent()).trim();
     await next.click();
     const outcome = await pollUntil(async () => {

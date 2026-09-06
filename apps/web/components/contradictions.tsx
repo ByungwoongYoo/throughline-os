@@ -30,7 +30,7 @@
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
-import { Failure, Loading } from "./primitives";
+import { Failure, Fold, Loading } from "./primitives";
 
 type Explanation = {
   rank: number;
@@ -83,9 +83,17 @@ export function Contradictions({ projectId }: { projectId: string }) {
   return (
     <section aria-labelledby="contradictions-heading" style={{ marginTop: 20 }}>
       <h3 id="contradictions-heading" className="eyebrow">Disagreements</h3>
-      <p style={{ fontSize: 13, margin: "0 0 12px", color: "var(--ink-faint)" }}>
-        {data.note}
-      </p>
+      {/*
+        The count on the summary is the fact; the paragraph explaining what an
+        empty list does and does not mean is the reading around it (T139). Zero
+        prints as "none", so an unswept project cannot be read as a clean one.
+      */}
+      <Fold summary="What a disagreement is, and what none means"
+            count={data.contradictions.length}>
+        <p style={{ fontSize: 13, margin: 0, color: "var(--ink-faint)" }}>
+          {data.note}
+        </p>
+      </Fold>
 
       {failure != null && <Failure error={failure} retry={sweep} />}
 

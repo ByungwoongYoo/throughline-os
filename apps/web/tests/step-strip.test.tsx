@@ -95,22 +95,25 @@ describe("the shell carries the strip above the workspace", () => {
 
   it("pins This machine in its own nav, outside the scrolling body", () => {
     const { container } = render(
-      <Shell section="overview" onSection={vi.fn()} map={null} inspector={null}
+      <Shell section="settings" onSection={vi.fn()} map={null} inspector={null}
              onCommand={vi.fn()} projectName="P" crumbs={[]} onDropFiles={vi.fn()}>
         <p>content</p>
       </Shell>,
     );
+    // Settings is the current section, so its group is the open one; the point
+    // here is which *nav* holds it, not whether it is expanded.
     const footer = container.querySelector("nav.rail-footer")!;
     expect(footer).not.toBeNull();
     expect(footer.textContent).toContain("Settings");
     expect(footer.textContent).toContain("Chart primitives");
     expect(container.querySelector("nav.rail")!.textContent).not.toContain("Settings");
     // Five groups, named and never numbered: only four sections are step
-    // destinations, so a numbered eyebrow would claim a sequence.
-    const eyebrows = [...container.querySelectorAll(".rail-group > .eyebrow")]
-      .map((e) => e.textContent?.trim());
-    expect(eyebrows).toEqual(
+    // destinations, so a numbered heading would claim a sequence. The name is
+    // the heading's first span; the second is the entry count (T139).
+    const names = [...container.querySelectorAll(".rail-group > .rail-heading")]
+      .map((h) => h.querySelector("span")?.textContent?.trim());
+    expect(names).toEqual(
       ["The project", "Gather", "Discover and test", "Communicate", "This machine"]);
-    for (const label of eyebrows) expect(label).not.toMatch(/^\d/);
+    for (const label of names) expect(label).not.toMatch(/^\d/);
   });
 });

@@ -264,7 +264,9 @@ export function Notebook({ projectId }: { projectId: string }) {
         <div className="nb">
           <aside className="nb-list">
             <div className="nb-actions">
-              <button className="btn btn-primary" onClick={() => void openToday()}>
+              {/* Plain: opening today's page is a convenience, not the project's
+                  next step, and the strip above is already saying what is (T139). */}
+              <button className="btn" onClick={() => void openToday()}>
                 Today
               </button>
               <button className="btn" onClick={() => setNaming(true)}>

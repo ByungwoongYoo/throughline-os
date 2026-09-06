@@ -27,6 +27,7 @@
 
 import { useId } from "react";
 import { NodeJournal } from "./NodeJournal";
+import { Fold } from "./primitives";
 
 export function ObjectHistory({ projectId, objectId, level = 2, onOpenObject }: {
   projectId: string;
@@ -57,12 +58,17 @@ export function ObjectHistory({ projectId, objectId, level = 2, onOpenObject }: 
       <Heading id={headingId} className={level === 3 ? "eyebrow" : undefined}>
         History and versions
       </Heading>
-      <p className="note">
-        Everything written about this object, in the order it was written, with
-        the earlier versions underneath. Notes are never edited and versions are
-        never replaced — you correct a note by writing another, and you go back
-        by bringing an earlier version forward.
-      </p>
+      <Fold summary="How notes and versions are kept" count={2}>
+        <p className="note" style={{ marginTop: 0 }}>
+          Everything written about this object, in the order it was written, with
+          the earlier versions underneath.
+        </p>
+        <p className="note">
+          Notes are never edited and versions are never replaced — you correct a
+          note by writing another, and you go back by bringing an earlier version
+          forward.
+        </p>
+      </Fold>
       {/* Not a landmark of its own: this section is already the page's region,
           and two nested complementary landmarks are one region too many. */}
       <NodeJournal projectId={projectId} objectId={objectId}

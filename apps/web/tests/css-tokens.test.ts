@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const WEB_ROOT = join(__dirname, "..");
-const FILES = ["app/globals.css", "app/landing.css", "app/fonts.css"];
+const FILES = ["app/globals.css", "app/density.css", "app/sky.css", "app/landing.css", "app/fonts.css"];
 
 const sources = FILES.map((name) => {
   try {

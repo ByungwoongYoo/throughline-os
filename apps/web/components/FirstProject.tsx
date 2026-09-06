@@ -20,6 +20,7 @@ import { useState } from "react";
 
 import { Project, api } from "@/lib/api";
 import { SignedInUser } from "@/components/AccountMenu";
+import { Sky } from "@/components/Sky";
 import { IconPlus, IconSpark } from "@/components/icons";
 import { Centered, Failure } from "@/components/primitives";
 
@@ -69,7 +70,10 @@ export function FirstProject({ onCreated, user }: {
                                   onCancel={() => setStarted(false)} />;
 
   return (
-    <div className="first">
+    <div className="first first-sky">
+      {/* Still the entrance, so still allowed depth (§115): the hole sits high
+          and centred and everything below it is the hero's copy. */}
+      <Sky variant="first" />
       <div className="first-inner">
         <span className="badge badge-quiet">
           <IconSpark size={12} /> New workspace

@@ -13,6 +13,11 @@
  * it sits above the scroll region, so the one action that matters cannot be
  * scrolled below the fold on any screen.
  *
+ * It is also the one place on a screen that carries a filled `.btn-primary`
+ * (T139). Everywhere else `.btn` is a piece of text with a hairline round it,
+ * so the fill means "this is the thing to do next" rather than "this is a
+ * button" — and the strip is where the product actually knows that.
+ *
  * It states what the *project* is doing, never what the *screen* is. A screen
  * that is not a step is simply not claimed to be one — which is why nineteen
  * sections need no sentence of their own. When the researcher is already on
@@ -65,14 +70,32 @@ export function StepStrip({
     );
   }
 
+  /*
+   * The whole sentence, for the `title`.
+   *
+   * The strip is one line and the line is held to one line — a step label that
+   * wrapped would push the band to two rows on every screen in the product, so
+   * it is clipped with an ellipsis instead. A clip with nothing behind it is a
+   * quiet lie, which is why the untruncated sentence is on the element the
+   * pointer is already over.
+   */
+  const sentence = here
+    ? `You are here · step ${index} of ${total}: ${step.label}`
+    : `Step ${index} of ${total} · ${step.label}`;
+
   return (
     <div className="step-strip">
       <button type="button" className="step-strip-where" onClick={onShowLoop}
-              title="Open the loop on the Overview">
+              title={sentence}>
         {here
           ? <><b>You are here</b> · step {index} of {total}: {step.label}</>
           : <><b>Step {index} of {total}</b> · {step.label}</>}
       </button>
+      {/*
+        The one filled control on the screen. `.btn` is a piece of text you can
+        press; this is the only place in the product that spends a fill, and it
+        spends it on the single action the project's state actually asks for.
+      */}
       {!here && actionLabel && (
         <button type="button" className="btn btn-primary" onClick={onAction}>
           {actionLabel} →

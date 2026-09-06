@@ -680,7 +680,9 @@ export function Board({ projectId, onOpen }: {
         cards — moving them, framing an area, tidying — needs a pointer.
       </p>
       <div className="board-bar">
-        <button type="button" className="btn btn-primary"
+        {/* Plain: arranging the board is not a step of the loop, and the strip
+            above is carrying the step that is (T139). */}
+        <button type="button" className="btn"
                 onClick={() => setPicking((open) => !open)}>
           {picking ? "Close" : "Put something on the board"}
         </button>

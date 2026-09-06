@@ -86,16 +86,24 @@ describe("how fragile is this", () => {
     /**
      * Principle 4 — depth may be layered, but a closed summary has to state
      * what is inside it, or the layering is a hide.
+     *
+     * The summary used to spell the count into its own sentence ("— 2
+     * assumptions behind the conversion"). It is the workspace's `Fold` now
+     * (T139), so the noun phrase is the label and the count is on
+     * `data-count`, drawn by the one CSS rule that draws every count in the
+     * product. The behaviour held here is unchanged — closed, and saying how
+     * much is inside — only the place the number is written has moved.
      */
     vi.spyOn(api, "get").mockResolvedValue(REPORT as never);
 
     const { container } = render(<Fragility connectionId="con_1" />);
     await screen.findByText("1.42");
 
-    const details = container.querySelector("details");
+    const details = container.querySelector("details.fold");
     expect(details?.hasAttribute("open")).toBe(false);
-    expect(details?.querySelector("summary")?.textContent)
-      .toMatch(/2 assumptions behind the conversion/);
+    const summary = details?.querySelector("summary");
+    expect(summary?.textContent).toMatch(/What this number rests on/);
+    expect(summary?.getAttribute("data-count")).toBe("2");
   });
 
   it("names both variables the confounder would have to touch", async () => {

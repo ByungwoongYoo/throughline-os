@@ -34,7 +34,7 @@
 
 import { useEffect, useState } from "react";
 import { ApiError, api } from "@/lib/api";
-import { Failure, Loading } from "./primitives";
+import { Failure, Fold, Loading } from "./primitives";
 import { ConfirmDialog } from "./ConfirmDialog";
 
 type Installed = {
@@ -167,7 +167,9 @@ function Accounts() {
             <input type="password" value={next} autoComplete="new-password"
                    onChange={(e) => setNext(e.target.value)} />
           </label>
-          <button className="btn btn-primary"
+          {/* Plain: Settings is not a step in the research loop, so the filled
+              control on this screen is the strip's and only the strip's (T139). */}
+          <button className="btn"
                   disabled={!current || next.length < 12}
                   onClick={() => void changePassword()}>
             Change password
@@ -837,19 +839,29 @@ export function Settings({ projectId }: {
       <section className="set-section">
         <h2>Model</h2>
         <p className="lede">
-          Throughline runs against whichever model you point it at. The model
-          reads papers and writes prose — it never writes a number or a
-          verdict. Statistics come from executed code, comparability from
-          deterministic checks, and every sentence it quotes is verified
-          against the paper before it is kept, so an altered quote is discarded
-          rather than shown.
+          Throughline runs against whichever model you point it at. It reads
+          papers and writes prose; it never writes a number or a verdict.
         </p>
-        <p className="lede">
-          What does change with the model is how much it finds. A smaller one
-          locates fewer of the sentences in a paper, and a field it misses is
-          simply absent rather than flagged — so the trade is coverage, not
-          correctness. Each extraction records the model that produced it.
-        </p>
+        {/*
+          The two paragraphs that used to open this screen. They are the
+          argument for the sentence above, and an argument is what folds: 222
+          words stood between a reader and the one control here, on a screen
+          people arrive at knowing what they came to change (T139).
+        */}
+        <Fold summary="What the model does and does not decide" count={2}>
+          <p>
+            Statistics come from executed code, comparability from
+            deterministic checks, and every sentence the model quotes is
+            verified against the paper before it is kept — so an altered quote
+            is discarded rather than shown.
+          </p>
+          <p>
+            What does change with the model is how much it finds. A smaller one
+            locates fewer of the sentences in a paper, and a field it misses is
+            simply absent rather than flagged — so the trade is coverage, not
+            correctness. Each extraction records the model that produced it.
+          </p>
+        </Fold>
 
         {error ? <Failure error={error} /> : null}
 

@@ -5,7 +5,7 @@
  * as components, so no view can quietly omit one.
  */
 
-import { ReactNode } from "react";
+import { Fragment, ReactNode } from "react";
 
 // The one lifecycle vocabulary (item 2.10). `ResultCard` holds it because this
 // module is imported by almost everything and must not import back into a
@@ -214,4 +214,76 @@ export function Num({ value, digits = 4 }: { value: number | null | undefined; d
     ? value.toExponential(2)
     : value.toFixed(digits).replace(/\.?0+$/, "");
   return <span className="numeric">{text}</span>;
+}
+
+/**
+ * A block that opens in place, closed until asked for.
+ *
+ * The screens carry everything they always carried; what changed is that only
+ * the one line naming a thing is on the screen at rest, and the paragraph
+ * explaining it is one press away. That is not a menu — the summary states
+ * what is inside and `data-count` says how much of it there is, so a reader
+ * decides whether to open without opening.
+ *
+ * `onToggle` on the `<details>`, never `onClick` on the `<summary>`: a click
+ * handler on the summary makes the disclosure keyboard-dead in exactly the way
+ * `tests/keyboard-reachability` looks for, and the browser already toggles.
+ */
+export function Fold({ summary, count, children, onOpen, className }: {
+  summary: string;
+  /**
+   * How much is inside. Zero reads "none" rather than "0", because a fold
+   * that says 0 and a fold that says nothing look identical at a glance and
+   * only one of them is a fact. Where the body is prose rather than a list,
+   * this is the number of points it makes.
+   */
+  count: number;
+  children: ReactNode;
+  /** Fetch on first open, for a body whose content costs a request. */
+  onOpen?: () => void;
+  className?: string;
+}) {
+  return (
+    <details
+      className={className ? `fold ${className}` : "fold"}
+      onToggle={(event) => { if (event.currentTarget.open) onOpen?.(); }}
+    >
+      <summary data-count={count === 0 ? "none" : String(count)}>{summary}</summary>
+      <div className="fold-body">{children}</div>
+    </details>
+  );
+}
+
+/**
+ * Every count the project has, as one sentence.
+ *
+ * Six bordered cells holding six integers is a dashboard, and a dashboard is
+ * read as decoration after the second visit. The same six numbers set as one
+ * quiet line are read, because a line of text is read. Nothing is dropped:
+ * a zero still prints, because "0 contradictions" is a claim about the project
+ * and an absent cell is not.
+ */
+export function Totals({ parts }: {
+  /** `[value, plural, singular]` — one is never described in the plural. */
+  parts: Array<[number, string, string]>;
+}) {
+  return (
+    <p className="totals">
+      {parts.map(([value, plural, one], i) => (
+        <Fragment key={plural}>
+          {i > 0 && <span aria-hidden> · </span>}
+          {/*
+            `data-count-of` names which count this is, in the plural, so the
+            line stays addressable without parsing the sentence around it. The
+            six `.meter` cells this replaced were found by reading the label
+            out of a sibling `<span>`; a run of text nodes has no such handle,
+            and a test or a walk step that searched the string would break on
+            any rewording.
+          */}
+          <span className="numeric" data-count-of={plural}>{value}</span>
+          {" "}{value === 1 ? one : plural}
+        </Fragment>
+      ))}
+    </p>
+  );
 }

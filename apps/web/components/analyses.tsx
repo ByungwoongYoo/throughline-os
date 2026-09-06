@@ -20,7 +20,7 @@
 import { AnalysisRunRow, ApiError } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { PlainSummary } from "./ResultCard";
-import { Empty, Failure, Loading, Num, Status } from "./primitives";
+import { Empty, Failure, Fold, Loading, Num, Status } from "./primitives";
 import { RunAnalysis } from "./runanalysis";
 
 /** How each origin reads, and what it costs the run's standing. */
@@ -28,6 +28,23 @@ export const ORIGIN_NOTE: Record<string, string> = {
   discovery: "from a sweep — corrected across every test in that search",
   specified: "specified directly",
   fork: "a variant of an earlier run, not an independent look",
+};
+
+/**
+ * The same three origins as a token, for the row.
+ *
+ * A list of six runs printed `ORIGIN_NOTE` six times — fifty-four words of
+ * identical commentary under six different results, which is the shape T139
+ * exists to remove. The distinction still has to be on the row, because a
+ * swept result reading as a standalone one is the flattering direction; what
+ * does not have to be on the row six times is the clause explaining it. The
+ * clause moved to one fold above the list, so the explanation is said once and
+ * the row keeps the fact.
+ */
+export const ORIGIN_TOKEN: Record<string, string> = {
+  discovery: "from a sweep",
+  specified: "specified",
+  fork: "a variant",
 };
 
 /**
@@ -107,6 +124,16 @@ export function AnalysisList({ projectId, onSelect }: {
         from its stored specification.
       </p>
 
+      <Fold summary="What a run's origin means" count={3}>
+        <ul>
+          {(["discovery", "specified", "fork"] as const).map((origin) => (
+            <li key={origin}>
+              <b>{ORIGIN_TOKEN[origin]}</b> — {ORIGIN_NOTE[origin]}
+            </li>
+          ))}
+        </ul>
+      </Fold>
+
       <div style={{ margin: "12px 0" }}>
         {/*
           Reloading rather than jumping to the run: a queued analysis has no
@@ -137,7 +164,9 @@ export function AnalysisList({ projectId, onSelect }: {
             </span>
           </div>
           <div className="row">
-            <span className="note">{ORIGIN_NOTE[run.origin] ?? run.origin}</span>
+            <span className="note one-line" title={ORIGIN_NOTE[run.origin] ?? run.origin}>
+              {ORIGIN_TOKEN[run.origin] ?? run.origin}
+            </span>
             <Headline run={run} />
           </div>
           {run.error && (

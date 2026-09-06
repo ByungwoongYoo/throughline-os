@@ -25,7 +25,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { ObjectVersions } from "./objectversions";
 import { currentView } from "@/lib/view-context";
-import { Failure, Loading } from "./primitives";
+import { Failure, Fold, Loading } from "./primitives";
 
 type Note = {
   id: string;
@@ -260,6 +260,14 @@ export function NodeJournal({ projectId, objectId, onClose, onOpen,
             ))}
           </section>
 
+          {/*
+            The composer folds (T139). A journal is read far more often than it
+            is written to, and an always-open textarea, a save button, an ask
+            box and an ask button are four controls asking for attention on
+            every screen that mounts a history. The summary says what is inside
+            and how many notes it would join.
+          */}
+          <Fold summary="Write a note, or ask about this" count={context.notes.length}>
           <section className="nj-compose">
             <label className="sr-only" htmlFor="nj-draft">Write a note</label>
             <textarea
@@ -277,8 +285,9 @@ export function NodeJournal({ projectId, objectId, onClose, onOpen,
             />
             <div className="nj-actions">
               <span className="nj-hint">⌘↵ to save</span>
+              {/* Plain: the page's one primary is the step strip's. */}
               <button
-                className="btn btn-primary"
+                className="btn"
                 disabled={!draft.trim() || busy !== null}
                 onClick={() => void addNote()}
               >
@@ -310,6 +319,7 @@ export function NodeJournal({ projectId, objectId, onClose, onOpen,
               a model note, never as yours.
             </p>
           </section>
+          </Fold>
         </>
       )}
       {/*

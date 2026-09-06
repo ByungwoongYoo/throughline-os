@@ -15,7 +15,7 @@ import {
 } from "@/lib/place";
 import { currentStep, loopSteps, stepTarget } from "@/lib/loop";
 import { StepStrip } from "@/components/StepStrip";
-import { Centered, Failure, Loading } from "@/components/primitives";
+import { Centered, Failure, Fold, Loading } from "@/components/primitives";
 import { Crumb, PAGES, SECTIONS, Section, Shell } from "@/components/Shell";
 import { CommandPalette, buildCommands } from "@/components/CommandPalette";
 import {
@@ -33,7 +33,7 @@ import { Figures } from "@/components/figures";
 import { Gallery } from "@/components/gallery";
 import { EmbeddingSpace } from "@/components/embeddingspace";
 import { ProjectMenu } from "@/components/ProjectMenu";
-import { AccountMenu, SignedInUser } from "@/components/AccountMenu";
+import { SignedInUser } from "@/components/AccountMenu";
 import { FirstProject, NewProject } from "@/components/FirstProject";
 import { DataSearch } from "@/components/datasearch";
 import { ReadFigure } from "@/components/readfigure";
@@ -509,11 +509,15 @@ function Workspace({ user }: { user: SignedInUser }) {
             onCreate={() => setCreating(true)}
           />
         }
-        accountMenu={<AccountMenu user={user} />}
+        account={user}
         strip={strip}
         inspector={
-          <Inspector selection={selection} capabilities={capabilities.data} map={map.data}
-                     action={target && !here ? { label: target.label, onSelect: takeStep } : null} />
+          // No selection, no panel: a column saying "Nothing is selected" beside
+          // every list is chrome, not context (T139). The installation readout
+          // it carried stays one press away wherever an object is open.
+          selection
+            ? <Inspector selection={selection} capabilities={capabilities.data} />
+            : null
         }
       >
         {section === "board" && (
@@ -857,65 +861,72 @@ function ConnectionList({ projectId, onSelect, total }: {
 // be imported — the component was module-private, so the one control standing
 // between a new researcher and a working project was the one control no test
 // could touch.
-function Inspector({ selection, capabilities, map, action }: {
+/** What a selected object is, in one line. Never more than one. */
+const WHAT_IS_SELECTED: Record<string, string> = {
+  connection: "A connection is a tested relationship, not a cause.",
+  finding: "A finding is a claim, carried by the evidence linked to it.",
+  artifact: "A report references its findings rather than copying them.",
+  analysis: "An analysis is one run, with its seed and its assumption checks.",
+  source: "A source is a file as it was ingested, and what was made of it.",
+};
+
+/**
+ * The context panel: at most three items, and every explanation folded (T139).
+ *
+ * It used to open with the loop's recommendation and a button carrying the
+ * loop's action — the same sentence and the same act as the step strip two
+ * hundred pixels to its left, on every one of twenty-four screens. The strip
+ * cannot be scrolled away and this panel is dropped entirely below 1101 px,
+ * so of the two the strip is the one that has to hold the action; a second
+ * copy here was the duplication D204 removed from the Overview reappearing
+ * one column over.
+ *
+ * What is left is what only this panel says: what the selected object is, and
+ * what this installation can do. The installation readout is five rows and two
+ * caveats — a permanent sixty words of machine configuration beside every
+ * screen — so it rests closed, with the number of facts on its summary.
+ */
+function Inspector({ selection, capabilities }: {
   selection: { kind: string; id: string } | null;
   capabilities: Capabilities | null;
-  map: DiscoveryMap | null;
-  /**
-   * The loop's next action, as a control. The recommendation used to be a
-   * sentence with nothing to press, shown only while nothing was selected —
-   * the one panel that knew what to do next could not do it (D204). It is a
-   * readout still, not a location: below 1101 px this panel is not rendered,
-   * so nothing lives only here; the same action sits in the step strip.
-   */
-  action?: { label: string; onSelect: () => void } | null;
 }) {
+  const what = selection ? WHAT_IS_SELECTED[selection.kind] : null;
+
   return (
     <>
       <h3 className="eyebrow">Context</h3>
-      {selection?.kind === "connection" && (
-        <p className="note">
-          A connection is a tested relationship. Validate it to see whether it survives
-          bootstrap resampling, outlier exclusion and adjustment for confounders.
-        </p>
-      )}
-      {map && (
-        <>
-          <p className="note">{map.recommended_next_action}</p>
-          {action && (
-            <button type="button" className="btn" onClick={action.onSelect}
-                    style={{ marginTop: 6 }}>
-              {action.label} →
-            </button>
-          )}
-        </>
-      )}
+      {what
+        ? <p className="note one-line">{what}</p>
+        : <p className="note one-line">Nothing is selected.</p>}
 
-      <h3 className="eyebrow" style={{ marginTop: 20 }}>This installation</h3>
       {!capabilities && <Loading rows={2} />}
       {capabilities && (
-        <div className="kv">
-          <dt>Search</dt>
-          <dd>{capabilities.retrieval.semantic ? "hybrid" : "lexical only"}</dd>
-          {/* Named by what each model does. "Model: none" two lines above
-              "AI provider: configured" read as two contradictory statements
-              about one thing (D204). */}
-          <dt>Search model</dt>
-          <dd className="mono">
-            {capabilities.retrieval.model ?? "none installed — search is lexical only"}
-          </dd>
-          <dt>Sandbox</dt>
-          <dd>{capabilities.analysis.sandbox ? "enabled" : "unavailable"}</dd>
-          <dt>Methods</dt>
-          <dd>{capabilities.analysis.methods?.length ?? 0}</dd>
-          <dt>Writing model</dt>
-          <dd>{capabilities.llm.configured ? "configured" : "none"}</dd>
-        </div>
+        <Fold summary="This installation" count={5}>
+          <div className="kv">
+            <dt>Search</dt>
+            <dd>{capabilities.retrieval.semantic ? "hybrid" : "lexical only"}</dd>
+            {/* Named by what each model does. "Model: none" two lines above
+                "AI provider: configured" read as two contradictory statements
+                about one thing (D204). */}
+            <dt>Search model</dt>
+            <dd className="mono">
+              {capabilities.retrieval.model ?? "none installed — search is lexical only"}
+            </dd>
+            <dt>Sandbox</dt>
+            <dd>{capabilities.analysis.sandbox ? "enabled" : "unavailable"}</dd>
+            <dt>Methods</dt>
+            <dd>{capabilities.analysis.methods?.length ?? 0}</dd>
+            <dt>Writing model</dt>
+            <dd>{capabilities.llm.configured ? "configured" : "none"}</dd>
+          </div>
+          {!capabilities.llm.configured && (
+            <p className="note">{capabilities.llm.note}</p>
+          )}
+          {capabilities.retrieval.note && (
+            <p className="note">{capabilities.retrieval.note}</p>
+          )}
+        </Fold>
       )}
-      {capabilities && !capabilities.llm.configured && (
-        <p className="note">{capabilities.llm.note}</p>
-      )}
-      {capabilities?.retrieval.note && <p className="note">{capabilities.retrieval.note}</p>}
     </>
   );
 }

@@ -25,7 +25,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 // `Failure` deliberately unimported: a method this cannot convert is a fact
 // about the analysis, not an error, and is said in place below.
-import { Loading } from "./primitives";
+import { Fold, Loading } from "./primitives";
 import { Term } from "./term";
 
 type Report = {
@@ -135,19 +135,20 @@ export function Fragility({ connectionId }: { connectionId: string }) {
       {(report!.sentence ?? "").split("\n").filter(Boolean).map((line) => (
         <p key={line} className="note">{line}</p>
       ))}
-      <details>
-        {/* §4/principle 4 — a closed summary states what is inside it, so
-            nothing is hidden by being one press away. */}
-        <summary>
-          What this number rests on — {assumptions.length}{" "}
-          assumption{assumptions.length === 1 ? "" : "s"} behind the conversion
-        </summary>
+      {/*
+        §4/principle 4 — a closed summary states what is inside it, so nothing
+        is hidden by being one press away. It says it in the workspace's own
+        disclosure now (T139): the count moved out of the label and onto
+        `data-count`, which is where every other fold on this screen carries
+        it, so the reader meets one control rather than two idioms.
+      */}
+      <Fold summary="What this number rests on" count={assumptions.length}>
         <ul>
           {assumptions.map((assumption) => (
             <li key={assumption}>{assumption}</li>
           ))}
         </ul>
-      </details>
+      </Fold>
     </section>
   );
 }

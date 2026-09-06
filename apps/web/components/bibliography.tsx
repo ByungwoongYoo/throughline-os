@@ -20,7 +20,7 @@
  */
 
 import { useState } from "react";
-import { Failure, Loading } from "./primitives";
+import { Failure, Fold, Loading } from "./primitives";
 import { useApi } from "@/lib/useApi";
 
 type Bibliography = {
@@ -43,17 +43,29 @@ type Bibliography = {
 export function ResultsTable({ projectId }: { projectId: string }) {
   return (
     <section className="bib">
-      <h3>Results table</h3>
-      <p className="lede">
-        Every candidate that was tested, with its estimate, its p-value and the
-        q-value after correction — as CSV, for a paper&rsquo;s table or for
-        re-plotting elsewhere. Everything tested is a row, not only what
-        survived: the family that was tested is what makes a q-value mean
-        anything.
-      </p>
-      <a className="btn" href={`/api/projects/${projectId}/results.csv`} download>
-        Download the results table (CSV)
-      </a>
+      {/*
+        The name and the control on one line; what is in the file, one press
+        away (T139). Three take-away panels each opening with a paragraph put
+        a hundred words between the reader and three buttons — and the reader
+        who already knows what a results table is read none of them.
+      */}
+      <div className="bib-head">
+        <h3>Results table</h3>
+        <a className="btn" href={`/api/projects/${projectId}/results.csv`} download>
+          Download the results table (CSV)
+        </a>
+      </div>
+      <Fold summary="What the results table holds" count={2}>
+        <p className="note" style={{ marginTop: 0 }}>
+          Every candidate that was tested, with its estimate, its p-value and the
+          q-value after correction — as CSV, for a paper&rsquo;s table or for
+          re-plotting elsewhere.
+        </p>
+        <p className="note">
+          Everything tested is a row, not only what survived: the family that was
+          tested is what makes a q-value mean anything.
+        </p>
+      </Fold>
     </section>
   );
 }
@@ -73,20 +85,27 @@ export function ResultsTable({ projectId }: { projectId: string }) {
 export function SnapshotPanel({ projectId }: { projectId: string }) {
   return (
     <section className="bib">
-      <h3>Snapshot</h3>
-      <p className="lede">
-        Everything recorded about this project, with the files it ingested, as
-        a single zip. For keeping a copy or moving the project to another
-        machine.
-      </p>
-      <a className="btn" href={`/api/projects/${projectId}/snapshot.zip`} download>
-        Download the snapshot
-      </a>
-      <p className="note">
-        An archive to read and keep, not a backup to restore from — nothing
-        loads one back in yet. Anything left out is named inside the file,
-        with the reason.
-      </p>
+      <div className="bib-head">
+        <h3>Snapshot</h3>
+        <a className="btn" href={`/api/projects/${projectId}/snapshot.zip`} download>
+          Download the snapshot
+        </a>
+      </div>
+      {/* The caveat folds with the description rather than standing alone: a
+          warning nobody reads is not a warning, and a reader who opens "what
+          the snapshot is" is exactly the reader it is for. */}
+      <Fold summary="What the snapshot is, and is not" count={2}>
+        <p className="note" style={{ marginTop: 0 }}>
+          Everything recorded about this project, with the files it ingested, as
+          a single zip. For keeping a copy or moving the project to another
+          machine.
+        </p>
+        <p className="note">
+          An archive to read and keep, not a backup to restore from — nothing
+          loads one back in yet. Anything left out is named inside the file,
+          with the reason.
+        </p>
+      </Fold>
     </section>
   );
 }
@@ -99,18 +118,23 @@ export function BibliographyPanel({ projectId }: { projectId: string }) {
 
   return (
     <section className="bib">
-      <h3>Bibliography</h3>
-      <p className="lede">
-        Every paper this project cites, as BibTeX. Ordered so that two exports
-        of an unchanged project are identical — a bibliography that reshuffles
-        itself makes a diff unreadable.
-      </p>
+      <div className="bib-head">
+        <h3>Bibliography</h3>
+        {!open && (
+          <button type="button" className="btn" onClick={() => setOpen(true)}>
+            Show the .bib
+          </button>
+        )}
+      </div>
+      <Fold summary="How the .bib is ordered" count={1}>
+        <p className="note" style={{ marginTop: 0 }}>
+          Every paper this project cites, as BibTeX. Ordered so that two exports
+          of an unchanged project are identical — a bibliography that reshuffles
+          itself makes a diff unreadable.
+        </p>
+      </Fold>
 
-      {!open ? (
-        <button type="button" className="btn" onClick={() => setOpen(true)}>
-          Show the .bib
-        </button>
-      ) : (
+      {open && (
         <>
           {bibliography.error && (
             <Failure error={bibliography.error} retry={bibliography.reload} />

@@ -302,7 +302,9 @@ export function Literature({ projectId }: { projectId: string }) {
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => { if (event.key === "Enter") void search(); }}
         />
-        <button className="btn btn-primary" disabled={busy} onClick={() => void search()}>
+        {/* Plain: the strip above carries the loop's one filled act, and this
+            screen is not where a step is taken (T139). */}
+        <button className="btn" disabled={busy} onClick={() => void search()}>
           {busy ? "Searching…" : "Search"}
         </button>
         <button className="btn" onClick={() => setReadingOwn(true)}>

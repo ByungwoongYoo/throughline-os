@@ -379,7 +379,8 @@ def _recommendation(counts: dict[str, Any], findings: dict[str, int],
                             "relationships.")
     if connections.get("exploratory"):
         return "validate", (
-            f"{counted(connections['exploratory'], 'exploratory connection')} are awaiting "
+            f"{counted(connections['exploratory'], 'exploratory connection')} "
+            f"{'is' if connections['exploratory'] == 1 else 'are'} awaiting "
             "robustness validation. Supply candidate confounders and validate them.")
     if connections.get("validated") and not findings:
         return "record", ("Validated connections exist but no findings have been recorded. "

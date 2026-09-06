@@ -13,8 +13,19 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { PAGES, SECTIONS, Shell } from "@/components/Shell";
+
+/**
+ * The rail shows one stage at a time (T139), so a group that does not hold the
+ * current section renders as its heading and its count and nothing else. Every
+ * assertion below about a row therefore expands its group first — which is
+ * also the shape of the click a person makes, and the shape
+ * `scripts/walk-the-flow.mjs` has to make.
+ */
+function openMachine() {
+  fireEvent.click(screen.getByRole("button", { name: /^This machine/ }));
+}
 
 function shell() {
   return render(
@@ -36,12 +47,14 @@ function shell() {
 describe("the hand-tracking pages are reachable from the product", () => {
   it("links to the tracking check", () => {
     shell();
+    openMachine();
     const link = screen.getByRole("link", { name: /check hand tracking/i });
     expect(link).toHaveAttribute("href", "/gesture-check");
   });
 
   it("links to drawing in the air", () => {
     shell();
+    openMachine();
     expect(screen.getByRole("link", { name: /draw in the air/i }))
       .toHaveAttribute("href", "/air-ink");
   });
@@ -54,6 +67,7 @@ describe("the hand-tracking pages are reachable from the product", () => {
      * work, which is exactly how these pages get used.
      */
     shell();
+    openMachine();
     for (const name of [/check hand tracking/i, /draw in the air/i]) {
       expect(screen.getByRole("link", { name }).tagName).toBe("A");
     }
@@ -66,6 +80,7 @@ describe("the hand-tracking pages are reachable from the product", () => {
      * were a step in doing research, and they are not.
      */
     shell();
+    openMachine();
     const link = screen.getByRole("link", { name: /check hand tracking/i });
     const group = link.closest(".rail-group");
     expect(group?.textContent).toContain("This machine");
@@ -76,6 +91,7 @@ describe("the hand-tracking pages are reachable from the product", () => {
     // A rail item whose label is a noun tells somebody what it is called, not
     // whether it is the thing they want.
     shell();
+    openMachine();
     expect(screen.getByRole("link", { name: /check hand tracking/i }))
       .toHaveAttribute("title", expect.stringMatching(/camera/i));
   });
@@ -83,10 +99,12 @@ describe("the hand-tracking pages are reachable from the product", () => {
 
 describe("the standalone pages are offered to the palette as well as the rail", () => {
   /**
-   * The rail is 26 rows in 848px at 1440x900, so the bottom of it scrolls. A
-   * page that is only in the rail is a page somebody has to scroll to find,
-   * and ⌘K is what a researcher reaches for instead — so `PAGES` exists to
-   * give the palette the same three destinations (plan §4.3.6).
+   * The rail shows one stage at a time, so a page that is only in the rail is
+   * a page somebody has to open a group to find, and ⌘K is what a researcher
+   * reaches for instead — so `PAGES` exists to give the palette the same three
+   * destinations (plan §4.3.6). It was written when all 26 rows were on screen
+   * at once and the bottom of them scrolled off a 900px laptop; the accordion
+   * changed the reason and not the requirement.
    */
   it("exports all three, with where they live", () => {
     expect(PAGES.map((p) => p.href).sort())
@@ -116,6 +134,7 @@ describe("the standalone pages are offered to the palette as well as the rail", 
     // Two doors onto one room. If a page is added to one list and not the
     // other, one of the two surfaces is silently missing it.
     shell();
+    openMachine();
     for (const page of PAGES) {
       // A substring, because the rail row's accessible name is the label plus
       // the one-clause note beside it — the palette shows the label alone.

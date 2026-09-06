@@ -30,7 +30,7 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
-import { Empty, Failure, Loading } from "./primitives";
+import { Empty, Failure, Fold, Loading } from "./primitives";
 import { Preregister } from "./preregister";
 
 type Deviation = { field: string; registered: unknown; executed: unknown };
@@ -130,6 +130,10 @@ export function Deviations({ projectId }: { projectId: string }) {
 
   if (data.registered === 0) {
     return (
+      // The count is the fact — none registered — and it is on the line at
+      // rest. The paragraph saying that exploratory work is legitimate is what
+      // a reader who opens it came for.
+      <Fold summary="Registered hypotheses" count={0}>
       <Empty
         title="Nothing registered in this project"
         // Not a complaint. A reader of the write-up should know these results
@@ -138,8 +142,11 @@ export function Deviations({ projectId }: { projectId: string }) {
         // Until this existed the empty state was permanent: the screen reported
         // departures from registrations nothing could create, and told the
         // researcher their work was exploratory with no way to change it.
-        action={<Preregister projectId={projectId} onRegistered={reload} />}
+        // Plain: the step strip above carries the page's one primary.
+        action={<Preregister projectId={projectId} onRegistered={reload}
+                             emphasis="secondary" />}
       />
+      </Fold>
     );
   }
 
@@ -148,11 +155,15 @@ export function Deviations({ projectId }: { projectId: string }) {
       <h3 id="deviations-heading" className="eyebrow">Plan against practice</h3>
 
       <div style={{ marginBottom: 14 }}>
-        <Preregister projectId={projectId} onRegistered={reload} />
+        <Preregister projectId={projectId} onRegistered={reload}
+                     emphasis="secondary" />
       </div>
-      <p style={{ fontSize: 13, margin: "0 0 14px", color: "var(--ink-faint)" }}>
-        {data.note}
-      </p>
+      <Fold summary="How a plan is compared with what ran"
+            count={data.registrations.length}>
+        <p style={{ fontSize: 13, margin: 0, color: "var(--ink-faint)" }}>
+          {data.note}
+        </p>
+      </Fold>
 
       <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
         {data.registrations.map((registration) => (

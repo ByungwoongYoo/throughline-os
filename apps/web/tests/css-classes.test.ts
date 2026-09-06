@@ -25,7 +25,16 @@ import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-const STYLESHEETS = ["app/globals.css", "app/landing.css", "app/fonts.css"];
+/*
+ * Every stylesheet the app loads. `density.css` and `sky.css` were added when
+ * the workspace's rules were split out of `globals.css` — a class defined in a
+ * sheet this list does not read is reported as undefined, which turns the
+ * guard into a thing people silence rather than a thing they trust.
+ */
+const STYLESHEETS = [
+  "app/globals.css", "app/density.css", "app/sky.css",
+  "app/landing.css", "app/fonts.css",
+];
 
 /**
  * Classes used in markup that no rule defines, as of this test being written.
