@@ -27,7 +27,7 @@ import { Field3D } from "@/components/charts/Field3D";
 import { Isosurface3D } from "@/components/charts/Isosurface3D";
 import { Lines3D } from "@/components/charts/Lines3D";
 import { Network3D } from "@/components/charts/Network3D";
-import { depthReaderFor } from "@/lib/charts3d/examples";
+import { depthReaderFor , RENDERER_NEEDS_REAL_DATA } from "@/lib/charts3d/examples";
 import { Surface } from "@/components/charts/Surface";
 import { Volume } from "@/components/charts/Volume";
 import { VoxelVolume } from "@/components/charts/VoxelVolume";
@@ -48,21 +48,39 @@ export function CatalogueChart({ entry, width = 620, height = 420 }: {
    */
   const data = useMemo(() => exampleFor(entry), [entry]);
 
+  /*
+   * Memoized for the same reason, and hoisted above the early return below
+   * because a hook after a conditional `return` is called in a different order
+   * on the two paths. It walks the whole catalogue and depends on nothing but
+   * the entry, so the cost is paid once rather than on every render.
+   */
+  const shared = useMemo(() => sharesPictureWith(entry, CATALOGUE), [entry]);
+
   if (!data) {
     /*
      * Said plainly, and it is two different sentences. A missing renderer is
      * work in this codebase; a `geometry` shape is a file only the researcher
      * has. Collapsing them into "unavailable" would hide which one is which.
      */
-    return (
-      <p className="note" role="status">
-        {entry.needs === "geometry"
-          ? `${entry.name} is drawn from vertices and faces in a file, so there `
-            + "is nothing to show until you open one."
-          : `No renderer here draws a ${entry.primitive} yet, so ${entry.name} `
-            + "cannot be shown."}
-      </p>
-    );
+    /*
+     * Three sentences, not two. The third was missing and the second was
+     * therefore false: a globe has a renderer in this codebase — it is drawing
+     * further up this very page — and what it lacks is coastlines, which are a
+     * fact about the world rather than something to invent. Telling a
+     * researcher "no renderer here draws a globe yet" beneath a working globe
+     * is a claim contradicted by the screen it is printed on.
+     */
+    const reason = entry.needs === "geometry"
+      ? `${entry.name} is drawn from vertices and faces in a file, so there is `
+        + "nothing to show until you open one."
+      : RENDERER_NEEDS_REAL_DATA.has(entry.primitive)
+        ? `${entry.name} is drawn by a renderer in this codebase, but a `
+          + `${entry.primitive} is drawn from real measurements — there is no `
+          + "honest example to invent, so it appears once you open your own."
+        : `No renderer here draws a ${entry.primitive} yet, so ${entry.name} `
+          + "cannot be shown.";
+
+    return <p className="note" role="status">{reason}</p>;
   }
 
   /*
@@ -73,7 +91,6 @@ export function CatalogueChart({ entry, width = 620, height = 420 }: {
    * catalogue of 219 names imply 219 pictures. What separates them is the
    * styling, which is the honest description of the work that is left.
    */
-  const shared = sharesPictureWith(entry, CATALOGUE);
   const caption = `${entry.name} — generated data, shown to exercise the `
     + `${entry.primitive} renderer. Not a measurement.`
     + (shared.length > 0

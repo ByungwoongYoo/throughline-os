@@ -219,3 +219,61 @@ def test_the_ledger_is_read_for_the_enquiry_that_produced_it(cur, stored):
     html = library_note.for_finding(cur, finding_id=stored["finding"],
                                     enquiry_id=enquiry_id)["html"]
     assert "4 tests were run" in html
+
+
+# ---------------------------------------------------------------------------
+# The note's vocabulary and the record's vocabulary
+# ---------------------------------------------------------------------------
+
+def test_every_lifecycle_a_finding_can_hold_has_a_sentence():
+    """
+    The note is what leaves the building — into somebody's reference manager,
+    where "a reader in Zotero has no glossary", in this module's own words.
+
+    Its lifecycle wording was written against a vocabulary that is not the
+    finding lifecycle: it carries `confirmed`, `refuted`, `superseded` and
+    `retracted`, none of which any finding can hold — `refuted` belongs to
+    `ClaimStatus` and `superseded` to artifact staleness — while `replicated`,
+    `conflicted` and `deprecated`, which findings do hold, had none. So the
+    strongest state in the system exported with an apology for having no
+    plain-language form, and four entries could never fire.
+    """
+    from throughline_schemas.enums import FindingLifecycle
+
+    described = set(library_note._LIFECYCLE)
+    real = {s.value for s in FindingLifecycle}
+
+    assert real - described == set(), \
+        "a lifecycle a finding can hold that the note cannot describe"
+    assert described - real == set(), \
+        "a lifecycle the note describes that no finding can hold"
+
+
+def test_every_causal_reading_a_finding_can_hold_has_a_sentence():
+    """
+    The same drift, in the field this product is most careful about.
+
+    `CausalStatus` has six values. The note described `associational` — which
+    is not one of them; the real value is `association_only` — and
+    `causal_refuted`, which is not one either, while `temporally_consistent`,
+    `possible_causal` and `insufficient_evidence` had no wording at all. Those
+    three are exactly the qualified readings the note exists to convey, and
+    they left as "Recorded as possible_causal, which has no plain-language
+    equivalent here."
+    """
+    from throughline_schemas.enums import CausalStatus
+
+    described = set(library_note._CAUSAL)
+    real = {s.value for s in CausalStatus}
+
+    assert real - described == set(), \
+        "a causal status a finding can hold that the note cannot describe"
+    assert described - real == set(), \
+        "a causal status the note describes that no finding can hold"
+
+
+def test_the_strongest_finding_state_is_described_rather_than_apologised_for():
+    html = render(lifecycle_status="replicated")
+
+    assert "no plain-language equivalent" not in html
+    assert "replicated" in html.lower()

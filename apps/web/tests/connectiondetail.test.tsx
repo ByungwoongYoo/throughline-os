@@ -23,7 +23,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectionDetail, settled } from "@/components/views";
 import type { ValidationReport } from "@/lib/api";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 
 const CONNECTION = {
   id: "conn_1", left_variable: "consumption", right_variable: "resistance",
@@ -171,5 +171,81 @@ describe("knowing the new validation has finished", () => {
 
   it("does not call a run deduplicated while it is still going", () => {
     expect(settled(["vrep_old"], [running("vrep_old")], 9)).toBe(false);
+  });
+});
+
+describe("the explanation behind an evidence grade", () => {
+  /*
+   * §47 grades evidence from the assumptions the method needed rather than
+   * from the p-value, so an association can read r = 0.90 at q = 5e-66 and
+   * still be graded weak. That is the screen's most confusing moment, and the
+   * section explaining it is what stops a researcher distrusting the tool
+   * instead of the result.
+   *
+   * It returned `null` when the request for those checks failed — the same
+   * empty space it shows when nothing was violated. The two are opposite
+   * answers rendered identically: one says the assumptions held, the other
+   * says nobody knows. Silence is the answer this screen cannot give.
+   */
+  function serveWithRun(run: (path: string) => unknown) {
+    return vi.spyOn(api, "get").mockImplementation(async (path: string) => {
+      if (path.includes("/validations")) return [] as never;
+      if (path.includes("/connections")) return [CONNECTION] as never;
+      if (path.includes("/variables")) return { labels: {} } as never;
+      if (path.includes("/columns")) return [] as never;
+      if (path.includes("/plain-summary")) return null as never;
+      if (path.match(/\/api\/analyses\/[^/]+$/)) return run(path) as never;
+      return [] as never;
+    });
+  }
+
+  it("says the checks could not be read rather than showing nothing",
+     async () => {
+    serveWithRun(() => { throw new ApiError(503, "The analysis store is down."); });
+
+    render(<ConnectionDetail connectionId="conn_1" projectId="proj_1" />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/analysis store is down/)).toBeTruthy());
+    // Recoverable, so the researcher is offered the retry.
+    expect(screen.getByRole("button", { name: /try again|retry/i })).toBeTruthy();
+  });
+
+  it("stays silent when the checks were read and nothing was violated",
+     async () => {
+    // The other half: an empty space here must mean the assumptions held, and
+    // it only means that if a failure looks different.
+    serveWithRun(() => ({
+      id: "arun_1", status: "completed", assumption_checks: [],
+      result: {}, method: "pearson_correlation",
+    }));
+
+    render(<ConnectionDetail connectionId="conn_1" projectId="proj_1" />);
+
+    // Waiting on the checks having *finished* loading, not merely on the page
+    // appearing: asserting an absence before the request settles would pass
+    // whatever the component then did.
+    await waitFor(() =>
+      expect(screen.queryByLabelText(/Reading the assumption checks/)).toBeNull());
+    await waitFor(() => expect(screen.getAllByText(/consumption/).length)
+      .toBeGreaterThan(0));
+    expect(screen.queryByText(/Why the evidence is graded/)).toBeNull();
+  });
+
+  it("explains the grade when an assumption was violated", async () => {
+    serveWithRun(() => ({
+      id: "arun_1", status: "completed", method: "pearson_correlation",
+      result: {},
+      assumption_checks: [
+        { name: "normality", outcome: "violated",
+          detail: "The residuals are not normal." },
+      ],
+    }));
+
+    render(<ConnectionDetail connectionId="conn_1" projectId="proj_1" />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/Why the evidence is graded/)).toBeTruthy());
+    expect(screen.getByText(/residuals are not normal/)).toBeTruthy();
   });
 });

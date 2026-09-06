@@ -32,11 +32,43 @@ const NOT_YET_REACHABLE: Record<string, string> = {
     "§65's selection-by-record, built ahead of the screens that would use it. "
     + "Nothing selects across charts yet, so wiring it would add a menu that "
     + "answers no question a researcher is currently asking.",
-  "lib/spatial/whose.ts":
-    "§32's which-hand-is-the-researcher's. It needs two hands in frame to do "
-    + "anything, so it cannot be exercised or judged without the hardware, "
-    + "and guessing at the wiring is how the gesture layer accrues code that "
-    + "has never met a hand.",
+};
+
+/**
+ * Features a module cannot see: reached only through a prop nobody passes.
+ *
+ * This guard walks the *import* graph, so a module counts as reached the
+ * moment something reachable imports it. That is the right question for a
+ * whole module and the wrong one for a feature that lives behind an optional
+ * prop: `charts/linked.tsx` is imported by `Cartesian`, which every figure
+ * screen renders, and it is nevertheless dead — no page wraps anything in
+ * `<LinkedCharts>` and no chart is ever given a `linkKey`, so the provider,
+ * the brushing, the echo counts and the muting reach no researcher. The
+ * module-level guard reported it as reachable, correctly and uselessly.
+ *
+ * The list below is maintained **by hand**, and deliberately so. An automated
+ * scan for "optional props no caller passes" was written for this and was
+ * wrong twice — it missed bare boolean props (`attritionIsExpected title=…`
+ * is passed and reads as unpassed) and it counted a component's own module as
+ * an outside caller. A guard that accuses correct code is one people delete,
+ * which would cost more than the blind spot it covers. So: two entries that
+ * were confirmed by reading every call site, and no claim that this catches
+ * the next one automatically.
+ */
+const REACHED_ONLY_BY_A_PROP: Record<string, string> = {
+  "components/charts/linked.tsx LinkedCharts + Cartesian.linkKey":
+    "§65 selection shared between figures. Nothing renders the provider and "
+    + "nothing passes a linkKey, so none of it runs in the product. Wiring it "
+    + "needs two figures of the same rows on screen together, and there is no "
+    + "such screen: the Figures view draws one chart at a time and the matrix "
+    + "view is a heatmap. That screen is the missing piece, not this code.",
+  "components/charts/Surface.tsx Surface.colourBy":
+    "A fourth variable painted onto a fitted surface, with its own key and a "
+    + "refusal when the colour grid does not describe the surface. No caller "
+    + "passes it because the figures endpoint returns no fourth per-cell "
+    + "quantity; inventing one in the browser — a standard error, a local "
+    + "density — would be the claim-without-data this product exists to "
+    + "refuse. It waits on the server, not on a screen.",
 };
 
 function sources(dir: string, found: string[] = []): string[] {
@@ -124,6 +156,28 @@ describe("everything built is reachable", () => {
 
     expect(stranded, "built and reachable from nothing the app renders:\n  "
       + stranded.join("\n  ")).toEqual([]);
+  });
+
+  it("keeps a prop-level orphan named, since the graph cannot see one", () => {
+    /*
+     * Named and argued, not detected. The check that can be made honestly is
+     * that each entry still describes something real: the component exists,
+     * the prop is still declared on it, and the reason is long enough to be
+     * an argument rather than a label. When one of these is finally wired the
+     * entry has to be deleted by hand — which is the point, because deleting
+     * it is a person saying the feature now reaches somebody.
+     */
+    for (const [what, why] of Object.entries(REACHED_ONLY_BY_A_PROP)) {
+      const [file, ...rest] = what.split(" ");
+      expect(modules, `${file} is named here and no longer exists`)
+        .toContain(file);
+      const source = readFileSync(join(WEB, file), "utf8");
+      for (const symbol of rest.join(" ").split(" + ")) {
+        const prop = symbol.includes(".") ? symbol.split(".")[1] : symbol;
+        expect(source, `${file} no longer declares ${prop}`).toContain(prop);
+      }
+      expect(why.length, what).toBeGreaterThan(80);
+    }
   });
 
   it("keeps every exemption explained, and honest about being one", () => {

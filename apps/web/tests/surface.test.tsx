@@ -299,6 +299,47 @@ describe("colour can carry something the axes do not", () => {
     expect(legend!.textContent).toContain("50");
   });
 
+  it("repaints when the fourth variable changes and the surface does not", () => {
+    /**
+     * The memo that builds the colouring listed only `grid` and
+     * `observations`, so a caller swapping the colour grid over the same
+     * surface — the ordinary gesture of "colour this by something else" — kept
+     * the old legend and the old colours. The picture then claimed one
+     * quantity and painted another, which is the failure the shape-mismatch
+     * check in the same memo exists to refuse.
+     *
+     * `GRID_3` is passed by the same reference both times on purpose: a test
+     * that also changed the grid would pass with the dependency missing.
+     *
+     * This test only bites while the memo actually caches. It did not, at
+     * first: `observations` defaulted to a fresh `[]` on every render, so the
+     * memo rebuilt every time and no dependency could go stale. If that
+     * default ever goes back to an inline literal this test stops proving
+     * anything without failing — the shared `NO_OBSERVATIONS` constant in
+     * `Surface.tsx` is what keeps it honest, and the two must move together.
+     */
+    const { container, rerender } = render(
+      <Surface
+        grid={GRID_3}
+        colourBy={{ values: [[10, 20, 30], [20, 30, 40], [30, 40, 50]],
+                    label: "Dispersion", unit: "bps" }}
+        xLabel="a" yLabel="b" zLabel="c" width={300} height={300} />);
+    expect(container.querySelector(".surface-legend")!.textContent)
+      .toContain("Dispersion");
+
+    rerender(
+      <Surface
+        grid={GRID_3}
+        colourBy={{ values: [[100, 200, 300], [200, 300, 400], [300, 400, 500]],
+                    label: "Residual", unit: "sd" }}
+        xLabel="a" yLabel="b" zLabel="c" width={300} height={300} />);
+
+    const legend = container.querySelector(".surface-legend")!.textContent!;
+    expect(legend).toContain("Residual");
+    expect(legend).not.toContain("Dispersion");
+    expect(legend).toContain("500");
+  });
+
   it("keys the scale to the fourth variable, not to z", () => {
     /**
      * The mistake worth guarding: taking the range from the height while

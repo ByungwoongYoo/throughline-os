@@ -350,7 +350,7 @@ function Workspace({ user }: { user: SignedInUser }) {
     } finally {
       setUploading(false);
     }
-  }, [projectId, sources, map]);
+  }, [projectId, sources, map, setSection]);
 
   if (projects.loading) return <Centered><Loading rows={3} label="Loading projects" /></Centered>;
   if (projects.error) return <Centered><Failure error={projects.error} retry={projects.reload} /></Centered>;
@@ -470,6 +470,10 @@ function Workspace({ user }: { user: SignedInUser }) {
                   setPendingDiscovery(versionId);
                   goSection("discover");
                 }}
+                // A table imported from a database is a new source, so the
+                // list beside this one is out of date until it is re-read —
+                // the same reload an upload already triggers.
+                onImported={() => sources.reload()}
               />
             : <>
                 {/*
@@ -483,6 +487,7 @@ function Workspace({ user }: { user: SignedInUser }) {
                 <Sources
                   sources={sources} onSelect={select("source")}
                   upload={upload} uploading={uploading} uploadError={uploadError}
+                  formats={capabilities.data?.formats ?? null}
                 />
               </>
         )}

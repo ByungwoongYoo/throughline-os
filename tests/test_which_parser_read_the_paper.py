@@ -115,3 +115,68 @@ def test_capability_describes_the_parser_that_will_run():
 
     assert reported["parser"] == ("docling" if structured.available() else "pymupdf")
     assert reported["note"]
+
+
+class TestAPageWhoseColumnsCouldNotBeFound:
+    """
+    The fallback that produces exactly what the parser exists to prevent.
+
+    `_page_blocks_in_reading_order` reads a page column by column because
+    PyMuPDF's whole-page ordering interleaves a two-column layout and splices
+    unrelated sentences together — the docstring says so, and says it destroys
+    the verbatim text every citation depends on.
+
+    When block extraction itself raises there is nothing to detect a split
+    with, so the fallback *is* that whole-page read. Losing the page would be
+    worse, so the fallback stays; what could not stay is that it happened in
+    silence, under metadata that said `"columns": "detected"` regardless. A
+    spliced sentence is indistinguishable from a real one and would be quoted
+    as verbatim.
+    """
+
+    def test_an_ordinary_paper_says_its_columns_were_detected(self, paper):
+        parsed = documents.parse_pdf(paper)
+
+        assert parsed.metadata["columns"] == "detected"
+        assert "spliced_pages" not in parsed.metadata
+
+    def test_a_page_that_could_not_be_split_is_named(self, paper, monkeypatch):
+        original = pymupdf.Page.get_text
+
+        def refuse_blocks(self, *args, **kwargs):
+            if args and args[0] == "blocks":
+                raise RuntimeError("cannot extract blocks")
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(pymupdf.Page, "get_text", refuse_blocks)
+
+        parsed = documents.parse_pdf(paper)
+
+        # The page is still read — losing it would be worse than splicing it.
+        assert parsed.text.strip()
+        assert parsed.metadata["columns"] == "spliced"
+        assert parsed.metadata["spliced_pages"] == [1]
+
+    def test_the_page_numbers_are_the_ones_a_reader_would_count(
+            self, tmp_path, monkeypatch):
+        """1-based, and only the pages it actually happened on."""
+        document = pymupdf.open()
+        for n in range(3):
+            page = document.new_page()
+            page.insert_text((72, 100), f"Page {n + 1} of the paper.", fontsize=11)
+        path = tmp_path / "three.pdf"
+        document.save(str(path))
+        document.close()
+
+        original = pymupdf.Page.get_text
+
+        def refuse_on_the_second_page(self, *args, **kwargs):
+            if args and args[0] == "blocks" and self.number == 1:
+                raise RuntimeError("cannot extract blocks")
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(pymupdf.Page, "get_text", refuse_on_the_second_page)
+
+        parsed = documents.parse_pdf(path)
+
+        assert parsed.metadata["spliced_pages"] == [2]

@@ -19,6 +19,8 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useMounted } from "@/lib/charts/useMounted";
+import { Tracked, followFrame } from "@/lib/spatial/whose";
 import { VisualizationController } from "@/lib/spatial/commands";
 import { CameraDevice, CameraFailure, CameraManager } from "@/lib/spatial/camera";
 import { SpatialState } from "@/lib/spatial/machine";
@@ -33,8 +35,7 @@ import {
   CalibrationManager, CalibrationStep, handScale, scaleThresholds,
 } from "@/lib/spatial/calibration";
 import { DEFAULT_SETTINGS } from "@/lib/spatial/machine";
-import { distance } from "@/lib/spatial/types";
-import { HandFrame } from "@/lib/spatial/types";
+import { HandFrame, distance } from "@/lib/spatial/types";
 import {
   availableChannels, askNativeCapability, deviceFeedback, momentFor,
 } from "@/lib/spatial/feedback";
@@ -189,7 +190,7 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
    * has a `navigator`, so the two renders agree in tests and disagree in
    * production.
    */
-  const [mounted, setMounted] = useState(false);
+  const mounted = useMounted();
   const [calibrating, setCalibrating] = useState(false);
   const [step, setStep] = useState<CalibrationStep>("open");
   const [progress, setProgress] = useState(0);
@@ -263,12 +264,19 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
   const [channels, setChannels] = useState(() => availableChannels());
   /** Set briefly on a gesture moment, so the panel can show it landed. */
   const [pulse, setPulse] = useState(false);
+  /* The machine's state, readable from the per-frame observer, which runs
+     before React has re-rendered with it. */
+  const stateRef = useRef<SpatialState>("IDLE");
+  /* Where the chosen hand was, so the next frame can prefer continuity. */
+  const trackedRef = useRef<Tracked | null>(null);
+  /* Why nothing is happening, when nothing is. See `describeChoice`. */
+  const [whoseMessage, setWhoseMessage] = useState<string | null>(null);
+  const whoseMessageRef = useRef<string | null>(null);
 
   // Read on mount rather than during render: `localStorage` is not available on
   // the server, and reading it in the component body would make the first client
   // render disagree with the markup Next sent.
   useEffect(() => {
-    setMounted(true);
     const stored = readPreferences();
     setPreferences(stored);
     deviceFeedback.configure(stored.feedback);
@@ -325,7 +333,7 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
       // a hand that is over nothing does not lose a gesture already in flight.
       () => activeRef.current ?? controllerRef.current,
       {
-        onState: setState,
+        onState: (next) => { stateRef.current = next; setState(next); },
         onFailure: (reported) => { setFailure(reported); stop(); },
         onEvents: (events) => {
           // The visual channel is the only one always present, so it fires for
@@ -356,7 +364,42 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
            * publishing the frame to this observer, so deciding here is decided
            * in time. The resolver below simply returns what was chosen.
            */
-          const chartHand = frame.hands[0];
+          /*
+           * Whose hand this is (§32), decided once per frame and used by
+           * everything below it.
+           *
+           * This used to be `frame.hands[0]`, which is correct exactly while
+           * one person is in frame — and a laboratory, an office and a lecture
+           * room are none of them reliably that. MediaPipe promises no ordering
+           * between frames, so a colleague leaning in could take a drag
+           * mid-gesture and the object would follow a stranger. `whose.ts` had
+           * been written and tested for months and was wired to nothing, so the
+           * defect it describes in its own header was live the whole time.
+           *
+           * The decision itself lives in `followFrame` rather than here,
+           * because the two-handed case needs the machine's state and a
+           * decision that needs a camera to reach cannot be tested in this
+           * component at all — happy-dom gives a `<video>` no width, so the
+           * machine never leaves "tracking lost".
+           */
+          const following = followFrame(
+            frame, trackedRef.current,
+            stateRef.current === "TWO_HAND_READY" || stateRef.current === "ZOOMING");
+
+          // Published on change only: this runs at tracker rate, and a setState
+          // per frame would re-render the panel to say the same thing.
+          if (following.message !== whoseMessageRef.current) {
+            whoseMessageRef.current = following.message;
+            setWhoseMessage(following.message);
+          }
+
+          // Hold: change nothing, release nothing. The researcher's hand is
+          // still there; this frame simply cannot say which one it is.
+          if (following.hold) return;
+
+          trackedRef.current = following.tracked;
+          const chartHand = following.hand;
+
           if (chartHand) {
             const settings = { ...DEFAULT_SETTINGS, ...preferences.settings };
             const { pinchOn, pinchOff } = scaleThresholds(chartHand, settings);
@@ -427,7 +470,9 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
           // A reading of the hand, a few times a second. Deliberately computed
           // from the same frame the machine just judged, so what is displayed is
           // what was decided on rather than a second sample taken nearby.
-          const hand = frame.hands[0];
+          // The same hand the rest of this frame was decided on, rather than a
+          // second opinion taken from the same frame moments later.
+          const hand = chartHand;
           if (onMeasurement && hand
               && frame.timestamp - lastMeasuredRef.current > 250) {
             lastMeasuredRef.current = frame.timestamp;
@@ -679,6 +724,20 @@ export function SpatialControl({ controllerRef, alsoControls, label, onTelemetry
         * whole sequence — being held at the one thing your hand or your camera
         * is bad at is exactly what would make somebody give up on the feature.
         */}
+      {/*
+        * Why nothing is happening, when nothing is.
+        *
+        * Pausing on two hands is the right call and an unexplained pause is
+        * not: a researcher whose colleague is leaning over the desk would
+        * otherwise see the feature simply stop, and would reasonably conclude
+        * the tracking is broken rather than that it is being careful. This is
+        * the sentence that turns a mystery into a thing they can act on by
+        * lowering a hand.
+        */}
+      {whoseMessage !== null && (
+        <p className="spatial-whose" role="status">{whoseMessage}</p>
+      )}
+
       {teaching && (
         <div className="spatial-teaching">
           <p className="spatial-teaching-step">

@@ -535,3 +535,53 @@ def test_the_embedding_space_is_scoped_to_its_project(client):
 
     assert response.status_code in (403, 404), response.text
     assert project["id"] not in response.text
+
+
+def test_a_paper_carries_how_it_was_read(client):
+    """
+    The source route must send what the parser recorded about reading it.
+
+    A PDF is read column by column because a whole-page read interleaves a
+    two-column layout and splices unrelated sentences together — the parser's
+    own docstring says that destroys the verbatim text every citation depends
+    on. When the column split cannot be found on a page it falls back to that
+    whole-page read and records which pages, in `papers.metadata`.
+
+    This route selected `id, title, page_count, object_id` and not `metadata`,
+    so the one fact bearing on whether a quotation from this paper is verbatim
+    was written to the database and stopped there. Nothing could tell a paper
+    read cleanly from one read straight across.
+    """
+    import pymupdf
+
+    _account(client, "columns@lab.local")
+    project_id = client.post("/api/projects", json={"name": "Columns"}).json()["id"]
+
+    document = pymupdf.open()
+    page = document.new_page()
+    page.insert_text((72, 100), "Methods", fontsize=16)
+    page.insert_text((72, 130), "We surveyed two hundred households.", fontsize=11)
+    pdf = document.tobytes()
+    document.close()
+
+    client.post(f"/api/projects/{project_id}/sources",
+                files={"file": ("paper.pdf", io.BytesIO(pdf), "application/pdf")})
+    _drain_workers()
+
+    source_id = client.get(f"/api/projects/{project_id}/sources").json()[0]["id"]
+    detail = client.get(f"/api/projects/{project_id}/sources/{source_id}").json()
+
+    assert detail["paper"] is not None
+    metadata = detail["paper"]["metadata"]
+    assert metadata is not None, "the source route dropped how the paper was read"
+    # The value matters as much as the key: a route sending an empty dict would
+    # satisfy a presence check and say nothing.
+    assert metadata["parser"] in {"pymupdf", "docling"}
+
+    # `columns` is a PyMuPDF fact. Docling reads structure itself and does not
+    # detect a split, so it records no such key — and asserting one regardless
+    # would make this test a report on which parser happens to be installed on
+    # the machine running it, which is precisely what
+    # `test_which_parser_read_the_paper.py` exists because of.
+    if metadata["parser"] == "pymupdf":
+        assert metadata["columns"] == "detected"

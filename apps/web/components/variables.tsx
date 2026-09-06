@@ -68,6 +68,17 @@ type Vocabulary = {
   variables: CanonicalVariable[];
   canonical_variables: number;
   approved_aliases: number;
+  /**
+   * Suggestions that were refused.
+   *
+   * Sent on every request and named by nothing, so the panel counted what was
+   * accepted and stayed silent about what was turned down. This product treats
+   * a refusal as an answer everywhere else — five comparability verdicts, a
+   * capability that says what it withholds, a sandbox that lists what it does
+   * not enforce — and a vocabulary that reports only its approvals is the one
+   * asymmetry it argues against.
+   */
+  rejected_aliases: number;
   times_an_alias_resolved_a_term: number;
   note: string;
 };
@@ -243,7 +254,8 @@ export function Variables({ projectId }: { projectId: string }) {
             <p className="note">{vocabulary.data.note}</p>
             <p className="mono" style={{ color: "var(--ink-faint)" }}>
               {vocabulary.data.canonical_variables} variables ·{" "}
-              {vocabulary.data.approved_aliases} approved terms · resolved a
+              {vocabulary.data.approved_aliases} approved ·{" "}
+              {vocabulary.data.rejected_aliases ?? 0} refused · resolved a
               term {vocabulary.data.times_an_alias_resolved_a_term} times
             </p>
 

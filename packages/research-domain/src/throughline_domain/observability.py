@@ -26,8 +26,32 @@ from typing import Any
 #: Never logged, at any level. Not a denylist of what to scrub from a message —
 #: these keys are dropped from structured fields outright, because a log line is
 #: the one place a secret leaks without anyone reading it.
-_REDACT = {"password", "password_hash", "password_salt", "token", "secret",
-           "authorization", "cookie", "session", "api_key", "content"}
+#:
+#: Matched as substrings of the key, not as whole keys. Exact matching dropped
+#: `api_key` and kept `zotero_api_key`, dropped `token` and kept `access_token`
+#: — and a compound name is the ordinary shape: the Zotero route already takes
+#: a field called `api_key`, which becomes `zotero_api_key` the moment anybody
+#: logs which service it belonged to.
+#:
+#: Nothing logs structured context today, so nothing was leaking; this is the
+#: first caller's defect rather than a live one, which is exactly when it is
+#: cheap to fix.
+_REDACT = {"password", "token", "secret", "authorization", "cookie",
+           "session", "api_key", "credential", "passphrase", "private_key",
+           "content"}
+
+
+def _is_secret(key: str) -> bool:
+    """Whether a field name looks like something that must never be logged.
+
+    Deliberately over-inclusive: `content_type` and `token_count` are dropped
+    along with the things worth hiding. Losing a content type from a log line
+    costs an operator a detail they can get elsewhere; logging a bearer token
+    costs them the credential. The `redacted` field below means the loss is
+    visible rather than silent, so an over-match can be seen and argued with.
+    """
+    low = key.lower()
+    return any(term in low for term in _REDACT)
 
 
 class StructuredFormatter(logging.Formatter):
@@ -40,10 +64,27 @@ class StructuredFormatter(logging.Formatter):
             "logger": record.name,
             "message": record.getMessage(),
         }
+        withheld: list[str] = []
         for key, value in getattr(record, "context", {}).items():
-            if key.lower() in _REDACT:
+            if _is_secret(key):
+                # The *name*, never the value. An operator reading this needs
+                # to know a field was carried and withheld — a field that
+                # simply vanishes is indistinguishable from one nobody sent,
+                # and that ambiguity is what makes an over-broad match
+                # impossible to notice and correct.
+                withheld.append(key)
                 continue
             payload[key] = value
+        if withheld:
+            # Names only. `test_secrets_are_dropped_from_log_context` argues
+            # that dropping beats masking because "a masked value still
+            # records that one existed and how long it was" — the length is
+            # the part that matters, and a key name carries neither the value
+            # nor its size. This extends that decision rather than reversing
+            # it: the substring match above can over-reach, and an operator
+            # who cannot see that a field was withheld can never notice the
+            # over-reach or argue with it.
+            payload["redacted"] = sorted(withheld)
         if record.exc_info:
             payload["error"] = self.formatException(record.exc_info)[-2000:]
         return json.dumps(payload, default=str)

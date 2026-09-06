@@ -26,10 +26,11 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("pandas")
-
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
+# pandas is imported, not skipped on: it is a hard dependency of `ingestion`,
+# so a machine without it cannot read a dataset at all. Skipping would turn
+# that into a green suite. See the note in `test_reading_a_figure.py`.
+import numpy as np
+import pandas as pd
 from throughline_api.app import (  # noqa: E402
     SAMPLE_CHUNK_ROWS, _sample_columns,
 )

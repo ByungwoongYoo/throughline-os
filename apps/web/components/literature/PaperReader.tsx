@@ -267,10 +267,27 @@ export const PaperReader = forwardRef<PaperReaderHandle, PaperReaderProps>(
           text: m.body ?? undefined, at: 0,
         })));
       })
-      // Ink that could not be fetched is not worth an error over the paper —
-      // the researcher can still read and still draw, and a failed load says
-      // less than a page that refuses to open.
-      .catch(() => { if (current) setMarks([]); });
+      /*
+       * Ink that could not be fetched is not worth an error over the paper —
+       * the researcher can still read and still draw, and a failed load says
+       * less than a page that refuses to open. That much was right; the
+       * silence was not.
+       *
+       * An empty overlay is what a paper with no marks on it looks like, so a
+       * failed load told the researcher their earlier annotations were not
+       * there. The two hazards that follows are concrete: marks get drawn a
+       * second time, and rubbing out cannot reach an existing mark because
+       * `marks` no longer holds it. Said through the same non-blocking line
+       * the save path already uses — which argues, for the opposite
+       * direction, that a mark believed saved and not saved is the worst of
+       * the outcomes. Not knowing what is on the page is the same error.
+       */
+      .catch(() => {
+        if (!current) return;
+        setMarks([]);
+        setProblem("Marks already on this paper could not be loaded, so none "
+                   + "are shown. Anything drawn now is still kept.");
+      });
     return () => { current = false; };
   }, [keeping]);
 

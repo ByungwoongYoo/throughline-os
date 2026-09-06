@@ -25,8 +25,16 @@
  */
 
 import {
-  AXES, AXIS_LABEL, Axis, Fact, Study, evidenceStrength,
+  Acquisition, Axis, Fact, evidenceStrength,
 } from "./study";
+import { AxisSpec, Domain, Match, domainOf } from "./domain";
+
+/*
+ * Re-exported from their profile so a caller asking "what counts as the same
+ * thickness" has one place to import from, and so the profile stays the only
+ * definition.
+ */
+export { SPACING_TOLERANCE, THICKNESS_TOLERANCE } from "./domain";
 
 /** The same five the data-comparison engine uses. */
 export type Verdict =
@@ -38,6 +46,16 @@ export type Verdict =
 
 export type AxisFinding = {
   axis: Axis;
+  /**
+   * The discipline's word for the axis, carried with the finding.
+   *
+   * Here rather than looked up by whoever renders it: the panel showed the raw
+   * key for months, so a researcher read "sliceThickness" and
+   * "numericalAperture" off a table that had proper names for both a function
+   * call away. A finding that travels without its label will be displayed
+   * without one.
+   */
+  label: string;
   /** How the two sides stand on this axis. */
   agreement: "agree" | "differ" | "not_stated";
   left: string;
@@ -50,7 +68,18 @@ export type Assessment = {
   verdict: Verdict;
   reasoning: string;
   findings: AxisFinding[];
-  /** Axes that agree, named for the panel. */
+  /**
+   * Axes that agree.
+   *
+   * Not what the panel reads — it renders `findings`, which carries the
+   * agreeing axes along with the differing ones, because a table listing only
+   * problems leaves a reader unable to tell "checked and fine" from "never
+   * looked at". This is the same set, named, and it is convenient for a test
+   * asserting which axes agreed without walking the findings.
+   *
+   * The comment used to say "named for the panel", which was true of an
+   * earlier panel and had quietly stopped being true of this one.
+   */
   shared: Axis[];
   /** Differences that prevent comparison outright. */
   blocking: Axis[];
@@ -65,229 +94,211 @@ export type Assessment = {
   evidence: number;
 };
 
-/**
- * Slice thickness within this ratio counts as the same.
- *
- * A 1 mm and a 1.25 mm acquisition are routinely read together; 1 mm against
- * 5 mm are not, because partial-volume averaging at 5 mm can erase a lesion
- * that 1 mm resolves — the difference is not resolution but whether the finding
- * is present at all.
- */
-export const THICKNESS_TOLERANCE = 1.5;
+/** A fact that was never supplied at all, so an absent key reads as unknown. */
+const NOT_GIVEN: Fact<unknown> = { value: null, origin: "unknown" };
 
-/** In-plane resolution within this ratio counts as the same. */
-export const SPACING_TOLERANCE = 1.5;
+const factOf = (a: Acquisition, key: string): Fact<unknown> =>
+  (a[key] as Fact<unknown> | undefined) ?? NOT_GIVEN;
 
 /**
- * Decide whether two scans may be compared.
+ * Decide whether two acquisitions may be compared.
  *
- * The order of the checks is the argument: modality first, because nothing
- * survives its mismatch; then the axes that change what is visible; then the
- * ones that change how it looks.
+ * The order of the checks is the argument, and it is the profile's tiers that
+ * state it: what measures a different quantity, then what changes which
+ * features are present at all, then what changes how the same feature looks.
+ * Nothing here knows which discipline it is deciding for.
  */
-export function assess(left: Study, right: Study): Assessment {
+export function assess(left: Acquisition, right: Acquisition): Assessment {
+  const domain = domainOf(left.domain);
   const findings: AxisFinding[] = [];
   const shared: Axis[] = [];
   const blocking: Axis[] = [];
   const harmonization: string[] = [];
-
-  for (const axis of AXES) {
-    const finding = compareAxis(axis, left, right);
-    if (!finding) continue;
-    findings.push(finding);
-    if (finding.agreement === "agree") shared.push(axis);
-  }
-
-  const differs = (axis: Axis) =>
-    findings.some((f) => f.axis === axis && f.agreement === "differ");
-  const unstated = (axis: Axis) =>
-    findings.some((f) => f.axis === axis && f.agreement === "not_stated");
+  const evidence = Math.min(evidenceStrength(left), evidenceStrength(right));
 
   /*
-   * Modality is the one axis with no harmonisation. A CT and an MR of the same
-   * region measure different physical quantities — attenuation against proton
-   * behaviour — so an intensity in one has no counterpart in the other. Anything
-   * else this function might say is beside the point once these differ.
+   * Two disciplines is a refusal before any axis is read, and the honest one:
+   * their profiles do not share a single axis, so there is nothing to compare
+   * even in principle. Falling through would compare a micrograph against a CT
+   * on the CT's axes, find both silent, and report "cannot be judged" — which
+   * would be a statement about missing metadata rather than about the pair.
    */
-  if (differs("modality")) {
-    blocking.push("modality");
+  if (left.domain !== right.domain) {
+    const other = domainOf(right.domain);
     return {
       verdict: "NOT_MEANINGFULLY_COMPARABLE",
       reasoning:
-        `These are ${text(left.modality)} and ${text(right.modality)}. They `
-        + "measure different physical quantities, so an intensity in one has no "
-        + "counterpart in the other. They can be read side by side as separate "
-        + "evidence, but not compared.",
-      findings, shared, blocking, harmonization,
-      evidence: Math.min(evidenceStrength(left), evidenceStrength(right)),
+        `These are a ${domain.label.toLowerCase()} ${domain.noun} and a `
+        + `${other.label.toLowerCase()} ${other.noun}. They are not two `
+        + "records of one kind of measurement, and nothing they have in common "
+        + "is decided by the same evidence. They can be read side by side as "
+        + "separate evidence, but not compared.",
+      findings, shared, blocking, harmonization, evidence,
+    };
+  }
+
+  for (const axis of domain.axes) {
+    const finding = compareAxis(axis, left, right, domain);
+    if (finding === null) continue;
+    findings.push(finding);
+    if (finding.agreement === "agree") shared.push(axis.key);
+  }
+
+  const differs = (key: Axis) =>
+    findings.some((f) => f.axis === key && f.agreement === "differ");
+  const unstated = (key: Axis) =>
+    findings.some((f) => f.axis === key && f.agreement === "not_stated");
+
+  /*
+   * A foundational difference is the one with no harmonisation. The two sides
+   * measure different physical quantities, so a value in one has no counterpart
+   * in the other, and anything else this function might say is beside the point.
+   */
+  for (const axis of domain.axes.filter((a) => a.tier === "foundational")) {
+    if (!differs(axis.key)) continue;
+    blocking.push(axis.key);
+    return {
+      verdict: "NOT_MEANINGFULLY_COMPARABLE",
+      reasoning: domain.prose.foundational(
+        text(factOf(left, axis.key)), text(factOf(right, axis.key))),
+      findings, shared, blocking, harmonization, evidence,
     };
   }
 
   /*
-   * Weighting and contrast phase decide *what is visible at all*, which is a
-   * stronger objection than any difference of degree. A lesion that enhances
-   * only in the portal-venous phase is absent from a non-contrast scan — not
-   * fainter, absent — so comparing the two would read an acquisition choice as
-   * a finding.
+   * Visibility axes decide *what is present in the image at all*, which is a
+   * stronger objection than any difference of degree: a feature can be
+   * genuinely absent rather than fainter, so the difference between the two
+   * images would be read as a finding when it is an acquisition choice.
    */
-  for (const axis of ["weighting", "contrast"] as const) {
-    if (differs(axis)) blocking.push(axis);
+  for (const axis of domain.axes.filter((a) => a.tier === "visibility")) {
+    if (differs(axis.key)) blocking.push(axis.key);
   }
 
   if (blocking.length > 0) {
-    const names = blocking.map((a) => AXIS_LABEL[a]).join(" and ");
+    const names = blocking.map((k) => labelOf(domain, k)).join(" and ");
     const verb = blocking.length === 1 ? "differs" : "differ";
     return {
       verdict: "RELATED_BUT_NOT_COMPARABLE",
-      reasoning:
-        `The ${names} ${verb}. That decides what is visible rather than how it `
-        + "looks: a finding present in one acquisition can be genuinely absent "
-        + "from the other, so a difference between these images cannot be read "
-        + "as a difference in the subject.",
-      findings, shared, blocking, harmonization,
-      evidence: Math.min(evidenceStrength(left), evidenceStrength(right)),
+      reasoning: domain.prose.visibility(names, verb),
+      findings, shared, blocking, harmonization, evidence,
     };
   }
 
   /*
-   * Geometry and field strength change how the same thing looks. They are real
-   * obstacles and they are correctable, which is what separates this verdict
-   * from the one above.
+   * Real obstacles that a researcher can correct for. This tier is what
+   * separates "not comparable" from "not comparable yet", and the advice is
+   * the profile's, because what it takes to harmonise is a fact about the
+   * discipline rather than about this code.
    */
-  if (differs("sliceThickness")) {
-    harmonization.push(
-      "Resample to a common slice thickness — the thicker acquisition may have "
-      + "averaged away detail the thinner one resolves, so resampling can only "
-      + "bring the thinner one down to the thicker.");
-  }
-  if (differs("pixelSpacing")) {
-    harmonization.push("Resample to a common in-plane resolution.");
-  }
-  if (differs("fieldStrength")) {
-    harmonization.push(
-      "Account for field strength — contrast and signal-to-noise differ "
-      + "between field strengths even for one sequence, so intensities are not "
-      + "directly comparable.");
-  }
-  if (differs("orientation")) {
-    harmonization.push("Reformat to a common plane.");
+  for (const axis of domain.axes.filter((a) => a.tier === "harmonizable")) {
+    if (differs(axis.key) && axis.harmonization !== undefined) {
+      harmonization.push(axis.harmonization);
+    }
   }
 
   /*
-   * Nothing known is not the same as nothing wrong. A pair of scans whose
-   * headers were unreadable will show no differences, and reporting that as
-   * "directly comparable" would turn absence of evidence into evidence of
-   * agreement — the exact inversion this system exists to prevent.
+   * Nothing known is not the same as nothing wrong. A pair whose headers were
+   * unreadable will show no differences, and reporting that as "directly
+   * comparable" would turn absence of evidence into evidence of agreement —
+   * the exact inversion this system exists to prevent.
    */
-  const decisive = ["modality", "weighting", "contrast"] as const;
-  const unknownDecisive = decisive.filter((a) => unstated(a));
+  const decisive = domain.axes.filter((a) => a.tier !== "harmonizable");
+  const unknownDecisive = decisive.filter((a) => unstated(a.key));
   if (unknownDecisive.length > 0) {
     return {
       verdict: "CONCEPTUALLY_COMPARABLE",
-      reasoning:
-        `Nothing here says these differ, but the ${unknownDecisive
-          .map((a) => AXIS_LABEL[a]).join(" and ")} `
-        + `${unknownDecisive.length === 1 ? "is" : "are"} not recorded for both `
-        + "scans. They may be comparable; this cannot say so, and silence is "
-        + "not agreement.",
-      findings, shared, blocking, harmonization,
-      evidence: Math.min(evidenceStrength(left), evidenceStrength(right)),
+      reasoning: domain.prose.uncertain(
+        unknownDecisive.map((a) => a.label).join(" and "),
+        unknownDecisive.length === 1 ? "is" : "are"),
+      findings, shared, blocking, harmonization, evidence,
     };
   }
 
   if (harmonization.length > 0) {
     return {
       verdict: "COMPARABLE_AFTER_HARMONIZATION",
-      reasoning:
-        "These measure the same quantity under the same sequence and contrast, "
-        + "so they can be compared once the differences in geometry or field "
-        + "strength are corrected for.",
-      findings, shared, blocking, harmonization,
-      evidence: Math.min(evidenceStrength(left), evidenceStrength(right)),
+      reasoning: domain.prose.harmonizable,
+      findings, shared, blocking, harmonization, evidence,
     };
   }
 
   return {
     verdict: "DIRECTLY_COMPARABLE",
-    reasoning:
-      "Same modality, sequence, contrast phase and geometry, within tolerance. "
-      + "Differences between these images can be read as differences in the "
-      + "subject.",
-    findings, shared, blocking, harmonization,
-    evidence: Math.min(evidenceStrength(left), evidenceStrength(right)),
+    reasoning: domain.prose.direct,
+    findings, shared, blocking, harmonization, evidence,
   };
+}
+
+function labelOf(domain: Domain, key: Axis): string {
+  return domain.axes.find((a) => a.key === key)?.label ?? key;
 }
 
 /** One axis, compared. Returns null for an axis that does not apply. */
-function compareAxis(axis: Axis, left: Study, right: Study): AxisFinding | null {
-  const a = left[axis] as Fact<unknown>;
-  const b = right[axis] as Fact<unknown>;
+function compareAxis(axis: AxisSpec, left: Acquisition, right: Acquisition,
+                     domain: Domain): AxisFinding | null {
+  if (axis.appliesTo !== undefined && !axis.appliesTo(left, right)) return null;
 
-  /*
-   * Weighting and field strength are properties of MR. Reporting "not stated"
-   * for a pair of CTs would fill the panel with objections that are categories
-   * rather than problems, and a panel of irrelevant objections teaches the
-   * reader to skim past the real ones.
-   */
-  if ((axis === "weighting" || axis === "fieldStrength")
-      && left.modality.value === "CT" && right.modality.value === "CT") {
-    return null;
-  }
+  const a = factOf(left, axis.key);
+  const b = factOf(right, axis.key);
 
   if (a.value === null || b.value === null) {
-    return { axis, agreement: "not_stated", left: text(a), right: text(b),
-             note: "Not recorded on both scans." };
+    /*
+     * Which of them is missing, because the row shows both values and the
+     * note used to contradict them.
+     *
+     * "Not recorded on both scans" was written for every case where *either*
+     * side was silent, so a row reading `not recorded | T2` carried a
+     * sentence saying neither had it — with the value that does exist printed
+     * beside it. That is worse than vague: a reader who trusts the note
+     * concludes the sequence is unknown on a scan where it is recorded, and
+     * the disagreement between the row and its own note is the kind a person
+     * resolves by deciding the panel is unreliable.
+     *
+     * One side missing is also a different fact from neither side having it.
+     * A value present on one scan can be sought on the other; a value absent
+     * from both is a question about the files, not about this pair.
+     */
+    const neither = a.value === null && b.value === null;
+    return { axis: axis.key, label: axis.label, agreement: "not_stated",
+             left: text(a), right: text(b),
+             note: neither
+               ? `Not recorded on either ${domain.noun}.`
+               : `Recorded on one ${domain.noun} only, so the two cannot be `
+                 + "compared on it." };
   }
 
-  const same = agrees(axis, a.value, b.value);
+  const same = agrees(axis.match, a.value, b.value);
   return {
-    axis,
+    axis: axis.key,
+    label: axis.label,
     agreement: same ? "agree" : "differ",
     left: text(a),
     right: text(b),
-    note: same ? "" : noteFor(axis),
+    note: same ? "" : axis.note,
   };
 }
 
-function agrees(axis: Axis, a: unknown, b: unknown): boolean {
-  if (axis === "sliceThickness" || axis === "pixelSpacing") {
+function agrees(match: Match, a: unknown, b: unknown): boolean {
+  if (match.kind === "ratio") {
     const x = Number(a), y = Number(b);
     if (!(x > 0) || !(y > 0)) return false;
-    const tolerance = axis === "sliceThickness"
-      ? THICKNESS_TOLERANCE : SPACING_TOLERANCE;
-    // A ratio, not a difference: 1 mm against 2 mm matters, 4 mm against 5 mm
-    // much less, and an absolute threshold cannot express both.
-    return Math.max(x, y) / Math.min(x, y) <= tolerance;
+    // A ratio, not a difference: 1 against 2 matters, 4 against 5 much less,
+    // and an absolute threshold cannot express both.
+    return Math.max(x, y) / Math.min(x, y) <= match.tolerance;
   }
-  if (axis === "fieldStrength") {
-    // Field strengths are nominal — 1.5 and 3 — so near equality is equality.
-    return Math.abs(Number(a) - Number(b)) < 0.2;
+  if (match.kind === "text") {
+    // Folded and trimmed: a channel somebody typed as "dapi" and one a file
+    // recorded as "DAPI" are one channel, and comparing them as two would
+    // manufacture a difference out of a keystroke.
+    return String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+  }
+  if (match.kind === "near") {
+    // For values that are nominal rather than measured — 1.5 T and 3 T — near
+    // equality is equality.
+    return Math.abs(Number(a) - Number(b)) < match.epsilon;
   }
   return a === b;
-}
-
-function noteFor(axis: Axis): string {
-  switch (axis) {
-    case "modality":
-      return "Different physical quantities; no shared intensity scale.";
-    case "weighting":
-      return "Different sequences show different tissue; a finding may be "
-           + "absent rather than fainter.";
-    case "contrast":
-      return "Enhancement depends on phase; a lesion can be invisible outside "
-           + "its own phase.";
-    case "sliceThickness":
-      return "Thicker slices average through the plane and can erase a small "
-           + "finding entirely.";
-    case "pixelSpacing":
-      return "Different in-plane sampling; fine detail is not equally "
-           + "resolvable.";
-    case "fieldStrength":
-      return "Contrast and noise differ between field strengths.";
-    case "orientation":
-      return "Different planes; corresponding structures are not in "
-           + "corresponding places.";
-  }
 }
 
 /** A fact as words, marking anything that was typed rather than measured. */
@@ -312,12 +323,15 @@ export function permitsComparison(verdict: Verdict): boolean {
  * standing — and the ordering would be dominated by acquisition anyway, so the
  * top of the list would be the scans taken on the same machine.
  */
-export function partition(caseStudy: Study, others: Study[]) {
+export function partition(caseStudy: Acquisition, others: Acquisition[]) {
   const groups = {
-    comparable: [] as Array<{ study: Study; assessment: Assessment }>,
-    afterHarmonization: [] as Array<{ study: Study; assessment: Assessment }>,
-    uncertain: [] as Array<{ study: Study; assessment: Assessment }>,
-    refused: [] as Array<{ study: Study; assessment: Assessment }>,
+    /* Carried so the description below can use the discipline's own words
+       rather than defaulting to one field's and calling it neutral. */
+    domain: domainOf(caseStudy.domain),
+    comparable: [] as Array<{ study: Acquisition; assessment: Assessment }>,
+    afterHarmonization: [] as Array<{ study: Acquisition; assessment: Assessment }>,
+    uncertain: [] as Array<{ study: Acquisition; assessment: Assessment }>,
+    refused: [] as Array<{ study: Acquisition; assessment: Assessment }>,
   };
 
   for (const study of others) {
@@ -339,7 +353,10 @@ export function describePartition(
   groups: ReturnType<typeof partition>): string {
   const total = groups.comparable.length + groups.afterHarmonization.length
               + groups.uncertain.length + groups.refused.length;
-  if (total === 0) return "Nothing to compare against this case yet.";
+  const { domain } = groups;
+  if (total === 0) {
+    return `Nothing to compare against this ${domain.collection} yet.`;
+  }
 
   const parts: string[] = [];
   if (groups.comparable.length > 0) {
@@ -349,12 +366,16 @@ export function describePartition(
     parts.push(`${groups.afterHarmonization.length} after harmonisation`);
   }
   if (groups.uncertain.length > 0) {
-    parts.push(`${groups.uncertain.length} cannot be judged, because the `
-             + "acquisition is not recorded");
+    // "Part of": a file can state most of its acquisition and still be
+    // unjudgeable on one axis, and "not recorded" would tell that researcher
+    // their metadata is worse than it is.
+    parts.push(`${groups.uncertain.length} cannot be judged, because part of `
+             + "the acquisition is not recorded");
   }
   if (groups.refused.length > 0) {
-    parts.push(`${groups.refused.length} cannot be compared with this case`);
+    parts.push(`${groups.refused.length} cannot be compared with this `
+             + `${domain.collection}`);
   }
-  return `${total} scan${total === 1 ? "" : "s"} against this case: `
-       + `${parts.join("; ")}.`;
+  return `${total} ${total === 1 ? domain.noun : domain.nounPlural} against `
+       + `this ${domain.collection}: ${parts.join("; ")}.`;
 }

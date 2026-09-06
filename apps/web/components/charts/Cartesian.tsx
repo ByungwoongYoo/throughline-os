@@ -231,6 +231,19 @@ export function Cartesian({
   useEffect(() => {
     if (!linkKey) return;
     linked.select(linkKey, chartId, brushed ? brushed.ids : []);
+    /*
+     * `linked.select`, not `linked`. The context value is new whenever the
+     * selection changes anywhere, so depending on it makes every chart
+     * republish its own region the moment another chart publishes one — four
+     * of the linked-selection tests go red. `select` is a `useCallback` with
+     * an empty dependency list, so it is stable for the life of the provider
+     * and is the only part of the context this effect uses.
+     *
+     * The suppression is a single line immediately above the array, which is
+     * where `exhaustive-deps` reports; a two-line comment covers its own
+     * second line and silences nothing (D227).
+     */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linkKey, chartId, brushed, linked.select]);
 
   const echoed = linkKey

@@ -87,3 +87,36 @@ describe("what the checklist claims is done", () => {
     expect(go).not.toHaveBeenCalled();
   });
 });
+
+describe("what the first step promises about the data", () => {
+  /*
+   * This hint is read at the moment a researcher decides whether to hand the
+   * tool their data, so it is the sentence that has to be true.
+   *
+   * It said "Files never leave this machine." — unconditionally, while this
+   * same application knows a configuration where that is false: choosing a
+   * model that runs elsewhere sends passages of every paper it reads to that
+   * service, which the settings screen states in exactly those words before
+   * asking permission. Both sentences could not be true at once, and the
+   * absolute one was on the screen that matters most.
+   */
+  it("says where the files stay", () => {
+    open();
+    const hint = screen.getByText(/Drop a dataset and the papers around it/);
+    expect(hint.textContent).toMatch(/stay on this machine/i);
+  });
+
+  it("does not promise that nothing ever leaves", () => {
+    open();
+    const hint = screen.getByText(/Drop a dataset and the papers around it/);
+    expect(hint.textContent).not.toMatch(/never leave/i);
+  });
+
+  it("names the one choice that changes it", () => {
+    // A qualified claim a reader cannot act on is no better than a false one:
+    // it has to say which decision sends anything anywhere.
+    open();
+    const hint = screen.getByText(/Drop a dataset and the papers around it/);
+    expect(hint.textContent).toMatch(/model that runs elsewhere/i);
+  });
+});

@@ -38,7 +38,7 @@ const VARIABLES = {
 const VOCABULARY = {
   pending: [{ id: "va_1", alias: "AMR", origin: "paper",
               canonical_label: "Resistance", canonical_name: "resistance" }],
-  canonical_variables: 2, approved_aliases: 0,
+  canonical_variables: 2, approved_aliases: 0, rejected_aliases: 0,
   times_an_alias_resolved_a_term: 0,
   note: "This project's vocabulary grows as you confirm what terms mean.",
 };
@@ -197,6 +197,30 @@ describe("the vocabulary", () => {
                           times_an_alias_resolved_a_term: 7 } });
     render(<Variables projectId="prj_1" />);
     expect(await screen.findByText(/resolved a term 7 times/)).toBeTruthy();
+  });
+
+  it("counts the suggestions it refused, not only the ones it took", async () => {
+    /*
+     * `rejected_aliases` was sent on every request and named by nothing, so
+     * the line counted approvals and stayed silent about refusals. This
+     * product treats a refusal as an answer everywhere else — five
+     * comparability verdicts, a capability that says what it withholds, a
+     * sandbox that lists what it does not enforce — and a vocabulary
+     * reporting only its approvals is the one asymmetry it argues against.
+     */
+    serve({ vocabulary: { ...VOCABULARY, approved_aliases: 3,
+                          rejected_aliases: 4 } });
+    render(<Variables projectId="prj_1" />);
+    expect(await screen.findByText(/3 approved · 4 refused/)).toBeTruthy();
+  });
+
+  it("says none were refused rather than omitting the count", async () => {
+    // A count that appears only when non-zero teaches a reader that its
+    // absence means nothing, when it means zero.
+    serve({ vocabulary: { ...VOCABULARY, approved_aliases: 3,
+                          rejected_aliases: 0 } });
+    render(<Variables projectId="prj_1" />);
+    expect(await screen.findByText(/3 approved · 0 refused/)).toBeTruthy();
   });
 });
 

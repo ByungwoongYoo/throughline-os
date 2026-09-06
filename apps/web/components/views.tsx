@@ -17,6 +17,7 @@ import {
   ingestionStep, isIngesting,
 } from "@/lib/api";
 import { columnNotices } from "@/lib/column-notices";
+import { DatasetFormats, extrasNote, uploadAccept } from "@/lib/formats";
 import { ApiState, useApi } from "@/lib/useApi";
 import { Section } from "./Shell";
 import { PlainSummary, ResultCard } from "./ResultCard";
@@ -55,7 +56,19 @@ export function Overview({ project, map, onGo }: {
     {
       done: map.counts.sources > 0,
       label: "Add sources",
-      hint: "Drop a dataset and the papers around it. Files never leave this machine.",
+      /*
+       * "Files never leave this machine" was unconditional, and this
+       * application knows a configuration where it is false: choosing a model
+       * that runs elsewhere sends passages of every paper it reads to that
+       * service, which the settings screen says in exactly those words before
+       * asking permission. Both sentences cannot be true, and the one a
+       * researcher reads while deciding whether to trust the tool with their
+       * data is this one. Stated with its condition instead — still short,
+       * still reassuring, and true in both configurations.
+       */
+      hint: "Drop a dataset and the papers around it. They stay on this "
+            + "machine; nothing is sent anywhere unless you choose a model "
+            + "that runs elsewhere.",
       go: "sources",
     },
     {
@@ -182,7 +195,8 @@ function LifecycleBreakdown({ title, counts }: { title: string; counts: Record<s
 // Sources (§24, §26)
 // ---------------------------------------------------------------------------
 
-export function Sources({ sources, onSelect, upload, uploading, uploadError }: {
+export function Sources({ sources, onSelect, upload, uploading, uploadError,
+                         formats }: {
   /*
    * The list is owned by the workspace, not fetched here.
    *
@@ -197,6 +211,16 @@ export function Sources({ sources, onSelect, upload, uploading, uploadError }: {
   upload: (files: FileList | null) => void;
   uploading: boolean;
   uploadError: unknown;
+  /**
+   * Which dataset formats this installation can read, from
+   * `/api/system/capabilities`.
+   *
+   * Passed in rather than fetched: the workspace already asks for capabilities,
+   * and a second fetch of the same thing is a second copy to keep in step —
+   * the mistake this component's own header records making with the source
+   * list.
+   */
+  formats?: DatasetFormats | null;
 }) {
   const { data, error, loading, reload } = sources;
 
@@ -225,11 +249,27 @@ export function Sources({ sources, onSelect, upload, uploading, uploadError }: {
           {uploading ? "Uploading…" : "Add sources"}
           <input
             type="file" multiple hidden disabled={uploading}
-            accept=".pdf,.docx,.txt,.md,.csv,.tsv,.xlsx,.json"
+            /* Asked of the server rather than written down. The literal that
+               was here offered eight formats while ingestion read twenty-two,
+               so Stata, SPSS and SAS files were greyed out by a product that
+               reads them. Undefined until the answer arrives, because a wrong
+               filter hides a researcher's own data with no error to read. */
+            accept={uploadAccept(formats)}
             onChange={(e) => upload(e.target.files)}
           />
         </label>
       </div>
+
+      {/*
+        * Named, not offered. A format that needs a package installed cannot be
+        * read yet, so putting it in `accept` would produce a selection that
+        * fails at ingestion with nothing to read. Saying it exists is the
+        * honest middle, and it uses the server's own count rather than one
+        * written here.
+        */}
+      {extrasNote(formats) !== null && (
+        <p className="set-note" style={{ marginTop: 0 }}>{extrasNote(formats)}</p>
+      )}
 
       {uploadError ? <Failure error={uploadError} /> : null}
       {error ? <Failure error={error} retry={reload} /> : null}
@@ -308,10 +348,20 @@ export function Sources({ sources, onSelect, upload, uploading, uploadError }: {
  * row was the whole truth. It is not: a dataset row hides a profiled schema, and
  * that profile is what every later method choice depends on.
  */
-export function SourceDetail({ projectId, sourceId, onDiscover }: {
+export function SourceDetail({ projectId, sourceId, onDiscover, onImported }: {
   projectId: string;
   sourceId: string;
   onDiscover: (datasetVersionId: string) => void;
+  /**
+   * A table was imported, which creates a *new* source.
+   *
+   * `DatabaseTables` has always offered this and nothing had ever passed it,
+   * so the list of sources the researcher is looking at went stale the moment
+   * they imported one: the dataset they just made was not in it. Uploading a
+   * file creates a source the same way and the workspace already reloads for
+   * that — this is the same gesture reaching the same handler.
+   */
+  onImported?: (newSourceId: string) => void;
 }) {
   const { data, error, loading, reload } =
     useApi<Source>(`/api/projects/${projectId}/sources/${sourceId}`);
@@ -325,6 +375,31 @@ export function SourceDetail({ projectId, sourceId, onDiscover }: {
   return (
     <>
       <h1 style={{ wordBreak: "break-word" }}>{data.title}</h1>
+      {/*
+        * Withdrawn upstream, said first.
+        *
+        * Above the ingestion status and above the injection signals, because it
+        * outranks both: a source that has been retracted changes what every
+        * finding resting on it is worth, and a reader who has opened this page
+        * is deciding whether to rest something on it now. Harvesting marks a
+        * source withdrawn rather than deleting it — the reference and the
+        * evidence of withdrawal both have to survive — and the harvest report
+        * says so once, at harvest time, to whoever happened to be looking.
+        * This is the same fact where it is needed.
+        */}
+      {data.withdrawn_at != null && (
+        <div className="withdrawn" role="alert">
+          <strong>This source has been withdrawn upstream.</strong>
+          <p>
+            {data.withdrawn_reason
+              ? `Reason given: ${data.withdrawn_reason}`
+              : "No reason was given."}{" "}
+            It is kept rather than deleted, so that anything resting on it can
+            still be found — but nothing new should.
+          </p>
+        </div>
+      )}
+
       <div className="row" style={{ marginBottom: 16 }}>
         <Status value={data.ingestion_status} />
         <span className="mono" style={{ color: "var(--ink-faint)" }}>
@@ -366,6 +441,41 @@ export function SourceDetail({ projectId, sourceId, onDiscover }: {
         </section>
       )}
 
+      {data.paper?.metadata?.columns === "spliced" && (
+        /*
+         * Said for the same reason the injection notice above is: it is a fact
+         * about this source that bears on whether a quotation from it can be
+         * trusted, and the researcher is the only one who can judge what to do
+         * about it.
+         *
+         * The parser reads a two-column paper column by column precisely
+         * because a whole-page read interleaves them and splices unrelated
+         * sentences together. On these pages it could not find the split, so
+         * it fell back to the whole-page read — and a spliced sentence looks
+         * exactly like a real one. The pages are named because "somewhere in
+         * this paper" is not something anybody can act on.
+         */
+        <section className="talkstomachine">
+          <h2>Some pages of this paper were read straight across</h2>
+          <p className="lede">
+            This paper is read column by column, because reading a two-column
+            page straight across interleaves the columns and joins the end of
+            one sentence to the middle of another. On{" "}
+            {data.paper.metadata.spliced_pages?.length === 1 ? "page" : "pages"}{" "}
+            {(data.paper.metadata.spliced_pages ?? []).join(", ")} the columns
+            could not be told apart, so those pages were read straight across.
+          </p>
+          <p className="note">
+            A quotation taken from{" "}
+            {data.paper.metadata.spliced_pages?.length === 1
+              ? "that page" : "those pages"}{" "}
+            may join text that is not next to itself in the paper. Worth
+            checking against the original before citing it. Every other page is
+            unaffected.
+          </p>
+        </section>
+      )}
+
       {/*
         A database that could not be ingested as one dataset is the case this
         answers: the message above says which tables it holds, and this is how
@@ -373,7 +483,8 @@ export function SourceDetail({ projectId, sourceId, onDiscover }: {
         database, so it costs an ordinary failed ingestion nothing.
       */}
       {data.ingestion_status === "failed" && (
-        <DatabaseTables projectId={projectId} sourceId={sourceId} />
+        <DatabaseTables projectId={projectId} sourceId={sourceId}
+                        onImported={onImported} />
       )}
 
       {data.paper && (
@@ -869,6 +980,20 @@ export function Findings({ projectId, onSelect }: {
           {finding.statement && <p style={{ margin: "6px 0 0" }}>{finding.statement}</p>}
           <div className="mono" style={{ color: "var(--ink-faint)", marginTop: 6 }}>
             {finding.finding_type} · causal status: {finding.causal_status.replace(/_/g, " ")}
+            {/*
+              * That the claim carries caveats, where the claims are scanned.
+              *
+              * The count, not the text: a list is for choosing which finding to
+              * open, and three sentences of qualification in a row would bury
+              * the titles. What it must not do is present a finding with three
+              * stated limits identically to one with none, which is what it did
+              * — the caveats appeared only after the reader had opened the very
+              * finding they were deciding about.
+              */}
+            {(finding.limitations?.length ?? 0) > 0 && (
+              <> · {finding.limitations?.length} stated{" "}
+                {finding.limitations?.length === 1 ? "limit" : "limits"}</>
+            )}
           </div>
         </div>
       ))}
@@ -909,6 +1034,49 @@ export function EvidenceGraphView({ findingId, onOpenAnalysis }: {
       </div>
 
       {data.note && <p className="note">{data.note}</p>}
+
+      {/*
+        * The finding's own caveats, beside the note rather than beneath the
+        * evidence. `evidence_graph` has always sent these — next to the
+        * sentence about absent contradicting evidence, because the response is
+        * shaped around what a reader should not conclude — and the type never
+        * named the field, so it arrived on every request and was shown to
+        * nobody. A claim's limitations belong with the claim, not after the
+        * reader has finished weighing it.
+        */}
+      {/*
+        * The causal reading, above the limitations and below the note.
+        *
+        * `causal_status` was on the finding from the beginning and read by no
+        * screen: the list printed it as a bare token — "causal status:
+        * possible causal" — and the finding a researcher opens to decide what
+        * it establishes said nothing at all. The exported library note, which
+        * goes to somebody else's reference manager, carried a full sentence
+        * about it. The person receiving the citation was told more about
+        * causality than the person who made the finding.
+        *
+        * The sentence is the server's, not this component's, for the reason
+        * given on `causal_reading` in `api.ts`: the vocabulary lives in one
+        * place and had already drifted once.
+        *
+        * Placed above the limitations because it is the strongest single
+        * qualification on a finding, and always shown — including
+        * "not assessed", which is the case a reader is most likely to assume
+        * away if the screen is silent.
+        */}
+      {data.causal_reading && (
+        <div className="finding-causal">
+          <h2>What this finding says about cause</h2>
+          <p>{data.causal_reading.note}</p>
+        </div>
+      )}
+
+      {data.limitations?.length > 0 && (
+        <div className="finding-limits">
+          <h2>What this finding does not establish</h2>
+          <ul>{data.limitations.map((l) => <li key={l}>{l}</li>)}</ul>
+        </div>
+      )}
 
       <h2>Claims and their evidence</h2>
       {data.claims.length === 0 && <Empty
@@ -986,6 +1154,44 @@ export function EvidenceGraphView({ findingId, onOpenAnalysis }: {
 // Analyses (§44, §47)
 // ---------------------------------------------------------------------------
 
+/**
+ * What the run warned about, which is not the same as what it was limited by.
+ *
+ * A limitation qualifies a result that stands — "this is observational, so
+ * causal language is not available". A warning questions whether it stands at
+ * all: the normality assumption failed and a different test was the right one,
+ * or the optimiser never converged and the estimate is not to be trusted.
+ * Showing the first and silently dropping the second is the inversion this
+ * product exists to prevent, and it is what this screen did.
+ *
+ * Read from both places the same content arrives by: the run's own column and
+ * the copy inside the result. They are written from one value and are expected
+ * to agree, so this unions them rather than trusting either — an older run
+ * where only one was populated still says what it knew.
+ */
+function ResultWarnings({ run }: { run: AnalysisRun }) {
+  const fromRun = (run as { warnings?: string[] }).warnings ?? [];
+  const fromResult = run.result?.warnings ?? [];
+  const said = [...new Set([...fromRun, ...fromResult])].filter(
+    (line) => line.trim().length > 0);
+  if (said.length === 0) return null;
+
+  return (
+    <div className="run-warnings" role="alert">
+      <h2>
+        {said.length === 1 ? "This run warned about something"
+                           : `This run warned about ${said.length} things`}
+      </h2>
+      <ul>{said.map((line) => <li key={line}>{line}</li>)}</ul>
+      <p>
+        A warning is not a limitation. It says the number below may not be the
+        one you wanted — because the method’s assumptions did not hold, or
+        because the fit did not settle.
+      </p>
+    </div>
+  );
+}
+
 export function AnalysisDetail({ runId, onMethod }: {
   runId: string;
   /*
@@ -1009,11 +1215,52 @@ export function AnalysisDetail({ runId, onMethod }: {
       <h1>{data.method.replace(/_/g, " ")}</h1>
       {data.research_question && <p className="lede serif">{data.research_question}</p>}
       {data.status !== "completed" && (
-        <div className="error">{data.error ?? `This run is ${data.status}.`}</div>
+        <>
+          <div className="error">{data.error ?? `This run is ${data.status}.`}</div>
+
+          {/*
+            * What the sandbox actually said.
+            *
+            * `error` is often "Analysis failed" — the runtime's fallback when
+            * it has nothing better — while the traceback that explains it was
+            * captured to `logs` and displayed nowhere. A failure a researcher
+            * cannot diagnose is one they retry blindly or abandon.
+            *
+            * Folded away rather than printed: a stack trace above the fold
+            * makes an ordinary failure look like a crash in the product, and
+            * the first thing most readers need is the sentence above.
+            */}
+          {(data.logs ?? "").trim().length > 0 && (
+            <details className="run-logs">
+              <summary>What the sandbox reported</summary>
+              <pre>{data.logs}</pre>
+            </details>
+          )}
+        </>
       )}
 
       {data.status === "completed" && r && (
         <>
+          {/*
+            * Above the estimate, and that placement is the point.
+            *
+            * A run carries `warnings` and the screen showed only
+            * `limitations`, so two things were computed and thrown away. The
+            * first is the method itself: "Normality is violated. Spearman
+            * correlation is the appropriate alternative." — the system knew
+            * the test was the wrong one, said so, and the researcher read a
+            * Pearson coefficient with nothing beside it. The second is
+            * whatever the statistics library said during the fit, captured by
+            * the runtime: a `ConvergenceWarning` means the estimate below may
+            * be meaningless, and it was being discarded.
+            *
+            * Both change how the number should be read, so they sit before it
+            * rather than under it. `limitations` stays where it is: a
+            * limitation qualifies a result that stands, and a warning
+            * questions whether it stands at all.
+            */}
+          <ResultWarnings run={data} />
+
           {/* §47 — four separate judgements, shown separately. */}
           <div className="grid-2" style={{ marginBottom: 14 }}>
             <Stat label={r.estimate_name ?? "estimate"} value={r.estimate?.toFixed(4) ?? "—"} />
@@ -1357,11 +1604,37 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding }: {
  * result. So the grade is never shown without the checks that produced it.
  */
 function EvidenceGrade({ runId, quality }: { runId: string | null; quality: string }) {
-  const { data, error, loading } = useApi<AnalysisRun>(runId ? `/api/analyses/${runId}` : null);
+  const { data, error, loading, reload } =
+    useApi<AnalysisRun>(runId ? `/api/analyses/${runId}` : null);
 
   if (!runId) return null;
   if (loading) return <Loading rows={2} label="Reading the assumption checks" />;
-  if (error || !data) return null;
+
+  /*
+   * "Could not be read" and "nothing was violated" are the same picture — an
+   * empty space — and they are opposite answers.
+   *
+   * This returned `null` for both, so a request that failed left the screen
+   * looking exactly as it does when every assumption held. The section above
+   * says this explanation is the reason a grade is trustworthy at all; its
+   * absence therefore reads as "nothing to explain", which is a claim about
+   * the analysis that nothing here established. Silence is the one answer
+   * this screen cannot give, for the same reason the fragility panel refuses
+   * to give it (D229).
+   *
+   * `!data` without an error stays silent: that is the state before a request
+   * has been made for a run that does not exist, and there is nothing to
+   * report about it.
+   */
+  if (error) {
+    return (
+      <div className="card card-tight">
+        <h3 className="eyebrow">Why the evidence is graded {quality}</h3>
+        <Failure error={error} retry={reload} />
+      </div>
+    );
+  }
+  if (!data) return null;
 
   const violated = data.assumption_checks.filter((c) => c.outcome === "violated");
   if (violated.length === 0) return null;

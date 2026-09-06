@@ -10,6 +10,19 @@ import pytest
 
 # Each test session gets its own embedded PostgreSQL data directory so a test
 # run can never touch a researcher's real project database.
+#
+# **This suite must run serially, and nothing else says so.** One database is
+# shared by every test, and twenty test files tear down with an unscoped
+# `DELETE FROM users`; `sessions.user_id` is `ON DELETE CASCADE`, so that
+# statement signs out every session in the database, not just the file's own.
+# Serially that is correct — each test creates the account it needs. Under
+# `pytest -n auto` the files would delete each other's users mid-request, and
+# the symptom is a 401 arriving where a list was expected, in whichever test
+# happened to be running.
+#
+# Written here because the obvious response to a seven-minute backend run is to
+# reach for `xdist`, and the cost of learning this by doing it is an afternoon.
+# `xdist` is not installed, which is the only thing currently preventing it.
 _TEST_HOME = Path(tempfile.gettempdir()) / "throughline-os-tests"
 os.environ.setdefault("THROUGHLINE_HOME", str(_TEST_HOME))
 

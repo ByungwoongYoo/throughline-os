@@ -223,6 +223,30 @@ describe("what a picture is shared with", () => {
     }
   });
 
+  it("answers without generating a single example", () => {
+    /*
+     * This asked `exampleFor(entry)` and used the result for nothing but a
+     * null check — so every call built a 24³ voxel grid or relaxed a whole
+     * force layout, and `CatalogueChart` called it once per render.
+     *
+     * The bound is relative rather than a millisecond count, because a
+     * millisecond count says different things on different machines. One
+     * `exampleFor` pass over the catalogue is exactly what the old
+     * implementation cost for one sweep; the fixed one must be well under it.
+     */
+    let t = performance.now();
+    for (const entry of CATALOGUE) sharesPictureWith(entry, CATALOGUE);
+    const sweep = performance.now() - t;
+
+    t = performance.now();
+    for (const entry of CATALOGUE) exampleFor(entry);
+    const onePass = performance.now() - t;
+
+    expect(sweep, `a whole sweep (${sweep.toFixed(1)}ms) should cost far less `
+      + `than one round of example generation (${onePass.toFixed(1)}ms)`)
+      .toBeLessThan(onePass / 2);
+  });
+
   it("shares nothing for an entry that cannot be drawn", () => {
     const fromFile = CATALOGUE.find((e) => e.needs === "geometry")!;
     expect(sharesPictureWith(fromFile, CATALOGUE)).toEqual([]);

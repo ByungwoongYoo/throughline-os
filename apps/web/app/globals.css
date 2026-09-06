@@ -2280,6 +2280,46 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 
 .ct-provenance { margin-top: 14px; font-size: 12px; color: var(--ink-faint); }
 
+/* Recording what a dataset observes, offered from the refusal that needed it.
+   Sits under the steps rather than beside them: it is the continuation of the
+   one that stopped, not a second thing to notice. */
+.ct-record {
+  margin: 14px 0 0;
+  font-size: 13px; color: var(--ink-faint);
+}
+.ct-record-open {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--n-25);
+}
+.ct-record-open label { display: grid; gap: 4px; min-width: 0; }
+.ct-record-open label > span { font-size: 12px; color: var(--ink-faint); }
+.ct-record-open select,
+.ct-record-open input {
+  width: 100%;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  background: var(--panel);
+  font: inherit; font-size: 13px; color: var(--ink);
+}
+.ct-record-open select:focus-visible,
+.ct-record-open input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ct-record-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 12px; line-height: 1.5; color: var(--ink-faint);
+}
+.ct-record-actions { grid-column: 1 / -1; display: flex; gap: 8px; }
+
+@media (max-width: 640px) {
+  .ct-record-open { grid-template-columns: minmax(0, 1fr); }
+}
+
 /* The three (four) steps. Which one stopped it matters more than that it
    stopped: a missing mapping is a chore, a design mismatch is a fact about the
    question, and circularity is a warning about the paper. */
@@ -4430,6 +4470,10 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .case-verdict-ok { color: var(--ink-soft); }
 .case-verdict-no { color: var(--ink); }
 .case-todo { margin: 6px 0 6px 16px; font-size: 12px; color: var(--ink-faint); }
+/* What a comparability verdict rests on — the weaker of the two scans.
+   Quiet, and above the steps rather than below them: it qualifies the
+   verdict itself, not the work left to do. */
+.case-rests-on { margin: 6px 0 0; font-size: 12px; color: var(--ink-faint); }
 .case-axes { width: 100%; border-collapse: collapse; margin-top: 6px; }
 .case-axes th, .case-axes td {
   text-align: left; font-weight: 400; font-size: 11px;
@@ -5073,3 +5117,183 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .record-subset input { font-size: 13px; padding: 0.25rem 0.4rem;
   border: 1px solid var(--line); border-radius: 4px;
   background: var(--panel); color: var(--ink); }
+
+/* Stating what a file did not record — see `components/imaging/Declare.tsx`.
+   Matched to `.case-open` and `.case-privacy`, because it is the same kind of
+   thing: a panel the researcher fills in, not a result they read. */
+.case-declare {
+  margin: 20px 0; padding: 12px 14px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r-card);
+}
+.case-declare summary {
+  cursor: pointer; font-size: 13px; color: var(--ink-soft); padding: 4px 0;
+}
+.declare { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+/* A grid rather than a flow, so the labels line up down the column and a row
+   with a stated value does not shunt its neighbours sideways. */
+.declare-row {
+  display: grid; gap: 2px 10px; align-items: baseline;
+  grid-template-columns: minmax(9rem, max-content) minmax(0, 1fr) max-content;
+}
+.declare-row > label { font-size: 12px; color: var(--ink-soft); }
+.declare-row > input, .declare-row > select {
+  min-width: 0; font: inherit; font-size: 12px; padding: 3px 6px;
+  color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: var(--r-input, 4px);
+}
+/* The marker that this value is a person's word rather than the file's. It has
+   to survive being read quickly, so it is a chip and not italics. */
+.declare-stated {
+  font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--ink-faint); border: 1px solid var(--line);
+  border-radius: 999px; padding: 1px 6px; white-space: nowrap;
+}
+/* Why the axis matters, under the field rather than in a tooltip: it is the
+   reason somebody would know what to type, and a tooltip is not read. */
+.declare-why {
+  grid-column: 2 / -1; margin: 0; font-size: 11px; color: var(--ink-faint);
+}
+@media (max-width: 640px) {
+  .declare-row { grid-template-columns: 1fr; }
+  .declare-why { grid-column: 1; }
+}
+
+/* The instrument, shown and explicitly not compared — see `Carried`. Muted and
+   set apart from the evidence line above it, because a reader scanning for the
+   verdict must not mistake it for one of the axes. */
+.case-carried {
+  display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 2px;
+  font-size: 11px; color: var(--ink-faint);
+}
+.case-carried-why {
+  font-style: italic; opacity: 0.85;
+}
+
+/* Choosing which discipline's worked example is on screen. Sits under the
+   warning rather than in the open-your-own panel, because it changes what is
+   already being shown rather than asking for anything. */
+.case-example {
+  display: inline-flex; align-items: baseline; gap: 6px;
+  margin: 6px 0 2px; font-size: 12px; color: var(--ink-soft);
+}
+.case-example select {
+  font: inherit; font-size: 12px; padding: 2px 6px;
+  color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: var(--r-input, 4px);
+}
+
+/* Why the gesture layer is holding — see `chooseHand` and §32. A status line
+   rather than an error: nothing is wrong, the frame simply cannot say which
+   hand is the researcher's, and the wording has to read as patience. */
+.spatial-whose {
+  margin: 6px 0 0; font-size: 12px; color: var(--ink-soft);
+  border-left: 2px solid var(--line); padding-left: 8px;
+}
+
+/* Blender, shown apart from the feature packs because it is not one: a separate
+   desktop application this program cannot install, so the row carries no button.
+   Styled to match a pack row so the screen reads as one list of capabilities,
+   and quieted when present for the same reason a pack is — the screen exists to
+   answer "what can this installation not do". */
+.set-blender {
+  margin-top: 20px; padding: 14px 16px;
+  border: 1px solid var(--line); border-radius: var(--r-card);
+  background: var(--n-25);
+}
+.set-blender[data-installed="true"] { opacity: 0.66; }
+.set-blender p { margin: 6px 0 0; font-size: 13px; color: var(--ink-soft); }
+.set-blender code {
+  font-size: 12px; padding: 1px 4px;
+  background: var(--panel); border-radius: 3px;
+}
+
+/* What the analysis sandbox enforces, and what it does not — see
+   `SandboxDisclosure`. Collapsed by default: a researcher running a t-test on
+   their own laptop should not be interrupted, and one running over data they
+   were trusted with must find it in one click. The limits are listed first, so
+   opening it does not read as reassurance. */
+.sandbox-policy {
+  margin: 10px 0 14px; padding: 8px 12px;
+  border: 1px solid var(--line); border-radius: var(--r-card);
+  background: var(--panel);
+}
+.sandbox-policy > summary {
+  cursor: pointer; font-size: 13px; color: var(--ink-soft);
+}
+.sandbox-policy h4 {
+  margin: 10px 0 2px; font-size: 12px; font-weight: 600;
+  letter-spacing: 0.02em; color: var(--ink);
+}
+.sandbox-policy ul {
+  margin: 0; padding-left: 18px; font-size: 12px; color: var(--ink-soft);
+}
+.sandbox-policy li { margin: 1px 0; }
+
+/* What a run warned about — see `ResultWarnings`. Above the estimate and louder
+   than a limitation, because a limitation qualifies a result that stands while
+   a warning asks whether it stands at all: the method's assumptions failed, or
+   the fit never converged. Uses the warning colour rather than the error one;
+   the run completed, and its number may still be the one you wanted. */
+.run-warnings {
+  margin: 0 0 14px; padding: 12px 14px;
+  border: 1px solid var(--warn-line, var(--line));
+  border-left: 3px solid var(--warn, #B45309);
+  border-radius: var(--r-card); background: var(--panel);
+}
+.run-warnings h2 { margin: 0 0 6px; font-size: 14px; color: var(--ink); }
+.run-warnings ul { margin: 0; padding-left: 18px; font-size: 13px; color: var(--ink); }
+.run-warnings li { margin: 2px 0; }
+.run-warnings p { margin: 8px 0 0; font-size: 12px; color: var(--ink-soft); }
+
+/* What a finding says about cause. Above the caveats and shaped like them,
+   because both are qualifications on the claim rather than part of it — but
+   this one is always present, including "not assessed", so it is the quieter
+   of the two rather than louder for being first. */
+.finding-causal {
+  margin: 12px 0; padding: 10px 14px;
+  border-left: 3px solid var(--line); background: var(--panel);
+  border-radius: var(--r-card);
+}
+.finding-causal h2 { margin: 0 0 4px; font-size: 13px; color: var(--ink); }
+.finding-causal p { margin: 0; font-size: 13px; color: var(--ink-soft); }
+
+/* A finding's own caveats — see the evidence graph. Beside the note about
+   absent contradicting evidence, because both say what a reader should not
+   conclude, and quieter than the claim itself without being hidden. */
+.finding-limits {
+  margin: 12px 0; padding: 10px 14px;
+  border-left: 3px solid var(--line); background: var(--panel);
+  border-radius: var(--r-card);
+}
+.finding-limits h2 { margin: 0 0 4px; font-size: 13px; color: var(--ink); }
+.finding-limits ul {
+  margin: 0; padding-left: 18px; font-size: 13px; color: var(--ink-soft);
+}
+
+/* A source withdrawn upstream. Above the ingestion status and the injection
+   signals because it outranks both: a retraction changes what every finding
+   resting on this source is worth. Loud, and not an error — nothing failed,
+   the world changed. */
+.withdrawn {
+  margin: 0 0 14px; padding: 12px 14px;
+  border: 1px solid var(--conflicted, #B91C1C);
+  border-left: 4px solid var(--conflicted, #B91C1C);
+  border-radius: var(--r-card); background: var(--panel);
+}
+.withdrawn strong { display: block; font-size: 14px; color: var(--ink); }
+.withdrawn p { margin: 6px 0 0; font-size: 13px; color: var(--ink-soft); }
+
+/* The sandbox's own stderr for a failed run — see `AnalysisDetail`. Folded
+   away: a stack trace above the fold makes an ordinary failure look like a
+   crash in the product, and the sentence above it is what most readers need
+   first. Scrolls rather than stretching the page; the field is capped at
+   8000 characters and a long traceback would otherwise bury everything. */
+.run-logs { margin: 0 0 14px; }
+.run-logs > summary { cursor: pointer; font-size: 13px; color: var(--ink-soft); }
+.run-logs pre {
+  margin: 8px 0 0; padding: 10px 12px; max-height: 22em; overflow: auto;
+  font-size: 12px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+  color: var(--ink-soft); background: var(--panel);
+  border: 1px solid var(--line); border-radius: var(--r-card);
+}

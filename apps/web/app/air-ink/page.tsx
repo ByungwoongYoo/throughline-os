@@ -120,8 +120,12 @@ const STABILISATION_LABEL: Record<StabilisationLevel, string> = {
 const STABILISATION_HELP: Record<StabilisationLevel, string> = {
   natural: "One-to-one with your hand. Best for big marks and arrows; a hand "
          + "held still still drifts about 9px.",
-  steady: "The default. A hand held still drifts under 4px, and your hand moves "
-        + "the pen slightly further than the pen travels.",
+  // "your hand moves *the pen* slightly further than the pen travels" — the
+  // stray object made the sentence say the hand moves the pen further than the
+  // pen moves, which cannot happen. The `handwriting` entry below has the
+  // shape this one meant: hand against ink, not hand against itself.
+  steady: "The default. A hand held still drifts under 4px, and your hand "
+        + "moves slightly further than the pen travels.",
   handwriting: "Most precise. Your hand moves about 1.5x further than the ink "
              + "does, which is what makes small letters controllable, and the "
              + "line never runs ahead of where the camera last saw you.",

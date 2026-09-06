@@ -146,3 +146,87 @@ export function describeChoice(choice: HandChoice): string {
     case "ambiguous": return `${choice.reason} Paused until one is.`;
   }
 }
+
+/** What one frame means for the hand being followed. */
+export type Following = {
+  /** The hand to measure and address a chart with, if any. */
+  hand: Hand | undefined;
+  /**
+   * Change nothing this frame.
+   *
+   * Distinct from `hand: undefined`, and the distinction is the whole point:
+   * releasing a grab is itself an action, and doing it because somebody walked
+   * behind the desk is the accidental action §87 counts.
+   */
+  hold: boolean;
+  /** Why nothing is happening, when nothing is. Null when something is. */
+  message: string | null;
+  /** What to remember for the next frame's continuity. */
+  tracked: Tracked | null;
+};
+
+/**
+ * Follow a hand across frames, including through a deliberate two-handed
+ * gesture.
+ *
+ * Separate from `chooseHand` because it answers a different question, and the
+ * difference is a mistake that was actually made. `chooseHand` asks which
+ * single hand is the researcher's, and treats two as ambiguous — correct on its
+ * own terms. But this system also has a two-handed zoom, which the machine
+ * reasons about separately (§17: "two hands in frame is not two hands in use"),
+ * and wiring the choice straight in held during every legitimate pinch-zoom and
+ * then explained the break with a message about somebody walking past: a fix
+ * that broke a working feature and misdescribed the damage.
+ *
+ * `twoHanded` is the machine's own answer to whether both hands are in use. It
+ * is a parameter rather than something derived here because this file cannot
+ * see gesture state, and guessing at it from hand positions is what produced
+ * the mistake in the first place.
+ */
+export function followFrame(
+  frame: HandFrame,
+  tracked: Tracked | null,
+  twoHanded: boolean,
+  calibrated: "left" | "right" | null = null,
+  settings: WhoseSettings = DEFAULT_WHOSE,
+): Following {
+  const choice = chooseHand(frame, tracked, calibrated, settings);
+
+  if (choice.kind === "hand") {
+    return {
+      hand: choice.hand, hold: false, message: null,
+      tracked: { handedness: choice.hand.handedness,
+                 at: choice.hand.palmCenter },
+    };
+  }
+
+  if (twoHanded) {
+    /*
+     * Both hands are the researcher's and the gesture is under way. The only
+     * question left is which one this frame's measurement describes, and the
+     * answer is the one nearer to where the followed hand was — not whichever
+     * the tracker happened to list first, which is what this whole function
+     * exists to stop.
+     */
+    return { hand: nearest(frame, tracked), hold: false, message: null, tracked };
+  }
+
+  if (choice.kind === "ambiguous") {
+    return { hand: undefined, hold: true, message: describeChoice(choice), tracked };
+  }
+
+  /*
+   * No hand. No message: the panel already says "your hand is not in the
+   * picture" from the machine's own state, and two sentences saying the same
+   * thing in different words read as two different problems.
+   */
+  return { hand: undefined, hold: false, message: null, tracked: null };
+}
+
+function nearest(frame: HandFrame, tracked: Tracked | null): Hand | undefined {
+  if (frame.hands.length === 0) return undefined;
+  if (tracked === null) return frame.hands[0];
+  return [...frame.hands].sort(
+    (a, b) => distance(a.palmCenter, tracked.at) - distance(b.palmCenter, tracked.at),
+  )[0];
+}

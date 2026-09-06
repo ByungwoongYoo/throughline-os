@@ -131,7 +131,22 @@ export function DataSearch() {
       )}
 
       {error ? <Failure error={error} /> : null}
-      {busy && <Loading rows={4} label="Asking four repositories" />}
+      {busy && (
+        /*
+         * Counted from the list the chips above are built from, not written
+         * in the sentence. "Asking four repositories" was true when it was
+         * written and is one connector away from being false — which is
+         * exactly how the Find papers header came to say it searched four
+         * sources while searching ten, and why that count was made structural
+         * rather than corrected. The same repair, before the same rot.
+         *
+         * Without the list — the request for it can fail — the sentence drops
+         * the number rather than guessing one.
+         */
+        <Loading rows={4} label={repositories
+          ? `Asking ${repositories.length} repositories`
+          : "Asking the dataset repositories"} />
+      )}
 
       {results && (
         <>

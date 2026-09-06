@@ -31,7 +31,7 @@
  * each says which question it is for.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { Feature, FeatureCollection, Geometry } from "geojson";
 import {
   Camera, DEFAULT_CAMERA, resetCamera, rotateCamera, toCanvas, unitLength,
@@ -42,6 +42,9 @@ import {
 } from "@/lib/charts3d/globe";
 import { identity } from "./Geographic";
 import { ChartExport } from "@/components/charts/ChartExport";
+import type {
+  TargetRef, ViewState, VisualizationController,
+} from "@/lib/spatial/commands";
 
 export type Place = {
   /** ISO 3166-1 numeric id, matching the bundled topology. */
@@ -52,6 +55,7 @@ export type Place = {
 
 export function Globe3D({
   places, world, valueLabel, title, caption, width = 620, height = 460,
+  controllerRef,
 }: {
   places: Place[];
   world: FeatureCollection<Geometry, { name?: string }>;
@@ -60,6 +64,19 @@ export function Globe3D({
   caption?: string;
   width?: number;
   height?: number;
+  /**
+   * Exposes the globe as a `VisualizationController`, like every other chart
+   * that turns.
+   *
+   * It was the one that did not. Six rotatable charts on `/charts-3d` are
+   * collected by `SpatialControl` through `controllerRef` and `alsoControls`;
+   * the globe accepted no such prop, so a researcher who turned hand tracking
+   * on could rotate every figure on the page except this one, and nothing said
+   * why. §189's premise for that page is that the *chart* decides which one a
+   * hand is addressing — and a chart with no controller cannot be addressed at
+   * all, so it was not losing the competition, it was not in it.
+   */
+  controllerRef?: React.MutableRefObject<VisualizationController | null>;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   /*
@@ -70,6 +87,67 @@ export function Globe3D({
   const dragRef = useRef<{ x: number; y: number } | null>(null);
   const dirtyRef = useRef(true);
   const [hiddenCount, setHiddenCount] = useState(0);
+
+  /*
+   * The same seam every other rotatable chart offers.
+   *
+   * `rotate` and `zoom` and `resetView` are the globe's existing key handler,
+   * factored so the keyboard, the wheel, the controller and a hand all reach one
+   * implementation rather than four that drift. The rest of the interface is
+   * answered honestly rather than plausibly: a globe drawn with no data has
+   * nothing to hover or select, and saying so beats returning an empty array
+   * that reads as "nothing was near your finger".
+   */
+  useImperativeHandle(controllerRef, (): VisualizationController => ({
+    rotate: (dx, dy) => { rotateCamera(cameraRef.current, dx, dy); dirtyRef.current = true; },
+    zoom: (factor) => { zoomCamera(cameraRef.current, factor); dirtyRef.current = true; },
+    /*
+     * A sphere has no pan. Panning a globe is rotating it, and quietly
+     * remapping the two would mean a hand that pushed sideways sometimes
+     * turned the earth and sometimes did nothing depending on which chart it
+     * was over — worse than a gesture that plainly does not apply here.
+     */
+    pan: () => {},
+    hover: () => null,
+    select: () => null,
+    selectRegion: () => [],
+    /*
+     * Empty because this globe carries no marks to enclose. `GENERATORS.places`
+     * is null on purpose — a value invented for a real country reads as a fact
+     * about the world — so there is genuinely nothing inside any polygon.
+     */
+    withinPolygon: (): TargetRef[] => [],
+    focus: () => {},
+    deselect: () => {},
+    resetView: () => {
+      resetCamera(cameraRef.current);
+      cameraRef.current.zoom = GLOBE_ZOOM;   // the globe's frame, not the cube's
+      dirtyRef.current = true;
+    },
+    viewport: () => ({ width, height }),
+    bounds: () => {
+      const box = canvasRef.current?.getBoundingClientRect();
+      return box === undefined ? null
+        : { x: box.x, y: box.y, width: box.width, height: box.height };
+    },
+    viewState: (): ViewState => ({
+      yaw: cameraRef.current.yaw,
+      pitch: cameraRef.current.pitch,
+      zoom: cameraRef.current.zoom,
+    }),
+    restoreViewState: (state) => {
+      if (typeof state.yaw === "number") cameraRef.current.yaw = state.yaw;
+      if (typeof state.pitch === "number") cameraRef.current.pitch = state.pitch;
+      if (typeof state.zoom === "number") cameraRef.current.zoom = state.zoom;
+      dirtyRef.current = true;
+    },
+    /*
+     * `controllerRef` is the ref this handle is attached *to*, not something
+     * the handle reads. Listing it said the handle should be rebuilt when the
+     * ref object changes, which never happens, and left a warning standing in
+     * a lint output that has since turned out to carry real defects.
+     */
+  }), [width, height]);
 
   const byId = useMemo(() => {
     const map = new Map<string, Place>();

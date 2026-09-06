@@ -304,3 +304,64 @@ def test_the_worker_check_is_not_critical(cur):
     from throughline_domain import observability
 
     assert observability.health()["checks"]["workers"]["critical"] is False
+
+
+def test_a_compound_secret_name_is_dropped_too():
+    """
+    The keys are matched as substrings, because a compound name is the ordinary
+    shape and exact matching missed every one of them.
+
+    `api_key` was dropped and `zotero_api_key` kept; `token` dropped and
+    `access_token` kept. The Zotero route already takes a field called
+    `api_key`, which becomes `zotero_api_key` the moment anybody logs which
+    service it belonged to. The tests above passed throughout, because every
+    fixture used exactly the spelling that already worked.
+    """
+    record = logging.LogRecord(
+        "throughline.test", logging.INFO, __file__, 1, "pushed", None, None)
+    record.context = {
+        "finding_id": "fnd_1", "zotero_api_key": "z-secret",
+        "access_token": "a-secret", "refresh_token": "r-secret",
+        "client_secret": "c-secret", "user_passphrase": "p-secret",
+    }
+
+    payload = json.loads(observability.StructuredFormatter().format(record))
+
+    assert payload["finding_id"] == "fnd_1"
+    for leaked in ("z-secret", "a-secret", "r-secret", "c-secret", "p-secret"):
+        assert leaked not in json.dumps(payload)
+
+
+def test_what_was_withheld_is_named_but_never_shown():
+    """
+    The names, and nothing else.
+
+    `test_secrets_are_dropped_from_log_context` argues that dropping beats
+    masking because a masked value records that one existed *and how long it
+    was*. A key name carries neither the value nor its length, and it is what
+    makes an over-broad match visible: the substring rule deliberately catches
+    `content_type` along with `content`, and an operator who sees a field
+    vanish with no explanation cannot tell that from a field nobody sent.
+    """
+    record = logging.LogRecord(
+        "throughline.test", logging.INFO, __file__, 1, "read", None, None)
+    record.context = {"rows": 4, "api_key": "hunter2"}
+
+    payload = json.loads(observability.StructuredFormatter().format(record))
+
+    assert payload["rows"] == 4
+    assert payload["redacted"] == ["api_key"]
+    assert "hunter2" not in json.dumps(payload)
+    # Not the length, which is the leak the drop-don't-mask rule exists to stop.
+    assert "7" not in json.dumps(payload["redacted"])
+
+
+def test_nothing_is_claimed_withheld_when_nothing_was():
+    """An empty `redacted` would read as "something was hidden here"."""
+    record = logging.LogRecord(
+        "throughline.test", logging.INFO, __file__, 1, "read", None, None)
+    record.context = {"rows": 4}
+
+    payload = json.loads(observability.StructuredFormatter().format(record))
+
+    assert "redacted" not in payload

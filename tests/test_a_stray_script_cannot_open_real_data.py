@@ -29,11 +29,22 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
+#: Imported rather than spelled again: a copy here that fell out of step with
+#: `db.py` would strip a variable nothing reads and leave the real one set.
+from throughline_domain.db import ALLOW_INSTALLED  # noqa: E402
+
 
 def _run(code: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
     """Import the module in a fresh interpreter, since the home is read once."""
     environment = dict(os.environ)
     environment.pop("THROUGHLINE_HOME", None)
+    # And the escape hatch, which is the whole point of the refusal being
+    # testable. `manage.py` grants it for its own subcommands — it *is* the
+    # installed product when it runs `dev` or `backup` — and `preflight` passed
+    # that grant down to pytest, so these tests ran with the refusal switched
+    # off and failed only under preflight. A guard that controls its own
+    # environment cannot be defeated by whoever happened to start the run.
+    environment.pop(ALLOW_INSTALLED, None)
     environment.update(env or {})
     return subprocess.run(
         [sys.executable, "-c", code], cwd=ROOT, env=environment,
@@ -103,3 +114,42 @@ class TestTheProductStillStarts:
         assert "THROUGHLINE_ALLOW_INSTALLED_HOME" in source \
             or "THROUGHLINE_HOME" in source, (
             "nothing in the launcher declares which database it opens")
+
+class TestTheCheckerDoesNotExemptItself:
+    """
+    A verification run must not carry the exemption it exists to verify.
+
+    `manage.py main()` grants `THROUGHLINE_ALLOW_INSTALLED_HOME` because the
+    program genuinely is the installed product when it runs `dev`, `doctor` or
+    `backup`. `preflight` is a subcommand of the same program, so it inherited
+    the grant and handed it to pytest — and the two tests at the top of this
+    file, whose whole job is to prove an unnamed home is refused, ran with the
+    refusal switched off. They failed under `preflight` and passed under a bare
+    `pytest`, which reads as flakiness; a security guard believed to be flaky is
+    one that gets deleted rather than fixed.
+    """
+
+    def test_preflight_strips_the_allowance_before_running_a_check(self):
+        source = (ROOT / "scripts" / "manage.py").read_text()
+        # The subprocess call that runs each preflight step must not be handed
+        # the ambient environment: `env=env or None` inherits it, allowance and
+        # all, which is precisely how this went unnoticed.
+        assert "env=env or None" not in source, (
+            "preflight passes its own environment to its checks, so a check "
+            "runs with the installed-home allowance the product grants itself")
+        assert "without_the_allowance" in source, (
+            "nothing in preflight removes the allowance from a check's "
+            "environment")
+
+    def test_the_variable_has_one_name_in_the_launcher(self):
+        """
+        Granting and stripping must use the same string. Two spellings would
+        leave the grant in place while the strip removed nothing, and every
+        test here would still pass.
+        """
+        source = (ROOT / "scripts" / "manage.py").read_text()
+        assert 'ALLOW_INSTALLED_HOME = "THROUGHLINE_ALLOW_INSTALLED_HOME"' in source
+        # Once it is named, the literal should not be spelled out again.
+        assert source.count('"THROUGHLINE_ALLOW_INSTALLED_HOME"') == 1, (
+            "the variable is spelled out more than once, so the grant and the "
+            "strip can drift apart")

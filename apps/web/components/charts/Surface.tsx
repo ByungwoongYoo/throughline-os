@@ -81,8 +81,20 @@ function readable(value: number): string {
     : String(Number(value.toPrecision(3)));
 }
 
+/**
+ * One shared empty list, rather than a fresh `[]` in the parameter default.
+ *
+ * A default written inline is evaluated on every render, so a caller that
+ * draws a surface without observations handed the projection memo a new array
+ * each time and the memo — which flattens the grid, spans every cell and
+ * builds the colour ramp — recomputed on every render for a picture that had
+ * not changed. It also hid a missing `colourBy` dependency further down: the
+ * memo could not go stale while it never cached.
+ */
+const NO_OBSERVATIONS: readonly SurfaceObservation[] = [];
+
 export function Surface({
-  grid, colourBy, observations = [], controllerRef, onSelect, onDetent,
+  grid, colourBy, observations = NO_OBSERVATIONS, controllerRef, onSelect, onDetent,
   xLabel, yLabel, zLabel, title, caption, width = 720, height = 520,
   style = "filled",
 }: {
@@ -119,7 +131,7 @@ export function Surface({
     label: string;
     unit?: string;
   };
-  observations?: SurfaceObservation[];
+  observations?: readonly SurfaceObservation[];
   controllerRef?: React.RefObject<VisualizationController | null>;
   onSelect?: (target: TargetRef | null) => void;
   onDetent?: (moment: "hover" | "select") => void;
@@ -211,7 +223,15 @@ export function Surface({
         x: sx(o.x), y: sz(o.z), z: sy(o.y),
       })),
     };
-  }, [grid, observations]);
+  /*
+   * `colourBy` belongs here. It was omitted, and everything above that reads
+   * it — the fourth variable, the legend, the shape-mismatch flag — then went
+   * stale whenever a caller changed the colour grid while keeping the same
+   * `grid` and `observations` objects: the surface kept the previous
+   * colouring, which is the "confidently wrong everywhere" picture the
+   * mismatch check a few lines up exists to refuse.
+   */
+  }, [grid, observations, colourBy]);
 
   /**
    * The mesh as quads, each with its own depth.

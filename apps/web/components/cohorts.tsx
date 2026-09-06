@@ -25,7 +25,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { Empty, Failure, Loading } from "./primitives";
+import { Failure, Loading } from "./primitives";
 
 type Cohort = {
   id: string;

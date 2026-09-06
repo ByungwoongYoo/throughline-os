@@ -55,8 +55,14 @@ describe("what an empty chain is allowed to claim", () => {
     serve({ ancestors: [], origin: "unrecorded" });
     render(<ProvenanceChain objectId="obj_run" />);
 
-    await waitFor(() => expect(screen.queryByText(/source artifact/)).toBeNull());
-    expect(screen.getByText(/was not written down/)).toBeTruthy();
+    // Wait on what must *appear*, never on what is absent: "no 'source
+    // artifact' on screen" is already true while the skeleton is up, so
+    // waiting for it returned on the first tick and the assertion below raced
+    // the fetch. Green on an idle machine, red under load — which is how it
+    // failed, in preflight, on a run that had nothing to do with this file.
+    // The test two below already knows this hazard in its role-based form.
+    expect(await screen.findByText(/was not written down/)).toBeTruthy();
+    expect(screen.queryByText(/source artifact/)).toBeNull();
   });
 
   it("reads as a gap rather than as an answer", async () => {

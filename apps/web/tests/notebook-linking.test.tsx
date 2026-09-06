@@ -125,6 +125,24 @@ describe("every suggestion can be reached from the keyboard", () => {
     expect(box).toHaveAttribute("aria-expanded", "true");
     expect(box).toHaveAttribute("aria-controls", "nb-suggest");
   });
+
+  it("is a combobox, which is what makes those attributes mean anything",
+     async () => {
+    /**
+     * A `<textarea>` is implicitly a `textbox`, and `textbox` does not support
+     * `aria-expanded` or `aria-activedescendant`. All three attributes were
+     * set and every one of them was inert: the sighted reader watched a list
+     * appear under the caret and a screen reader was told nothing at all.
+     * Asserting the attributes — which the two tests above do — passed the
+     * whole time, because an attribute that is present is not an attribute
+     * that is honoured.
+     *
+     * Queried by role rather than by attribute, so the assertion fails if the
+     * role is dropped and the attributes are left behind.
+     */
+    const box = await openSuggestions();
+    expect(box).toBe(screen.getByRole("combobox", { expanded: true }));
+  });
 });
 
 describe("the selection cannot outlive the list it belongs to", () => {
@@ -175,5 +193,47 @@ describe("the list is shaped the way its role requires", () => {
       .filter((o) => o.getAttribute("aria-selected") === "true");
 
     expect(chosen).toHaveLength(1);
+  });
+});
+
+describe("when the list of pages could not be loaded", () => {
+  /*
+   * The suggester matched against a list that was empty because the request
+   * failed, and the empty state says "Nothing called '<query>' yet — finish
+   * the link and it becomes a page waiting to be written." That is a definite
+   * claim that no such page exists, made when nothing had found out, and it
+   * invites the researcher to write a second page for a note they already
+   * have. A missing suggestion is a small loss; a split note is not.
+   */
+  async function typeALink() {
+    render(<Harness />);
+    const box = await screen.findByLabelText("Note");
+    await userEvent.type(box, "see [[[[Ant");
+    return box;
+  }
+
+  it("does not claim the page does not exist", async () => {
+    vi.spyOn(api, "get").mockRejectedValue(new Error("notebook unreachable"));
+
+    await typeALink();
+
+    await waitFor(() =>
+      expect(screen.getByText(/could not be loaded/)).toBeTruthy());
+    expect(screen.queryByText(/yet — finish the link/)).toBeNull();
+  });
+
+  it("still says a name is free when the list was read and holds nothing",
+     async () => {
+    // The other half: "nothing called that yet" has to keep meaning that, and
+    // it only does if the case where nobody found out reads differently.
+    vi.spyOn(api, "get").mockImplementation((path: string) =>
+      Promise.resolve(path.includes("knowledge-graph")
+        ? { nodes: [] } : { notes: [] }) as never);
+
+    await typeALink();
+
+    await waitFor(() =>
+      expect(screen.getByText(/yet/)).toBeTruthy());
+    expect(screen.queryByText(/could not be loaded/)).toBeNull();
   });
 });

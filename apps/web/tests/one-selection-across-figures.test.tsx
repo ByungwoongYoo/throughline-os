@@ -12,7 +12,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { Cartesian } from "@/components/charts/Cartesian";
-import { LinkedCharts, MUTED } from "@/components/charts/linked";
+import { LinkedCharts, MUTED, useLinkedSelection } from "@/components/charts/linked";
 
 const POINTS = Array.from({ length: 40 }, (_, i) => ({
   id: `obs${i}`, x: i, y: i % 5,
@@ -173,5 +173,86 @@ describe("one selection across figures", () => {
 
     expect(container.querySelectorAll("circle.chart-point").length)
       .toBe(POINTS.length);
+  });
+});
+
+describe("publishing the same selection twice", () => {
+  /*
+   * The charts publish their brushed region from an effect, so whatever the
+   * effect depends on decides how often `select` is called. `select` used to
+   * build `new Set(ids)` unconditionally, which meant republishing an
+   * identical selection produced a new object, a new context value and another
+   * render — and the effect ran again. `Cartesian` therefore had to depend on
+   * `linked.select` rather than on `linked`, and widening that dependency —
+   * exactly what `exhaustive-deps` asks for — span the suite for ever.
+   *
+   * A hang is a worse failure than a red test: it stops CI without saying
+   * why, and it is the one failure mode nobody can debug from a log. So the
+   * cycle is closed in the provider, where no caller can reopen it. With the
+   * bail-out in place the same widening now fails in under a second with four
+   * red tests, which is a bug report.
+   */
+  const renders: (unknown)[] = [];
+
+  function Probe() {
+    const linked = useLinkedSelection();
+    renders.push(linked.selection);
+    return (
+      <button type="button"
+              onClick={() => linked.select("k", "left", ["a", "b"])}>
+        publish
+      </button>
+    );
+  }
+
+  it("is not a state change", () => {
+    renders.length = 0;
+    render(<LinkedCharts><Probe /></LinkedCharts>);
+    const publish = screen.getByRole("button", { name: "publish" });
+
+    fireEvent.click(publish);
+    const afterFirst = renders[renders.length - 1];
+    expect(afterFirst, "the first publish must select something").not.toBeNull();
+
+    const seen = renders.length;
+    fireEvent.click(publish);
+    fireEvent.click(publish);
+
+    // The same selection, by identity — a new equal object would be a new
+    // context value, which is the render the cycle was made of.
+    expect(renders[renders.length - 1]).toBe(afterFirst);
+    expect(renders.length, "republishing an equal selection re-rendered")
+      .toBe(seen);
+  });
+
+  it("still notices a selection that actually changed", () => {
+    /*
+     * The bail-out must compare, not merely deduplicate by count: two
+     * selections of the same size over different observations are different
+     * selections, and treating them as equal would freeze the first one on
+     * screen.
+     */
+    renders.length = 0;
+    function Two() {
+      const linked = useLinkedSelection();
+      renders.push(linked.selection);
+      return (
+        <>
+          <button type="button" onClick={() => linked.select("k", "l", ["a", "b"])}>
+            first
+          </button>
+          <button type="button" onClick={() => linked.select("k", "l", ["a", "c"])}>
+            second
+          </button>
+        </>
+      );
+    }
+    render(<LinkedCharts><Two /></LinkedCharts>);
+
+    fireEvent.click(screen.getByRole("button", { name: "first" }));
+    const first = renders[renders.length - 1];
+    fireEvent.click(screen.getByRole("button", { name: "second" }));
+
+    expect(renders[renders.length - 1]).not.toBe(first);
   });
 });

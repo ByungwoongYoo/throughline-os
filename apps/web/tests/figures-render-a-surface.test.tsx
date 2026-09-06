@@ -55,10 +55,33 @@ describe("the screen agrees with the recommendation", () => {
      */
     const { readFileSync } = await import("node:fs");
     const source = readFileSync(SOURCE, "utf8");
+    /*
+     * The window is the memo that builds the grid, not the JSX branch. The
+     * construction used to sit inline in the branch and was moved into a memo
+     * — handing `Surface` a fresh grid object on every render re-ran its whole
+     * projection — so reading the branch would now find only `surfaceGrid` and
+     * pass whatever the memo did. Both halves are checked below: the memo is
+     * where the grid comes from, and the branch must pass that memo through
+     * rather than build its own.
+     */
+    const built = source.slice(source.indexOf("const surfaceGrid ="),
+                               source.indexOf("const surfaceObservations ="));
+    expect(built).toContain("points.data!.grid_x");
+    expect(built).not.toMatch(/Math\.|=>\s*\{[^}]*\*/);
+
     const branch = source.slice(source.indexOf("{surface ? ("),
                                 source.indexOf(") : binned ? ("));
-
-    expect(branch).toContain("points.data!.grid_x");
+    expect(branch).toContain("grid={surfaceGrid");
     expect(branch).not.toMatch(/Math\.|=>\s*\{[^}]*\*/);
+
+    /*
+     * Neither may be rebuilt in the branch. `Surface` keys its projection memo
+     * on these two references, so an object or an array constructed here — an
+     * inline `{ x: ..., y: ... }`, or a `.map` over the observations — is a
+     * new reference on every render and re-runs the projection every time,
+     * which is precisely what these two memos were introduced to stop.
+     */
+    expect(branch).toContain("observations={surfaceObservations");
+    expect(branch).not.toMatch(/\.map\(|grid=\{\{/);
   });
 });

@@ -23,6 +23,8 @@
  * say so instead of presenting both with equal confidence.
  */
 
+import { DomainId, RADIOLOGY, domainOf } from "./domain";
+
 /** Where a single fact about a scan came from. */
 export type Origin =
   /** Read from the file's own header. The strongest case. */
@@ -55,11 +57,26 @@ export type Weighting =
 export type ContrastPhase =
   | "non-contrast" | "arterial" | "portal-venous" | "delayed" | "unknown-phase";
 
+/**
+ * Any acquisition, in any discipline, as the comparison engine sees one.
+ *
+ * The facts live at the top level, keyed by the axis keys its profile names —
+ * so a scan carries `modality` and a micrograph carries `channel`, and the
+ * engine reads whichever its domain asks for without knowing either.
+ */
+export type Acquisition = {
+  id: string;
+  label: string;
+  /** Which profile decides what these facts mean. See `domain.ts`. */
+  domain: DomainId;
+} & Record<string, unknown>;
+
 export type Study = {
   /** A local identifier. Never a patient identifier — see `phi.ts`. */
   id: string;
   /** What to call it on screen. The researcher's own label. */
   label: string;
+  domain: "radiology";
 
   modality: Fact<Modality>;
   /** MR weighting, or the tracer for PET. Absent on CT by nature. */
@@ -80,31 +97,27 @@ export type Study = {
 /** A study with nothing known about it, for a file whose header was unreadable. */
 export function blankStudy(id: string, label: string): Study {
   return {
-    id, label,
+    id, label, domain: "radiology",
     modality: unknown(), weighting: unknown(), contrast: unknown(),
     sliceThickness: unknown(), pixelSpacing: unknown(),
     fieldStrength: unknown(), manufacturer: unknown(), orientation: unknown(),
   };
 }
 
-/** The axes a comparison is decided on, in the order they are reported. */
-export const AXES = [
-  "modality", "weighting", "contrast", "sliceThickness", "pixelSpacing",
-  "fieldStrength", "orientation",
-] as const;
+/**
+ * The axes a radiology comparison is decided on, in the order they are reported.
+ *
+ * Derived from the profile rather than repeated beside it. A second list would
+ * be the one that stopped being updated.
+ */
+export const AXES = RADIOLOGY.axes.map((a) => a.key);
 
-export type Axis = typeof AXES[number];
+/** An axis key. Open, because each discipline names its own. */
+export type Axis = string;
 
 /** A human name for an axis, for the panel and for the refusal text. */
-export const AXIS_LABEL: Record<Axis, string> = {
-  modality: "modality",
-  weighting: "sequence weighting",
-  contrast: "contrast phase",
-  sliceThickness: "slice thickness",
-  pixelSpacing: "in-plane resolution",
-  fieldStrength: "field strength",
-  orientation: "orientation",
-};
+export const AXIS_LABEL: Record<Axis, string> = Object.fromEntries(
+  RADIOLOGY.axes.map((a) => [a.key, a.label]));
 
 /**
  * How much of what matters is actually known, 0..1.
@@ -114,12 +127,15 @@ export const AXIS_LABEL: Record<Axis, string> = {
  * a single number would blur them. Header facts count full; declared facts
  * count less, because a typed value is a claim rather than a measurement.
  */
-export function evidenceStrength(study: Study): number {
+export function evidenceStrength(acquisition: Acquisition | Study): number {
+  const axes = domainOf((acquisition as Acquisition).domain).axes;
+  if (axes.length === 0) return 0;
   let score = 0;
-  for (const axis of AXES) {
-    const fact = study[axis] as Fact<unknown>;
-    if (fact.origin === "header") score += 1;
-    else if (fact.origin === "declared") score += 0.5;
+  for (const axis of axes) {
+    const fact = (acquisition as Acquisition)[axis.key] as Fact<unknown>
+      | undefined;
+    if (fact?.origin === "header") score += 1;
+    else if (fact?.origin === "declared") score += 0.5;
   }
-  return score / AXES.length;
+  return score / axes.length;
 }
