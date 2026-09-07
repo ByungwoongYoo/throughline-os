@@ -1845,9 +1845,24 @@ def preflight(full: bool) -> int:
             tsconfig.write_text(tsconfig_before)
         shutil.rmtree(ROOT / "apps" / "web" / ".next-check", ignore_errors=True)
 
+    # D116: `main()` grants this program the installed-home allowance, because
+    # `dev`, `doctor` and `backup` genuinely are the product acting on its own
+    # data. A *check* is not, and it inherited the grant anyway: preflight
+    # handed it to pytest, pytest handed it to the subprocess in
+    # `test_a_stray_script_cannot_open_real_data.py`, and the guard that exists
+    # to prove an unnamed home is refused ran with the refusal switched off. It
+    # therefore failed only under `preflight` and passed under a bare `pytest`,
+    # which reads as flakiness — and a security guard believed to be flaky is
+    # one that gets deleted.
+    def without_the_allowance(overrides: dict[str, str]) -> dict[str, str]:
+        merged = {**os.environ, **overrides}
+        merged.pop(ALLOW_INSTALLED_HOME, None)
+        return merged
+
     for label, command, cwd, env in steps:
         print(f"\n── {label}")
-        result = subprocess.run(command, cwd=cwd, env=env or None)
+        result = subprocess.run(command, cwd=cwd,
+                                env=without_the_allowance(env or {}))
         if result.returncode != 0:
             tidy()
             print(f"\nFAILED: {label}.", file=sys.stderr)
@@ -2101,6 +2116,12 @@ def doctor(api_port: int, web_port: int) -> int:
     return 0
 
 
+#: The escape hatch `db.py` reads. Named here so the command that *grants* it
+#: and the check that *strips* it cannot drift apart — they are the same string
+#: or the guard silently stops guarding.
+ALLOW_INSTALLED_HOME = "THROUGHLINE_ALLOW_INSTALLED_HOME"
+
+
 def main() -> int:
     # D116: this program *is* the installed product acting on purpose — `dev`
     # runs it, `doctor` inspects it, `backup` copies it — so it says which
@@ -2111,7 +2132,7 @@ def main() -> int:
     #
     # `setdefault`, and THROUGHLINE_HOME still wins: `preflight` runs the
     # tests, and the tests name the temp home themselves.
-    os.environ.setdefault("THROUGHLINE_ALLOW_INSTALLED_HOME", "1")
+    os.environ.setdefault(ALLOW_INSTALLED_HOME, "1")
 
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)

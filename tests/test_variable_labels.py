@@ -61,7 +61,18 @@ def _drain() -> None:
 
 def _map(cur, *, project_id, version_id, column, name, display_label,
          canonical_unit=None, transformation=None, status="approved"):
-    """Approve a canonical variable for one column, as the mapping screen does."""
+    """
+    Approve a canonical variable for one column, as the mapping screen does.
+
+    That sentence was untrue of `transformation` for as long as it existed.
+    Nothing in the product wrote `transformation_required`, so this helper was
+    the only thing that ever set it, and the guard it protects below — keeping
+    a canonical unit off the axis of a column whose values are not in it —
+    could not fire for a researcher. The reviewer can now answer that question
+    when approving a label, which is what makes the fixture honest; the path
+    itself is tested in
+    `test_a_mapping_says_whether_the_numbers_still_need_converting.py`.
+    """
     cur.execute("SELECT id FROM dataset_columns WHERE dataset_version_id = %s "
                 "AND (name = %s OR original_name = %s)",
                 (version_id, column, column))

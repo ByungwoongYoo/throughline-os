@@ -16,6 +16,7 @@
 import { useState } from "react";
 import { Source, api } from "@/lib/api";
 import { Empty, Failure, Loading } from "./primitives";
+import { RecordStudyContext } from "./StudyContext";
 import { VerdictBody, VerdictCard } from "./Verdict";
 
 type Claim = {
@@ -247,10 +248,41 @@ export function ClaimTest({ projectId, sources }: {
           subject={<>against <b>{result.dataset.name}</b></>}
         >
           <Steps result={result} claim={claim} />
+          {/* The refusal that names this control is the one directly above it.
+              A remedy the researcher has to go and find somewhere else is a
+              remedy most researchers do not carry out. */}
+          {missingContext(result).length > 0 && (
+            <RecordStudyContext
+              datasetVersionId={result.dataset.id}
+              datasetName={result.dataset.name}
+              missing={missingContext(result)}
+              onRecorded={() => void test(claim, result.dataset.id)}
+            />
+          )}
         </VerdictCard>
       )}
     </>
   );
+}
+
+/**
+ * What this dataset does not say about itself, in the order the checks need it.
+ *
+ * Only ever what is actually absent: offering to record a period that is
+ * already recorded would make the form look like busywork and hide the field
+ * that is genuinely blocking the check.
+ */
+export function missingContext(result: Result): string[] {
+  const missing: string[] = [];
+  if (result.dataset.design === "unknown") missing.push("design");
+  for (const unchecked of result.unchecked) {
+    if (unchecked.includes("Population scope")
+        && !unchecked.includes("not recorded on the paper.")) {
+      missing.push("population");
+    }
+    if (unchecked.includes("Temporal scope")) missing.push("period");
+  }
+  return missing;
 }
 
 /**

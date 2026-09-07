@@ -12,7 +12,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Fragility } from "@/components/fragility";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 
 const REPORT = {
   variables: ["rainfall", "yield"],
@@ -141,7 +141,17 @@ describe("how fragile is this", () => {
      * something is broken, and silence would leave a researcher unsure whether
      * the number was withheld or never existed.
      */
-    vi.spyOn(api, "get").mockRejectedValue(new Error("not defined for linear_regression"));
+    /*
+     * An `ApiError` with the status the endpoint actually raises, which is
+     * 422 — "an estimate this cannot convert honestly is a fact about the
+     * method", in `app.py`'s own words. The fixture used to be a bare `Error`,
+     * which no code path in the product can produce: `api.get` throws
+     * `ApiError` for every response it gets and only something like a dropped
+     * connection reaches the caller as anything else. That mattered once the
+     * panel started telling those two apart.
+     */
+    vi.spyOn(api, "get").mockRejectedValue(
+      new ApiError(422, "not defined for linear_regression"));
 
     render(<Fragility connectionId="con_1" />);
 
@@ -149,6 +159,46 @@ describe("how fragile is this", () => {
       expect(screen.getByText(/no number is shown rather than a confident one/))
         .toBeTruthy());
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("does not blame the method when the analysis simply has not finished",
+     async () => {
+    /**
+     * The endpoint answers 409 here, with its own sentence: this connection
+     * has no completed analysis, so there is no estimate to test the fragility
+     * of. Every non-2xx arrived as one `error` and produced the 422 sentence,
+     * so a run that was still going told the researcher their *method* could
+     * not be converted to a risk ratio — a definite claim about their work
+     * that nothing had established. Waiting and being refused are different
+     * answers.
+     */
+    vi.spyOn(api, "get").mockRejectedValue(new ApiError(
+      409, "This connection has no completed analysis, so there is no "
+           + "estimate to test the fragility of."));
+
+    render(<Fragility connectionId="con_1" />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/no completed analysis/)).toBeTruthy());
+    expect(screen.queryByText(/not one it can convert to a risk ratio/))
+      .toBeNull();
+    // A refusal, so no retry: the button would never come back with a number.
+    expect(screen.queryByRole("button", { name: /try again|retry/i })).toBeNull();
+  });
+
+  it("treats a server fault as a fault, not as a fact about the method",
+     async () => {
+    // 500 is the one status in this family that means "this failed", and the
+    // researcher can act on it by trying again.
+    vi.spyOn(api, "get").mockRejectedValue(
+      new ApiError(500, "Internal server error"));
+
+    render(<Fragility connectionId="con_1" />);
+
+    await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+    expect(screen.queryByText(/not one it can convert to a risk ratio/))
+      .toBeNull();
+    expect(screen.getByRole("button", { name: /try again|retry/i })).toBeTruthy();
   });
 
   it("marks a fragile result without turning the number into a pass mark",
@@ -170,6 +220,42 @@ describe("how fragile is this", () => {
 
     const value = await screen.findByText("4.20");
     expect(value.getAttribute("data-fragile")).toBe("no");
+  });
+
+  it("says a request failed rather than blaming the method", async () => {
+    /**
+     * The failure and the refusal were one branch, so a server that was down,
+     * a deleted connection or a dropped network all produced "this
+     * connection's method is not one it can convert to a risk ratio honestly"
+     * — a definite statement about the researcher's own analysis that this
+     * screen had never established.
+     *
+     * The two are different in what a reader should do next, which is the
+     * whole reason to tell them apart: a failure is worth retrying and a
+     * method that cannot be converted is not.
+     */
+    vi.spyOn(api, "get").mockRejectedValue(new Error("gateway timed out"));
+
+    render(<Fragility connectionId="con_1" />);
+
+    await waitFor(() => expect(screen.getByText(/gateway timed out/)).toBeTruthy());
+    expect(screen.queryByText(/not one it can convert to a risk ratio/))
+      .toBeNull();
+    // Recoverable, and the panel has to say so.
+    expect(screen.getByRole("button", { name: /try again|retry/i })).toBeTruthy();
+  });
+
+  it("blames the method rather than a request when nothing failed", async () => {
+    // The other half of the same split: a refusal must not be dressed as an
+    // error, which would invite a retry that can never succeed.
+    vi.spyOn(api, "get").mockResolvedValue({ id: "con_1", method: "x" } as never);
+
+    render(<Fragility connectionId="con_1" />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/not one it can convert to a risk ratio/))
+        .toBeTruthy());
+    expect(screen.queryByRole("button", { name: /try again|retry/i })).toBeNull();
   });
 
   it("says no number rather than crashing on a body without one", async () => {

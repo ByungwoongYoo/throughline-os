@@ -112,8 +112,19 @@ def test_paper_plus_dataset_to_validated_finding_with_full_provenance(
                 json={"confounders": ["gdp_per_capita"]})
     _drain()
 
-    connections = client.get(f"/api/projects/{project_id}/connections",
-                             params={"status": "validated"}).json()
+    answer = client.get(f"/api/projects/{project_id}/connections",
+                        params={"status": "validated"})
+    connections = answer.json()
+    # The shape first, and the reason it is checked at all: this returned a
+    # dict once under the full suite — an error payload rather than a list —
+    # and `c["id"]` on a dict's keys raises `TypeError: string indices must be
+    # integers`, which fires *inside* the generator before the diagnostic on
+    # the next line can be evaluated. The run then reported a TypeError and
+    # named neither the status nor the body, which is D048's open complaint
+    # about a failure that leaves nothing behind.
+    assert isinstance(connections, list), (
+        f"connections came back as {type(connections).__name__} "
+        f"(HTTP {answer.status_code}): {connections}")
     assert any(c["id"] == target["id"] for c in connections), \
         client.get(f"/api/projects/{project_id}/connections").json()
 

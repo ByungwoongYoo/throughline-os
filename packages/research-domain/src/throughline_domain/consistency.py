@@ -43,10 +43,15 @@ trusting either copy.
 
 from __future__ import annotations
 
+import logging
+
 from typing import Any
 
 from .patterns import ALPHA, multiplicity
 from .verdicts import RunState, Verdict
+
+
+_log = logging.getLogger("throughline.domain")
 
 
 class ConsistencyError(RuntimeError):
@@ -55,14 +60,53 @@ class ConsistencyError(RuntimeError):
 
 #: Lifecycle stages, weakest first. Comparing across a gap of more than one is
 #: not a comparison — it is reading a hypothesis against a conclusion.
-_STAGE_ORDER = ["candidate", "exploratory", "observed", "validated",
-                "replicated", "conflicted", "deprecated"]
+#:
+#: This list had drifted from `discovery.CONNECTION_PROMOTION`, which is the
+#: state machine a connection actually moves through, and both directions of
+#: the drift changed verdicts a researcher reads:
+#:
+#: - It contained `observed` and `deprecated`, which no transition produces. A
+#:   phantom stage between two real ones puts them two apart, so `exploratory`
+#:   and `validated` — one legal promotion apart — were refused as
+#:   "different lifecycle stage".
+#: - It omitted `rejected`, a terminal state every connection can reach, which
+#:   therefore ranked -1: below `candidate`, and below `exploratory` at the F9
+#:   check, so two rejected results that agreed were reported as
+#:   "consistent, but both exploratory".
+#:
+#: A test asserts this list and that state machine describe the same statuses,
+#: so neither can move without the other.
+_STAGE_ORDER = ["candidate", "exploratory", "validated", "replicated"]
+
+#: Statuses that are real and are not rungs. `conflicted` says two results
+#: disagree and `rejected` says one was thrown out; neither is a *strength* of
+#: evidence, so neither has a place on a ladder that measures one. Ranking them
+#: at the top — `conflicted` used to sit above `replicated` — reads a
+#: disagreement as the strongest evidence in the system.
+_OFF_THE_LADDER = frozenset({"conflicted", "rejected"})
 
 
 def _stage_rank(status: str) -> int:
+    """Position on the strength ladder, or -1 for anything not on it.
+
+    Every caller must check for -1 rather than compare it, because -1 is
+    "this is not a rung" and not "below the bottom rung".
+
+    A status that is neither a rung nor deliberately off the ladder is how this
+    drifted in the first place — `rejected` was added to the state machine and
+    ranked -1 here in silence for as long as it existed. The test above catches
+    that at the two lists; this catches it at runtime, on a database written by
+    a version that had a status this one has never heard of.
+    """
+    known = (status or "").lower()
     try:
-        return _STAGE_ORDER.index((status or "").lower())
+        return _STAGE_ORDER.index(known)
     except ValueError:
+        if known and known not in _OFF_THE_LADDER:
+            _log.warning(
+                "lifecycle status %r is on neither the strength ladder nor the "
+                "list of statuses deliberately off it, so results in that "
+                "state are being compared without a stage", status)
         return -1
 
 
@@ -295,8 +339,12 @@ def compare_results(cur, *, project_id: str, left_id: str, right_id: str
                             "properly."])
 
     # --- F9 / F1: they agree ------------------------------------------------
+    # `>= 0` for the same reason F8 checks it: a status that is not on the
+    # ladder is not below it. Without this, `rejected` — which ranks -1 —
+    # satisfied "at most exploratory", and F9 went on to say neither result had
+    # been through robustness checks. A rejected result has been through them.
     both_exploratory = all(
-        _stage_rank(r["lifecycle_status"]) <= _stage_rank("exploratory")
+        0 <= _stage_rank(r["lifecycle_status"]) <= _stage_rank("exploratory")
         for r in (left, right))
     if both_exploratory:
         return verdict(

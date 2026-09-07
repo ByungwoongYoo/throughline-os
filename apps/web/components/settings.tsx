@@ -108,7 +108,7 @@ type Projection = {
  * machine or the network the researcher chose, and an open sign-up endpoint
  * would let them help themselves to the corpus.
  */
-function Accounts() {
+export function Accounts() {
   const [people, setPeople] = useState<Array<{
     id: string; email: string; display_name: string; is_admin: boolean;
   }> | null>(null);
@@ -120,9 +120,19 @@ function Accounts() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
 
+  const [peopleError, setPeopleError] = useState<unknown>(null);
+
   function load() {
+    /*
+     * `null` and "nobody" render the same: the list below maps over
+     * `people?.` and an unread list draws no rows, directly under the
+     * sentence "Everyone with an account on this installation." A reader who
+     * is themselves signed in is then shown a list that says they do not
+     * exist. Remembered and stated instead.
+     */
     api.get<typeof people>("/api/auth/accounts")
-      .then(setPeople).catch(() => setPeople(null));
+      .then((rows) => { setPeople(rows); setPeopleError(null); })
+      .catch((failure) => { setPeople(null); setPeopleError(failure); });
   }
   useEffect(load, []);
 
@@ -183,6 +193,10 @@ function Accounts() {
           Everyone with an account on this installation. There is no public
           sign-up: accounts are added from inside, by someone already signed in.
         </p>
+
+        {peopleError != null && (
+          <Failure error={peopleError} retry={load} />
+        )}
 
         <ul className="set-people">
           {people?.map((person) => (
@@ -262,14 +276,88 @@ type Pack = {
  * convenience; the command is what somebody can run, read, paste into an issue,
  * or use when the button fails on a machine we cannot see.
  */
+/** What `/api/system/capabilities` reports about Blender. */
+type BlenderAvailability = {
+  available: boolean;
+  path: string | null;
+  version: string | null;
+  withheld?: string;
+  install?: string;
+};
+
+/**
+ * Whether this machine can render a figure through Blender.
+ *
+ * The API has always reported this — `availability()` composes a "withheld"
+ * sentence and an install hint precisely so a researcher can be told — and
+ * nothing displayed it. The capability was computed on every request and shown
+ * to nobody, which is this project's most common defect wearing a different
+ * hat.
+ *
+ * **Not a feature pack, and shown apart from them.** The packs above are Python
+ * distributions this application installs for you on a button press. Blender is
+ * a separate desktop program of several hundred megabytes; it cannot be
+ * installed from here, it cannot run inside the browser — there is no
+ * production build of Blender for the web — and pretending otherwise with a
+ * button that fails would be worse than saying so.
+ *
+ * **Nothing here needs it.** Every chart in this application draws in the
+ * browser, and the 3D figures export as geometry any tool can open. Blender
+ * adds a physically-based render for publication, and that is all it adds — so
+ * this row leads with what still works rather than with what is missing.
+ */
+function BlenderRow({ state }: { state: BlenderAvailability }) {
+  return (
+    <div className="set-blender" data-installed={state.available}>
+      <div className="set-pack-head">
+        <strong>Blender rendering</strong>
+        <span className="set-pack-state">
+          {state.available ? `found — ${state.version ?? "version unknown"}`
+                           : "not on this machine"}
+        </span>
+      </div>
+      <p>
+        Optional, and separate from the packs above: Blender is its own
+        application, not something this one can install. Every chart here draws
+        in the browser without it, and a 3D figure exports as geometry that
+        Blender or any other tool can open — this only adds a
+        physically-based render for publication.
+      </p>
+      {!state.available && state.withheld !== undefined && (
+        <p className="set-note">Without it: {state.withheld}</p>
+      )}
+      {!state.available && state.install !== undefined && (
+        <p className="set-note">{state.install}</p>
+      )}
+      {state.available && state.path !== null && (
+        <p className="set-note">
+          Found at <code>{state.path}</code>. A Blender render varies with the
+          version and the machine, so it is marked as a render rather than as
+          the export, which is reproducible byte for byte.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function FeaturePacks() {
   const [packs, setPacks] = useState<Record<string, Pack> | null>(null);
+  /*
+   * `null` *or* absent. The capabilities endpoint is versioned by nothing, and
+   * a response without this field is a perfectly ordinary older backend — so
+   * the type says so and the render checks for both. Typing it as non-optional
+   * and checking `!== null` crashed the whole settings screen on exactly that
+   * response, because `undefined !== null`.
+   */
+  const [blender, setBlender] =
+    useState<BlenderAvailability | null | undefined>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
 
   useEffect(() => {
-    api.get<{ packs: Record<string, Pack> }>("/api/system/capabilities")
-      .then((c) => setPacks(c.packs))
+    api.get<{ packs: Record<string, Pack>; blender: BlenderAvailability }>(
+      "/api/system/capabilities")
+      .then((c) => { setPacks(c.packs); setBlender(c.blender); })
       .catch(setError);
   }, []);
 
@@ -321,6 +409,8 @@ export function FeaturePacks() {
             + "installed here. Each one is genuinely optional — nothing below is "
             + "needed to open your work, run an analysis, or read a paper."}
       </p>
+
+      {blender != null && <BlenderRow state={blender} />}
 
       <ul className="set-packs">
         {entries.map(([name, pack]) => (

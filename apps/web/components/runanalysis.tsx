@@ -47,7 +47,9 @@
  */
 
 import { useState } from "react";
-import { ApiError, Capabilities, DatasetColumn, Source, api } from "@/lib/api";
+import {
+  ApiError, Capabilities, DatasetColumn, SandboxPolicy, Source, api,
+} from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { Empty, Failure, Loading } from "./primitives";
 
@@ -104,6 +106,87 @@ export const ROLE_HELP: Record<string, string> = {
   group: "the column that says which group each row is in",
   columns: "the columns to summarise",
 };
+
+/** A machine-readable name as something a person reads. */
+const readable = (key: string) => key.replace(/_/g, " ");
+
+/**
+ * What the sandbox enforces, and what it does not.
+ *
+ * Ordered with the limits first. A disclosure that opened with eleven things
+ * that *are* enforced would read as reassurance, and the two that are not are
+ * the only reason to read it at all — this is the same ordering rule the rest
+ * of the product follows, where a refusal is a first-class answer and absence
+ * is never silent.
+ *
+ * Collapsed rather than absent, and rather than always open: a researcher
+ * running a t-test on their own laptop does not need to be interrupted, and one
+ * running an analysis over data they were trusted with needs to be able to find
+ * this in one click.
+ */
+function SandboxDisclosure({ policy }: { policy: SandboxPolicy | null }) {
+  if (policy === null) return null;
+
+  const notEnforced = Object.entries(policy.not_enforced ?? {})
+    .filter(([, missing]) => missing).map(([name]) => name);
+  const bestEffort = Object.entries(policy.best_effort ?? {});
+  const enforced = Object.entries(policy.enforced ?? {})
+    .filter(([, yes]) => yes).map(([name]) => name);
+
+  return (
+    <details className="sandbox-policy">
+      <summary>
+        How this runs, and what it does not protect against
+        {notEnforced.length + bestEffort.length > 0
+          && ` — ${notEnforced.length + bestEffort.length} limits`}
+      </summary>
+
+      {policy.note !== undefined && <p className="set-note">{policy.note}</p>}
+
+      {notEnforced.length > 0 && (
+        <>
+          <h4>Not attempted</h4>
+          <ul>{notEnforced.map((n) => <li key={n}>{readable(n)}</li>)}</ul>
+        </>
+      )}
+
+      {bestEffort.length > 0 && (
+        <>
+          <h4>Attempted, not guaranteed</h4>
+          <ul>
+            {bestEffort.map(([name, how]) => (
+              <li key={name}>{readable(name)} — {readable(how)}</li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {enforced.length > 0 && (
+        <>
+          <h4>Enforced</h4>
+          <ul>{enforced.map((n) => <li key={n}>{readable(n)}</li>)}</ul>
+        </>
+      )}
+
+      {policy.limits !== undefined && (
+        <p className="set-note">
+          Stopped after {policy.limits.timeout_seconds} seconds of wall clock or{" "}
+          {policy.limits.cpu_seconds} of processor time, and held to{" "}
+          {policy.limits.memory_mb} MB.
+        </p>
+      )}
+
+      {policy.mechanism !== undefined && (
+        <p className="set-note">
+          {readable(policy.mechanism)}
+          {policy.platform !== undefined && ` on ${policy.platform}`}. This
+          report is stored with the run, so a result can be read knowing what it
+          was actually protected by.
+        </p>
+      )}
+    </details>
+  );
+}
 
 export function RunAnalysis({ projectId, onQueued }: {
   projectId: string;
@@ -234,6 +317,17 @@ export function RunAnalysis({ projectId, onQueued }: {
         specification is hashed, so the number it produces can be reproduced
         from it.
       </p>
+
+      {/*
+        * "The sandbox" was a word with nothing behind it on this screen. The
+        * report below is composed by `policy_report()` on every request, is
+        * stored with every run, and was displayed nowhere — so a researcher
+        * deciding whether to run an analysis over sensitive data could not
+        * learn that the filesystem isolation is not kernel-level, or that
+        * blocking network egress is done in Python and a determined library can
+        * step around it.
+        */}
+      <SandboxDisclosure policy={capabilities.data?.analysis?.isolation ?? null} />
 
       <label style={{ display: "block", marginBottom: 10 }}>
         Dataset

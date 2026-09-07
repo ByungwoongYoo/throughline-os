@@ -418,11 +418,29 @@ export const GENERATORS: Record<DataShape, (() => Generated) | null> = {
   geometry: null,
 };
 
-/** Which primitives this codebase has a renderer for. */
+/** Which primitives this codebase can both draw *and* invent an example for. */
 export const RENDERED: ReadonlySet<Primitive> = new Set<Primitive>([
   "points", "surface", "lines", "bars", "glyphs", "isosurface", "volume",
   "network",
 ]);
+
+/**
+ * Primitives with a renderer here whose example would have to be real data.
+ *
+ * `globe` is the case, and the distinction matters because the catalogue was
+ * telling researchers something false about this codebase. `Globe3D` exists,
+ * works, and draws a rotatable earth further up the same page — but it needs
+ * coastlines, and coastlines are a fact about the world rather than something
+ * to synthesize. So `exampleFor` returns nothing, and the catalogue said "no
+ * renderer here draws a globe yet" beneath a working globe.
+ *
+ * Kept separate from `RENDERED` rather than added to it, because the headline
+ * count means "pick one and it is drawn below" — and a globe still is not.
+ * What changes is the sentence, which now says which of the two things is
+ * missing.
+ */
+export const RENDERER_NEEDS_REAL_DATA: ReadonlySet<Primitive> =
+  new Set<Primitive>(["globe"]);
 
 /**
  * Whether this entry can actually be drawn, from code rather than from a
@@ -490,13 +508,16 @@ export function exampleFor(entry: Visualization): Generated | null {
 /**
  * How many other entries draw the same picture as this one.
  *
- * 219 entries are drawable and they produce 21 distinct pictures. Much of that
+ * Most entries are drawable and they produce far fewer distinct pictures — the
+ * screen derives both numbers rather than repeating them here, because a
+ * comment carrying a count is a claim that goes stale the first time anyone
+ * adds an entry, and this one had. Much of that
  * is honest — "3D surface", "3D mesh" and "3D wireframe" *are* the same
  * numbers, and what separates them is how the quads are stroked. But this
- * codebase draws them identically, so a catalogue that listed 219 names and
- * showed 21 pictures would be making the same overstatement its headline used
- * to make: a count of things that exist, presented as a count of things you
- * can see.
+ * codebase draws them identically, so a catalogue that listed every name and
+ * showed a fraction as many pictures would be making the same overstatement its
+ * headline used to make: a count of things that exist, presented as a count of
+ * things you can see.
  *
  * So each chart says what it shares. The number is derived, which means it
  * cannot drift as entries and renderers change, and it points at the work that
@@ -504,8 +525,17 @@ export function exampleFor(entry: Visualization): Generated | null {
  */
 export function sharesPictureWith(entry: Visualization,
                                   catalogue: readonly Visualization[]): Visualization[] {
-  const mine = exampleFor(entry);
-  if (!mine) return [];
+  /*
+   * Asked whether an example exists, not for the example.
+   *
+   * This was `exampleFor(entry)`, whose result was used for nothing but this
+   * null check — and generating one is a 24³ voxel grid or a whole force
+   * relaxation. `CatalogueChart` calls this on every render, unmemoized, one
+   * line below a memoized call to `exampleFor` for the same entry: the header
+   * of that file records fixing this exact cost for the other call and this one
+   * was missed. `isDrawable` answers the same question by lookup.
+   */
+  if (!isDrawable(entry)) return [];
   return catalogue.filter((other) => {
     if (other.name === entry.name) return false;
     // Same renderer and same generated data is the same picture, because

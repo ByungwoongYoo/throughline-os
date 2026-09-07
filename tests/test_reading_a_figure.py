@@ -26,7 +26,15 @@ from fastapi.testclient import TestClient
 from throughline_domain.db import connection
 
 cv2 = pytest.importorskip("cv2", reason="the digitise pack is not installed here")
-np = pytest.importorskip("numpy")
+
+# numpy is imported, not skipped on. `cv2` is an optional pack and skipping is
+# the right answer for it; numpy is a hard dependency of `research-domain`,
+# `ingestion` and `visual-spec`, so a machine without it cannot run this
+# product at all. Skipping there would report a green suite while the numeric
+# stack the whole analysis layer rests on was unusable — a failure made
+# indistinguishable from a normal state, which is the defect this repository
+# spends most of its time removing from the product itself.
+import numpy as np  # noqa: E402
 
 
 @pytest.fixture()

@@ -311,18 +311,87 @@ definition: str, semantic_type: str, unit: str | None) -> str:
     return cur.fetchone()["id"]
 
 
-def decide(cur, *, mapping_id: str, approve: bool, user_id: str) -> dict[str, Any]:
+def unit_gap(cur, mapping_id: str) -> dict[str, Any] | None:
+    """
+    Whether a transformation stands between this column and its canonical unit.
+
+    Returns the two units and a proposed sentence, or None when there is no
+    question to put. A mapping says two columns mean the same *quantity*; it
+    says nothing about whether the numbers are in the same *units*, and
+    approving one does not convert anything.
+    """
+    cur.execute(
+        "SELECT dc.name AS column_name, dc.unit AS column_unit, "
+        "       cv.canonical_unit, cv.display_label "
+        "FROM variable_mappings vm "
+        "JOIN dataset_columns dc ON dc.id = vm.dataset_column_id "
+        "JOIN canonical_variables cv ON cv.id = vm.canonical_variable_id "
+        "WHERE vm.id = %s", (mapping_id,))
+    row = cur.fetchone()
+    if not row:
+        return None
+
+    column_unit = (row["column_unit"] or "").strip()
+    canonical_unit = (row["canonical_unit"] or "").strip()
+    if not canonical_unit or column_unit == canonical_unit:
+        return None
+
+    return {
+        "column": row["column_name"],
+        "column_unit": column_unit or None,
+        "canonical_unit": canonical_unit,
+        # Both units known and different: the conversion is a fact, and saying
+        # so is better than making the reviewer type it.
+        "proposed": (f"convert {column_unit} to {canonical_unit}"
+                     if column_unit else None),
+        "question": (
+            f"{row['column_name']} is recorded in {column_unit}; "
+            f"{row['display_label'] or 'this variable'} is defined in "
+            f"{canonical_unit}."
+            if column_unit else
+            f"{row['column_name']} does not say what unit its values are in; "
+            f"{row['display_label'] or 'this variable'} is defined in "
+            f"{canonical_unit}."),
+    }
+
+
+def decide(cur, *, mapping_id: str, approve: bool, user_id: str,
+           transformation: str | None = None) -> dict[str, Any]:
     """
     Approve or reject one proposed mapping.
 
     Approving is what makes a label visible. Rejecting keeps the row, so the
     same suggestion is not re-offered as though it had never been considered —
     a reviewer's "no" is a decision worth remembering.
+
+    **`transformation` records that the numbers still need converting**, and
+    until it could be supplied here nothing in the product wrote that column at
+    all. `visuals.variable_labels` reads it, to keep a canonical unit off the
+    axis of a column whose values are not in it — and its own test only passed
+    because the fixture wrote the column directly, describing itself as acting
+    "as the mapping screen does" when the mapping screen could not. So in
+    production the guard never engaged and the canonical unit was borrowed onto
+    every column that declared none, which is the failure that module calls a
+    worse lie than printing the raw column name.
+
+    Where both units are known and differ, the conversion is derived rather
+    than asked for: the reviewer should not have to type a fact the database
+    already holds. Where the column declares no unit, only a person can say,
+    and an unanswered question stays unanswered — the mapping is approved and
+    the unit is simply not borrowed.
     """
+    if approve and transformation is None:
+        gap = unit_gap(cur, mapping_id)
+        if gap and gap["proposed"]:
+            transformation = gap["proposed"]
+
     cur.execute(
-        "UPDATE variable_mappings SET status = %s, decided_by = %s, decided_at = now() "
-        "WHERE id = %s RETURNING id, status, dataset_column_id, canonical_variable_id",
-        (APPROVED if approve else REJECTED, user_id, mapping_id),
+        "UPDATE variable_mappings SET status = %s, decided_by = %s, "
+        "decided_at = now(), transformation_required = %s "
+        "WHERE id = %s RETURNING id, status, dataset_column_id, "
+        "canonical_variable_id, transformation_required",
+        (APPROVED if approve else REJECTED, user_id,
+         (transformation or "").strip() or None, mapping_id),
         )
     row = cur.fetchone()
     if not row:
@@ -356,7 +425,11 @@ def decide(cur, *, mapping_id: str, approve: bool, user_id: str) -> dict[str, An
                  object_type="variable_mapping", object_id=mapping_id,
                  detail={"canonical_variable_id": row["canonical_variable_id"],
                          "dataset_column_id": row["dataset_column_id"],
-                         "also_retired": retired})
+                         "also_retired": retired,
+                         # Part of the decision, not a detail of it: whether
+                         # the values were said to still need converting is
+                         # what a methods section has to be able to recover.
+                         "transformation_required": row["transformation_required"]})
     return dict(row)
 
 
@@ -407,7 +480,7 @@ def pending(cur, project_id: str) -> list[dict[str, Any]]:
     """Everything awaiting review, least confident first — the ones needing a human."""
     cur.execute(
         "SELECT vm.id AS mapping_id, vm.confidence, vm.status, "
-        " dc.name AS column_name, dc.semantic_type, "
+        " dc.name AS column_name, dc.semantic_type, dc.unit AS column_unit, "
         " cv.name AS canonical_name, cv.display_label, cv.definition, "
         " cv.canonical_unit "
         "FROM variable_mappings vm "

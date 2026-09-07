@@ -49,7 +49,8 @@ from throughline_domain import (
     launchers as domain_launchers,
     updates as domain_updates,
     patterns, reconcile, render_artifact, retrieval, selection, speech,
-    specification, storage, synthesis, validation, visuals, vocabulary,
+    specification, storage, study_context, synthesis, validation, visuals,
+    vocabulary,
     workflow,
 )
 from throughline_visual.prepare import prepare as visual_prepare
@@ -963,8 +964,16 @@ def get_source(project_id: str, source_id: str,
             raise HTTPException(404, "Source not found.")
         cur.execute("SELECT COUNT(*) AS n FROM passages WHERE source_id = %s", (source_id,))
         source["passage_count"] = cur.fetchone()["n"]
-        cur.execute("SELECT id, title, page_count, object_id FROM papers WHERE source_id = %s",
-                    (source_id,))
+        # `metadata` carries which parser read the paper and, when the column
+        # split could not be detected on a page, which pages were read
+        # whole-width — where a two-column layout splices unrelated sentences
+        # together. The parser has recorded that for as long as it has existed
+        # and this route selected every other column, so the one fact that
+        # bears on whether a quotation is verbatim stopped at the database.
+        cur.execute(
+            "SELECT id, title, page_count, object_id, metadata "
+            "FROM papers WHERE source_id = %s",
+            (source_id,))
         source["paper"] = cur.fetchone()
         cur.execute(
             """
@@ -5224,6 +5233,76 @@ def approve_workflow_node(run_id: str, node_name: str,
 
 class LabelDecision(BaseModel):
     approve: bool
+    #: What still has to happen to the numbers before they are in the canonical
+    #: unit. Optional, and only a person can supply it when the column declares
+    #: no unit of its own — where both units are known the domain derives it.
+    #:
+    #: `visuals.variable_labels` reads this to keep a canonical unit off the
+    #: axis of a column whose values are not in it. Nothing wrote the column
+    #: until this field existed, so that guard never engaged.
+    transformation: str | None = None
+
+
+class StudyContext(BaseModel):
+    """
+    What a dataset observes, as the researcher states it.
+
+    Every field is optional and the record is replaced wholesale: the form
+    shows all four together, so an omitted field means "not recorded" rather
+    than "leave what was there". "Not recorded" has to stay sayable — the claim
+    test reports an unrecorded scope as *unchecked*, never as passed, and a
+    merge would make clearing a field impossible.
+    """
+    study_design: str | None = None
+    population: str | None = None
+    period_start: str | None = None
+    period_end: str | None = None
+
+
+@app.get("/api/dataset-versions/{version_id}/study-context")
+def read_study_context(version_id: str,
+                       user: dict = Depends(current_user)) -> dict[str, Any]:
+    """What this dataset is on record as observing, and the designs on offer."""
+    with transaction() as cur:
+        scoped_project(_dataset_version_project(cur, version_id), user)
+        return study_context.of(cur, version_id)
+
+
+@app.put("/api/dataset-versions/{version_id}/study-context")
+def write_study_context(version_id: str, body: StudyContext,
+                        user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Record the design, population and collection period of a dataset.
+
+    These four columns were read everywhere and written nowhere, so on every
+    real dataset the claim test refused at its design step with "the study
+    design is not recorded" and a remedy — "Record the study design and this
+    check will run" — that named no control. This is that control.
+
+    Ingestion cannot supply them: a CSV's bytes say how many rows there are,
+    not that the rows are a prospective cohort followed from 2011 to 2019.
+    """
+    with transaction() as cur:
+        project_id = scoped_project(_dataset_version_project(cur, version_id), user)
+        try:
+            return study_context.record(
+                cur, dataset_version_id=version_id, project_id=project_id,
+                study_design=body.study_design, population=body.population,
+                period_start=body.period_start, period_end=body.period_end)
+        except study_context.StudyContextError as exc:
+            # The researcher typed these. A refusal has to be a sentence they
+            # can act on, not a validation shape or a Postgres constraint name.
+            raise HTTPException(400, str(exc)) from exc
+
+
+def _dataset_version_project(cur, version_id: str) -> str:
+    cur.execute(
+        "SELECT d.project_id FROM dataset_versions dv "
+        "JOIN datasets d ON d.id = dv.dataset_id WHERE dv.id = %s", (version_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Dataset version not found.")
+    return str(row["project_id"])
 
 
 @app.post("/api/dataset-versions/{version_id}/propose-labels", status_code=202)
@@ -5269,7 +5348,8 @@ def decide_label(mapping_id: str, payload: LabelDecision,
         scoped_project(row["project_id"], user)
         try:
             return harmonize.decide(cur, mapping_id=mapping_id,
-                                    approve=payload.approve, user_id=user["id"])
+                                    approve=payload.approve, user_id=user["id"],
+                                    transformation=payload.transformation)
         except harmonize.HarmonizationError as exc:
             raise HTTPException(400, str(exc)) from exc
 

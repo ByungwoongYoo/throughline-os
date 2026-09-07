@@ -24,7 +24,7 @@ import type { Source } from "@/lib/api";
 afterEach(cleanup);
 
 const IMPORTED: Source = {
-  id: "src_zen", title: "amr-rates-2019.csv", source_type: "dataset",
+  id: "src_zen", title: "amr-rates-2019.csv", source_type: "connector",
   ingestion_status: "ready", ingestion_detail: "", trust_level: "trusted",
   created_at: "2026-01-01", paper: null,
   dataset: {
@@ -37,7 +37,7 @@ const IMPORTED: Source = {
 
 /** A file somebody dropped on the window: all four fields are null. */
 const UPLOADED: Source = {
-  id: "src_up", title: "field-notes.pdf", source_type: "paper",
+  id: "src_up", title: "field-notes.pdf", source_type: "upload",
   ingestion_status: "ready", ingestion_detail: "", trust_level: "trusted",
   created_at: "2026-01-01", dataset: null,
   paper: { id: "pap_1", title: "Field notes", page_count: 12 },

@@ -318,7 +318,7 @@ describe("how two objects are related, beside how the number was made", () => {
 describe("the evidence graph hands its ids up once", () => {
   const GRAPH = {
     finding: { id: "fnd_1", title: "Use tracks resistance", statement: "",
-               finding_type: "association", lifecycle_status: "candidate",
+               finding_type: "statistical", lifecycle_status: "candidate",
                causal_status: "not_assessed", confidence: null,
                created_at: "2026-09-01", limitations: [] },
     claims: [], challenges: [], note: null,

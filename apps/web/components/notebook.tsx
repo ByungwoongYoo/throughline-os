@@ -575,6 +575,7 @@ export function Editor({ projectId, value, onChange }: {
   const [active, setActive] = useState(0);
   const [query, setQuery] = useState("");
   const [targets, setTargets] = useState<string[]>([]);
+  const [targetsFailed, setTargetsFailed] = useState(false);
 
   // Everything linkable in the project: notes and research objects alike, since
   // `[[` should reach the dataset as easily as the page.
@@ -588,7 +589,18 @@ export function Editor({ projectId, value, onChange }: {
         ...notes.notes.map((n) => n.title),
         ...graph.nodes.map((n) => n.title),
       ]))
-      .catch(() => setTargets([]));
+      /*
+       * A failed load is not an empty notebook.
+       *
+       * `setTargets([])` made every query match nothing, and the empty state
+       * further down says "Nothing called '<query>' yet — finish the link and
+       * it becomes a page waiting to be written." That is a definite claim
+       * that no such note exists, made when nothing found out — and acting on
+       * it splits an existing note in two, which is a worse outcome than a
+       * missing suggestion. So the failure is remembered and the sentence
+       * changes.
+       */
+      .catch(() => { setTargets([]); setTargetsFailed(true); });
   }, [projectId]);
 
   function refresh(next: string, caret: number) {
@@ -645,6 +657,15 @@ export function Editor({ projectId, value, onChange }: {
         // moving focus into a suggestion list would take the caret with it.
         // `aria-activedescendant` below is what lets the selection move while
         // focus stays put.
+        //
+        // `role="combobox"` is what makes the three attributes below mean
+        // anything. A `<textarea>` is implicitly a `textbox`, and `textbox`
+        // does not support `aria-expanded` — so a screen reader was told
+        // nothing at all about a popup opening under the caret, while the
+        // sighted reader saw a list appear. The attributes were present and
+        // inert, which is the worst of the three possible states: the code
+        // reads as though the case were handled.
+        role="combobox"
         aria-expanded={suggestions ? suggestions.length > 0 : undefined}
         aria-controls={suggestions?.length ? "nb-suggest" : undefined}
         aria-activedescendant={
@@ -706,8 +727,12 @@ export function Editor({ projectId, value, onChange }: {
 
       {suggestions && suggestions.length === 0 && query && (
         <p className="nb-suggest-empty">
-          Nothing called “{query}” yet — finish the link and it becomes a page
-          waiting to be written.
+          {targetsFailed
+            ? <>The list of pages could not be loaded, so there is nothing to
+                suggest — this does not mean no page called
+                “{query}” exists.</>
+            : <>Nothing called “{query}” yet — finish the link and it becomes
+                a page waiting to be written.</>}
         </p>
       )}
     </div>

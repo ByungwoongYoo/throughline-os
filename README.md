@@ -85,18 +85,26 @@ system's own record legible to the person using it:
   why.
 
 The spatial layer renders rather than being catalogued.
-`apps/web/lib/charts3d/registry.ts` names all 238 visualizations the brief lists
-and records which of them anything can actually draw — **199 today, against 86
-at the start of the wave, and no primitive left unwritten**. Six primitives
-account for all 113 of that difference, because a named visualization is a
-configuration of a primitive rather than a chart of its own: `network` unlocked
-35, `glyphs` 26 (vector and tensor fields), `volume` 20 (voxel grids), `lines`
-17 (orbits, flight paths, trajectories and streamlines), `isosurface` 11
+`apps/web/lib/charts3d/registry.ts` names all 253 visualizations the brief lists
+and records which of them anything can actually draw — **216 today, against 86
+at the start of the wave, and no primitive left unwritten**. Eight primitives
+account for all of them, because a named visualization is a configuration of a
+primitive rather than a chart of its own: `surface` 55, `points` 36, `network`
+35, `glyphs` 28 (vector and tensor fields), `volume` 26 (voxel grids), `lines`
+20 (orbits, flight paths, trajectories and streamlines), `isosurface` 12
 (spheres, tori, molecular orbitals, tumour margins — and a decision boundary,
 which in three inputs is a shell rather than a height field) and `bars` 4. The
-remaining 39 need somebody else's reader — DICOM, NIfTI, Mol\*, a CAD kernel —
+remaining 37 need somebody else's reader — DICOM, NIfTI, Mol\*, a CAD kernel —
 which the registry keeps apart from a missing renderer because the costs differ
 in kind.
+
+These figures are checked against the registry by
+`apps/web/tests/the-readme-counts-what-is-there.test.ts`. They were wrong here
+for a long time — 238 and 199, when the catalogue held 253 and drew 216 — which
+is the same defect the catalogue *page* had already been repaired for: a
+headline number typed into a file, going quietly out of date while the code it
+described grew. The page derives its number now; this paragraph cannot, so a
+test derives it instead.
 
 `bars` is the one §10 warns against, and it is built to say so: all four of its
 entries are *framed* rather than inherently spatial, so the chart measures what
@@ -139,7 +147,7 @@ the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **2494 backend tests and 3060 web tests**.
+The current suite is **2598 backend tests and 3482 web tests**.
 
 How many of those skip depends on which optional extras a machine has
 installed, so the number is not fixed and is not claimed as one: on a checkout

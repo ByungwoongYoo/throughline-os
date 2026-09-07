@@ -36,6 +36,16 @@ import { describeReview, review } from "@/lib/imaging/phi";
 import { NiftiError, openNifti } from "@/lib/imaging/nifti";
 import { DicomError, openDicomSeries, readDicom } from "@/lib/imaging/dicom";
 import { scanHandle } from "@/lib/imaging/identity";
+import { Declare, withDeclared } from "@/components/imaging/Declare";
+import {
+  DOMAINS, DomainId, acceptedExtensions, domainOf,
+} from "@/lib/imaging/domain";
+import { figureExample, microscopyExample } from "@/lib/imaging/examples";
+import {
+  RasterError, decodeRaster, flatAcquisition, rasterFromTiff, readRasterHeader,
+  tiffAcquisition,
+} from "@/lib/imaging/raster";
+import { TiffError, decodeTiff, tiffFacts } from "@/lib/imaging/tiff";
 
 /**
  * A volume with a blob in it, at a given size and offset.
@@ -44,6 +54,17 @@ import { scanHandle } from "@/lib/imaging/identity";
  * comparability panel something real to act on, and to differ between studies
  * in a way a reader can see.
  */
+/**
+ * What this browser can decode on its own.
+ *
+ * TIFF is handled separately, by `lib/imaging/tiff.ts`: no browser decodes one,
+ * so `createImageBitmap` would reject a file that is perfectly readable.
+ */
+const FLAT = /\.(png|jpe?g|webp|bmp)$/i;
+
+/** Read by this application's own decoder, because no browser reads one. */
+const TIFF = /\.(tiff?|ome\.tiff?)$/i;
+
 function blob(n: number, radius: number, shift: number): Grid {
   return gridFromFunction((x, y, z) => {
     const r = Math.sqrt((x - shift) ** 2 + y * y + z * z);
@@ -80,12 +101,28 @@ const HEADER = {
 };
 
 export function CaseCompare({ standalone = false }: { standalone?: boolean }) {
-  const received: OpenScan = useMemo(() => ({
+  /*
+   * Which discipline the worked example is drawn from.
+   *
+   * It used to be medicine and nothing else, while the page told the reader
+   * that medicine was one field among several — which a microscopist had to
+   * take on trust, because there was nothing else to look at. A profile nobody
+   * can see working is indistinguishable from one that was never written.
+   */
+  const [example, setExample] = useState<DomainId>("radiology");
+
+  const worked = useMemo(() => {
+    if (example === "microscopy") return microscopyExample();
+    if (example === "figure") return figureExample();
+    return null;
+  }, [example]);
+
+  const radiology: OpenScan = useMemo(() => ({
     study: ct("received", "Received case — CT, portal-venous, 1 mm"),
     grid: blob(20, 0.34, 0.18),
   }), []);
 
-  const library: OpenScan[] = useMemo(() => [
+  const radiologyLibrary: OpenScan[] = useMemo(() => [
     { study: ct("same", "Prior CT, same protocol"),
       grid: blob(20, 0.30, 0.16) },
     { study: ct("thick", "Outside CT, 5 mm slices",
@@ -125,7 +162,25 @@ export function CaseCompare({ standalone = false }: { standalone?: boolean }) {
    * the workspace is not. Only DICOM yields one: a NIfTI carries no series UID,
    * so marks on a NIfTI last as long as the tab and the interface says so.
    */
+  /*
+   * The worked set actually on screen. The flat-image examples are rasters and
+   * the radiology one is a volume, and the workspace already draws either — so
+   * switching discipline is a change of data, not of machinery.
+   */
+  const received: OpenScan = worked === null
+    ? radiology
+    : { study: worked[0].study, raster: worked[0].raster };
+  const library: OpenScan[] = worked === null
+    ? radiologyLibrary
+    : worked.slice(1).map((e) => ({ study: e.study, raster: e.raster }));
+
   const [handle, setHandle] = useState<string | null>(null);
+  /*
+   * Which profile a flat image is judged under. Asked rather than inferred —
+   * see the note where it is used — and remembered between files so opening
+   * twelve micrographs is one answer rather than twelve.
+   */
+  const [discipline, setDiscipline] = useState<DomainId>("microscopy");
 
   const open = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -139,8 +194,61 @@ export function CaseCompare({ standalone = false }: { standalone?: boolean }) {
      * hundred one-slice "scans" would be useless; grouping them by series is
      * the whole difference between opening a case and opening a directory.
      */
-    const nifti = chosen.filter((f) => /\.nii(\.gz)?$/i.test(f.name));
-    const rest = chosen.filter((f) => !/\.nii(\.gz)?$/i.test(f.name));
+    /*
+     * A flat image is neither a volume nor a slice of one, and it is the only
+     * one of the three a browser can decode on its own. Taken first so a PNG
+     * is never handed to the DICOM reader and reported as a broken scan.
+     */
+    const flat = chosen.filter((f) => FLAT.test(f.name));
+    const tiffs = chosen.filter((f) => TIFF.test(f.name));
+    const volumes = chosen.filter(
+      (f) => !FLAT.test(f.name) && !TIFF.test(f.name));
+
+    for (const file of tiffs) {
+      try {
+        const bytes = await file.arrayBuffer();
+        /*
+         * Facts first, pixels second, and both from the same bytes. An
+         * OME-TIFF states the objective, the channel, the acquisition mode and
+         * the exposure — the axes the microscopy profile decides on — so this
+         * is the path on which a verdict is something other than "cannot be
+         * judged".
+         */
+        const facts = tiffFacts(bytes);
+        const image = await decodeTiff(bytes);
+        loaded.push({
+          study: tiffAcquisition(file.name, facts, discipline),
+          raster: rasterFromTiff(image),
+        });
+      } catch (error) {
+        failed.push(`${file.name}: ${
+          error instanceof TiffError ? error.message : "could not be read."}`);
+      }
+    }
+
+    for (const file of flat) {
+      try {
+        const bytes = await file.arrayBuffer();
+        const header = readRasterHeader(bytes);
+        const raster = await decodeRaster(file);
+        // Judged under the profile the researcher chose — see `flatAcquisition`.
+        loaded.push({
+          study: flatAcquisition(file.name, header, discipline),
+          raster,
+        });
+        if (header.hasLocation) {
+          failed.push(`${file.name}: opened, but it carries the coordinates it `
+                    + "was taken at. Nothing here uploads it — worth knowing "
+                    + "before you share the file.");
+        }
+      } catch (error) {
+        failed.push(`${file.name}: ${
+          error instanceof RasterError ? error.message : "could not be read."}`);
+      }
+    }
+
+    const nifti = volumes.filter((f) => /\.nii(\.gz)?$/i.test(f.name));
+    const rest = volumes.filter((f) => !/\.nii(\.gz)?$/i.test(f.name));
 
     for (const file of nifti) {
       try {
@@ -203,7 +311,28 @@ export function CaseCompare({ standalone = false }: { standalone?: boolean }) {
 
     setOpened((held) => [...held, ...loaded]);
     setProblems(failed);
-  }, []);
+    /*
+     * `discipline` is a real dependency: captured with an empty list, changing
+     * the picker and then opening a file would judge it under whichever
+     * profile was selected when this component first rendered.
+     */
+  }, [discipline]);
+
+  /*
+   * A statement about one opened file. Replaces the study in place, so the
+   * comparability panel below re-decides on the next render rather than
+   * needing to be told anything.
+   */
+  const declare = useCallback(
+    (id: string, axis: string, value: string | number | null) => {
+      setOpened((held) => held.map((scan): OpenScan => {
+        if (scan.study.id !== id) return scan;
+        const study = withDeclared(scan.study, axis, value);
+        return scan.raster !== undefined
+          ? { study, raster: scan.raster }
+          : { study, grid: scan.grid };
+      }));
+    }, []);
 
   // The first file opened becomes the case; the rest are what it is compared
   // against. Explicit, because guessing which of twenty scans is "the case"
@@ -213,20 +342,52 @@ export function CaseCompare({ standalone = false }: { standalone?: boolean }) {
   return (
     <div className="case-page">
       <header>
-        {standalone && <h1>Compare a case</h1>}
+        {standalone && <h1>Compare images</h1>}
         <p>
-          A received scan, held beside what you already have. Every scan is
-          sorted by whether it <em>may</em> be compared with the case — not by
-          how much it resembles it. Appearance in medical imaging is dominated
-          by acquisition rather than by pathology, so a list ordered by
-          resemblance would mostly be a list of scans taken on the same machine,
-          and it would look convincing while being about the scanner.
+          An image, held beside what you already have — a scan, a micrograph, a
+          gel, a plate, or a figure lifted out of a paper. Each is sorted by
+          whether it <em>may</em> be compared with the first, not by how much it
+          resembles it. What an image looks like is dominated by how it was
+          acquired rather than by what was in front of the instrument, in every
+          one of those fields, so a list ordered by resemblance would mostly be
+          a list of images taken on the same instrument — and it would look
+          convincing while being about the instrument.
+        </p>
+        <p className="case-note">
+          Which facts decide a comparison depends on the field, so each brings
+          its own: a scan is judged on modality, sequence and geometry, a
+          micrograph on technique, channel, preparation and optics, a figure on
+          what is plotted, how it is normalised and what its error bars mean.
+          Nothing is compared across two fields — a micrograph and a scan share
+          no axis, and saying so is more useful than a verdict about neither.
         </p>
         <p className="case-warning">
-          Research tooling. Nothing here ranks, scores or suggests a diagnosis,
-          and nothing here has looked at the pixels. The scans below are
-          synthetic until you open your own.
+          Research tooling. Nothing here ranks, scores or suggests a
+          conclusion, and nothing here has looked at the pixels. Everything
+          below is a synthetic worked example until you open your own files,
+          which replace it.
         </p>
+
+        {opened.length === 0 && (
+          <label className="case-example">
+            {/*
+              * The example used to be medical and nothing else, while this page
+              * claimed medicine was one field among several. Anyone outside it
+              * had to take that on trust and load their own files to check —
+              * which is exactly what a worked example exists to save them.
+              */}
+            Show the worked example from{" "}
+            <select
+              aria-label="Worked example discipline"
+              value={example}
+              onChange={(event) => setExample(event.target.value as DomainId)}
+            >
+              <option value="radiology">Medical imaging</option>
+              <option value="microscopy">Microscopy</option>
+              <option value="figure">Plotted figures</option>
+            </select>
+          </label>
+        )}
         {!standalone && (
           <p className="case-note">
             Unlike the other comparisons here, these scans are not objects in
@@ -238,23 +399,38 @@ export function CaseCompare({ standalone = false }: { standalone?: boolean }) {
       </header>
 
       <section className="case-privacy">
-        <h2>What the file says about the patient</h2>
+        <h2>What the file says about who or where</h2>
         <p className="case-note">{describeReview(phi)}</p>
         <p className="case-note">
-          The scan is read in this browser. It is not uploaded, and the
+          The file is read in this browser. It is not uploaded, and the
           identifying fields are never written into the project — only the
-          acquisition fields the comparison is decided on.
+          acquisition fields the comparison is decided on. This is not only a
+          medical question: a photograph carries the coordinates it was taken
+          at, which identifies a collection site, and sometimes a home, as
+          surely as a name does. You are told when one does.
         </p>
       </section>
 
       <section className="case-open">
-        <h2>Open your own scans</h2>
+        <h2>Open your own images</h2>
         <p className="case-note">
-          NIfTI (<code>.nii</code>, <code>.nii.gz</code>) or a DICOM series —
+          A TIFF or OME-TIFF (<code>.tif</code>, <code>.ome.tif</code>), a flat
+          image (<code>.png</code>, <code>.jpg</code>, <code>.webp</code>), a
+          NIfTI (<code>.nii</code>, <code>.nii.gz</code>), or a DICOM series —
           select every slice and they are grouped into one volume. Read in this
-          browser, not uploaded. The first scan opened becomes the case and the
-          rest are compared against it, so open the new case first and your
-          research images after.
+          browser, not uploaded. The first image opened becomes the one
+          everything else is compared against, so open it first and the rest
+          after.
+        </p>
+        <p className="case-note">
+          TIFF is read here by this application rather than by the browser, at
+          eight, sixteen and thirty-two bits, uncompressed or LZW, PackBits or
+          Deflate. An OME-TIFF also states its objective, channel, acquisition
+          mode and exposure, and those are read — which is the difference
+          between a verdict and &ldquo;cannot be judged&rdquo;. Tiled files and
+          the JPEG-in-TIFF compressions are declined by name rather than guessed
+          at, because a wrong decode produces an image that still looks like a
+          micrograph.
         </p>
         <p className="case-note">
           DICOM headers are read whatever the file; pixels only when they are
@@ -263,11 +439,35 @@ export function CaseCompare({ standalone = false }: { standalone?: boolean }) {
           display, naming its transfer syntax, because a wrong codec produces an
           image that looks like a scan.
         </p>
+        <label className="case-noteinput">
+          {/*
+            * Asked rather than inferred from the extension. A PNG is equally a
+            * micrograph, a gel and a plotted figure, and choosing for the
+            * researcher would silently decide which facts their comparison is
+            * judged on. Volumes ignore this: a DICOM says what it is.
+            */}
+          What your flat images are
+          <select
+            aria-label="What your flat images are"
+            value={discipline}
+            onChange={(event) => setDiscipline(event.target.value as DomainId)}
+          >
+            {DOMAINS.filter((d) => d.id !== "radiology").map((d) => (
+              <option key={d.id} value={d.id}>{d.label}</option>
+            ))}
+          </select>
+        </label>
         <input
           type="file"
-          aria-label="Open NIfTI scans"
+          aria-label="Open images"
           multiple
-          accept=".nii,.nii.gz,.dcm,.dicom,.ima,application/gzip,application/dicom"
+          /* Built from the profiles rather than typed out again: a second
+             list is the one that stops being updated when a profile learns a
+             new format. The media types are added because some pickers filter
+             on those rather than on the extension. */
+          accept={[...acceptedExtensions(), "image/tiff", "image/png",
+                   "image/jpeg", "image/webp", "application/gzip",
+                   "application/dicom"].join(",")}
           onChange={(event) => { void open(event.target.files); }}
         />
         <label className="case-noteinput">
@@ -295,6 +495,31 @@ export function CaseCompare({ standalone = false }: { standalone?: boolean }) {
           </p>
         )}
       </section>
+
+      {opened.length > 0 && (
+        <section className="case-declare">
+          <h2>What your files did not record</h2>
+          <p className="case-note">
+            A verdict rests on facts, and a silent axis is not agreement — so a
+            comparison stays &ldquo;cannot be judged&rdquo; until the silence is
+            filled. Some of it never can be from the file: OME-TIFF records the
+            objective and the channel, and has no field for whether a specimen
+            was fixed or imaged live, which is one of the things that decides
+            whether two images show the same thing at all. State what you know
+            and it is carried as stated, never as read.
+          </p>
+          {opened.map((scan, index) => (
+            <details key={scan.study.id} open={index === 0}>
+              <summary>{scan.study.label}</summary>
+              <Declare
+                acquisition={scan.study}
+                domain={domainOf(scan.study.domain)}
+                onDeclare={(axis, value) => declare(scan.study.id, axis, value)}
+              />
+            </details>
+          ))}
+        </section>
+      )}
 
       <CaseWorkspace
         received={caseScan ?? received}

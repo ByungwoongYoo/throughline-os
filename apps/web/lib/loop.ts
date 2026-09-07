@@ -43,7 +43,19 @@ export function loopSteps(map: DiscoveryMap): LoopStep[] {
       id: "sources",
       done: (map.counts.sources ?? 0) > 0,
       label: "Add sources",
-      hint: "Drop a dataset and the papers around it. Files never leave this machine.",
+      /*
+       * "Files never leave this machine" was unconditional, and this
+       * application knows a configuration where it is false: choosing a model
+       * that runs elsewhere sends passages of every paper it reads to that
+       * service, which the settings screen says in exactly those words before
+       * asking permission. Both sentences cannot be true, and the one a
+       * researcher reads while deciding whether to trust the tool with their
+       * data is this one. Stated with its condition instead — still short,
+       * still reassuring, and true in both configurations.
+       */
+      hint: "Drop a dataset and the papers around it. They stay on this "
+            + "machine; nothing is sent anywhere unless you choose a model "
+            + "that runs elsewhere.",
       go: "sources",
     },
     {

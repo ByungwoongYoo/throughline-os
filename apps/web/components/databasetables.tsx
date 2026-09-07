@@ -17,7 +17,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 import { Failure, Loading } from "./primitives";
 
 type Table = { name: string; kind: string; rows: number; columns: string[] };
@@ -62,9 +62,31 @@ export function DatabaseTables({ projectId, sourceId, onImported }: {
   }
 
   if (loading) return <Loading rows={3} label="Reading the database" />;
-  // Not a failure banner: the usual reason this cannot list tables is that the
-  // source is not a database at all, which is not an error on this screen.
-  if (error && !listing) return null;
+
+  /*
+   * Not a failure banner: the usual reason this cannot list tables is that the
+   * source is not a database at all, which is not an error on this screen —
+   * it is the ordinary case on nearly every source page, and a banner there
+   * would be noise a reader learns to ignore.
+   *
+   * But that silence used to cover *every* way the request could end. The
+   * endpoint answers 400 when the file is not a readable database and 404
+   * when the source is not in this project; a 5xx, or a dropped connection,
+   * means the tables may well be there and nobody found out. Rendering
+   * nothing for that says "this is not a database", which is a statement
+   * about the researcher's file that was never established (D229, D232).
+   */
+  const expected = error instanceof ApiError
+    && (error.status === 400 || error.status === 404);
+  if (error && !listing && expected) return null;
+  if (error && !listing) {
+    return (
+      <section className="dbtables">
+        <h2>Tables in this database</h2>
+        <Failure error={error} retry={load} />
+      </section>
+    );
+  }
   if (!listing || listing.tables.length === 0) return null;
 
   return (

@@ -15,7 +15,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/api", () => ({
-  api: { get: vi.fn(), post: vi.fn() },
+  api: { get: vi.fn(), post: vi.fn(), put: vi.fn() },
 }));
 
 import { ClaimTest } from "@/components/claimtest";
@@ -44,6 +44,7 @@ import { api } from "@/lib/api";
 beforeEach(() => {
   vi.mocked(api.get).mockReset();
   vi.mocked(api.post).mockReset();
+  vi.mocked(api.put).mockReset();
 });
 
 const paper = {
@@ -236,5 +237,136 @@ describe("what the paper already says", () => {
 
     await waitFor(() => expect(api.post).toHaveBeenCalled());
     expect(screen.queryByText(/could not/i)).toBeNull();
+  });
+});
+
+
+/**
+ * Recording what the dataset is a study of.
+ *
+ * The backend refuses at the design step whenever a dataset's `study_design`
+ * is unrecorded — which, until the route behind this form existed, was every
+ * dataset the product could produce: ingestion writes rows and columns and
+ * nothing writes the study context. The refusal's own remedy is "Record the
+ * study design and this check will run", so the control has to be *on this
+ * screen*, attached to that refusal. A remedy that sends a researcher
+ * elsewhere is a remedy most researchers do not carry out.
+ */
+describe("recording what the dataset observes", () => {
+  const claim = {
+    claim_id: "clm_1",
+    statement: "Consumption is associated with resistance.",
+    exposure: "antibiotic_consumption",
+    outcome: "resistance_prevalence",
+    direction: "positive",
+    claimed_design: "cross_sectional",
+    source_id: "src_paper",
+  };
+
+  const refusedForDesign = {
+    verdict: {
+      outcome: "D14", outcome_name: "Design unstated",
+      family: "undetermined", family_label: "Undetermined", tone: "neutral",
+      sentence: "amr_surveillance.csv's study design is not recorded.",
+      guidance: "Record it and this check will run.",
+      reason_code: "design_unstated", confidence: 0.9,
+      evidence_refs: [], transform_log: [], caveats: [],
+      remedies: ["Record the study design and this check will run."],
+      still_possible: [], state: "complete", method: "deterministic",
+      pair: "claim ↔ dataset",
+    },
+    claim,
+    dataset: { id: "dsv_1", name: "amr_surveillance.csv", design: "unknown",
+               rows: 160 },
+    testable: false,
+    exposure_column: "ddd",
+    outcome_column: "res_pct",
+    unchecked: [],
+  };
+
+  async function refuse(result: unknown = refusedForDesign) {
+    vi.mocked(api.get).mockResolvedValue(
+      { source_id: "src_paper", claims: [claim] } as never);
+    vi.mocked(api.post).mockResolvedValue(result as never);
+    render(<ClaimTest projectId="prj" sources={[paper, dataset]} />);
+    fireEvent.click(await screen.findByText("consumption_resistance.md"));
+    fireEvent.click(await screen.findByRole("button",
+      { name: "amr_surveillance.csv" }));
+    await screen.findByText(/study design is not recorded/);
+  }
+
+  it("offers the control from the refusal that asked for it", async () => {
+    await refuse();
+
+    expect(await screen.findByRole("button",
+      { name: /Record amr_surveillance\.csv's study design/ })).toBeVisible();
+  });
+
+  it("does not offer it when the design is already on record", async () => {
+    await refuse({
+      ...refusedForDesign,
+      verdict: { ...refusedForDesign.verdict, outcome: "P9",
+                 sentence: "amr_surveillance.csv's study design is not recorded." },
+      dataset: { ...refusedForDesign.dataset, design: "cross_sectional" },
+    });
+
+    expect(screen.queryByRole("button", { name: /^Record / })).toBeNull();
+  });
+
+  it("asks the paper's side of a scope gap of the paper, not of the data",
+     async () => {
+    // "not recorded on the paper." means the dataset already states its
+    // population. Offering to record the dataset's would send the researcher
+    // to fix the half that is not broken.
+    await refuse({
+      ...refusedForDesign,
+      dataset: { ...refusedForDesign.dataset, design: "cross_sectional" },
+      unchecked: ["Population scope was not checked — it is not recorded on "
+                  + "the paper."],
+    });
+
+    expect(screen.queryByRole("button", { name: /^Record / })).toBeNull();
+  });
+
+  it("records what was typed and tests again with it", async () => {
+    await refuse();
+
+    // The designs come from the server, so the picker cannot offer a value the
+    // comparison would reject.
+    vi.mocked(api.get).mockResolvedValue({
+      study_design: "unknown", population: "", period_start: null,
+      period_end: null, designs: ["cohort", "cross_sectional"],
+    } as never);
+    fireEvent.click(await screen.findByRole("button", { name: /^Record / }));
+
+    const select = await screen.findByLabelText("Study design");
+    await waitFor(() => expect(
+      screen.getByRole("option", { name: "cohort" })).toBeVisible());
+    fireEvent.change(select, { target: { value: "cohort" } });
+    fireEvent.change(screen.getByLabelText("Population observed"),
+                     { target: { value: "Danish adults" } });
+
+    vi.mocked(api.put).mockResolvedValue({} as never);
+    fireEvent.click(screen.getByRole("button", { name: /Record and test again/ }));
+
+    await waitFor(() => expect(api.put).toHaveBeenCalledWith(
+      "/api/dataset-versions/dsv_1/study-context",
+      { study_design: "cohort", population: "Danish adults",
+        period_start: null, period_end: null }));
+    // And the claim is put back through the check, rather than leaving the
+    // researcher looking at the refusal they just answered.
+    await waitFor(() => expect(vi.mocked(api.post).mock.calls.filter(
+      (c) => String(c[0]).endsWith("/claim-test")).length).toBe(2));
+  });
+
+  it("says an empty field is recorded as not stated", async () => {
+    await refuse();
+    vi.mocked(api.get).mockResolvedValue({
+      study_design: "unknown", population: "", period_start: null,
+      period_end: null, designs: ["cohort"],
+    } as never);
+    fireEvent.click(await screen.findByRole("button", { name: /^Record / }));
+
+    expect(await screen.findByText(/never that they passed/)).toBeVisible();
   });
 });

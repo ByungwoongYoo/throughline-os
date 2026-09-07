@@ -587,6 +587,49 @@ function Figure({ run, recommendation, labels, projectId, versionId }: {
   const xLabel = axisLabel(fields.x, labels, recommendation.spec.x);
   const yLabel = axisLabel(fields.y, labels, recommendation.spec.y);
 
+  /**
+   * A surface recommendation must draw a surface, for the same reason the
+   * binned one must draw bins.
+   *
+   * This is the first spatial chart a researcher's own analysis can produce.
+   * Six of the eight renderers had never seen anything but generated data,
+   * because the recommender had no three-dimensional option in its vocabulary
+   * — so they were unreachable by construction rather than misfiled.
+   *
+   * The grid arrives already evaluated from the recorded coefficients. A
+   * browser that computed the fitted response itself could disagree with the
+   * analysis that produced it, which is the fidelity rule every figure here
+   * follows.
+   */
+  const grid = points.data?.grid;
+  const surface = recommendation.visual_type === "surface"
+    && grid?.length
+    && (points.data?.grid_x?.length ?? 0) > 1
+    && (points.data?.grid_y?.length ?? 0) > 1;
+
+  /*
+   * Both of these were built inline in the JSX, so every render of this figure
+   * handed `Surface` a new grid object and a new observations array. `Surface`
+   * projects the fit and the observations into one shared cube in a memo keyed
+   * on exactly those two references, so a fresh pair on every render meant the
+   * whole projection — every cell spanned, every observation placed, the
+   * colour ramp rebuilt — ran again for a figure that had not changed. This is
+   * the path a real fitted surface takes, at real sizes, not the small
+   * examples the catalogue draws.
+   */
+  const surfaceGrid = useMemo(
+    () => (surface
+      ? { x: points.data!.grid_x!, y: points.data!.grid_y!, z: grid! }
+      : null),
+    [surface, points.data, grid]);
+
+  const surfaceObservations = useMemo(
+    () => (points.data?.observations ?? []).map((o, index) => ({
+      id: String(index), label: `observation ${index + 1}`,
+      x: o.x, y: o.y, z: o.z,
+    })),
+    [points.data]);
+
   if (points.error) return <Failure error={points.error} retry={points.reload} />;
   if (points.loading) return <Loading rows={4} label="Reading the plotted values" />;
   if (!data.length) {
@@ -609,25 +652,6 @@ function Figure({ run, recommendation, labels, projectId, versionId }: {
   const cells = points.data?.cells;
   const binned = recommendation.visual_type === "hexbin" && cells?.length;
 
-  /**
-   * A surface recommendation must draw a surface, for the same reason the
-   * binned one must draw bins.
-   *
-   * This is the first spatial chart a researcher's own analysis can produce.
-   * Six of the eight renderers had never seen anything but generated data,
-   * because the recommender had no three-dimensional option in its vocabulary
-   * — so they were unreachable by construction rather than misfiled.
-   *
-   * The grid arrives already evaluated from the recorded coefficients. A
-   * browser that computed the fitted response itself could disagree with the
-   * analysis that produced it, which is the fidelity rule every figure here
-   * follows.
-   */
-  const grid = points.data?.grid;
-  const surface = recommendation.visual_type === "surface"
-    && grid?.length
-    && (points.data?.grid_x?.length ?? 0) > 1
-    && (points.data?.grid_y?.length ?? 0) > 1;
 
   async function recordSubset() {
     if (!recording || !versionId) return;
@@ -653,12 +677,8 @@ function Figure({ run, recommendation, labels, projectId, versionId }: {
       <div className="card" ref={svgHost}>
         {surface ? (
           <Surface
-            grid={{ x: points.data!.grid_x!, y: points.data!.grid_y!,
-                    z: grid! }}
-            observations={(points.data?.observations ?? []).map((o, index) => ({
-              id: String(index), label: `observation ${index + 1}`,
-              x: o.x, y: o.y, z: o.z,
-            }))}
+            grid={surfaceGrid!}
+            observations={surfaceObservations}
             xLabel={xLabel}
             yLabel={yLabel}
             zLabel={axisLabel(fields.y, labels, recommendation.spec.y)}

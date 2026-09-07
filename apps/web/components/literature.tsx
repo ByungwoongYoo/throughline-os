@@ -118,11 +118,27 @@ export function Literature({ projectId }: { projectId: string }) {
    * state and therefore emptied by navigating away — which made §205 a
    * demonstration rather than a place to put anything.
    */
+  /*
+   * A request that failed is not an empty board.
+   *
+   * `.catch(() => setKept([]))` made those two the same thing, and the board
+   * is rendered only when it has entries — so a researcher who had taken
+   * excerpts saw the section disappear, with nothing saying why. The comment
+   * above records that this load exists precisely because an empty board made
+   * §205 a demonstration rather than a place to put anything; showing an
+   * empty one after a failed request re-creates that, and invites the same
+   * excerpt to be taken twice.
+   */
+  const [keptError, setKeptError] = useState<unknown>(null);
+  const [keptNonce, setKeptNonce] = useState(0);
+
   useEffect(() => {
+    let live = true;
     api.get<{ excerpts: KeptExcerpt[] }>(`/api/projects/${projectId}/excerpts`)
-      .then((r) => setKept(r.excerpts))
-      .catch(() => setKept([]));
-  }, [projectId]);
+      .then((r) => { if (live) { setKept(r.excerpts); setKeptError(null); } })
+      .catch((err) => { if (live) setKeptError(err); });
+    return () => { live = false; };
+  }, [projectId, keptNonce]);
 
   useEffect(() => {
     api.get<{ sources: Capability[] }>("/api/literature/sources")
@@ -441,7 +457,19 @@ export function Literature({ projectId }: { projectId: string }) {
                 })}
               </ol>
 
-              {kept.length > 0 && (
+              {keptError != null && (
+                /*
+                 * Said where the board would be, because that is where a
+                 * reader looks for what they have taken.
+                 */
+                <section className="lit-board">
+                  <h2>Taken from papers</h2>
+                  <Failure error={keptError}
+                           retry={() => setKeptNonce((n) => n + 1)} />
+                </section>
+              )}
+
+              {keptError == null && kept.length > 0 && (
                 /*
                  * Kept here rather than inside the reader so that going back to
                  * the results does not discard what was taken. This is the

@@ -50,6 +50,8 @@ import hashlib
 import json
 from typing import Any
 
+from . import claim_test
+
 #: A deviation the correction depends on. These change what was tested or what
 #: it was tested against, so a result produced under them was not predicted by
 #: the registration in any useful sense.
@@ -209,8 +211,8 @@ def compare(cur, *, registration_id: str, spec_id: str) -> dict[str, Any]:
         raise ValueError(f"No such pre-registration: {registration_id}")
 
     cur.execute(
-        "SELECT id, project_id, method, analysis_type, variables, filters "
-        "FROM analysis_specs WHERE id = %s", (spec_id,))
+        "SELECT id, project_id, method, analysis_type, variables, filters, "
+        "dataset_version_ids FROM analysis_specs WHERE id = %s", (spec_id,))
     spec = cur.fetchone()
     if not spec:
         raise ValueError(f"No such analysis spec: {spec_id}")
@@ -280,6 +282,46 @@ def compare(cur, *, registration_id: str, spec_id: str) -> dict[str, Any]:
              f"{spec['method']!r}. A different test answers a slightly "
              "different question.")
 
+    # --- the design --------------------------------------------------------
+    #
+    # `planned_design` was stored, hashed into `plan_hash`, and selected by this
+    # function — and never compared with anything. So a registration naming a
+    # randomised trial, run against observational data, reported "This analysis
+    # is the one that was registered": the strongest deviation there is, on the
+    # field that decides what the result can be read as, invisible. Recording a
+    # design was on its own enough to set `plan_hash` and make the registration
+    # count as checkable.
+    #
+    # The comparison is against the design of the data the analysis ran on,
+    # which is where a study design lives — a spec has a method, not a design.
+    planned_design = (registration["planned_design"] or "").strip()
+    executed_designs = _designs_of(cur, spec["dataset_version_ids"])
+    if not planned_design:
+        note("design", None, sorted(executed_designs) or None, UNREGISTERED,
+             "The registration did not name a study design. What a result can "
+             "be read as depends on it, so it is worth registering.")
+    elif not executed_designs:
+        # Not a pass and not a deviation. Until the study context is recorded
+        # there is nothing on the data's side to compare, and saying "matched"
+        # here would be the same lie in the other direction.
+        note("design", registration["planned_design"], None, UNREGISTERED,
+             "This analysis's data does not record a study design, so the "
+             "registered design could not be checked. Record it on the dataset "
+             "and this comparison will run.")
+    else:
+        wanted = claim_test.normalise_design(planned_design)
+        actual = {claim_test.normalise_design(d) for d in executed_designs}
+        if actual == {wanted}:
+            note("design", registration["planned_design"], sorted(executed_designs),
+                 "matched", "As registered.")
+        else:
+            ran = ", ".join(sorted(d.replace("_", " ") for d in actual))
+            note("design", registration["planned_design"], sorted(executed_designs),
+                 MATERIAL,
+                 f"Registered {planned_design!r}; the data this ran on is "
+                 f"recorded as {ran}. A design decides what the result can be "
+                 "read as, so this is the difference that changes the claim.")
+
     # --- adjustment --------------------------------------------------------
     planned_covariates = registration["planned_covariates"]
     actual_covariates = roles["covariates"]
@@ -335,6 +377,24 @@ def compare(cur, *, registration_id: str, spec_id: str) -> dict[str, Any]:
         "plan_recorded": registration["plan_hash"] is not None,
         "note": _note(findings, material, registration),
     }
+
+
+def _designs_of(cur, dataset_version_ids: Any) -> set[str]:
+    """
+    The study designs recorded on the data an analysis ran on.
+
+    `unknown` is dropped rather than returned: it is the column's default and
+    means "nobody has said", which is a different report from a design that
+    was recorded and disagrees.
+    """
+    ids = [str(v) for v in (dataset_version_ids or [])]
+    if not ids:
+        return set()
+    cur.execute(
+        "SELECT DISTINCT study_design FROM dataset_versions WHERE id = ANY(%s)",
+        (ids,))
+    return {row["study_design"] for row in cur.fetchall()
+            if row["study_design"] and row["study_design"] != "unknown"}
 
 
 def _normalised(filters: Any) -> str:

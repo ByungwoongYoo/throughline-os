@@ -96,12 +96,60 @@ function usedClasses(): Map<string, Set<string>> {
   const used = new Map<string, Set<string>>();
   for (const file of [...walk("components"), ...walk("app")]) {
     const source = readFileSync(file, "utf8");
-    for (const [, value] of source.matchAll(/className="([^"{}]+)"/g)) {
+    const add = (value: string) => {
       for (const name of value.split(/\s+/).filter(Boolean)) {
         const files = used.get(name) ?? new Set<string>();
         files.add(file);
         used.set(name, files);
       }
+    };
+
+    for (const [, value] of source.matchAll(/className="([^"{}]+)"/g)) add(value);
+
+    /*
+     * The literal parts of a template class name.
+     *
+     * Interpolated `className={...}` is skipped in general, and rightly: a
+     * static reading of an arbitrary expression produces false positives, and
+     * a guard that accuses correct code is one somebody suppresses (D021). But
+     * a template literal's *literal* segments are not arbitrary — they are
+     * written out, character for character, in the source.
+     *
+     * There are eleven in this repository — I first wrote "two" here, from a
+     * grep narrow enough to miss `rc-chip rc-${…}` and its like — and one of
+     * them hid a class with no rule: `dlg${destructive ? " dlg-danger" : ""}`.
+     * The check exists because a class no stylesheet defines fails silently
+     * (D025), and interpolation was the shape it could not see.
+     *
+     * Segments adjacent to a `${...}` are dropped rather than guessed at:
+     * `case-` in `case-${f.agreement}` is a prefix, not a class, and treating
+     * it as one would be the false accusation this exclusion exists to avoid.
+     */
+    for (const [, template] of source.matchAll(/className=\{`([^`]+)`\}/g)) {
+      /*
+       * The class names in both cases live *inside* the interpolation —
+       * `${destructive ? " dlg-danger" : ""}` — so stripping `${...}` and
+       * reading what is left finds nothing at all. My first version of this
+       * did exactly that and passed while catching neither.
+       *
+       * String literals inside the expression are read instead. They are
+       * written out in the source like any other class, and a ternary between
+       * two of them is the ordinary way a conditional class is spelled.
+       */
+      for (const [, quoted] of template.matchAll(/"([^"]*)"/g)) add(quoted);
+
+      /*
+       * The literal segments, minus anything touching a `${...}`. `case-` in
+       * `case-${f.agreement}` is a prefix rather than a class, and calling it
+       * one would be the false accusation this exclusion exists to avoid.
+       */
+      const parts = template.split(/\$\{[^}]*\}/);
+      parts.forEach((part, i) => {
+        let text = part;
+        if (i > 0) text = text.replace(/^\S*/, " ");
+        if (i < parts.length - 1) text = text.replace(/\S*$/, " ");
+        add(text);
+      });
     }
   }
   return used;
@@ -142,5 +190,33 @@ describe("every class in the markup exists in a stylesheet", () => {
 
     expect(defined.has("definitely-not-a-real-class")).toBe(false);
     expect(defined.has("spatial-panel")).toBe(true);
+  });
+
+  it("is reading the markup, so an empty scan cannot pass as a clean one", () => {
+    /*
+     * The other half of the same proof, and it was missing.
+     *
+     * The check above shows the *stylesheet* side is populated. Nothing showed
+     * the *markup* side was: if `usedClasses()` came back empty — a moved
+     * directory, a renamed extension, a glob that stopped matching — then
+     * `offenders` is empty too and the guard passes having examined nothing.
+     * A silent scan and a clean one look identical from the outside, which is
+     * the failure this whole file exists to prevent, one level up.
+     *
+     * Both forms are asserted, because the template-literal reader is newer
+     * and has no other test: dropping it would leave the count untouched.
+     */
+    const used = usedClasses();
+
+    expect(used.size).toBeGreaterThan(200);
+    expect(used.has("case-reasoning"), "plain className= not read").toBe(true);
+    /*
+     * `rc-chip` comes only from `` `rc-chip rc-${lifecycle.tone}` `` — no
+     * plain `className=` anywhere writes it — so it fails if the template
+     * reader stops working. My first version asserted `dlg`, which is also
+     * written plainly since `dlg-danger` was removed, so disabling the
+     * template reader left that assertion passing.
+     */
+    expect(used.has("rc-chip"), "template className={`…`} not read").toBe(true);
   });
 });

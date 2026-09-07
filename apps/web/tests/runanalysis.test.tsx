@@ -35,7 +35,7 @@ const CAPABILITIES = {
 
 const SOURCES = [
   {
-    id: "src_1", title: "amr.csv", source_type: "upload", ingestion_status: "complete",
+    id: "src_1", title: "amr.csv", source_type: "upload", ingestion_status: "ready",
     trust_level: "unverified", created_at: "2026-01-01T00:00:00Z",
     dataset: {
       dataset_id: "ds_1", dataset_version_id: "dsv_1", version: 1,
@@ -43,7 +43,7 @@ const SOURCES = [
     },
   },
   {
-    id: "src_2", title: "notes.pdf", source_type: "upload", ingestion_status: "complete",
+    id: "src_2", title: "notes.pdf", source_type: "upload", ingestion_status: "ready",
     trust_level: "unverified", created_at: "2026-01-01T00:00:00Z", dataset: null,
   },
 ];

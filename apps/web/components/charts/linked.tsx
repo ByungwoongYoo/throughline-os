@@ -84,9 +84,35 @@ const Context = createContext<LinkedSelection>(NOT_LINKED);
 export function LinkedCharts({ children }: { children: React.ReactNode }) {
   const [selection, setSelection] = useState<Selection | null>(null);
 
+  /**
+   * Publishing the same selection twice must not be a state change.
+   *
+   * Every call built `new Set(ids)`, so republishing an identical selection
+   * produced a new object, a new context value and another render — and the
+   * charts publish from an effect, which then ran again. The effect in
+   * `Cartesian` therefore had to depend on `linked.select` (permanently
+   * stable) rather than on `linked` (new on every selection), and widening
+   * that dependency — which is exactly what `exhaustive-deps` asks for — spun
+   * the suite for ever instead of failing it. A hang is a worse failure than
+   * a red test: it stops CI without saying why.
+   *
+   * So the loop is closed here rather than guarded there. An equal selection
+   * returns the state it was given, React's bail-out applies, and the cycle
+   * cannot start no matter what a caller depends on.
+   */
   const select = useCallback(
     (key: string, from: string, ids: readonly string[]) => {
-      setSelection(ids.length ? { key, from, ids: new Set(ids) } : null);
+      setSelection((current) => {
+        if (!ids.length) return current === null ? current : null;
+        if (current
+            && current.key === key
+            && current.from === from
+            && current.ids.size === ids.length
+            && ids.every((id) => current.ids.has(id))) {
+          return current;
+        }
+        return { key, from, ids: new Set(ids) };
+      });
     }, []);
 
   const clear = useCallback(() => setSelection(null), []);

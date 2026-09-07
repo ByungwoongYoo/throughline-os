@@ -104,17 +104,34 @@ def detect_section(block_text: str, current: str) -> str:
     return current
 
 
-def _page_blocks_in_reading_order(page: pymupdf.Page) -> list[str]:
+def _page_blocks_in_reading_order(
+    page: pymupdf.Page, *, spliced: list[int] | None = None,
+) -> list[str]:
     """Order text blocks column by column.
 
     PyMuPDF's ``sort=True`` orders blocks top-to-bottom across the whole page
     width. On a two-column academic PDF that interleaves the columns and splices
     unrelated sentences together, which destroys the verbatim text every citation
     depends on. Detect the column split and read each column fully first.
+
+    When the block extraction itself fails there is nothing to detect a column
+    split *with*, so the fallback is the whole-page ``sort=True`` read — which
+    is precisely the interleaving the paragraph above exists to avoid. That is
+    still better than losing the page, and it must not be silent: a spliced
+    sentence is indistinguishable from a real one, and it would be quoted as
+    verbatim. The page number is appended to ``spliced`` so the caller can
+    record which pages this happened on, and the failure is logged the way the
+    table extraction below already logs its own.
     """
     try:
         blocks = [b for b in page.get_text("blocks") if len(b) >= 5 and str(b[4] or "").strip()]
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 — reported, never silent; see above
+        _log.warning(
+            "block extraction failed on page %s: %s: %s — falling back to a "
+            "whole-page read, which can splice columns together",
+            page.number, type(exc).__name__, exc)
+        if spliced is not None:
+            spliced.append(int(page.number) + 1)
         return [normalize_text(page.get_text("text", sort=True))]
     if not blocks:
         return []
@@ -139,6 +156,9 @@ def _page_blocks_in_reading_order(page: pymupdf.Page) -> list[str]:
 
 def parse_pdf(path: Path) -> ParsedDocument:
     passages: list[Passage] = []
+    # Pages whose columns could not be told apart; see the note in
+    # `_page_blocks_in_reading_order`. Empty on every ordinary paper.
+    spliced: list[int] = []
     chunks: list[str] = []
     cursor = 0
     ordinal = 0
@@ -150,7 +170,8 @@ def parse_pdf(path: Path) -> ParsedDocument:
         page_count = doc.page_count
         doc_title = normalize_text(str(doc.metadata.get("title") or ""))
         for page_index, page in enumerate(doc, start=1):
-            for paragraph_index, block in enumerate(_page_blocks_in_reading_order(page), start=1):
+            for paragraph_index, block in enumerate(
+                    _page_blocks_in_reading_order(page, spliced=spliced), start=1):
                 section = detect_section(block, section)
                 start = cursor
                 end = start + len(block)
@@ -221,7 +242,15 @@ def parse_pdf(path: Path) -> ParsedDocument:
         passages=passages,
         title=doc_title,
         page_count=page_count,
-        metadata={"parser": "pymupdf", "columns": "detected"},
+        # `"columns": "detected"` was stated unconditionally, including for the
+        # pages where detection is exactly what failed. It now says which
+        # happened, and names the pages, because "some of this paper's text may
+        # be spliced" is unusable without knowing where.
+        metadata={
+            "parser": "pymupdf",
+            "columns": "spliced" if spliced else "detected",
+            **({"spliced_pages": spliced} if spliced else {}),
+        },
     )
 
 

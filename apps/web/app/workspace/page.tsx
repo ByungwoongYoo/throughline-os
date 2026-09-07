@@ -556,6 +556,10 @@ function Workspace({ user }: { user: SignedInUser }) {
                 onGo={goSection}
                 labels={variables.data?.labels}
                 onOpenObject={select("object")}
+                // A table imported from a database is a new source, so the
+                // list beside this one is out of date until it is re-read —
+                // the same reload an upload already triggers.
+                onImported={() => reloadSources()}
               />
             : <>
                 {/*
@@ -569,6 +573,7 @@ function Workspace({ user }: { user: SignedInUser }) {
                 <Sources
                   sources={sources} onSelect={select("source")}
                   upload={upload} uploading={uploading} uploadError={uploadError}
+                  formats={capabilities.data?.formats ?? null}
                 />
               </>
         )}

@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { CatalogueBrowser } from "@/components/charts3d/CatalogueBrowser";
 import { CATALOGUE } from "@/lib/charts3d/registry";
+import { isDrawable } from "@/lib/charts3d/examples";
 
 /** The family select, which is the only combobox this component renders. */
 const familySelect = () => screen.getByRole("combobox");
@@ -64,5 +65,42 @@ describe("the filter and the drawn chart agree", () => {
     chooseChart("Plane");
     fireEvent.change(familySelect(), { target: { value: "All" } });
     expect(drawnChart()).toContain("Plane");
+  });
+});
+
+describe("moving between a drawn entry and an undrawable one", () => {
+  /*
+   * The undrawable entries take an early return before the chart is built, so
+   * the two paths through `CatalogueChart` are different lengths. A hook added
+   * below that return is called on one path and not the other, and React
+   * throws "Rendered more hooks than during the previous render" the moment a
+   * reader clicks across the boundary — in the same element position, which is
+   * exactly what this browser does.
+   *
+   * The whole 3D suite missed that, because every other test renders one entry
+   * and stops. Crossing the boundary is the only thing that shows it.
+   */
+  const drawable = CATALOGUE.find((e) => isDrawable(e) && e.name === "Plane")!;
+  const undrawable = CATALOGUE.find((e) => !isDrawable(e))!;
+
+  it("has both kinds to move between, so this test is worth running", () => {
+    expect(drawable).toBeTruthy();
+    expect(undrawable).toBeTruthy();
+  });
+
+  it("survives choosing an undrawable entry after a drawn one", () => {
+    render(<CatalogueBrowser />);
+    chooseChart(drawable.name);
+    expect(drawnChart()).toContain(drawable.name);
+
+    chooseChart(undrawable.name);
+    expect(document.body.textContent).toContain(undrawable.name);
+  });
+
+  it("survives choosing a drawn entry after an undrawable one", () => {
+    render(<CatalogueBrowser />);
+    chooseChart(undrawable.name);
+    chooseChart(drawable.name);
+    expect(drawnChart()).toContain(drawable.name);
   });
 });

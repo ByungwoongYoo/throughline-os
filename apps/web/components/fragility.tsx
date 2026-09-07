@@ -22,10 +22,8 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
-// `Failure` deliberately unimported: a method this cannot convert is a fact
-// about the analysis, not an error, and is said in place below.
-import { Fold, Loading } from "./primitives";
+import { ApiError, api } from "@/lib/api";
+import { Failure, Fold, Loading } from "./primitives";
 import { Term } from "./term";
 
 type Report = {
@@ -86,15 +84,68 @@ export function Fragility({ connectionId }: { connectionId: string }) {
    * worse answer than saying no number is available.
    */
   const usable = report != null && Number.isFinite(report.headline);
-  if (error || !usable) {
+
+  /*
+   * Which refusal, and whether it is a refusal at all.
+   *
+   * The endpoint answers with a different status for each of these and writes
+   * a sentence for every one: 422 when the method cannot be converted to a
+   * risk ratio honestly, 409 when no analysis has completed or the run
+   * recorded no estimate, 404 when the connection is gone. Every one of them
+   * arrived here as `error` and produced the single sentence below — so a
+   * connection whose analysis had simply not finished was told its *method*
+   * was the problem, which is a specific claim about the researcher's own
+   * work that this screen had never established. A server that was down said
+   * the same thing.
+   *
+   * So: 422 keeps the sentence written for it. The other refusals carry the
+   * server's own words, which §104 requires reach the researcher and which
+   * are already written as sentences for one. Anything else — a 5xx, a
+   * dropped network, something that is not an `ApiError` at all — is a
+   * failure, and a failure is recoverable and offers the retry. A refusal is
+   * not and must not, because a retry that cannot succeed reads as a system
+   * that is merely broken.
+   */
+  const refused = error instanceof ApiError ? error : null;
+
+  if (error && !refused) {
+    return (
+      <section className="fragility">
+        <h2>How fragile is this?</h2>
+        <Failure error={error} retry={load} />
+      </section>
+    );
+  }
+
+  if (refused && refused.status !== 422) {
+    if (refused.status >= 500) {
+      return (
+        <section className="fragility">
+          <h2>How fragile is this?</h2>
+          <Failure error={error} retry={load} />
+        </section>
+      );
+    }
+    return (
+      <section className="fragility">
+        <h2>How fragile is this?</h2>
+        <p className="note">
+          {refused.message} No number is shown rather than a confident one
+          with no meaning.
+        </p>
+      </section>
+    );
+  }
+
+  if (refused || !usable) {
     return (
       <section className="fragility">
         <h2>How fragile is this?</h2>
         <p className="lede">
-          This connection&rsquo;s method cannot be converted to a risk ratio
-          honestly, so no number is shown rather than a confident one with no
-          meaning. The number this panel reports for a correlation is the{" "}
-          <Term id="E-value" />.
+          This connection&rsquo;s method is not one it can convert to a risk
+          ratio honestly, so no number is shown rather than a confident one
+          with no meaning. The number this panel reports for a correlation is
+          the <Term id="E-value" />.
         </p>
       </section>
     );

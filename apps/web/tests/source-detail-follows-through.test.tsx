@@ -47,7 +47,7 @@ function serve(routes: Record<string, Answer>) {
 }
 
 const DATASET_SOURCE = {
-  id: "src_1", title: "national-surveillance.csv", source_type: "dataset",
+  id: "src_1", title: "national-surveillance.csv", source_type: "upload",
   ingestion_status: "ready", ingestion_detail: "", trust_level: "trusted",
   created_at: "2026-01-01", paper: null,
   dataset: {
@@ -192,7 +192,7 @@ describe("importing a table leads to the dataset it made", () => {
 
 describe("the sources list says which failure is a choice", () => {
   const failed: Source = {
-    id: "src_2", title: "amr.sqlite", source_type: "dataset",
+    id: "src_2", title: "amr.sqlite", source_type: "upload",
     ingestion_status: "failed", trust_level: "trusted", created_at: "2026-01-01",
     ingestion_detail:
       "This database holds 2 tables and a dataset is one table, so which one "

@@ -112,14 +112,24 @@ export function useLayout(graph: Graph,
 
   const signature = useMemo(() => signatureOf(graph), [graph]);
 
+  /*
+   * Keyed on content, because the caller rebuilds an equal graph on every
+   * render — depending on the object itself would relax the layout again on
+   * every render for a graph that did not change.
+   *
+   * The suppression has to be the single line immediately above the dependency
+   * array, which is where `exhaustive-deps` reports. It used to be a two-line
+   * comment, so `disable-next-line` covered the comment's own second line and
+   * nothing else: ESLint printed both the missing-dependency warning and an
+   * "unused eslint-disable directive" for the comment meant to silence it.
+   */
   const immediate = useMemo(
     () => (offThread
       ? null
       : depthOf
         ? layoutLayered(graph, (n) => depthOf(n.id))
         : layoutGraph(graph)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on content,
-    // because the caller rebuilds an equal graph on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [signature, depthOf, offThread]);
 
   const [fromWorker, setFromWorker] = useState<Layout | null>(null);

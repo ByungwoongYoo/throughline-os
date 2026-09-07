@@ -309,3 +309,53 @@ def test_another_projects_connection_cannot_attach_a_finding(cur, project):
 
     cur.execute("SELECT object_id FROM findings WHERE id = %s", (finding_id,))
     assert cur.fetchone()["object_id"] is None
+
+
+def test_the_evidence_graph_carries_the_causal_reading_and_what_it_means(
+        cur, project):
+    """
+    `causal_status` has always been on the finding — `SELECT *` — and no screen
+    read it. The findings list printed it as a bare token and the finding a
+    researcher opens to decide what it establishes said nothing about cause at
+    all, while the library note exported to somebody else's reference manager
+    carried a full sentence. The person receiving the citation was told more
+    about causality than the person who made the finding.
+
+    The sentence is served rather than written in the client because the same
+    vocabulary already exists in `library_note`, where a second copy had
+    drifted into describing `associational` for a status really called
+    `association_only`. A third copy in TypeScript is the version of that
+    mistake nobody would find.
+    """
+    from throughline_domain import graphs, library_note
+
+    finding_id = findings.create_finding(
+        cur, project_id=project, title="Written by hand",
+        finding_type=FindingType.STATISTICAL, actor="test")
+    cur.execute("UPDATE findings SET causal_status = %s WHERE id = %s",
+                ("possible_causal", finding_id))
+
+    graph = graphs.evidence_graph(cur, finding_id=finding_id)
+
+    assert graph["causal_reading"]["status"] == "possible_causal"
+    # The same sentence the exported note uses, from the same dictionary.
+    assert (graph["causal_reading"]["note"]
+            == library_note.causal_sentence("possible_causal"))
+    assert "no plain-language equivalent" not in graph["causal_reading"]["note"]
+
+
+def test_a_finding_with_no_causal_assessment_still_says_so(cur, project):
+    """
+    Silence is the case a reader is most likely to assume away, so the field is
+    always present rather than omitted when nothing was assessed.
+    """
+    from throughline_domain import graphs
+
+    finding_id = findings.create_finding(
+        cur, project_id=project, title="Unassessed",
+        finding_type=FindingType.STATISTICAL, actor="test")
+
+    graph = graphs.evidence_graph(cur, finding_id=finding_id)
+
+    assert graph["causal_reading"]["status"] == "not_assessed"
+    assert "was not assessed" in graph["causal_reading"]["note"]

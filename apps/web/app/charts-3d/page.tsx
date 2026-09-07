@@ -175,6 +175,10 @@ export default function Charts3DPage() {
   const columns = useRef<VisualizationController | null>(null);
   const field = useRef<VisualizationController | null>(null);
   const volume = useRef<VisualizationController | null>(null);
+  /* The globe was the one rotatable figure a hand could not address, because it
+     offered no controller to address. §189 says the chart decides which one is
+     being addressed; a chart with none was not in the running. */
+  const globe = useRef<VisualizationController | null>(null);
   const [addressing, setAddressing] = useState<string>("—");
   const world = useWorld();
 
@@ -288,7 +292,7 @@ export default function Charts3DPage() {
         </p>
         <SpatialControl
           controllerRef={network}
-          alsoControls={[field, volume, trails, shell, columns]}
+          alsoControls={[field, volume, trails, shell, columns, globe]}
           label="the spatial charts"
           onActiveTarget={(read) => {
             const active = read();
@@ -391,6 +395,7 @@ export default function Charts3DPage() {
           ? <Globe3D
               places={[]}
               world={world}
+              controllerRef={globe}
               valueLabel="No values"
               caption={"Coastlines and the graticule, no data. The shape is "
                        + "what there is to judge here: borders following the "

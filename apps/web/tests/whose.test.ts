@@ -16,7 +16,9 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { DEFAULT_WHOSE, chooseHand, describeChoice } from "@/lib/spatial/whose";
+import {
+  DEFAULT_WHOSE, chooseHand, describeChoice, followFrame,
+} from "@/lib/spatial/whose";
 import { Hand, HandFrame } from "@/lib/spatial/types";
 
 function hand(x: number, y: number, over: Partial<Hand> = {}): Hand {
@@ -200,5 +202,79 @@ describe("saying why nothing is happening", () => {
   it("says nothing when there is a hand", () => {
     // Silence is correct here: an interface that narrates success is noise.
     expect(describeChoice(chooseHand(frame([hand(0.5, 0.5)]), null))).toBe("");
+  });
+});
+
+describe("following a hand through a two-handed gesture", () => {
+  /*
+   * `chooseHand` answers "which single hand is the researcher's" and calls two
+   * hands ambiguous, which is right on its own terms. This system also has a
+   * deliberate two-handed zoom, and wiring the choice straight into the panel
+   * held during every legitimate pinch-zoom, then explained the break with a
+   * message about somebody walking past — a fix that broke a working feature
+   * and misdescribed the damage. `followFrame` is where that is reconciled, and
+   * it is a plain function precisely so this can be checked: the component
+   * cannot reach a zoom in a test, because happy-dom gives a video no width.
+   */
+  /*
+   * Deliberately a frame `chooseHand` calls ambiguous: two hands within the
+   * continuity window of the tracked position and neither clearly nearer than
+   * the other — "clearly" being a 1.5x margin. The first version of these tests
+   * used a hand sitting exactly where the tracked one was, which continuity
+   * resolved immediately, so the two-handed branch was never reached and the
+   * guard could be deleted with every test still passing.
+   */
+  const tracked = { handedness: "right" as const, at: { x: 0.50, y: 0.5 } };
+  const near = hand(0.40, 0.5);
+  const far = hand(0.62, 0.5);
+
+  it("is a genuinely ambiguous frame, or the rest of this block proves nothing", () => {
+    expect(chooseHand(frame([far, near]), tracked).kind).toBe("ambiguous");
+  });
+
+  it("holds on two hands when no gesture is under way", () => {
+    const result = followFrame(
+      frame([hand(0.30, 0.5), hand(0.70, 0.5)]), null, false);
+    expect(result.hold).toBe(true);
+    expect(result.hand).toBeUndefined();
+    expect(result.message).toBeTruthy();
+  });
+
+  it("does not hold when the machine says both hands are in use", () => {
+    const result = followFrame(frame([far, near]), tracked, true);
+    expect(result.hold).toBe(false);
+    expect(result.message).toBeNull();
+  });
+
+  it("measures the nearer hand during a zoom, not the first listed", () => {
+    // The defect in miniature: the order is whatever the tracker felt like, so
+    // the nearer hand is listed second here on purpose.
+    const result = followFrame(frame([far, near]), tracked, true);
+    expect(result.hand?.palmCenter.x).toBeCloseTo(0.40, 6);
+  });
+
+  it("keeps what it was following while it holds", () => {
+    // Forgetting the tracked hand mid-hold would lose continuity and make the
+    // next frame ambiguous all over again.
+    const result = followFrame(frame([far, near]), tracked, false);
+    expect(result.hold).toBe(true);
+    expect(result.tracked).toEqual(tracked);
+  });
+
+  it("remembers where the followed hand was, for the next frame", () => {
+    const result = followFrame(frame([hand(0.44, 0.5)]), null, false);
+    expect(result.tracked?.at.x).toBeCloseTo(0.44, 6);
+  });
+
+  it("forgets the hand once nothing is in frame, and says nothing", () => {
+    /*
+     * No message on purpose: the panel already says "your hand is not in the
+     * picture" from the machine's own state, and two sentences saying that in
+     * different words read as two different problems.
+     */
+    const result = followFrame(frame([]), tracked, false);
+    expect(result.hold).toBe(false);
+    expect(result.tracked).toBeNull();
+    expect(result.message).toBeNull();
   });
 });

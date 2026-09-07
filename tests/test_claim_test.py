@@ -1233,3 +1233,40 @@ def test_claims_for_refuses_a_paper_from_another_project(cur, project):
 
     with pytest.raises(claim_test.ClaimTestError):
         claim_test.claims_for(cur, project_id=project, source_id=source_id)
+
+
+def test_unchecked_scope_names_every_side_that_lacks_it(cur, project):
+    """
+    Which side is missing it, and both when both are.
+
+    The message is built as "it is not recorded on " + ("the paper." if not
+    paper_population else "this dataset.") — so when *neither* records a
+    population it names the paper alone, and a researcher who goes and adds one
+    to the paper finds the check still unmade. Naming one side of two is the
+    same defect as the imaging panel's "Not recorded on both scans" printed
+    beside a value that was recorded (D275): a true-sounding sentence that
+    sends somebody to fix half a problem.
+
+    The test above exercises this exact case — `CLAIM["population"]` is `""`
+    and the dataset's is `None` — and asserts only the prefix, so it has been
+    green over the wrong half of the sentence since it was written.
+    """
+    neither = claim_test.assess_testability(
+        cur, project_id=project, claim=CLAIM,
+        dataset_version_id=_mapped(cur, project, population=None)["version_id"])
+    said = next(u for u in neither["unchecked"] if "Population scope" in u)
+    assert "the paper" in said and "dataset" in said, said
+
+    paper_only = claim_test.assess_testability(
+        cur, project_id=project,
+        claim={**CLAIM, "population": "adults in England"},
+        dataset_version_id=_mapped(cur, project, population=None)["version_id"])
+    said = next(u for u in paper_only["unchecked"] if "Population scope" in u)
+    assert "dataset" in said and "the paper" not in said, said
+
+    dataset_only = claim_test.assess_testability(
+        cur, project_id=project, claim=CLAIM,
+        dataset_version_id=_mapped(
+            cur, project, population="adults in England")["version_id"])
+    said = next(u for u in dataset_only["unchecked"] if "Population scope" in u)
+    assert "the paper" in said and "dataset" not in said, said

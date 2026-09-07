@@ -194,6 +194,13 @@ _DESIGN_SUPPORTS: dict[str, set[str]] = {
                    "randomized_controlled_trial"},
 }
 
+#: Designs a *dataset* may be recorded under: exactly the values the support
+#: table is willing to see on the data side, taken as the union of what it
+#: allows rather than written out beside it. A second hand-kept list would
+#: drift, and the drift would show up as a claim refused for a design the
+#: table would in fact have accepted.
+DATASET_DESIGNS: frozenset[str] = frozenset().union(*_DESIGN_SUPPORTS.values())
+
 
 #: Words a paper wraps its design in. Stripped before matching, because a model
 #: reading prose returns what the prose says — "a cross-sectional analysis",
@@ -514,9 +521,20 @@ def assess_testability(cur, *, project_id: str, claim: dict[str, Any],
                 caveats=["Populations were compared as recorded text; confirm the "
                          "descriptions really do denote different groups."]))
     else:
+        # Every side that lacks it, and both when both do. The message used to
+        # be `"the paper." if not paper_population else "this dataset."`, so
+        # with neither recorded it named the paper alone — and a researcher who
+        # went and added a population to the paper would find the check still
+        # unmade. Naming one side of two is a true-sounding sentence that sends
+        # somebody to fix half a problem.
+        if not paper_population and not dataset_population:
+            where = "neither the paper nor this dataset."
+        elif not paper_population:
+            where = "the paper."
+        else:
+            where = "this dataset."
         context["unchecked"].append(
-            "Population scope was not checked — it is not recorded on "
-            + ("the paper." if not paper_population else "this dataset."))
+            f"Population scope was not checked — it is not recorded on {where}")
 
     if not (dataset["period_start"] and dataset["period_end"]):
         context["unchecked"].append(

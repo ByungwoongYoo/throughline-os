@@ -10,7 +10,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DatabaseTables } from "@/components/databasetables";
-import { api } from "@/lib/api";
+import { SourceDetail } from "@/components/views";
+import { ApiError, api } from "@/lib/api";
 
 const LISTING = {
   filename: "study.sqlite",
@@ -82,18 +83,114 @@ describe("choosing a table", () => {
     expect(await screen.findByText(/300 rows are being profiled/)).toBeTruthy();
   });
 
+  it("tells the screen a new source now exists", async () => {
+    /*
+     * Importing a table creates a *new* source, so the list of sources the
+     * researcher is looking at is stale the moment it succeeds — the dataset
+     * they just made is not in it. `onImported` had been offered by this
+     * component and passed by nobody since it was written.
+     */
+    vi.spyOn(api, "get").mockResolvedValue(LISTING as never);
+    vi.spyOn(api, "post").mockResolvedValue({
+      source_id: "src_new", rows: 1, columns: 1, note: "Profiling.",
+    } as never);
+    const onImported = vi.fn();
+
+    render(<DatabaseTables projectId="prj_1" sourceId="src_1"
+                           onImported={onImported} />);
+    fireEvent.click((await screen.findAllByRole("button", { name: /import/i }))[0]);
+
+    await waitFor(() => expect(onImported).toHaveBeenCalledWith("src_new"));
+  });
+
   it("renders nothing at all for a source that is not a database", async () => {
     /**
      * It sits under every failed ingestion, and most failures have nothing to
      * do with databases. Showing an error there would explain a problem the
      * researcher does not have.
      */
-    vi.spyOn(api, "get").mockRejectedValue(new Error("not a SQLite database"));
+    /*
+     * 400 is what the endpoint raises for a file it cannot read as a database
+     * — `UnsupportedDataset` becomes `HTTPException(400, ...)`. The fixture
+     * used to be a bare `Error`, which no path in the product produces:
+     * `api.get` throws `ApiError` for everything it hears back. That mattered
+     * once silence stopped being the answer to every failure.
+     */
+    vi.spyOn(api, "get").mockRejectedValue(
+      new ApiError(400, "not a SQLite database"));
 
     const { container } = render(
       <DatabaseTables projectId="prj_1" sourceId="src_1" />);
 
     await waitFor(() => expect(container.textContent).not.toMatch(/Reading the database/));
     expect(container.textContent).toBe("");
+  });
+
+  it("says so when the tables could not be read at all", async () => {
+    /**
+     * The other half. Silence here means "this source is not a database",
+     * and it only means that if the cases where nobody found out look
+     * different. A 5xx or a dropped connection is one of those: the tables
+     * may well be there.
+     */
+    vi.spyOn(api, "get").mockRejectedValue(
+      new ApiError(503, "The storage volume is unavailable."));
+
+    render(<DatabaseTables projectId="prj_1" sourceId="src_1" />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/storage volume is unavailable/)).toBeTruthy());
+    expect(screen.getByRole("button", { name: /try again|retry/i })).toBeTruthy();
+  });
+
+  it("stays quiet for a source that is simply not in this project", async () => {
+    // 404 is the other expected refusal, and it is not this panel's business.
+    vi.spyOn(api, "get").mockRejectedValue(
+      new ApiError(404, "No such source in this project."));
+
+    const { container } = render(
+      <DatabaseTables projectId="prj_1" sourceId="src_1" />);
+
+    await waitFor(() => expect(container.textContent).not.toMatch(/Reading the database/));
+    expect(container.textContent).toBe("");
+  });
+});
+
+describe("the screen a table is imported from", () => {
+  /*
+   * Importing a table creates a *new* source, so the list of sources beside
+   * this screen is stale the moment it succeeds — the dataset the researcher
+   * just made is not in it, and nothing says so.
+   *
+   * `DatabaseTables` had offered `onImported` since it was written and the one
+   * place that renders it passed nothing, so the callback had never fired in
+   * the product. Rendered through `SourceDetail` rather than through
+   * `DatabaseTables` on purpose: a test that passes the prop itself proves the
+   * component calls what it is given, which was never in doubt, and leaves the
+   * missing wire exactly as it was.
+   */
+  const SOURCE = {
+    id: "src_1", title: "study.sqlite", trust_level: "unknown",
+    ingestion_status: "failed", ingestion_detail: "Not one table.",
+    dataset: null, paper: null, metadata: null, passage_count: 0,
+    withdrawn_at: null, withdrawn_reason: null,
+  };
+
+  it("hears that a new source now exists", async () => {
+    vi.spyOn(api, "get").mockImplementation(async (path: string) => {
+      if (path.includes("/tables")) return LISTING as never;
+      return SOURCE as never;
+    });
+    vi.spyOn(api, "post").mockResolvedValue({
+      source_id: "src_new", rows: 300, note: "300 rows are being profiled.",
+    } as never);
+    const onImported = vi.fn();
+
+    render(<SourceDetail projectId="prj_1" sourceId="src_1"
+                         onDiscover={() => {}} onImported={onImported} />);
+
+    fireEvent.click((await screen.findAllByRole("button", { name: /import/i }))[0]);
+
+    await waitFor(() => expect(onImported).toHaveBeenCalledWith("src_new"));
   });
 });

@@ -11,6 +11,7 @@
  * that holds, the hand and the pointer are writing the same thing down.
  */
 
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   OVERSHOOT, canvasMapping, markFromStroke, markUnder,
@@ -292,5 +293,57 @@ describe("finding the mark under a point (§176)", () => {
 
   it("has nothing to find among no marks", () => {
     expect(markUnder({ x: 0, y: 0 }, [], { page: 1, within: 10 })).toBeNull();
+  });
+});
+
+describe("marks that could not be loaded", () => {
+  /*
+   * An empty overlay is exactly what a paper with no marks on it looks like,
+   * so a failed load told the researcher their earlier annotations were not
+   * there. Two concrete hazards follow: the same marks get drawn again, and
+   * rubbing out cannot reach an existing mark, because `marks` no longer
+   * holds it to be found.
+   *
+   * Read from the source rather than from a render, which is weaker evidence
+   * and is the evidence available: `PaperReader` needs pdf.js and a 2D canvas
+   * context, and happy-dom provides neither — the rest of this file tests the
+   * exported geometry for the same reason. The reason is recorded here so the
+   * next person does not mistake a source assertion for a preference.
+   */
+  const SOURCE = join(__dirname, "..", "components", "literature",
+                      "PaperReader.tsx");
+
+  it("are reported rather than shown as a paper with none", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync(SOURCE, "utf8");
+
+    /*
+     * The catch attached to the marks request, up to the end of that effect.
+     * The end anchor is searched *from* the start, because the same cleanup
+     * line appears in an earlier effect — taken from the front, the slice
+     * came out empty and both assertions would have been vacuous.
+     */
+    const from = source.indexOf("/marks`)");
+    expect(from, "the marks request moved").toBeGreaterThan(-1);
+    const load = source.slice(
+      from, source.indexOf("return () => { current = false; };", from));
+    expect(load.length, "the effect's cleanup moved").toBeGreaterThan(0);
+
+    expect(load).toContain("setMarks([])");
+    expect(load, "a failed marks load must say so").toContain("setProblem(");
+  });
+
+  it("still let the paper open, which is why this is not an error banner",
+     async () => {
+    /*
+     * The argued half of the original behaviour, kept: the researcher can
+     * still read and still draw, and a failed load says less than a page that
+     * refuses to open. So the report goes through the same non-blocking line
+     * the save path uses, not through a state that replaces the reader.
+     */
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync(SOURCE, "utf8");
+
+    expect(source).toContain('{problem && <p className="reader-problem" role="status">');
   });
 });

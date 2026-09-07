@@ -199,12 +199,19 @@ def test_an_exploratory_result_is_not_comparable_to_a_replicated_one(cur, projec
 
 
 def test_adjacent_lifecycle_stages_are_still_comparable(cur, project):
-    """One stage apart is a normal state of affairs, not an incommensurability."""
+    """One stage apart is a normal state of affairs, not an incommensurability.
+
+    The fixture used to pair `exploratory` with `observed`, and `observed` is a
+    status no transition in `CONNECTION_PROMOTION` can produce — so the
+    property was demonstrated on a value the product cannot reach, which is why
+    the ranking's drift from the state machine went unseen here of all places.
+    `validated` and `replicated` are adjacent and both real.
+    """
     first, second = _two_datasets(cur, project)
     a = _connection(cur, project, _run(cur, project, first["version_id"]),
-                    "x", "y", 0.6, 0.001, status="exploratory")
+                    "x", "y", 0.6, 0.001, status="validated")
     b = _connection(cur, project, _run(cur, project, second["version_id"]),
-                    "x", "y", 0.58, 0.002, status="observed")
+                    "x", "y", 0.58, 0.002, status="replicated")
 
     report = consistency.compare_results(cur, project_id=project,
                                          left_id=a, right_id=b)
@@ -382,3 +389,75 @@ def test_the_sweep_surfaces_what_is_not_plainly_consistent(cur, project):
     report = consistency.inconsistencies(cur, project)
 
     assert report["reports"][0]["verdict"]["outcome"] == "F7"
+
+
+# ---------------------------------------------------------------------------
+# The stage ladder and the state machine have to be the same ladder
+# ---------------------------------------------------------------------------
+
+def test_the_stages_it_ranks_are_the_stages_a_connection_can_have():
+    """
+    `_STAGE_ORDER` drifted from `CONNECTION_PROMOTION` and nothing noticed.
+
+    The state machine moves a connection through candidate → exploratory →
+    validated → replicated, with `conflicted` and `rejected` off to the side.
+    The ranking listed `observed` and `deprecated`, which no transition can
+    produce, and omitted `rejected`, which is a terminal state every connection
+    can reach.
+
+    Both halves change verdicts a researcher reads. A phantom stage between two
+    real ones makes them look two apart when they are one promotion apart; a
+    missing stage ranks -1, which is below every real one.
+    """
+    from throughline_domain import discovery
+
+    ranked = set(consistency._STAGE_ORDER) | set(consistency._OFF_THE_LADDER)
+    reachable = set(discovery.CONNECTION_PROMOTION) | {
+        s for moves in discovery.CONNECTION_PROMOTION.values() for s in moves}
+
+    assert reachable - ranked == set(), \
+        "a status a connection can reach that the ranking does not know"
+    assert ranked - reachable == set(), \
+        "a status the ranking knows that no connection can reach"
+
+
+def test_one_legal_promotion_apart_is_comparable(cur, project):
+    """
+    exploratory → validated is a single legal transition.
+
+    The phantom `observed` sat between them, so the ranks differed by two and
+    the comparison was refused as "different lifecycle stage" — telling a
+    researcher two adjacent results were too far apart to compare. The existing
+    adjacency test used `observed` itself, which is a status no connection can
+    hold, so it demonstrated the property on a value the product cannot produce.
+    """
+    first, second = _two_datasets(cur, project)
+    a = _connection(cur, project, _run(cur, project, first["version_id"]),
+                    "x", "y", 0.6, 0.001, status="exploratory")
+    b = _connection(cur, project, _run(cur, project, second["version_id"]),
+                    "x", "y", 0.58, 0.002, status="validated")
+
+    report = consistency.compare_results(cur, project_id=project,
+                                         left_id=a, right_id=b)
+
+    assert report["verdict"]["outcome"] != "F8"
+
+
+def test_a_rejected_result_is_not_called_exploratory(cur, project):
+    """
+    `rejected` ranked -1, which is below `exploratory`, so two rejected results
+    that agreed were reported as "consistent, but both exploratory" — a
+    statement about their stage that is not merely imprecise but the wrong end
+    of the ladder. F9's own caveat says neither has been through robustness
+    checks; a rejected result has been through them and been thrown out.
+    """
+    first, second = _two_datasets(cur, project)
+    a = _connection(cur, project, _run(cur, project, first["version_id"]),
+                    "x", "y", 0.6, 0.001, status="rejected")
+    b = _connection(cur, project, _run(cur, project, second["version_id"]),
+                    "x", "y", 0.58, 0.002, status="rejected")
+
+    report = consistency.compare_results(cur, project_id=project,
+                                         left_id=a, right_id=b)
+
+    assert report["verdict"]["outcome"] != "F9"

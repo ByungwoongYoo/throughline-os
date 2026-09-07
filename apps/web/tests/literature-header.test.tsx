@@ -14,7 +14,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Literature } from "@/components/literature";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -67,5 +67,99 @@ describe("the Find papers header", () => {
     render(<Literature projectId="p1" />);
     const input = await screen.findByLabelText(/Search literature/);
     expect(input.getAttribute("type")).toBe("search");
+  });
+});
+
+describe("what has been taken from papers", () => {
+  /*
+   * The board is loaded from the server rather than held in React state,
+   * because state emptied on navigation made §205 a demonstration rather than
+   * a place to put anything. That load ended `.catch(() => setKept([]))`, so a
+   * failed request produced the same empty board the load exists to prevent —
+   * and the section is rendered only when it has entries, so it simply
+   * vanished. A researcher who had taken excerpts saw no board and no reason,
+   * and the obvious next move is to take the same excerpt again.
+   */
+  const PAPER = {
+    title: "Consumption and resistance", authors: ["A. Author"], year: 2024,
+    doi: "10.1/x", arxiv_id: null, pmid: null, venue: "Journal",
+    abstract: "An abstract.", url: "https://example.org/x",
+    pdf_url: "", open_access: true, cited_by: 3, source: "openalex",
+    // `disagreements` is read unconditionally by the result row — a fixture
+    // that omits it takes the render down before any assertion runs, which is
+    // the same trap `connectiondetail`'s fixture records for `assumption_checks`.
+    provenance: {}, disagreements: {},
+  };
+
+  /** Answers each path in turn; `excerpts` is what the test varies. */
+  function serve(excerpts: () => { ok: boolean; status: number; body: unknown }) {
+    return vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input: RequestInfo | URL) => {
+        const url = String(typeof input === "string" ? input : input.toString());
+        if (url.includes("/excerpts")) {
+          const answer = excerpts();
+          return {
+            ok: answer.ok, status: answer.status,
+            text: async () => JSON.stringify(answer.body),
+          } as Response;
+        }
+        if (url.includes("/literature/sources")) {
+          return {
+            ok: true, status: 200,
+            text: async () => JSON.stringify({
+              sources: SOURCES.map((name) =>
+                ({ name, polite: true, ready: true, note: null })),
+            }),
+          } as Response;
+        }
+        if (url.includes("/literature/search")) {
+          return {
+            ok: true, status: 200,
+            text: async () => JSON.stringify({
+              query: "resistance", results: [PAPER], sources: {},
+              found: 1, returned_by_sources: 1, note: "",
+            }),
+          } as Response;
+        }
+        return { ok: true, status: 200, text: async () => "[]" } as Response;
+      });
+  }
+
+  async function searchFor(term: string) {
+    const input = await screen.findByLabelText(/Search literature/);
+    fireEvent.change(input, { target: { value: term } });
+    fireEvent.click(screen.getByRole("button", { name: /^Search$/ }));
+    await waitFor(() => expect(screen.getByText(/Consumption and resistance/))
+      .toBeTruthy());
+  }
+
+  it("says the board could not be read rather than showing an empty one",
+     async () => {
+    serve(() => ({ ok: false, status: 503,
+                   body: { detail: "The excerpt store is unavailable." } }));
+
+    render(<Literature projectId="p1" />);
+    await searchFor("resistance");
+
+    await waitFor(() =>
+      expect(screen.getByText(/excerpt store is unavailable/)).toBeTruthy());
+    expect(screen.getByRole("button", { name: /try again|retry/i })).toBeTruthy();
+  });
+
+  it("shows the board when it was read", async () => {
+    // The other half: the section appearing has to mean the excerpts are
+    // really there, which it only does if a failure looks different.
+    serve(() => ({ ok: true, status: 200, body: { excerpts: [{
+      id: "ex_1", source_id: "src_1", page: 4,
+      citation: "Author (2024)", context: "a sentence taken from the paper",
+      source_title: "Consumption and resistance",
+    }] } }));
+
+    render(<Literature projectId="p1" />);
+    await searchFor("resistance");
+
+    await waitFor(() => expect(screen.getByText(/Taken from papers/)).toBeTruthy());
+    expect(screen.getByText(/Author \(2024\)/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /try again|retry/i })).toBeNull();
   });
 });

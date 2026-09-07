@@ -13,6 +13,13 @@
  * "Mol* draws the frames", while Mol* is in `package.json` and seven other
  * entries name it as their viewer.
  *
+ * A third arrived later and in the same shape: clicking "3D globe" answered
+ * "No renderer here draws a globe yet, so 3D globe cannot be shown" — a few
+ * hundred pixels below a rotatable earth with coastlines and a graticule. Not
+ * stale; false, and falsifiable by scrolling up. The real reason was better and
+ * hidden: a globe is drawn from coastlines, which are a fact about the world
+ * rather than something to synthesize, so there is no honest example to invent.
+ *
  * Both were found by a reader looking at the rendered list, not by the suite.
  * The existing registry tests check internal consistency — no name twice, no
  * status contradicting its primitive — and neither of these contradicted
@@ -22,7 +29,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { render, screen } from "@testing-library/react";
 import { CATALOGUE } from "@/lib/charts3d/registry";
+import { CatalogueChart } from "@/components/charts3d/CatalogueChart";
+import {
+  RENDERED, RENDERER_NEEDS_REAL_DATA, exampleFor,
+} from "@/lib/charts3d/examples";
 
 const packaged = JSON.parse(
   readFileSync(join(__dirname, "..", "package.json"), "utf8")) as {
@@ -115,5 +127,79 @@ describe("a negative promise is checked against the repository", () => {
       expect(viewers.has(entry.viewer ?? ""), `${entry.name} names "${entry.viewer}"`)
         .toBe(true);
     }
+  });
+});
+
+/** One catalogue entry by name, so a renamed entry fails loudly. */
+const namedEntry = (name: string) => {
+  const found = CATALOGUE.find((e) => e.name === name);
+  if (!found) throw new Error(`no catalogue entry named ${name}`);
+  return found;
+};
+
+describe("a primitive with a renderer but no inventable example", () => {
+  it("does not claim the renderer is missing", () => {
+    render(<CatalogueChart entry={namedEntry("3D globe")} />);
+    const said = screen.getByRole("status").textContent ?? "";
+    expect(said).not.toMatch(/no renderer here draws/i);
+  });
+
+  it("says what is actually missing, and that your own data supplies it", () => {
+    render(<CatalogueChart entry={namedEntry("3D globe")} />);
+    const said = screen.getByRole("status").textContent ?? "";
+    expect(said).toMatch(/renderer in this codebase/i);
+    expect(said).toMatch(/real measurements/i);
+    expect(said).toMatch(/your own/i);
+  });
+});
+
+describe("a primitive with genuinely no renderer", () => {
+  it("still says so plainly", () => {
+    // 33 `mesh` entries are in this state and the original sentence is correct
+    // for every one of them. The fix must not blur the two cases together —
+    // that would trade a false statement for a vague one.
+    const mesh = CATALOGUE.find(
+      (e) => e.primitive === "mesh" && e.needs !== "geometry");
+    if (!mesh) return;
+    render(<CatalogueChart entry={mesh} />);
+    expect(screen.getByRole("status").textContent)
+      .toMatch(/no renderer here draws a mesh yet/i);
+  });
+});
+
+describe("the two sets stay honest about each other", () => {
+  it("never claims a renderer both invents examples and cannot", () => {
+    for (const primitive of RENDERER_NEEDS_REAL_DATA) {
+      expect(RENDERED.has(primitive), primitive).toBe(false);
+    }
+  });
+
+  it("keeps every entry it says needs real data undrawable here", () => {
+    // If one ever became drawable, the sentence would be the stale one instead
+    // — the same defect pointing the other way.
+    for (const e of CATALOGUE) {
+      if (RENDERER_NEEDS_REAL_DATA.has(e.primitive)) {
+        expect(exampleFor(e), e.name).toBeNull();
+      }
+    }
+  });
+
+  it("covers every primitive the catalogue uses with one explanation or another",
+     () => {
+    /*
+     * The guard that would have caught this. A primitive in the catalogue that
+     * is in neither set falls through to "no renderer here draws it", which is
+     * true only by luck — and was not true for `globe`.
+     */
+    const unexplained = new Set<string>();
+    for (const e of CATALOGUE) {
+      if (!RENDERED.has(e.primitive)
+          && !RENDERER_NEEDS_REAL_DATA.has(e.primitive)
+          && e.needs !== "geometry"
+          && e.primitive !== "mesh") {
+        unexplained.add(e.primitive);
+      }
+    }
+    expect([...unexplained]).toEqual([]);
   });
 });

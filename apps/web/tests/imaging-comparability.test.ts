@@ -281,3 +281,41 @@ describe("the tolerances are a decision, not a magic number", () => {
     expect(THICKNESS_TOLERANCE).toBeLessThan(2.5);
   });
 });
+
+describe("an axis recorded on only one side", () => {
+  /*
+   * Found by reading the rendered panel, not by the suite.
+   *
+   * The row showed `not recorded | T2` and the note beside it read "Not
+   * recorded on both scans" — written for every case where *either* side was
+   * silent, so it contradicted a value printed in the same row. A reader who
+   * trusts the note concludes the sequence is unknown on a scan where it is
+   * recorded; a reader who notices the disagreement decides the panel is
+   * unreliable. Neither is a good outcome.
+   *
+   * The two states are also different facts. A value present on one scan can
+   * be sought on the other. A value absent from both is a question about the
+   * files rather than about this pair.
+   */
+  it("says one only, and never that neither had it", () => {
+    const a = assess(mr("left", { weighting: blankStudy("x", "x").weighting }),
+                     mr("right"));
+    const finding = a.findings.find((f) => f.axis === "weighting")!;
+
+    expect(finding.agreement).toBe("not_stated");
+    expect(finding.note).toMatch(/one scan only/);
+    expect(finding.note).not.toMatch(/either|both/);
+    // The value that does exist is still shown, which is what made the old
+    // wording visibly wrong rather than merely imprecise.
+    expect(finding.right).toContain("T2");
+  });
+
+  it("says neither when neither had it", () => {
+    const blank = blankStudy("x", "x").weighting;
+    const a = assess(mr("left", { weighting: blank }),
+                     mr("right", { weighting: blank }));
+    const finding = a.findings.find((f) => f.axis === "weighting")!;
+
+    expect(finding.note).toMatch(/Not recorded on either scan/);
+  });
+});

@@ -197,7 +197,7 @@ describe("the finding detail carries its object's history", () => {
 // ---------------------------------------------------------------------------
 
 const SOURCE = {
-  id: "src_1", title: "field-notes.pdf", source_type: "paper",
+  id: "src_1", title: "field-notes.pdf", source_type: "upload",
   ingestion_status: "ready", ingestion_detail: "", trust_level: "trusted",
   created_at: "2026-01-01", dataset: null,
   paper: { id: "pap_1", title: "Field notes", page_count: 12 },

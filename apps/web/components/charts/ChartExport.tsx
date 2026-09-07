@@ -19,6 +19,7 @@
  */
 
 import { useCallback, useState } from "react";
+import { useMounted } from "@/lib/charts/useMounted";
 import {
   FORMATS, type ImageFormat, canRecord, imageOf, orbitVideo, recordingFormat,
   save,
@@ -44,6 +45,9 @@ function slug(name: string): string {
 
 export function ChartExport({ canvasRef, name, rotate, redraw }: ChartExportProps) {
   const [busy, setBusy] = useState<string | null>(null);
+  // Asked after mounting, never during render: `canRecord()` reads
+  // `MediaRecorder`, which the server does not have. See `useMounted`.
+  const mounted = useMounted();
   const [problem, setProblem] = useState<string | null>(null);
 
   const saveImage = useCallback(async (format: ImageFormat) => {
@@ -96,8 +100,13 @@ export function ChartExport({ canvasRef, name, rotate, redraw }: ChartExportProp
       ))}
 
       {/* Offered only where there is something to record and a browser that
-          can. A button that produces an unplayable file is worse than none. */}
-      {rotate && canRecord() && (
+          can. A button that produces an unplayable file is worse than none.
+
+          Gated on `mounted` as well, and that is not belt-and-braces: asking
+          the browser a question the server cannot answer *during render* made
+          every page carrying a spatial chart fail hydration and re-render
+          itself from scratch (§D193). The button appears one frame later. */}
+      {rotate && mounted && canRecord() && (
         <button
           type="button"
           disabled={busy !== null}

@@ -84,7 +84,18 @@ export function ConfirmDialog({
   return (
     <dialog
       ref={ref}
-      className={`dlg${destructive ? " dlg-danger" : ""}`}
+      /*
+       * No `dlg-danger`. It was set on this element and no stylesheet ever
+       * defined it, so it changed nothing — CSS fails silently, which is the
+       * defect `css-classes.test.ts` exists for (D025), and interpolation was
+       * the one shape that check could not see.
+       *
+       * A destructive dialog is still marked, twice and visibly: the alert
+       * icon in the header, and `btn-danger` on the confirm button. Both have
+       * rules. Adding a rule for this class instead would be inventing a third
+       * treatment for a state already carried.
+       */
+      className="dlg"
       aria-labelledby="dlg-title"
       onClick={(event) => {
         // Only the backdrop, not a click that started inside the panel.

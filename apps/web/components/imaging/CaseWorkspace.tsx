@@ -35,7 +35,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ViewState, VisualizationController, sameView } from "@/lib/spatial/commands";
 import { VoxelVolume } from "@/components/charts/VoxelVolume";
 import { Grid } from "@/lib/charts3d/voxels";
-import { Study, evidenceStrength } from "@/lib/imaging/study";
+import { Raster } from "@/lib/imaging/raster";
+import { RasterPanel } from "@/components/imaging/RasterPanel";
+import { Acquisition, Fact, evidenceStrength } from "@/lib/imaging/study";
+import { Domain, domainOf } from "@/lib/imaging/domain";
 import {
   Assessment, Verdict, assess, describePartition, partition, permitsComparison,
 } from "@/lib/imaging/comparability";
@@ -47,7 +50,18 @@ import { loadMarks, saveMarks } from "@/lib/imaging/marks-store";
 import { HighlightLayer, markFrom } from "./HighlightLayer";
 
 /** A scan the researcher has open: what it is, and the voxels to draw. */
-export type OpenScan = { study: Study; grid: Grid };
+/**
+ * One thing open on the screen: a volume, or a plane.
+ *
+ * A union rather than an optional `grid`, so a scan that carries neither
+ * cannot be constructed. The two are drawn by different panels — a plane has
+ * no camera to orbit and no slice to pick — and everything above this line
+ * treats them identically, because comparability is a property of how each was
+ * acquired rather than of how many dimensions it has.
+ */
+export type OpenScan =
+  | { study: Acquisition; grid: Grid; raster?: undefined }
+  | { study: Acquisition; raster: Raster; grid?: undefined };
 
 export type CaseWorkspaceProps = {
   /** The case that was received. Everything is compared against this. */
@@ -69,22 +83,36 @@ export type CaseWorkspaceProps = {
   handle?: string | null;
 };
 
-/** How the four groups are titled, and what each one means. */
-const GROUPS = [
-  { key: "comparable", title: "Can be compared directly",
-    blurb: "Same modality, sequence, contrast phase and geometry. A difference "
-         + "between these images can be read as a difference in the subject." },
-  { key: "afterHarmonization", title: "Comparable once corrected",
-    blurb: "The same measurement under different geometry or field strength. "
-         + "Correct for the listed differences first." },
-  { key: "uncertain", title: "Cannot be judged",
-    blurb: "Nothing says these differ, but the acquisition was never recorded. "
-         + "Silence is not agreement." },
-  { key: "refused", title: "Cannot be compared with this case",
-    blurb: "A difference here decides what is visible, not how it looks — so a "
-         + "difference between the images would not be a difference in the "
-         + "subject." },
-] as const;
+/**
+ * How the four groups are titled, and what each one means.
+ *
+ * Taken from the discipline's own prose rather than written out again here. A
+ * second copy is how this panel came to tell a microscopist that their images
+ * shared a "sequence, contrast phase and geometry".
+ */
+function groupsFor(domain: Domain) {
+  return [
+    { key: "comparable" as const, title: "Can be compared directly",
+      blurb: domain.prose.direct },
+    { key: "afterHarmonization" as const, title: "Comparable once corrected",
+      blurb: `${domain.prose.harmonizable} Correct for the listed differences `
+           + "first." },
+    { key: "uncertain" as const, title: "Cannot be judged",
+      /*
+       * "Part of", not "the". An OME-TIFF can state five of six axes and still
+       * land here on the sixth, and telling that researcher nothing was
+       * recorded would be false — they read most of it off the file. Which axis
+       * is silent is named on each pair below.
+       */
+      blurb: "Nothing here says these differ, but part of the acquisition is "
+           + "not recorded on both. Silence is not agreement." },
+    { key: "refused" as const,
+      title: `Cannot be compared with this ${domain.collection}`,
+      blurb: "A difference here decides what is present, not how it looks — so "
+           + "a difference between the images would not be a difference in the "
+           + `${domain.id === "figure" ? "underlying result" : "subject"}.` },
+  ];
+}
 
 export function CaseWorkspace({
   received, library, width = 420, height = 320, author = "unattributed",
@@ -159,6 +187,8 @@ export function CaseWorkspace({
    * looking at.
    */
   const [narrow, setNarrow] = useState(false);
+  // The received item's profile decides the words this screen speaks in.
+  const domain = domainOf(received.study.domain);
   const queried = useMemo(
     () => run(fromCase(received.study), library.map((s) => s.study)),
     [received, library]);
@@ -203,9 +233,10 @@ export function CaseWorkspace({
       <section className="case-received">
         <h2>The case</h2>
         <p className="case-note">
-          Everything below is compared against this scan. The view — camera and
-          window — is shared across the whole case, because two scans at
-          different windows are two different pictures.
+          Everything below is compared against this {domain.noun}. The view —
+          camera and window — is shared across the whole {domain.collection},
+          because two {domain.nounPlural} at different windows are two
+          different pictures.
         </p>
         <ScanPanel scan={received} width={width} height={height}
                    onView={adopt} register={register}
@@ -265,7 +296,7 @@ export function CaseWorkspace({
 
       <p className="case-summary">{describePartition(groups)}</p>
 
-      {GROUPS.map(({ key, title, blurb }) => {
+      {groupsFor(domain).map(({ key, title, blurb }) => {
         const entries = groups[key];
         if (entries.length === 0) return null;
         return (
@@ -288,7 +319,8 @@ export function CaseWorkspace({
                                onView={adopt} register={register}
                                verdict={assessment.verdict} view={view}
                                marks={marks} />
-                    <Reasoning assessment={assessment} />
+                    <Reasoning assessment={assessment}
+                               domain={domainOf(study.domain)} />
                   </div>
                 );
               })}
@@ -342,6 +374,15 @@ function ScanPanel({ scan, width, height, onView, register, verdict, view,
           {Math.round(evidenceStrength(scan.study) * 100)}% of the acquisition
           read from the file
         </span>
+        {/*
+          * The facts that are carried and never compared — the scanner, the
+          * microscope, the objective. Shown deliberately: the instrument is
+          * exactly what a similarity-based system would retrieve, so a reader
+          * noticing that two images came off the same machine is the point.
+          * Carried without being displayed, they decided nothing and told
+          * nobody anything.
+          */}
+        <Carried acquisition={scan.study} />
       </figcaption>
       {/*
         * The drawing surface sits over the volume rather than inside it. The
@@ -355,14 +396,26 @@ function ScanPanel({ scan, width, height, onView, register, verdict, view,
           below. */}
       <div className="case-stack"
            style={{ width, "--case-plate": `${height}px` } as React.CSSProperties}>
-        <VoxelVolume
-          grid={scan.grid}
-          width={width}
-          height={height}
-          controllerRef={ref}
-          onViewChange={onView}
-          caption=""
-        />
+        {scan.raster !== undefined ? (
+          <RasterPanel
+            raster={scan.raster}
+            width={width}
+            height={height}
+            controllerRef={ref}
+            onViewChange={onView}
+            name={scan.study.label}
+            caption=""
+          />
+        ) : (
+          <VoxelVolume
+            grid={scan.grid}
+            width={width}
+            height={height}
+            controllerRef={ref}
+            onViewChange={onView}
+            caption=""
+          />
+        )}
         <HighlightLayer
           scanId={id}
           verdict={verdict}
@@ -379,12 +432,69 @@ function ScanPanel({ scan, width, height, onView, register, verdict, view,
 }
 
 /** Why this scan sits in the group it does. */
-function Reasoning({ assessment }: { assessment: Assessment }) {
+/**
+ * What the file says about the instrument, which decides nothing.
+ *
+ * Separated from the axes above by saying so, rather than by being left out.
+ * A reader who cannot see the scanner cannot notice that the two scans they
+ * are comparing came off it — and "same machine" is the commonest reason two
+ * images look alike for reasons that have nothing to do with the subject.
+ */
+function Carried({ acquisition }: { acquisition: Acquisition }) {
+  const domain = domainOf(acquisition.domain);
+  const shown = domain.carried
+    .map((c) => ({ ...c, fact: acquisition[c.key] as Fact<unknown> | undefined }))
+    .filter((c) => c.fact !== undefined && c.fact.value !== null);
+  if (shown.length === 0) return null;
+  return (
+    <span className="case-carried">
+      {shown.map(({ key, label, fact }) => (
+        <span key={key}>{label}: {String(fact?.value)}</span>
+      ))}
+      <span className="case-carried-why">not compared</span>
+    </span>
+  );
+}
+
+function Reasoning({ assessment, domain }: {
+  assessment: Assessment;
+  /*
+   * The discipline, for its noun. Every other sentence in this panel
+   * already takes its words from the profile — "Recorded on one image
+   * only" against "one scan only" — and the line below hardcoded
+   * "scan", so a micrograph was described as a scan on the one screen
+   * built to be discipline-neutral. Only the microscopy worked example
+   * shows it; the medical one reads correctly by coincidence.
+   */
+  domain: Domain;
+}) {
   return (
     <div className="case-reasoning">
       <p className={permitsComparison(assessment.verdict)
         ? "case-verdict-ok" : "case-verdict-no"}>
         {assessment.reasoning}
+      </p>
+
+      {/*
+        * What the verdict rests on, which is the weaker of the two scans.
+        *
+        * `assessment.evidence` is `Math.min` of the two acquisitions and was
+        * computed, returned and shown to nobody. Each scan's own figure sits
+        * on its caption, so a reader saw "100% read from the file" beside
+        * "20%" with a verdict between them, and was left to work out for
+        * themselves that a comparison is only as good as its weaker side.
+        * Working that out is exactly what this screen exists to do for them.
+        *
+        * Stated always, including at 100%, because a qualification that
+        * appears only when things are bad teaches a reader that its absence
+        * means nothing when it means everything was read.
+        */}
+      <p className="case-rests-on">
+        {assessment.evidence >= 1
+          ? "Every fact this rests on was read from the files."
+          : `This rests on the ${domain.noun} with less recorded: `
+            + `${Math.round(assessment.evidence * 100)}% of its acquisition `
+            + `was read from the file, the rest stated by hand.`}
       </p>
 
       {assessment.harmonization.length > 0 && (
@@ -403,7 +513,7 @@ function Reasoning({ assessment }: { assessment: Assessment }) {
         <tbody>
           {assessment.findings.map((f) => (
             <tr key={f.axis} className={`case-${f.agreement}`}>
-              <th scope="row">{f.axis}</th>
+              <th scope="row">{f.label}</th>
               <td>{f.left}</td>
               <td>{f.right}</td>
               <td>{f.note}</td>

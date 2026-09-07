@@ -24,19 +24,29 @@
  * whatever it is labelled.
  */
 
-import {
-  AXIS_LABEL, Axis, ContrastPhase, Fact, Modality, Study, Weighting,
-} from "./study";
-import { SPACING_TOLERANCE, THICKNESS_TOLERANCE } from "./comparability";
+import { Acquisition, Axis, Fact } from "./study";
+import { domainOf } from "./domain";
+
+/**
+ * One constraint, on one axis, in whatever discipline named it.
+ *
+ * Open on the axis rather than a closed union of radiology's seven, so a
+ * microscopist can narrow to a channel and a preparation the same way. The
+ * three shapes are the three ways the profiles compare anything: a set a value
+ * must be in, a ceiling it must be under, and a nominal value it must be at.
+ */
+type Named = {
+  /** The discipline's word for this axis. Falls back to the key. */
+  label?: string;
+  /** The unit the number is in, where it has one. */
+  unit?: string;
+};
 
 export type Criterion =
-  | { axis: "modality"; oneOf: Modality[] }
-  | { axis: "weighting"; oneOf: Weighting[] }
-  | { axis: "contrast"; oneOf: ContrastPhase[] }
-  | { axis: "orientation"; oneOf: Array<"axial" | "coronal" | "sagittal" | "oblique"> }
-  | { axis: "sliceThickness"; atMost: number }
-  | { axis: "pixelSpacing"; atMost: number }
-  | { axis: "fieldStrength"; equals: number };
+  | ({ axis: Axis; oneOf: unknown[] } & Named)
+  | ({ axis: Axis; atMost: number } & Named)
+  /** `within` is the axis's own tolerance; absent means exact equality. */
+  | ({ axis: Axis; equals: number; within?: number } & Named);
 
 export type Query = Criterion[];
 
@@ -44,7 +54,7 @@ export type Query = Criterion[];
 export type Answer = "yes" | "no" | "unknown";
 
 export type Row = {
-  study: Study;
+  study: Acquisition;
   /** Criteria this scan failed, for saying why it is not in the result. */
   failed: Axis[];
   /** Criteria it could not answer, because the fact was never recorded. */
@@ -68,21 +78,46 @@ export type Result = {
 };
 
 /** Whether one scan satisfies one criterion. */
-export function answer(study: Study, criterion: Criterion): Answer {
-  const fact = study[criterion.axis] as Fact<unknown>;
-  if (fact.value === null) return "unknown";
+export function answer(acquisition: Acquisition, criterion: Criterion): Answer {
+  const fact = acquisition[criterion.axis] as Fact<unknown> | undefined;
+  if (fact === undefined || fact.value === null) return "unknown";
 
-  switch (criterion.axis) {
-    case "modality": case "weighting": case "contrast": case "orientation":
-      return (criterion.oneOf as unknown[]).includes(fact.value) ? "yes" : "no";
-    case "sliceThickness": case "pixelSpacing":
-      // "At most" with a hair of slack, matching the ratio the verdict engine
-      // uses — so a query and a verdict cannot disagree about 1.0 against 1.25.
-      return Number(fact.value) <= criterion.atMost * 1.0001 ? "yes" : "no";
-    case "fieldStrength":
-      // Field strengths are nominal; near equality is equality.
-      return Math.abs(Number(fact.value) - criterion.equals) < 0.2 ? "yes" : "no";
+  /*
+   * Decided by the shape of the constraint rather than by the name of the
+   * axis, so a channel and a modality are answered by one line of code and a
+   * discipline can be added without touching this function.
+   */
+  if ("oneOf" in criterion) {
+    // Folded for the same reason the verdict folds free text, so a query and a
+    // verdict cannot disagree about "DAPI" against "dapi".
+    const fold = (v: unknown) => String(v).trim().toLowerCase();
+    return criterion.oneOf.some((v) => v === fact.value
+                                    || fold(v) === fold(fact.value))
+      ? "yes" : "no";
   }
+  if ("atMost" in criterion) {
+    // "At most" with a hair of slack, matching the ratio the verdict engine
+    // uses — so a query and a verdict cannot disagree about 1.0 against 1.25.
+    return Number(fact.value) <= criterion.atMost * 1.0001 ? "yes" : "no";
+  }
+  /*
+   * A nominal value, so near equality is equality: 1.5 T is written as 1.494
+   * by some scanners and is still 1.5 T.
+   *
+   * The tolerance is the axis's own — 0.2 T for a magnet, 0.05 for a numerical
+   * aperture — taken from the acquisition's profile when the criterion does not
+   * carry one. Not a constant: a number chosen for magnets, applied to an
+   * aperture, would quietly call two different lenses the same.
+   */
+  const slack = criterion.within
+    ?? nominalTolerance(acquisition, criterion.axis);
+  return Math.abs(Number(fact.value) - criterion.equals) <= slack ? "yes" : "no";
+}
+
+/** The tolerance the profile itself uses for a nominal axis, or exact. */
+function nominalTolerance(acquisition: Acquisition, axis: Axis): number {
+  const spec = domainOf(acquisition.domain).axes.find((a) => a.key === axis);
+  return spec?.match.kind === "near" ? spec.match.epsilon : 0;
 }
 
 /**
@@ -92,7 +127,7 @@ export function answer(study: Study, criterion: Criterion): Answer {
  * available would be by how near a scan is to the case, and that is the ranking
  * this subsystem exists without.
  */
-export function run(query: Query, studies: Study[]): Result {
+export function run(query: Query, studies: Acquisition[]): Result {
   const result: Result = { matched: [], excluded: [], uncertain: [] };
 
   for (const study of studies) {
@@ -135,31 +170,23 @@ export function run(query: Query, studies: Study[]): Result {
  * comparable" are the same set. Two answers to the same question that disagreed
  * would make both untrustworthy — and a test holds them together.
  */
-export function fromCase(study: Study): Query {
+export function fromCase(acquisition: Acquisition): Query {
   const query: Query = [];
-
-  if (study.modality.value !== null) {
-    query.push({ axis: "modality", oneOf: [study.modality.value] });
-  }
-  if (study.weighting.value !== null) {
-    query.push({ axis: "weighting", oneOf: [study.weighting.value] });
-  }
-  if (study.contrast.value !== null) {
-    query.push({ axis: "contrast", oneOf: [study.contrast.value] });
-  }
-  if (study.orientation.value !== null) {
-    query.push({ axis: "orientation", oneOf: [study.orientation.value] });
-  }
-  if (study.sliceThickness.value !== null) {
-    query.push({ axis: "sliceThickness",
-                 atMost: study.sliceThickness.value * THICKNESS_TOLERANCE });
-  }
-  if (study.pixelSpacing.value !== null) {
-    query.push({ axis: "pixelSpacing",
-                 atMost: study.pixelSpacing.value * SPACING_TOLERANCE });
-  }
-  if (study.fieldStrength.value !== null) {
-    query.push({ axis: "fieldStrength", equals: study.fieldStrength.value });
+  for (const axis of domainOf(acquisition.domain).axes) {
+    const fact = acquisition[axis.key] as Fact<unknown> | undefined;
+    if (fact === undefined || fact.value === null) continue;
+    if (axis.match.kind === "ratio") {
+      // The same tolerance the verdict uses, so "narrow to this acquisition"
+      // and "is this comparable" cannot disagree about what counts as close.
+      query.push({ axis: axis.key, label: axis.label, unit: axis.unit,
+                   atMost: Number(fact.value) * axis.match.tolerance });
+    } else if (axis.match.kind === "near") {
+      query.push({ axis: axis.key, label: axis.label, unit: axis.unit,
+                   equals: Number(fact.value), within: axis.match.epsilon });
+    } else {
+      query.push({ axis: axis.key, label: axis.label, unit: axis.unit,
+                   oneOf: [fact.value] });
+    }
   }
   return query;
 }
@@ -170,16 +197,18 @@ export function describeQuery(query: Query): string {
     return "No constraints: every scan is returned, because nothing was asked.";
   }
   const parts = query.map((criterion) => {
-    const name = AXIS_LABEL[criterion.axis];
+    const name = criterion.label ?? criterion.axis;
     if ("oneOf" in criterion) {
       return criterion.oneOf.length === 1
         ? `${name} is ${criterion.oneOf[0]}`
         : `${name} is one of ${criterion.oneOf.join(", ")}`;
     }
     if ("atMost" in criterion) {
-      return `${name} is at most ${Number(criterion.atMost.toFixed(2))} mm`;
+      const unit = criterion.unit === undefined ? "" : ` ${criterion.unit}`;
+      return `${name} is at most ${Number(criterion.atMost.toFixed(2))}${unit}`;
     }
-    return `${name} is ${criterion.equals} T`;
+    const unit = criterion.unit === undefined ? "" : ` ${criterion.unit}`;
+    return `${name} is ${criterion.equals}${unit}`;
   });
   return `${parts.join("; ")}.`;
 }
@@ -228,11 +257,16 @@ function asList(items: string[]): string {
 
 /** Why one scan is not in the result, in words a researcher can act on. */
 export function explainRow(row: Row): string {
+  // Named by the row's own discipline, so a micrograph is not told it differs
+  // on "sequence weighting".
+  const axes = domainOf(row.study.domain).axes;
+  const label = (key: Axis) =>
+    axes.find((a) => a.key === key)?.label ?? key;
   if (row.failed.length > 0) {
-    return `Differs on ${asList(row.failed.map((a) => AXIS_LABEL[a]))}.`;
+    return `Differs on ${asList(row.failed.map(label))}.`;
   }
   if (row.silent.length > 0) {
-    return `Does not record ${asList(row.silent.map((a) => AXIS_LABEL[a]))}`
+    return `Does not record ${asList(row.silent.map(label))}`
          + " — it may well match, and nothing here can say so.";
   }
   return row.onDeclared

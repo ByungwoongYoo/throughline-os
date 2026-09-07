@@ -37,7 +37,25 @@ def project(cur):
     return project_id
 
 
-def spec(cur, project, *, method="linear_regression", variables=None, filters=None):
+def dataset_version(cur, project, *, design="unknown", name="amr"):
+    """A dataset version an analysis can be said to have run on."""
+    source_id, dataset_id, version_id = new_id("src"), new_id("dst"), new_id("dsv")
+    cur.execute(
+        "INSERT INTO sources(id, project_id, source_type, title, ingestion_status) "
+        "VALUES (%s, %s, 'upload', %s, 'ready')", (source_id, project, name))
+    cur.execute(
+        "INSERT INTO datasets(id, project_id, source_id, name, format) "
+        "VALUES (%s, %s, %s, %s, 'csv')", (dataset_id, project, source_id, name))
+    cur.execute(
+        "INSERT INTO dataset_versions(id, dataset_id, version, row_count, "
+        "column_count, content_hash, study_design) "
+        "VALUES (%s, %s, 1, 180, 2, %s, %s)",
+        (version_id, dataset_id, new_id("h")[:64], design))
+    return version_id
+
+
+def spec(cur, project, *, method="linear_regression", variables=None, filters=None,
+         dataset_version_ids=None):
     """A specification row, in the executor's real vocabulary.
 
     This helper defaulted to `method="spearman"` — not a method the system has
@@ -57,9 +75,10 @@ def spec(cur, project, *, method="linear_regression", variables=None, filters=No
         "INSERT INTO analysis_specs(id, project_id, analysis_type, method, "
         "content_hash, created_by, research_question, dataset_version_ids, "
         "variables, filters) VALUES (%s, %s, 'correlation', %s, %s, 'test', "
-        "'q', '[]'::jsonb, %s, %s)",
+        "'q', %s, %s, %s)",
         (spec_id, project, method, new_id("h")[:64],
-         jsonb(variables or {}), jsonb(filters or [])))
+         jsonb(dataset_version_ids or []), jsonb(variables or {}),
+         jsonb(filters or [])))
     return spec_id
 
 
@@ -574,3 +593,101 @@ def test_swapping_the_variables_of_an_asymmetric_method_is_a_deviation(cur, proj
 
     assert report["matches_plan"] is False
     assert {f["field"] for f in report["deviations"]} == {"exposure", "outcome"}
+
+
+# ---------------------------------------------------------------------------
+# The design
+# ---------------------------------------------------------------------------
+#
+# `planned_design` was stored, hashed into `plan_hash` — so recording one was
+# enough to make a registration count as checkable — and then compared with
+# nothing at all. A registration naming a randomised trial, run against
+# observational data, reported "This analysis is the one that was registered".
+
+def _regression(cur, project, **kwargs):
+    return spec(cur, project, method="linear_regression",
+                variables={"outcome": "resistance", "predictors": ["consumption"]},
+                **kwargs)
+
+
+def test_running_a_registered_trial_on_observational_data_is_material(cur, project):
+    version = dataset_version(cur, project, design="cross_sectional")
+    spec_id = _regression(cur, project, dataset_version_ids=[version])
+    registration = registered(cur, project, design="randomised controlled trial",
+                              outcome="resistance", exposure="consumption")
+
+    report = deviations.compare(cur, registration_id=registration, spec_id=spec_id)
+
+    design = [f for f in report["findings"] if f["field"] == "design"][0]
+    assert design["state"] == deviations.MATERIAL
+    assert "cross sectional" in design["detail"]
+    assert report["matches_plan"] is False
+
+
+def test_a_design_that_matches_is_reported_as_matched(cur, project):
+    version = dataset_version(cur, project, design="cohort")
+    spec_id = _regression(cur, project, dataset_version_ids=[version])
+    registration = registered(cur, project, design="prospective cohort study",
+                              outcome="resistance", exposure="consumption")
+
+    report = deviations.compare(cur, registration_id=registration, spec_id=spec_id)
+
+    design = [f for f in report["findings"] if f["field"] == "design"][0]
+    assert design["state"] == "matched"
+
+
+def test_a_design_nobody_recorded_on_the_data_is_not_a_pass(cur, project):
+    """
+    Not "matched" and not a deviation. Until the dataset's study context is
+    recorded there is nothing on the data's side to compare, and reporting a
+    match would be the same claim-without-support in the other direction.
+    """
+    version = dataset_version(cur, project)          # study_design 'unknown'
+    spec_id = _regression(cur, project, dataset_version_ids=[version])
+    registration = registered(cur, project, design="cohort",
+                              outcome="resistance", exposure="consumption")
+
+    report = deviations.compare(cur, registration_id=registration, spec_id=spec_id)
+
+    design = [f for f in report["findings"] if f["field"] == "design"][0]
+    assert design["state"] == deviations.UNREGISTERED
+    assert "Record it on the dataset" in design["detail"]
+
+
+def test_an_unregistered_design_is_not_deviated_from(cur, project):
+    version = dataset_version(cur, project, design="cross_sectional")
+    spec_id = _regression(cur, project, dataset_version_ids=[version])
+    registration = registered(cur, project, method="linear_regression",
+                              outcome="resistance", exposure="consumption")
+
+    report = deviations.compare(cur, registration_id=registration, spec_id=spec_id)
+
+    design = [f for f in report["findings"] if f["field"] == "design"][0]
+    assert design["state"] == deviations.UNREGISTERED
+
+
+def test_data_recorded_under_two_designs_names_both(cur, project):
+    one = dataset_version(cur, project, design="cohort", name="a")
+    two = dataset_version(cur, project, design="ecological", name="b")
+    spec_id = _regression(cur, project, dataset_version_ids=[one, two])
+    registration = registered(cur, project, design="cohort",
+                              outcome="resistance", exposure="consumption")
+
+    report = deviations.compare(cur, registration_id=registration, spec_id=spec_id)
+
+    design = [f for f in report["findings"] if f["field"] == "design"][0]
+    assert design["state"] == deviations.MATERIAL
+    assert "cohort" in design["detail"] and "ecological" in design["detail"]
+
+
+def test_the_project_note_names_a_design_deviation(cur, project):
+    version = dataset_version(cur, project, design="cross_sectional")
+    spec_id = _regression(cur, project, dataset_version_ids=[version])
+    registration = registered(cur, project, design="randomised controlled trial",
+                              outcome="resistance", exposure="consumption")
+
+    report = deviations.compare(cur, registration_id=registration, spec_id=spec_id)
+
+    assert "design" in report["note"]
+    # And it still never calls it misconduct.
+    assert "fraud" not in report["note"].lower()

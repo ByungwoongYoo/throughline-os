@@ -215,8 +215,24 @@ def evidence_graph(cur, *, finding_id: str) -> dict[str, Any]:
 
     supports = sum(len(c["supporting"]) for c in claims)
     contradicts = sum(len(c["contradicting"]) for c in claims)
+    # The causal reading, with what it means.
+    #
+    # `causal_status` has always been in this payload — `SELECT *` — and no
+    # screen read it, so the one field this product treats as its central
+    # honesty commitment appeared on the findings *list* as a bare token and
+    # nowhere on the finding itself. The sentence beside it comes from
+    # `library_note`, which is where the vocabulary already lives: a second
+    # copy in the client is the drift that put `associational` in that
+    # dictionary for a status really called `association_only`.
+    from .library_note import causal_sentence
+
+    causal_status = finding.get("causal_status") or "not_assessed"
     return {
         "finding": finding,
+        "causal_reading": {
+            "status": causal_status,
+            "note": causal_sentence(causal_status),
+        },
         "claims": claims,
         "analyses": analyses,
         "connections": connections,

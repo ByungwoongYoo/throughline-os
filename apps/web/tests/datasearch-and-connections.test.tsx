@@ -160,6 +160,58 @@ describe("finding data to work with", () => {
     await waitFor(() => expect(screen.getByRole("textbox")).toBeTruthy());
   });
 
+  it("counts the repositories it has rather than saying four", async () => {
+    /*
+     * "Asking four repositories" was true when it was written and one
+     * connector away from being false — which is precisely how the Find
+     * papers header came to claim it searched four sources while searching
+     * ten. That count was made structural rather than corrected, and this is
+     * the same repair applied before the same rot: the sentence follows the
+     * list the chips are built from, so adding a connector changes both or
+     * neither.
+     */
+    vi.spyOn(api, "get").mockResolvedValue({
+      repositories: [
+        { name: "Zenodo", curated: true, note: "" },
+        { name: "Dryad", curated: true, note: "" },
+        { name: "Dataverse", curated: false, note: "" },
+      ],
+    } as never);
+    let release: (value: unknown) => void = () => {};
+    vi.spyOn(api, "post").mockReturnValue(
+      new Promise((resolve) => { release = resolve; }) as never);
+
+    render(<DataSearch />);
+    await screen.findByText(/Zenodo/);
+
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "amr" } });
+    fireEvent.click(screen.getByRole("button", { name: /search|find/i }));
+
+    // While it is asking, which is the only time the sentence is on screen.
+    await waitFor(() =>
+      expect(screen.getByText(/Asking 3 repositories/)).toBeTruthy());
+    expect(screen.queryByText(/four/)).toBeNull();
+    release(RESULTS);
+  });
+
+  it("drops the number rather than guessing when the list is unknown",
+     async () => {
+    // The list's own request can fail, and a count invented there would be
+    // the same false precision in a different place.
+    vi.spyOn(api, "get").mockRejectedValue(new Error("offline"));
+    let release: (value: unknown) => void = () => {};
+    vi.spyOn(api, "post").mockReturnValue(
+      new Promise((resolve) => { release = resolve; }) as never);
+
+    render(<DataSearch />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "amr" } });
+    fireEvent.click(screen.getByRole("button", { name: /search|find/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/Asking the dataset repositories/)).toBeTruthy());
+    release(RESULTS);
+  });
+
   it("shows what a search found, and what it is good for", async () => {
     vi.spyOn(api, "get").mockResolvedValue({ repositories: [] } as never);
     const post = vi.spyOn(api, "post").mockResolvedValue(RESULTS as never);
