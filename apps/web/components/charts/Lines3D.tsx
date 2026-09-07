@@ -35,7 +35,8 @@ import {
 } from "react";
 import { ScreenPoint, TargetRef, VisualizationController } from "@/lib/spatial/commands";
 import { canvasPoint, isClick } from "@/lib/charts/pointer";
-import { AXES_SCALED_SEPARATELY, Camera, DEFAULT_CAMERA, insidePolygon, resetCamera, rotateCamera, toCanvas, zoomCamera } from "@/lib/charts/scene3d";
+import { AXES_SCALED_SEPARATELY, Axes3D, Camera, DEFAULT_CAMERA, insidePolygon, resetCamera, rotateCamera, toCanvas, zoomCamera } from "@/lib/charts/scene3d";
+import { AxisNaming, framing, named } from "@/lib/charts/frame";
 import { useSpatialKeys } from "@/lib/charts/spatialKeys";
 import { ChartExport } from "@/components/charts/ChartExport";
 import { isZoomWheel, wheelZoomFactor } from "@/lib/charts/wheel";
@@ -53,6 +54,15 @@ export type Lines3DProps = {
   controllerRef?: React.RefObject<VisualizationController | null>;
   onSelect?: (target: TargetRef | null) => void;
   caption?: string;
+  /**
+   * What the three coordinates of a path point are.
+   *
+   * Names only: the numbers are the extent every path was scaled against, and
+   * one extent covers all of them, because two orbits scaled separately would
+   * each fill the cube and look the same size. Unnamed, a direction carries
+   * the name of the field it was read from.
+   */
+  axes?: { x?: AxisNaming; y?: AxisNaming; z?: AxisNaming };
 };
 
 /** How near a pointer must be, in pixels, to count as on a path. */
@@ -60,7 +70,7 @@ const PICK_RADIUS = 10;
 
 export function Lines3D({
   paths, settings = DEFAULT_PATHS, width = 720, height = 520, controllerRef,
-  onSelect, caption,
+  onSelect, caption, axes,
 }: Lines3DProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const cameraRef = useRef<Camera>({ ...DEFAULT_CAMERA });
@@ -76,6 +86,24 @@ export function Lines3D({
    */
   const prepared: Paths = useMemo(
     () => preparePaths(paths, settings), [paths, settings]);
+
+  /*
+   * The frame, from the extent the paths were placed against.
+   *
+   * `prepared.domain` rather than a sweep of `paths`: the preparation ignores
+   * points that are not finite, and an axis labelled from a domain the
+   * drawing did not use puts every tick a little off its own value with
+   * nothing in the picture to show it.
+   *
+   * A trajectory's `t` is not one of these. Time is drawn as the ramp along
+   * the stroke — faint at the start, solid at the end — and there is no
+   * spatial direction for it to be an axis of.
+   */
+  const scene: Axes3D = useMemo(() => ({
+    x: named(axes?.x, "x", prepared.domain.x),
+    y: named(axes?.y, "y", prepared.domain.y),
+    z: named(axes?.z, "z", prepared.domain.z),
+  }), [axes, prepared]);
 
   /** Which path a pointer is on, measured to the line rather than to a point. */
   const nearest = useCallback((point: ScreenPoint): TargetRef | null => {
@@ -213,13 +241,13 @@ export function Lines3D({
       if (dirtyRef.current) {
         dirtyRef.current = false;
         paintLines(canvasRef.current, prepared, cameraRef.current,
-                   { width, height }, selected, hoveredRef.current);
+                   { width, height }, selected, hoveredRef.current, scene);
       }
       handle = requestAnimationFrame(tick);
     };
     handle = requestAnimationFrame(tick);
     return () => { running = false; cancelAnimationFrame(handle); };
-  }, [prepared, width, height, selected]);
+  }, [prepared, width, height, selected, scene]);
 
   const dragging = useRef<{ x: number; y: number } | null>(null);
   /** Where a press began, so a click can be told from a rotation. */
@@ -340,6 +368,14 @@ export function paintLines(
   size: { width: number; height: number },
   selected: string | null,
   hovered: string | null,
+  /**
+   * What the three directions measure, or nothing.
+   *
+   * Optional so the paint tests that predate the frame still describe what
+   * they meant to: they read the segments off the call list in order, and a
+   * wall drawn before them would be a true statement about a different chart.
+   */
+  axes: Axes3D | null = null,
 ): void {
   if (!canvas) return;
   const context = canvas.getContext("2d");
@@ -347,6 +383,11 @@ export function paintLines(
 
   const { width, height } = size;
   context.clearRect(0, 0, width, height);
+
+  // Recomputed here, inside the frame, because which walls face away changes
+  // continuously as the scene turns.
+  const frame = framing(context, canvas, axes, camera, size);
+  frame.behind();
 
   /*
    * Every segment of every path, collected and then sorted together.
@@ -419,4 +460,7 @@ export function paintLines(
     context.stroke();
     context.restore();
   }
+
+  // Over the paths: a tick under a trajectory is a tick nobody reads.
+  frame.front();
 }

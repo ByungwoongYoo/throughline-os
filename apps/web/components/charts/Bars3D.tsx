@@ -15,6 +15,14 @@
  * taller the near row reads for the same value. A reader told both can decide
  * to turn the chart, or to read the flat version instead.
  *
+ * **The floor is numbered only where a number would be true.** The height is a
+ * measured value and always carries a scale. The other two directions are
+ * placed by *rank* — the third distinct row goes in the third slot, whatever
+ * its value — so numbers along them are honest for bins and for categories
+ * numbered from zero, and a lie for rows of 1, 2 and 10, where a tick reading
+ * 2 would sit where no bar stands. Those directions keep their names and lose
+ * their numbers instead.
+ *
  * **Each bar is four faces, not one quad.** A single filled rectangle would
  * read as a flat sticker; the two visible sides plus the top are what make it a
  * solid, and the top face is what lets the eye find the height. Faces are
@@ -27,15 +35,16 @@ import {
 } from "react";
 import { ScreenPoint, TargetRef, VisualizationController } from "@/lib/spatial/commands";
 import {
-  Camera, DEFAULT_CAMERA, insidePolygon, resetCamera, rotateCamera, toCanvas, zoomCamera,
+  Axes3D, Camera, DEFAULT_CAMERA, insidePolygon, resetCamera, rotateCamera, toCanvas, zoomCamera,
 } from "@/lib/charts/scene3d";
+import { AxisNaming, framing, named } from "@/lib/charts/frame";
 import { canvasPoint, isClick } from "@/lib/charts/pointer";
 import { useSpatialKeys } from "@/lib/charts/spatialKeys";
 import { ChartExport } from "@/components/charts/ChartExport";
 import { isZoomWheel, wheelZoomFactor } from "@/lib/charts/wheel";
 import {
-  Bar, Bars, BarSettings, DEFAULT_BARS, PlacedBar, describeBars, hiddenCount,
-  perspectiveStretch, prepareBars,
+  Bar, Bars, BarSettings, DEFAULT_BARS, PlacedBar, describeBars, evenlySpaced,
+  hiddenCount, perspectiveStretch, prepareBars,
 } from "@/lib/charts3d/bars";
 
 export type Bars3DProps = {
@@ -46,6 +55,14 @@ export type Bars3DProps = {
   controllerRef?: React.RefObject<VisualizationController | null>;
   onSelect?: (target: TargetRef | null) => void;
   caption?: string;
+  /**
+   * What the floor and the height measure.
+   *
+   * `value` is the one with a scale under it in every case. `row` and `column`
+   * are numbered only when their distinct values step evenly, because that is
+   * the only arrangement in which rank and value describe the same positions.
+   */
+  axes?: { row?: AxisNaming; column?: AxisNaming; value?: AxisNaming };
 };
 
 /** How near a pointer must be, in pixels, to count as on a bar. */
@@ -56,7 +73,7 @@ const FACE = { top: 1.0, left: 0.78, right: 0.6 };
 
 export function Bars3D({
   bars, settings = DEFAULT_BARS, width = 720, height = 520, controllerRef,
-  onSelect, caption,
+  onSelect, caption, axes,
 }: Bars3DProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const cameraRef = useRef<Camera>({ ...DEFAULT_CAMERA });
@@ -73,6 +90,35 @@ export function Bars3D({
 
   const prepared: Bars = useMemo(
     () => prepareBars(bars, settings), [bars, settings]);
+
+  /*
+   * The frame. Scene axes, not data names: a bar's height is drawn up the
+   * screen, so the *value* is scene `y`, and the two floor directions are
+   * scene `x` and `z`. Writing the value's numbers along a floor edge would
+   * look like a working chart and be wrong in the one way nothing reveals.
+   *
+   * The height's domain is `range`, which is what `prepareBars` scaled by —
+   * and `prepareBars` puts zero inside it always, so the scale a reader sees
+   * is the scale the bars stand on rather than one starting at the smallest
+   * value.
+   *
+   * A direction whose ranks and values disagree is given a domain of NaN,
+   * which `niceTicks` answers with no ticks at all: the name of the direction
+   * survives, the numbers do not. That is the honest picture — the reader can
+   * see there are five slots and is not told which values they hold.
+   */
+  const scene: Axes3D = useMemo(() => {
+    const floor = (naming: AxisNaming | undefined, fallback: string,
+                   positions: number[]) =>
+      named(naming, fallback, evenlySpaced(positions) && positions.length > 0
+        ? { min: positions[0], max: positions[positions.length - 1] }
+        : { min: NaN, max: NaN });
+    return {
+      x: floor(axes?.row, "Row", prepared.rows),
+      y: named(axes?.value, "Value", prepared.range),
+      z: floor(axes?.column, "Column", prepared.columns),
+    };
+  }, [axes, prepared]);
 
   const at = useCallback((bar: PlacedBar) => {
     // The top of the bar: what a reader points at and what they compare.
@@ -218,13 +264,13 @@ export function Bars3D({
       if (dirtyRef.current) {
         dirtyRef.current = false;
         paintBars(canvasRef.current, prepared, cameraRef.current,
-                  { width, height }, selected);
+                  { width, height }, selected, scene);
       }
       handle = requestAnimationFrame(tick);
     };
     handle = requestAnimationFrame(tick);
     return () => { running = false; cancelAnimationFrame(handle); };
-  }, [prepared, width, height, selected]);
+  }, [prepared, width, height, selected, scene]);
 
   const dragging = useRef<{ x: number; y: number } | null>(null);
   /** Where a press began, so a click can be told from a rotation. */
@@ -328,6 +374,14 @@ export function paintBars(
   camera: Camera,
   size: { width: number; height: number },
   selected: number | null,
+  /**
+   * What the three directions measure, or nothing.
+   *
+   * Optional so the paint tests that predate the frame still describe what
+   * they meant to: they read a bar's faces off the call list in order, and a
+   * wall drawn before them would be a true statement about a different chart.
+   */
+  axes: Axes3D | null = null,
 ): void {
   if (!canvas) return;
   const context = canvas.getContext("2d");
@@ -335,6 +389,11 @@ export function paintBars(
 
   const { width, height } = size;
   context.clearRect(0, 0, width, height);
+
+  // Recomputed here, inside the frame, because which walls face away changes
+  // continuously as the scene turns.
+  const frame = framing(context, canvas, axes, camera, size);
+  frame.behind();
 
   const project = (x: number, y: number, z: number) =>
     toCanvas({ x, y, z }, camera, width, height);
@@ -400,6 +459,9 @@ export function paintBars(
     }
     context.restore();
   }
+
+  // Over the bars: a solid is opaque, and a tick behind one is not a tick.
+  frame.front();
 }
 
 /**

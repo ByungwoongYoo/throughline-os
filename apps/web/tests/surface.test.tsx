@@ -261,17 +261,38 @@ describe("colour can carry something the axes do not", () => {
     z: [[1, 2, 3], [2, 3, 4], [3, 4, 5]],
   };
 
+  /**
+   * The colour key, or null.
+   *
+   * Asked for by what it *is* rather than by a class name, and the change is
+   * worth stating. These tests used to query `.surface-legend`, three spans
+   * this component wrote itself; the key is now the shared `Colourbar`, which
+   * carries no class of its own — it is styled inline so that a chart and a
+   * stylesheet cannot disagree about it. Chasing the class into the new
+   * markup would have been the wrong repair anyway: half of these assertions
+   * were `toBeNull()`, and a selector that matches nothing passes those
+   * whether the key is absent or merely renamed.
+   *
+   * `role="img"` with an accessible name naming a colour scale is the thing a
+   * reader who cannot see the bar actually receives, so it is also the thing
+   * worth pinning. The canvas beside it is `role="img"` too and describes a
+   * fitted surface, which is why the name is matched rather than the role.
+   */
+  function colourbar(): HTMLElement | null {
+    return screen.queryByRole("img", { name: /colour scale/i });
+  }
+
   it("draws no key when colour only repeats the height", () => {
     /**
      * The default. Height already carries z, so a scale for it keys the
      * picture to itself and adds a legend a reader has to check against an
      * axis that says the same thing.
      */
-    const { container } = render(
+    render(
       <Surface grid={GRID_3} xLabel="a" yLabel="b" zLabel="c"
                width={300} height={300} />);
 
-    expect(container.querySelector(".surface-legend")).toBeNull();
+    expect(colourbar()).toBeNull();
   });
 
   it("draws a key, with its unit, when colour carries a fourth variable", () => {
@@ -281,7 +302,7 @@ describe("colour can carry something the axes do not", () => {
      * maturity surface. Four dimensions in one picture, and unreadable without
      * a key.
      */
-    const { container } = render(
+    render(
       <Surface
         grid={GRID_3}
         colourBy={{
@@ -290,13 +311,10 @@ describe("colour can carry something the axes do not", () => {
         }}
         xLabel="a" yLabel="b" zLabel="c" width={300} height={300} />);
 
-    const legend = container.querySelector(".surface-legend");
-    expect(legend).not.toBeNull();
-    expect(legend!.textContent).toContain("Dispersion");
-    expect(legend!.textContent).toContain("bps");
+    expect(colourbar()).not.toBeNull();
+    expect(screen.getByText("Dispersion (bps)")).toBeTruthy();
     // The ends of the scale are the fourth variable's range, not the height's.
-    expect(legend!.textContent).toContain("10");
-    expect(legend!.textContent).toContain("50");
+    expect(colourbar()!.getAttribute("aria-label")).toContain("from 10 to 50");
   });
 
   it("repaints when the fourth variable changes and the surface does not", () => {
@@ -318,14 +336,13 @@ describe("colour can carry something the axes do not", () => {
      * anything without failing — the shared `NO_OBSERVATIONS` constant in
      * `Surface.tsx` is what keeps it honest, and the two must move together.
      */
-    const { container, rerender } = render(
+    const { rerender } = render(
       <Surface
         grid={GRID_3}
         colourBy={{ values: [[10, 20, 30], [20, 30, 40], [30, 40, 50]],
                     label: "Dispersion", unit: "bps" }}
         xLabel="a" yLabel="b" zLabel="c" width={300} height={300} />);
-    expect(container.querySelector(".surface-legend")!.textContent)
-      .toContain("Dispersion");
+    expect(screen.getByText("Dispersion (bps)")).toBeTruthy();
 
     rerender(
       <Surface
@@ -334,10 +351,9 @@ describe("colour can carry something the axes do not", () => {
                     label: "Residual", unit: "sd" }}
         xLabel="a" yLabel="b" zLabel="c" width={300} height={300} />);
 
-    const legend = container.querySelector(".surface-legend")!.textContent!;
-    expect(legend).toContain("Residual");
-    expect(legend).not.toContain("Dispersion");
-    expect(legend).toContain("500");
+    expect(screen.getByText("Residual (sd)")).toBeTruthy();
+    expect(screen.queryByText("Dispersion (bps)")).toBeNull();
+    expect(colourbar()!.getAttribute("aria-label")).toContain("from 100 to 500");
   });
 
   it("keys the scale to the fourth variable, not to z", () => {
@@ -346,20 +362,26 @@ describe("colour can carry something the axes do not", () => {
      * painting from another variable produces a bar whose numbers belong to a
      * different quantity than its colours.
      */
-    const { container } = render(
+    render(
       <Surface
         grid={GRID_3}
         colourBy={{ values: [[100, 200, 300], [200, 300, 400], [300, 400, 500]],
                     label: "Residual" }}
         xLabel="a" yLabel="b" zLabel="c" width={300} height={300} />);
 
-    // The two ends, read as their own spans. A substring test would be
-    // meaningless here: "100500" contains "5" because 500 does.
-    const ends = [...container.querySelectorAll(".surface-legend-ends span")]
-      .map((node) => node.textContent);
-    expect(ends).toEqual(["100", "500"]);
+    // The ends read off the scale's own description rather than by matching
+    // text on the page. A substring test would be meaningless here: "100500"
+    // contains "5" because 500 does.
+    const described = colourbar()!.getAttribute("aria-label");
+    expect(described).toContain("from 100 to 500");
     // Not the height's range, which is 1 to 5.
-    expect(ends).not.toEqual(["1", "5"]);
+    expect(described).not.toContain("from 1 to 5");
+    // And labelled the whole way up, not only at its ends — the bar this
+    // replaced gave a reader two corner numbers and nothing to interpolate
+    // against, and YlGnBu is not linear in hue.
+    for (const tick of ["200", "300", "400"]) {
+      expect(screen.getByText(tick), `tick ${tick}`).toBeTruthy();
+    }
   });
 
   it("refuses a colour grid that is not this surface", () => {
@@ -369,14 +391,14 @@ describe("colour can carry something the axes do not", () => {
      * would draw a different picture from the one that was asked for, so the
      * fallback happens *and says so*.
      */
-    const { container } = render(
+    render(
       <Surface
         grid={GRID_3}
         colourBy={{ values: [[1, 2]], label: "Wrong shape" }}
         xLabel="a" yLabel="b" zLabel="c" width={300} height={300} />);
 
     // No key, because the colour is back to meaning the height.
-    expect(container.querySelector(".surface-legend")).toBeNull();
+    expect(colourbar()).toBeNull();
   });
 
   it("refuses a colour grid with the right rows and the wrong columns", () => {
@@ -388,14 +410,14 @@ describe("colour can carry something the axes do not", () => {
      * mismatched. Painting from it would colour each row by the wrong cells
      * and look entirely plausible.
      */
-    const { container } = render(
+    render(
       <Surface
         grid={GRID_3}
         colourBy={{ values: [[1, 2, 3], [4, 5], [6, 7, 8]],
                     label: "Ragged" }}
         xLabel="a" yLabel="b" zLabel="c" width={300} height={300} />);
 
-    expect(container.querySelector(".surface-legend")).toBeNull();
+    expect(colourbar()).toBeNull();
   });
 
   it("survives a fourth variable with holes in it", () => {

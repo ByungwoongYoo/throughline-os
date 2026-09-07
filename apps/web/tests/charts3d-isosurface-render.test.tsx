@@ -38,6 +38,12 @@ function recordingCanvas() {
     clearRect: note("clearRect"), save: note("save"), restore: note("restore"),
     beginPath: note("beginPath"), moveTo: note("moveTo"), lineTo: note("lineTo"),
     closePath: note("closePath"), fill: note("fill"), stroke: note("stroke"),
+    // The axis frame (T141) writes its ticks and titles through this same
+    // context. A stub missing them throws inside the paint rather than failing
+    // an assertion, so they are stubbed; the facet counts below are unaffected.
+    fillText: note("fillText"), strokeText: note("strokeText"),
+    translate: note("translate"), rotate: note("rotate"),
+    setTransform: note("setTransform"),
   });
   const canvas = {
     getContext: () => context, width: 400, height: 300,
@@ -442,8 +448,15 @@ describe("selecting on the surface", () => {
     const ref = createRef<VisualizationController>();
     render(<Isosurface3D grid={sphere(8)} level={1.0} controllerRef={ref} />);
 
+    /*
+     * The selection outline is stroked at 2; everything else on this canvas is
+     * thinner. `> 1` used to isolate it and no longer does: since T141 the axis
+     * frame strokes its three axis lines at 1.1, so a repaint that changed no
+     * selection at all still moved the count. Naming the outline's own width is
+     * what this always meant.
+     */
     const heavy = () => recorder.calls.filter(
-      (c) => c.op === "stroke" && c.width > 1).length;
+      (c) => c.op === "stroke" && c.width >= 2).length;
 
     await act(async () => { ref.current!.focus("2"); await frame(); });
     const afterPicking = heavy();

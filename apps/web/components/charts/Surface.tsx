@@ -31,16 +31,26 @@
  *   - **Extrapolation is marked.** Cells of the grid with no observation nearby
  *     are drawn faintly, because the smoothest part of a fitted surface is
  *     usually the part with no data under it.
+ *   - **The three directions are named and numbered.** For a long time they
+ *     were not: this chart took `xLabel`, `yLabel` and `zLabel`, put all three
+ *     in the table and the screen-reader label, and drew none of them on the
+ *     picture. A response surface whose axes carry no scale shows that there
+ *     *is* a ridge and refuses to say where — the reader can see the shape and
+ *     cannot report a single number off it, which is the difference between a
+ *     figure and an ornament. The frame comes from `axisFurniture`, shared with
+ *     every other spatial chart so the three of them cannot drift into three
+ *     conventions for reading the same kind of picture.
  */
 
 import {
   useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 } from "react";
-import { AXES_SCALED_SEPARATELY, Camera, DEFAULT_CAMERA, DEPTH_RANGE, resetCamera, rotateCamera, toCanvas, unitScale, zoomCamera } from "@/lib/charts/scene3d";
+import { AXES_SCALED_SEPARATELY, Axes3D, Camera, DEFAULT_CAMERA, DEPTH_RANGE, axisFurniture, drawFurniture, resetCamera, rotateCamera, toCanvas, unitScale, zoomCamera } from "@/lib/charts/scene3d";
 import { ScreenPoint, TargetRef, VisualizationController } from "@/lib/spatial/commands";
 import { isZoomWheel } from "@/lib/charts/wheel";
 import { interpolateYlGnBu } from "d3-scale-chromatic";
 import { ChartTable } from "./ChartTable";
+import { Colourbar } from "./Colourbar";
 import { contourSegments, levelsFor } from "@/lib/charts3d/contour";
 
 export type SurfaceObservation = {
@@ -70,15 +80,28 @@ export type SurfaceGrid = {
 const SUPPORT_RADIUS = 0.18;
 
 /**
- * A number short enough to read off a legend.
+ * The lowest and highest of a list, swept rather than spread.
  *
- * Local rather than shared because every chart here formats inline the same
- * way — `toPrecision(3)` — and a helper imported from one chart into another
- * is a dependency between two things that have none.
+ * `Math.min(...values)` passes one argument per element and overflows the
+ * stack somewhere past a hundred thousand of them — `unitScale` says so in its
+ * own body and sweeps for exactly that reason. The colour range here was
+ * spread, and a fitted grid is the easy way to reach that size: a 400×400
+ * response is 160,000 cells from one call to a model.
+ *
+ * It is also the one place the axis domains come from, and that is not a
+ * convenience. `AxisSpec.min`/`max` must be the same two numbers `unitScale`
+ * was given, and a mismatch is undetectable from inside the furniture — a tick
+ * reading 40 would simply sit where 45 is, and the reader would read the chart
+ * off it. One computation, used by the scaling and by the labels, is what
+ * makes that impossible rather than merely unlikely.
  */
-function readable(value: number): string {
-  return Number.isInteger(value) ? String(value)
-    : String(Number(value.toPrecision(3)));
+function extentOf(values: readonly number[]): [number, number] {
+  let lo = Infinity, hi = -Infinity;
+  for (const value of values) {
+    if (value < lo) lo = value;
+    if (value > hi) hi = value;
+  }
+  return [lo, hi];
 }
 
 /**
@@ -160,9 +183,20 @@ export function Surface({
   const scene = useMemo(() => {
     const zValues = grid.z.flat().filter((v): v is number => v !== null);
     const allZ = [...zValues, ...observations.map((o) => o.z)];
+    /*
+     * The height is scaled over the fit *and* the observations together, and
+     * the axis has to be labelled over the same two numbers.
+     *
+     * Easy to get wrong and impossible to see: labelling the height axis with
+     * the grid's own range would be right whenever every observation happens
+     * to fall inside the fitted surface and silently wrong the moment one does
+     * not — which is the case a reader most wants to look at, a measurement
+     * the model did not reach.
+     */
+    const heights = allZ.length ? allZ : [0, 1];
     const sx = unitScale(grid.x);
     const sy = unitScale(grid.y);
-    const sz = unitScale(allZ.length ? allZ : [0, 1]);
+    const sz = unitScale(heights);
 
     /*
      * What the colour means, and it is not always the height.
@@ -182,8 +216,7 @@ export function Surface({
       : [];
     const paintedBy: number[] = fourth.length ? fourth : allZ;
 
-    const lo = Math.min(...(paintedBy.length ? paintedBy : [0]));
-    const hi = Math.max(...(paintedBy.length ? paintedBy : [1]));
+    const [lo, hi] = extentOf(paintedBy.length ? paintedBy : [0, 1]);
     const ramp = (value: number) =>
       interpolateYlGnBu(hi === lo ? 0.5 : (value - lo) / (hi - lo));
 
@@ -202,15 +235,32 @@ export function Surface({
     return {
       sx, sy, sz, colourOf, supported, valueAt,
       /*
+       * The three data domains, kept beside the three scalings that consumed
+       * them. `x` and `y` are the predictors; `height` is what `sz` was built
+       * over, which is the fit and the observations together.
+       */
+      domains: {
+        x: extentOf(grid.x), y: extentOf(grid.y), height: extentOf(heights),
+      },
+      /*
        * What the colour stands for, or nothing when it stands for the height
        * — in which case the z axis is already the key and a second one would
        * repeat it.
        */
       legend: fourth.length && colourBy
-        ? { label: colourBy.label, unit: colourBy.unit ?? "",
+        ? { label: colourBy.label, unit: colourBy.unit,
             low: lo, high: hi,
-            stops: [0, 0.25, 0.5, 0.75, 1].map((t) =>
-              interpolateYlGnBu(t)) }
+            /*
+             * The ramp itself, handed over rather than sampled into stops.
+             *
+             * The key and the surface have to be the same scale or the key is
+             * a picture of a different chart, and five hard-coded stops was
+             * one copy of it: change the interpolator here and the bar keeps
+             * painting the old one until somebody notices. `Colourbar` asks
+             * for the function and samples it, so there is nothing to keep in
+             * step.
+             */
+            ramp: interpolateYlGnBu }
         : null,
       /*
        * A colour grid that does not describe this surface. Reported so the
@@ -232,6 +282,32 @@ export function Surface({
    * mismatch check a few lines up exists to refuse.
    */
   }, [grid, observations, colourBy]);
+
+  /**
+   * The three directions, named and given their real numbers.
+   *
+   * **Keyed by scene axis, not by the caller's variable names**, and that is
+   * the one thing worth checking twice here. Scene `y` runs up the screen and
+   * scene `z` runs into it, while this chart's own `z` is the response and its
+   * `y` is the second predictor — so the height goes on scene `y` and
+   * `yLabel` goes on scene `z`. The projection above already does exactly this
+   * (`y: sz(o.z), z: sy(o.y)`), and the two have to agree: transposing them
+   * writes the right numbers along the wrong directions, and nothing about the
+   * picture looks broken afterwards.
+   *
+   * Units are not written here because the component has no prop carrying one.
+   * `xLabel`/`yLabel`/`zLabel` are strings a caller composes, so a caller with
+   * a unit already puts it in the label; inventing one from the numbers would
+   * be a measurement this chart made up.
+   */
+  const axes = useMemo<Axes3D>(() => ({
+    x: { label: xLabel,
+         min: scene.domains.x[0], max: scene.domains.x[1] },
+    y: { label: zLabel,
+         min: scene.domains.height[0], max: scene.domains.height[1] },
+    z: { label: yLabel,
+         min: scene.domains.y[0], max: scene.domains.y[1] },
+  }), [scene, xLabel, yLabel, zLabel]);
 
   /**
    * The mesh as quads, each with its own depth.
@@ -288,6 +364,34 @@ export function Surface({
     context.clearRect(0, 0, width, height);
 
     const camera = cameraRef.current;
+
+    /*
+     * The frame's colours, asked of the canvas once a frame.
+     *
+     * A canvas is painted with literal values and cannot inherit a token the
+     * way the rest of the interface does — but it can be asked what it
+     * inherited, which is the only way a figure follows a reader who switches
+     * theme with it on screen. Read here rather than hoisted into state
+     * because the answer changes without React being told.
+     */
+    const palette = getComputedStyle(canvas);
+    const colours = {
+      line: palette.getPropertyValue("--line-strong").trim(),
+      grid: palette.getPropertyValue("--line").trim(),
+      text: palette.getPropertyValue("--ink-faint").trim(),
+      title: palette.getPropertyValue("--ink-soft").trim(),
+    };
+    /*
+     * Recomputed every frame, never cached.
+     *
+     * Which walls face away and which edge each axis is labelled along both
+     * change continuously as the scene turns; a cached answer is a wall
+     * painted over the surface for half of a rotation.
+     */
+    const furniture = axisFurniture(axes, camera, width, height);
+    // The far walls and their gridlines go under the mesh. A pane painted
+    // after it would hide the thing the pane exists to measure.
+    drawFurniture(context, furniture, colours, 1, "behind");
 
     // Painter's algorithm over the cells: far to near, so a near cell covers a
     // far one and the surface reads as solid rather than as a tangle.
@@ -390,6 +494,15 @@ export function Surface({
       }
     }
 
+    /*
+     * The axis lines, the ticks and the titles, over everything.
+     *
+     * A filled surface is opaque, so a label drawn before it is a label the
+     * reader never sees — the second pass is what makes the numbers legible on
+     * the exact chart that most needs them.
+     */
+    drawFurniture(context, furniture, colours, 1, "front");
+
     if (focusedRef.current) {
       const cx = width / 2, cy = height / 2;
       context.strokeStyle = "rgba(20,67,184,0.55)";
@@ -411,10 +524,12 @@ export function Surface({
       settleRef.current = null;
       setHiddenCount(hiddenRef.current);
     }, 120);
-    //  and  are read by the contour and wireframe branches, so a
+    // `grid` and `style` are read by the contour and wireframe branches, so a
     // change to either has to repaint — without them a style switch left the
-    // previous drawing on screen.
-  }, [cells, scene, width, height, grid, style]);
+    // previous drawing on screen. `axes` is here for the same reason: the
+    // frame is what carries the labels, and a renamed axis that does not
+    // repaint is a chart labelled with the previous variable.
+  }, [cells, scene, width, height, grid, style, axes]);
 
   useEffect(() => {
     /*
@@ -538,87 +653,124 @@ export function Surface({
   return (
     <figure className="chart">
       {title && <figcaption className="chart-title">{title}</figcaption>}
-      <canvas
-        ref={canvasRef}
-        className="chart-canvas volume"
-        style={{ width, height: "auto", aspectRatio: `${width} / ${height}`,
-                 maxWidth: "100%", touchAction: "none" }}
-        role="img"
-        tabIndex={0}
-        aria-label={
-          `${title ?? "Fitted surface"}. ${zLabel} predicted from ${xLabel} and `
-          + `${yLabel}, over ${observations.length} observations. `
-          + `Arrow keys rotate, plus and minus zoom, Home resets the view. `
-          + `Enter selects the observation nearest the centre, Escape clears it.`}
-        onFocus={() => { focusedRef.current = true; dirtyRef.current = true; }}
-        onBlur={() => { focusedRef.current = false; dirtyRef.current = true; }}
-        onPointerDown={(event) => {
-          dragRef.current = { x: event.clientX, y: event.clientY };
-          pressRef.current = { x: event.clientX, y: event.clientY };
-          event.currentTarget.setPointerCapture(event.pointerId);
-        }}
-        onPointerMove={(event) => {
-          const from = dragRef.current;
-          const box = event.currentTarget.getBoundingClientRect();
-          const at = { x: event.clientX - box.left, y: event.clientY - box.top };
-          if (!from) {
-            const target = nearest(at);
-            if (target && target.id !== hoveredRef.current) onDetent?.("hover");
-            if ((target?.id ?? null) !== hoveredRef.current) {
-              hoveredRef.current = target?.id ?? null;
-              dirtyRef.current = true;
+      {/*
+        * The canvas and its key, side by side.
+        *
+        * Beside rather than below because a colour scale is read by carrying
+        * a patch of the picture to the bar and back; a bar under the caption
+        * makes that a scroll. Inline styles rather than a class, for the
+        * reason `Colourbar` itself is styled inline: the two are one piece of
+        * furniture, and splitting it across a stylesheet the component does
+        * not own is how a legend ends up 300px wide beside a 720px canvas.
+        */}
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
+        <canvas
+          ref={canvasRef}
+          className="chart-canvas volume"
+          style={{ width, height: "auto", aspectRatio: `${width} / ${height}`,
+                   maxWidth: "100%", touchAction: "none" }}
+          role="img"
+          tabIndex={0}
+          aria-label={
+            `${title ?? "Fitted surface"}. ${zLabel} predicted from ${xLabel} and `
+            + `${yLabel}, over ${observations.length} observations. `
+            + `Arrow keys rotate, plus and minus zoom, Home resets the view. `
+            + `Enter selects the observation nearest the centre, Escape clears it.`}
+          onFocus={() => { focusedRef.current = true; dirtyRef.current = true; }}
+          onBlur={() => { focusedRef.current = false; dirtyRef.current = true; }}
+          onPointerDown={(event) => {
+            dragRef.current = { x: event.clientX, y: event.clientY };
+            pressRef.current = { x: event.clientX, y: event.clientY };
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }}
+          onPointerMove={(event) => {
+            const from = dragRef.current;
+            const box = event.currentTarget.getBoundingClientRect();
+            const at = { x: event.clientX - box.left, y: event.clientY - box.top };
+            if (!from) {
+              const target = nearest(at);
+              if (target && target.id !== hoveredRef.current) onDetent?.("hover");
+              if ((target?.id ?? null) !== hoveredRef.current) {
+                hoveredRef.current = target?.id ?? null;
+                dirtyRef.current = true;
+              }
+              return;
             }
-            return;
-          }
-          rotateCamera(cameraRef.current, event.clientX - from.x,
-                       event.clientY - from.y);
-          dirtyRef.current = true;
-          dragRef.current = { x: event.clientX, y: event.clientY };
-        }}
-        onPointerUp={(event) => {
-          const press = pressRef.current;
-          dragRef.current = null;
-          pressRef.current = null;
-          if (!press) return;
-          if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > 3) return;
-          const box = event.currentTarget.getBoundingClientRect();
-          const target = nearest({ x: event.clientX - box.left,
-                                   y: event.clientY - box.top });
-          setSelected(target?.id ?? null);
-          if (target) onDetent?.("select");
-          onSelect?.(target);
-        }}
-        onWheel={(event) => {
-          // The same gate as every other chart: a plain wheel belongs to the
-          // page. One page can stack several of these, and two different wheel
-          // behaviours among them would be worse than either.
-          if (!isZoomWheel(event)) return;
-          event.preventDefault();
-          zoomCamera(cameraRef.current, event.deltaY < 0 ? 1.08 : 1 / 1.08);
-          dirtyRef.current = true;
-        }}
-        onKeyDown={(event) => {
-          const step = 12;
-          if (event.key === "ArrowLeft") rotateCamera(cameraRef.current, -step, 0);
-          else if (event.key === "ArrowRight") rotateCamera(cameraRef.current, step, 0);
-          else if (event.key === "ArrowUp") rotateCamera(cameraRef.current, 0, -step);
-          else if (event.key === "ArrowDown") rotateCamera(cameraRef.current, 0, step);
-          else if (event.key === "+" || event.key === "=") zoomCamera(cameraRef.current, 1.15);
-          else if (event.key === "-" || event.key === "_") zoomCamera(cameraRef.current, 1 / 1.15);
-          else if (event.key === "Home") resetCamera(cameraRef.current);
-          else if (event.key === "Enter" || event.key === " ") {
-            const target = nearest({ x: width / 2, y: height / 2 }, 60);
+            rotateCamera(cameraRef.current, event.clientX - from.x,
+                         event.clientY - from.y);
+            dirtyRef.current = true;
+            dragRef.current = { x: event.clientX, y: event.clientY };
+          }}
+          onPointerUp={(event) => {
+            const press = pressRef.current;
+            dragRef.current = null;
+            pressRef.current = null;
+            if (!press) return;
+            if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > 3) return;
+            const box = event.currentTarget.getBoundingClientRect();
+            const target = nearest({ x: event.clientX - box.left,
+                                     y: event.clientY - box.top });
             setSelected(target?.id ?? null);
             if (target) onDetent?.("select");
             onSelect?.(target);
-          } else if (event.key === "Escape") {
-            setSelected(null);
-            onSelect?.(null);
-          } else return;
-          dirtyRef.current = true;
-          event.preventDefault();
-        }}
-      />
+          }}
+          onWheel={(event) => {
+            // The same gate as every other chart: a plain wheel belongs to the
+            // page. One page can stack several of these, and two different wheel
+            // behaviours among them would be worse than either.
+            if (!isZoomWheel(event)) return;
+            event.preventDefault();
+            zoomCamera(cameraRef.current, event.deltaY < 0 ? 1.08 : 1 / 1.08);
+            dirtyRef.current = true;
+          }}
+          onKeyDown={(event) => {
+            const step = 12;
+            if (event.key === "ArrowLeft") rotateCamera(cameraRef.current, -step, 0);
+            else if (event.key === "ArrowRight") rotateCamera(cameraRef.current, step, 0);
+            else if (event.key === "ArrowUp") rotateCamera(cameraRef.current, 0, -step);
+            else if (event.key === "ArrowDown") rotateCamera(cameraRef.current, 0, step);
+            else if (event.key === "+" || event.key === "=") zoomCamera(cameraRef.current, 1.15);
+            else if (event.key === "-" || event.key === "_") zoomCamera(cameraRef.current, 1 / 1.15);
+            else if (event.key === "Home") resetCamera(cameraRef.current);
+            else if (event.key === "Enter" || event.key === " ") {
+              const target = nearest({ x: width / 2, y: height / 2 }, 60);
+              setSelected(target?.id ?? null);
+              if (target) onDetent?.("select");
+              onSelect?.(target);
+            } else if (event.key === "Escape") {
+              setSelected(null);
+              onSelect?.(null);
+            } else return;
+            dirtyRef.current = true;
+            event.preventDefault();
+          }}
+        />
+
+        {/*
+          * The key to the colour, and it appears only when the colour carries
+          * something the axes do not. Painting by height and then drawing a
+          * scale for it would key the picture to itself — the z axis is already
+          * that key, and now that it carries ticks it is a better one.
+          *
+          * In the DOM rather than on the canvas: a bar painted into the scene
+          * cannot be read by anything that cannot see, does not follow the
+          * theme, and does not grow with the reader's text size.
+          *
+          * `Colourbar` rather than the three spans that used to live here. Those
+          * gave a reader the two ends and nothing between them, so a patch of
+          * colour from the middle of the surface could only be guessed at —
+          * YlGnBu is not linear in hue, and guessing is exactly what a key is
+          * for avoiding. The shared component labels the scale the whole way up
+          * and formats its numbers with the same formatter the axis ticks use,
+          * so one figure does not carry two conventions for a number.
+          */}
+        {scene.legend && (
+          <Colourbar
+            ramp={scene.legend.ramp}
+            min={scene.legend.low} max={scene.legend.high}
+            label={scene.legend.label} unit={scene.legend.unit} />
+        )}
+      </div>
 
       {/*
         * A visible way back.
@@ -638,33 +790,6 @@ export function Surface({
           Reset the view
         </button>
       </div>
-
-      {/*
-        * The key to the colour, and it appears only when the colour carries
-        * something the axes do not. Painting by height and then drawing a
-        * scale for it would key the picture to itself.
-        *
-        * In the DOM rather than on the canvas: a bar painted into the scene
-        * cannot be read by anything that cannot see, does not follow the
-        * theme, and does not grow with the reader's text size.
-        */}
-      {scene.legend && (
-        <figure className="surface-legend">
-          <span className="surface-legend-name">
-            {scene.legend.label}
-            {scene.legend.unit ? ` (${scene.legend.unit})` : ""}
-          </span>
-          <span
-            className="surface-legend-bar"
-            style={{ background:
-              `linear-gradient(to right, ${scene.legend.stops.join(", ")})` }}
-          />
-          <span className="surface-legend-ends">
-            <span>{readable(scene.legend.low)}</span>
-            <span>{readable(scene.legend.high)}</span>
-          </span>
-        </figure>
-      )}
 
       <figcaption className="chart-caption">
         {caption}{" "}

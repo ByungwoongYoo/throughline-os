@@ -54,6 +54,20 @@ export type PlacedBar = {
 export type Bars = {
   bars: PlacedBar[];
   range: { min: number; max: number };
+  /**
+   * The distinct row and column positions, ascending.
+   *
+   * Reported because of how a bar is placed: at the *rank* of its row among
+   * the distinct rows, never at the row's own value. For the ordinary case —
+   * bins, or categories numbered from zero — rank and value agree and the
+   * floor can carry numbers. For rows of 1, 2 and 10 they do not, and a tick
+   * reading 2 would sit where no bar stands. A caller that wants to label
+   * those two directions has to know which case it is in, and cannot work it
+   * out from the placed bars, because the placement has already thrown the
+   * spacing away.
+   */
+  rows: number[];
+  columns: number[];
   /** Where zero sits on the vertical axis, for drawing the floor. */
   zero: number;
   /** Values that were not finite and could not be placed. */
@@ -90,7 +104,8 @@ export function prepareBars(input: Bar[],
   const invalid = input.length - usable.length;
 
   if (usable.length === 0) {
-    return { bars: [], range: { min: 0, max: 0 }, zero: -1, invalid };
+    return { bars: [], range: { min: 0, max: 0 }, rows: [], columns: [],
+             zero: -1, invalid };
   }
 
   const values = usable.map((b) => b.value);
@@ -135,7 +150,28 @@ export function prepareBars(input: Bar[],
     };
   });
 
-  return { bars, range: { min, max }, zero, invalid };
+  return { bars, range: { min, max }, rows, columns, zero, invalid };
+}
+
+/**
+ * Whether a set of values steps by a constant amount.
+ *
+ * The question a caller has to answer before writing numbers along the floor
+ * of this chart, because `prepareBars` places a bar by rank. Rank and value
+ * describe the same positions exactly when the values are an arithmetic
+ * progression, and differ silently when they are not.
+ *
+ * Compared against the span rather than against zero: rows a million apart
+ * differ in the last bits of a double, and an exact test would call an evenly
+ * spaced axis uneven and drop its numbers for a rounding error.
+ */
+export function evenlySpaced(values: number[]): boolean {
+  if (values.length < 3) return true;
+  const span = values[values.length - 1] - values[0];
+  if (!Number.isFinite(span) || span <= 0) return false;
+  const step = span / (values.length - 1);
+  return values.every((value, i) =>
+    Math.abs(value - (values[0] + i * step)) <= span * 1e-9);
 }
 
 /**

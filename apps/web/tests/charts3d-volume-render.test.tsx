@@ -43,6 +43,13 @@ function recordingCanvas() {
     // Recorded so "it drew no sprites" is a real assertion rather than a
     // property of a context that could not have drawn one anyway.
     drawImage: note("drawImage"),
+    // The axis frame (T141) closes its panes and writes its ticks and titles
+    // through this same context. A stub missing them does not fail an
+    // assertion, it throws inside the paint — so they are stubbed rather than
+    // asserted on, and the sprite counts below are unaffected.
+    closePath: note("closePath"), fillText: note("fillText"),
+    strokeText: note("strokeText"), translate: note("translate"),
+    rotate: note("rotate"), setTransform: note("setTransform"),
   });
   const canvas = {
     getContext: () => context, width: 400, height: 300,

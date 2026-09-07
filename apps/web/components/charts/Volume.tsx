@@ -23,6 +23,21 @@
  *   - **Perspective makes near things bigger.** That is a depth cue, and it is
  *     also a size channel the reader may misread as magnitude. So marks encode
  *     value in *colour*, never in radius — radius is depth and nothing else.
+ *   - **A position nobody can read is not a measurement.** This chart drew a
+ *     grey wireframe box and called it a frame of reference. It was not one:
+ *     it said nothing about which direction was which and carried no number
+ *     anywhere, so a reader could see that one lobe sits above another and
+ *     could not say above in *what*, or by how much. The box is now the shared
+ *     axis furniture — three gridded back walls, an axis line per direction,
+ *     ticks in the caller's own units and a title naming each dimension.
+ *
+ * Note that the frame moved this chart onto `toCanvas`. It had its own copy of
+ * the projection's final step — centre plus a hand-written `0.30` scale — in
+ * four places, which is the same arithmetic `scene3d` exports and a slightly
+ * different answer: at 0.30 the cube's corners fall outside the canvas at the
+ * default camera, which is why `FIT` was derived at 0.26. A frame computed
+ * from one number and marks placed with another would have been a box that
+ * does not contain its own data, so the four copies went.
  *
  * Motion is user-driven. There is no idle auto-rotation: it would be animation
  * standing between the reader and the data, which the brief forbids, and it
@@ -33,7 +48,7 @@ import {
   useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 } from "react";
 import { ScreenPoint, TargetRef, VisualizationController } from "@/lib/spatial/commands";
-import { AXES_SCALED_SEPARATELY, Camera, DEFAULT_CAMERA, DEPTH_RANGE, insidePolygon, project, resetCamera, rotateCamera, zoomCamera } from "@/lib/charts/scene3d";
+import { AXES_SCALED_SEPARATELY, Axes3D, Camera, DEFAULT_CAMERA, DEPTH_RANGE, axisFurniture, drawFurniture, insidePolygon, resetCamera, rotateCamera, toCanvas, zoomCamera } from "@/lib/charts/scene3d";
 import { extent } from "d3-array";
 import { scaleLinear } from "d3-scale";
 import { interpolateYlGnBu } from "d3-scale-chromatic";
@@ -173,12 +188,44 @@ export function Volume({
   const settleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [moved, setMoved] = useState(false);
 
+  /**
+   * What each direction actually measures, before it is squashed into a cube.
+   *
+   * Computed once and read by both the scaling below and the axis labels, and
+   * that is the whole point of hoisting it. `AxisSpec.min`/`max` have to be
+   * the same two numbers the scale was built on; a second `extent` call would
+   * agree today and there would be nothing to notice when it stopped — a tick
+   * reading 40 sitting where 45 is looks exactly like a tick reading 40.
+   */
+  const domains = useMemo(() => ({
+    x: extent(points, (p) => p.x) as [number, number],
+    y: extent(points, (p) => p.y) as [number, number],
+    z: extent(points, (p) => p.z) as [number, number],
+  }), [points]);
+
+  /**
+   * The three axes, named for the reader.
+   *
+   * Keyed by **scene** axis, and here that is the easy case: this chart puts
+   * the caller's x, y and z on the scene's x, y and z unchanged, so the three
+   * labels go straight across. (`Surface` does not — its height is the
+   * response and its scene z is the second predictor — which is why the key
+   * is worth stating rather than assumed.)
+   *
+   * No units: the component takes `xLabel`/`yLabel`/`zLabel` as free strings
+   * and has no unit prop, so a caller with a unit writes it into the label
+   * itself. Deriving one from the numbers would be inventing a measurement.
+   */
+  const axes = useMemo<Axes3D>(() => ({
+    x: { label: xLabel, min: domains.x[0], max: domains.x[1] },
+    y: { label: yLabel, min: domains.y[0], max: domains.y[1] },
+    z: { label: zLabel, min: domains.z[0], max: domains.z[1] },
+  }), [domains, xLabel, yLabel, zLabel]);
+
   /** Unit cube, so the three axes are comparable regardless of their units. */
   const normalised = useMemo(() => {
-    const span = (key: "x" | "y" | "z") => {
-      const [lo, hi] = extent(points, (p) => p[key]) as [number, number];
-      return scaleLinear().domain([lo, hi]).range([-1, 1]);
-    };
+    const span = (key: "x" | "y" | "z") =>
+      scaleLinear().domain(domains[key]).range([-1, 1]);
     const sx = span("x"), sy = span("y"), sz = span("z");
     const values = points.map((p) => p.value).filter(
       (v): v is number => v !== undefined);
@@ -191,7 +238,7 @@ export function Volume({
         ? interpolateYlGnBu(0.62)
         : interpolateYlGnBu(vscale(p.value)),
     }));
-  }, [points]);
+  }, [points, domains]);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -209,36 +256,48 @@ export function Volume({
 
     const camera = cameraRef.current;
     const cx = width / 2, cy = height / 2;
-    const unit = Math.min(width, height) * 0.30 * camera.zoom;
 
-    // The bounding cube, so a projected position has a frame to be read against.
-    const corners: Array<[number, number, number]> = [
-      [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
-      [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]];
-    const edges = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7],
-                   [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
-    const screen = corners.map(([x, y, z]) => {
-      const q = project({ x, y, z }, camera);
-      return { x: cx + q.x * unit, y: cy - q.y * unit, depth: q.depth };
-    });
-    context.strokeStyle = "rgba(128,138,155,0.30)";
-    context.lineWidth = 1;
-    for (const [a, b] of edges) {
-      context.beginPath();
-      context.moveTo(screen[a].x, screen[a].y);
-      context.lineTo(screen[b].x, screen[b].y);
-      context.stroke();
-    }
+    /*
+     * The frame's colours, asked of the canvas once a frame.
+     *
+     * A canvas is painted with literal values and cannot inherit a token the
+     * way the rest of the interface does — but it can be asked what it
+     * inherited. The box this replaces was a hard-coded grey, which is the
+     * failure in miniature: one colour chosen for one background, drawn on
+     * both. Read here rather than kept in state because a theme change does
+     * not go through React.
+     */
+    const palette = getComputedStyle(canvas);
+    const colours = {
+      line: palette.getPropertyValue("--line-strong").trim(),
+      grid: palette.getPropertyValue("--line").trim(),
+      text: palette.getPropertyValue("--ink-faint").trim(),
+      title: palette.getPropertyValue("--ink-soft").trim(),
+    };
+    /*
+     * The frame, recomputed every frame and never cached.
+     *
+     * Which walls face away and which edge carries each axis's numbers both
+     * change continuously as the scene turns, so a cached answer is a wall
+     * painted over the cloud for half of a rotation.
+     *
+     * Two passes, and the order is not decorative: the gridded back walls go
+     * under the marks, the axis lines and every label go over them. Both in
+     * one call would bury the numbers under the densest part of the cloud,
+     * which is the part a reader is trying to place.
+     */
+    const furniture = axisFurniture(axes, camera, width, height);
+    drawFurniture(context, furniture, colours, 1, "behind");
 
     // Painter's algorithm: far to near, so nearer marks correctly cover
     // farther ones. Drawing in data order would let a distant point paint
     // over a close one and reverse the depth the projection just computed.
     const marks = normalised
       .map((p) => {
-        const q = project(p, camera);
+        const q = toCanvas(p, camera, width, height);
         return {
           id: p.id, colour: p.colour,
-          x: cx + q.x * unit, y: cy - q.y * unit,
+          x: q.x, y: q.y,
           depth: q.depth,
           r: MARK_RADIUS * (1 + (q.scale - 1) * DEPTH_RANGE),
         };
@@ -346,6 +405,15 @@ export function Volume({
       context.stroke();
     }
 
+    /*
+     * The axis lines, ticks and titles, last of all.
+     *
+     * After the emphasis rings as well as after the cloud: a ring is 5px of
+     * feedback about one mark, and a number half-hidden under it is a number
+     * the reader has to move the pointer to finish reading.
+     */
+    drawFurniture(context, furniture, colours, 1, "front");
+
     // Published when the view settles, not on every painted frame.
     //
     // `draw` runs inside the rAF loop, so an unconditional `setOccluded` asks
@@ -368,7 +436,10 @@ export function Volume({
       settleRef.current = null;
       setOccluded(occludedRef.current);
     }, SETTLE_MS);
-  }, [normalised, width, height]);
+    // `axes` is a dependency because the frame carries the labels: a caller
+    // renaming a dimension, or handing over data with a different range, has
+    // to see the numbers change with it rather than at the next drag.
+  }, [normalised, axes, width, height]);
 
   // rAF loop gated on both dirtiness and visibility — an idle chart must not
   // hold a repaint budget it is not using.
@@ -422,15 +493,11 @@ export function Volume({
    */
   const nearest = useCallback((at: ScreenPoint, radius = 28): TargetRef | null => {
     const camera = cameraRef.current;
-    const cx = width / 2, cy = height / 2;
-    const unit = Math.min(width, height) * 0.30 * camera.zoom;
 
     let best: { id: string; label: string; datum: Point3D; d: number } | null = null;
     for (let i = 0; i < normalised.length; i += 1) {
-      const q = project(normalised[i], camera);
-      const sx = cx + q.x * unit;
-      const sy = cy - q.y * unit;
-      const d = Math.hypot(sx - at.x, sy - at.y);
+      const q = toCanvas(normalised[i], camera, width, height);
+      const d = Math.hypot(q.x - at.x, q.y - at.y);
       // Ties break toward the nearer point in depth: when two marks overlap on
       // screen the front one is the one the reader can actually see, and
       // selecting the hidden one would be indefensible.
@@ -457,15 +524,11 @@ export function Volume({
    */
   const within = useCallback((at: ScreenPoint, radius: number): TargetRef[] => {
     const camera = cameraRef.current;
-    const cx = width / 2, cy = height / 2;
-    const unit = Math.min(width, height) * 0.30 * camera.zoom;
 
     const found: Array<{ target: TargetRef; d: number }> = [];
     for (let i = 0; i < normalised.length; i += 1) {
-      const q = project(normalised[i], camera);
-      const sx = cx + q.x * unit;
-      const sy = cy - q.y * unit;
-      const d = Math.hypot(sx - at.x, sy - at.y);
+      const q = toCanvas(normalised[i], camera, width, height);
+      const d = Math.hypot(q.x - at.x, q.y - at.y);
       if (d <= radius) {
         // `points[i]`, not `normalised[i]` — exactly as `nearest` does, and for
         // the same reason. The normalised copy exists to be drawn: its
@@ -536,12 +599,9 @@ export function Volume({
       // Every mark tested once, against the same projection the draw loop uses.
       // Exact by construction: no sampling step to fall between.
       const camera = cameraRef.current;
-      const cx = width / 2, cy = height / 2;
-      const unit = Math.min(width, height) * 0.30 * camera.zoom;
       const found: TargetRef[] = [];
       for (let i = 0; i < normalised.length; i += 1) {
-        const q = project(normalised[i], camera);
-        const at = { x: cx + q.x * unit, y: cy - q.y * unit };
+        const at = toCanvas(normalised[i], camera, width, height);
         if (!insidePolygon(polygon, at)) continue;
         found.push({ id: points[i].id, label: points[i].label,
                      datum: points[i] });

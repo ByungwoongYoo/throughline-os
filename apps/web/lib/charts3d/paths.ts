@@ -58,8 +58,21 @@ export type Polyline = {
   runs: Array<Array<{ x: number; y: number; z: number }>>;
 };
 
+/** The two numbers an axis was scaled by, in the caller's own units. */
+export type Extent = { min: number; max: number };
+
 export type Paths = {
   lines: Polyline[];
+  /**
+   * The extent every path was scaled against, per axis, before normalisation.
+   *
+   * One extent over all the paths, which is the decision `preparePaths`
+   * already documents: two orbits scaled separately would each fill the cube
+   * and look the same size. It is handed out so an axis can be labelled from
+   * the numbers the drawing used rather than from a second sweep, which is a
+   * mismatch nothing in the picture could reveal.
+   */
+  domain: { x: Extent; y: Extent; z: Extent };
   /** How many times a path was broken by missing data. */
   breaks: number;
   /** Points that were not finite, and so were not drawn. */
@@ -168,8 +181,18 @@ export function preparePaths(paths: Path[],
     });
   }
 
-  return { lines: thin(lines, settings.maxPoints), breaks, missing,
-           simplified, degenerate };
+  // Read off the same sweep `place` used. A set of paths with no finite point
+  // has no extent to report, and zero to zero is the domain `niceTicks` and
+  // `unitScale` both already treat as a single value rather than a range.
+  const reach = (axis: "x" | "y" | "z"): Extent => {
+    const { min, size } = span[axis];
+    return Number.isFinite(min) && Number.isFinite(size)
+      ? { min, max: min + size } : { min: 0, max: 0 };
+  };
+
+  return { lines: thin(lines, settings.maxPoints),
+           domain: { x: reach("x"), y: reach("y"), z: reach("z") },
+           breaks, missing, simplified, degenerate };
 }
 
 function extent(paths: Path[], finite: (p: PathPoint) => boolean) {

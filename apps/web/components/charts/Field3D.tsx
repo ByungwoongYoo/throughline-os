@@ -25,6 +25,13 @@
  * an arrow may not reach into its neighbour's cell — so the arrows at the top
  * of the range are all the same length, and without colour they would be
  * indistinguishable from one another.
+ *
+ * **The three directions are measurements, so they are framed and numbered.**
+ * A sample sits where it was taken; the axes are the coordinates the caller
+ * measured in, and a reader can read a position off the picture. The colour
+ * key beside it is not decoration either: the caption already tells a reader
+ * to read a clamped arrow "by colour", and until there was a key that was an
+ * instruction to consult a scale nothing on the page carried.
  */
 
 import {
@@ -32,9 +39,11 @@ import {
 } from "react";
 import { ScreenPoint, TargetRef, VisualizationController } from "@/lib/spatial/commands";
 import { canvasPoint, isClick } from "@/lib/charts/pointer";
-import { AXES_SCALED_SEPARATELY, Camera, DEFAULT_CAMERA, insidePolygon, resetCamera, rotateCamera, toCanvas, zoomCamera } from "@/lib/charts/scene3d";
+import { AXES_SCALED_SEPARATELY, Axes3D, Camera, DEFAULT_CAMERA, insidePolygon, resetCamera, rotateCamera, toCanvas, zoomCamera } from "@/lib/charts/scene3d";
+import { AxisNaming, framing, named } from "@/lib/charts/frame";
 import { useSpatialKeys } from "@/lib/charts/spatialKeys";
 import { ChartExport } from "@/components/charts/ChartExport";
+import { Colourbar } from "@/components/charts/Colourbar";
 import { isZoomWheel, wheelZoomFactor } from "@/lib/charts/wheel";
 import {
   DEFAULT_FIELD, Field, FieldSettings, Glyph, Sample, describeField,
@@ -50,6 +59,23 @@ export type Field3DProps = {
   onSelect?: (target: TargetRef | null) => void;
   /** What the field is, and in what units, for a reader who did not build it. */
   caption?: string;
+  /**
+   * What the three sample coordinates are.
+   *
+   * Names only: the numbers on the axes are the extent of the samples this
+   * chart was given, and nothing a caller says can move them. Unnamed, a
+   * direction carries the name of the field it was read from — `x`, `y`, `z` —
+   * which tells a reader which way is which without pretending to know what
+   * the field measured.
+   */
+  axes?: { x?: AxisNaming; y?: AxisNaming; z?: AxisNaming };
+  /**
+   * What the arrows' length and colour measure.
+   *
+   * A vector's magnitude has whatever unit its components had — m/s, tesla,
+   * newtons — and only the caller knows which.
+   */
+  magnitude?: AxisNaming;
 };
 
 /** How near a pointer must be, in pixels, to count as on an arrow. */
@@ -59,7 +85,7 @@ const HEAD = 5;
 
 export function Field3D({
   samples, settings = DEFAULT_FIELD, width = 720, height = 520, controllerRef,
-  onSelect, caption,
+  onSelect, caption, axes, magnitude,
 }: Field3DProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const cameraRef = useRef<Camera>({ ...DEFAULT_CAMERA });
@@ -72,6 +98,24 @@ export function Field3D({
   // that re-decimated on every drag would flicker as different arrows survived.
   const field: Field = useMemo(
     () => prepareField(samples, settings), [samples, settings]);
+
+  /*
+   * The frame, from the domain the arrows were actually placed against.
+   *
+   * `field.domain` rather than a sweep of `samples`: `prepareField` normalises
+   * against the *usable* samples, so a field carrying one NaN would be drawn
+   * on one domain and labelled from a wider one — and a tick reading 40 would
+   * sit where 45 is, with nothing in the picture to show it.
+   *
+   * Scene axes, not data names, and here they coincide: a sample's x is placed
+   * on the axis that runs across the screen and its y on the one that runs up
+   * it, which is what `toCanvas` is handed below.
+   */
+  const scene: Axes3D = useMemo(() => ({
+    x: named(axes?.x, "x", field.domain.x),
+    y: named(axes?.y, "y", field.domain.y),
+    z: named(axes?.z, "z", field.domain.z),
+  }), [axes, field]);
 
   const at = useCallback((glyph: Glyph): ScreenPoint => {
     const q = toCanvas(glyph, cameraRef.current, width, height);
@@ -219,13 +263,13 @@ export function Field3D({
       if (dirtyRef.current) {
         dirtyRef.current = false;
         paintField(canvasRef.current, field, cameraRef.current,
-                   { width, height }, selected, hoveredRef.current);
+                   { width, height }, selected, hoveredRef.current, scene);
       }
       handle = requestAnimationFrame(tick);
     };
     handle = requestAnimationFrame(tick);
     return () => { running = false; cancelAnimationFrame(handle); };
-  }, [field, width, height, selected]);
+  }, [field, width, height, selected, scene]);
 
   const dragging = useRef<{ x: number; y: number } | null>(null);
   /** Where a press began, so a click can be told from a rotation. */
@@ -233,13 +277,25 @@ export function Field3D({
 
   return (
     <figure className="chart">
+      {/*
+        * The canvas and the colour key, side by side.
+        *
+        * The key is markup rather than pixels — see `Colourbar` — so it sits
+        * beside the canvas instead of on it, and stays selectable, searchable
+        * and readable by a screen reader. `minWidth: 0` because a flex item
+        * defaults to its content's minimum size, which for a canvas is its
+        * attribute width: without it the figure stops shrinking with the
+        * column and spills out of it.
+        */}
+      <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
       <canvas
         {...spatialKeys}
         ref={canvasRef}
         width={width}
         height={height}
         data-testid="field-3d"
-        style={{ width: "100%", maxWidth: width, touchAction: "none" }}
+        style={{ width: "100%", maxWidth: width, minWidth: 0, flex: "1 1 auto",
+                 touchAction: "none" }}
         onPointerDown={(event) => {
           pressedAt.current = { x: event.clientX, y: event.clientY };
           dragging.current = { x: event.clientX, y: event.clientY };
@@ -282,6 +338,26 @@ export function Field3D({
           dirtyRef.current = true;
         }}
       />
+      {/*
+        * Colour carries magnitude, and nothing else on the figure does.
+        *
+        * `Colourbar`'s own rule is that a key is drawn only where colour is a
+        * variable the geometry does not already carry. Here it is exactly
+        * that: length is clamped to the lattice spacing, so every arrow at
+        * the top of the range is the same length and the caption tells the
+        * reader to "read it by colour" — which was an instruction to consult
+        * a scale that was not on the page.
+        */}
+      {field.glyphs.length > 0 && (
+        <Colourbar
+          ramp={(t) => magnitudeColour(t)}
+          min={field.range.min}
+          max={field.range.max}
+          label={magnitude?.label ?? "Magnitude"}
+          unit={magnitude?.unit}
+        />
+      )}
+      </div>
       {/* §75: a spatial chart could not be saved at all. */}
       <ChartExport canvasRef={canvasRef} name="Vector field"
                    rotate={(degrees) => rotate(degrees, 0)}
@@ -345,6 +421,15 @@ export function paintField(
   size: { width: number; height: number },
   selected: number | null,
   hovered: number | null,
+  /**
+   * What the three directions measure, or nothing.
+   *
+   * Optional so the paint tests that predate the frame still describe what
+   * they meant to: they assert the *first* line drawn is an arrow's shaft, and
+   * a wall painted before it would be a true statement about a different
+   * chart.
+   */
+  axes: Axes3D | null = null,
 ): void {
   if (!canvas) return;
   const context = canvas.getContext("2d");
@@ -352,6 +437,11 @@ export function paintField(
 
   const { width, height } = size;
   context.clearRect(0, 0, width, height);
+
+  // Recomputed here, inside the frame, because which walls face away changes
+  // continuously as the scene turns.
+  const frame = framing(context, canvas, axes, camera, size);
+  frame.behind();
 
   /*
    * Back to front. `depth` from the shared projection is larger when nearer,
@@ -416,4 +506,7 @@ export function paintField(
     context.fill();
     context.restore();
   }
+
+  // Over the arrows: a tick under an opaque arrowhead is a tick nobody reads.
+  frame.front();
 }
