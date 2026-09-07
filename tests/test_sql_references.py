@@ -492,6 +492,182 @@ def test_no_column_is_written_where_nothing_reads_it():
           "this check exists to find.")
 
 
+# ---------------------------------------------------------------------------
+# Columns read where nobody writes them
+# ---------------------------------------------------------------------------
+#
+# The mirror of the check above, and the direction that had no guard. Three
+# defects of this exact shape landed in one session:
+#
+#   `dataset_versions.study_design` — read by the claim test, which refused
+#   every real claim at its design step and offered the remedy "Record the
+#   study design and this check will run", naming a control that did not exist.
+#
+#   `variable_mappings.transformation_required` — read by `variable_labels` to
+#   keep a canonical unit off the axis of a column whose values are not in it.
+#   Always NULL, so the guard never engaged and the unit was always borrowed.
+#
+#   `papers.authors`, `.doi`, `.journal`, `.publication_date`, `.pmid`,
+#   `.arxiv_id` — read by the bibliography, which therefore omitted the author,
+#   year and journal of every paper whose author, year and journal a search had
+#   already stored one table over.
+#
+# None of the three was found by a test. Each had tests that looked like
+# coverage and passed because a fixture wrote the column directly — a row the
+# product could not produce. That is what makes this worth a guard rather than
+# a resolution: the failing state is invisible from inside the test suite,
+# because the suite is where the value comes from.
+#
+# Run against the revision before those three fixes this reports exactly those
+# twelve columns and nothing else; against this one, nothing.
+
+#: Columns code reads that nothing writes, with the reason each is legitimate.
+#: Empty, and worth keeping empty: an entry here says a column is *meant* to be
+#: read while never being written, which is true of almost nothing. A column
+#: filled by a database trigger is the honest case — and the two that exist
+#: (`passages.search_vector`) are excluded structurally rather than listed.
+READ_ONLY: set[tuple[str, str]] = set()
+
+
+def _read_pairs() -> tuple[set[tuple[str, str]], set[str]]:
+    """
+    (table, column) pairs read somewhere, and tables read with `*`.
+
+    A read is attributed to the tables *its own query* names, rather than to
+    the schema at large. The check above can afford a bag of words because
+    over-counting reads makes it miss defects; here over-counting reads makes
+    it accuse innocent columns, and a check that accuses gets suppressed rather
+    than fixed. `paper_attributes.value` is the case that proved it: flagged
+    only because some other table's query selects a column called `value`.
+
+    Within one query the attribution is still loose — a column is credited to
+    every table the query mentions, not to the one it belongs to. That is the
+    alias problem this module's docstring declines to solve, and erring that
+    way is safe: it makes columns look read, so the check under-reports.
+    """
+    pairs: set[tuple[str, str]] = set()
+    starred: set[str] = set()
+    for path in source_files():
+        for literal in string_literals(path):
+            if not SQL_START.search(literal):
+                continue
+            query = _SQL_COMMENT.sub(" ", literal)
+            named = {t.lower() for t in _QUERY_TABLES.findall(query)}
+            if not named:
+                continue
+            for selected in _SELECT_LIST.findall(query):
+                if selected.strip() == "*" or selected.strip().endswith(".*"):
+                    starred |= named
+            words: set[str] = set()
+            for chunk in _READ_CONTEXT.findall(query):
+                words |= {w.lower() for w in re.findall(r"[a-z_]\w*", chunk)}
+            for table in named:
+                pairs |= {(table, word) for word in words}
+    return pairs, starred
+
+
+_QUERY_TABLES = re.compile(r"(?is)(?:FROM|JOIN|UPDATE|INTO)\s+([a-z_]\w*)")
+
+#: Columns whose value the database or the insert supplies, so "nothing writes
+#: it" says nothing about them.
+_STRUCTURAL = re.compile(
+    r"(?i)^(.*_at|.*_by|version|sequence|.*hash|search_vector|ordinal|rank|seq)$")
+
+
+def _is_structural(column: str, tables: set[str]) -> bool:
+    """
+    Whether a column is plumbing rather than content.
+
+    `*_id` is a foreign key **only when it names a table**. `arxiv_id` and
+    `pmid` identify the paper itself, and excluding them as keys would have
+    hidden two of the twelve columns this check exists to find.
+    """
+    if column == "id" or _STRUCTURAL.match(column):
+        return True
+    if column.endswith("_id"):
+        stem = column[:-3]
+        return any(candidate in tables
+                   for candidate in (stem, f"{stem}s", f"{stem}es"))
+    return False
+
+
+def read_but_unwritten() -> list[tuple[str, str]]:
+    defined = defined_columns()
+    tables = set(defined)
+    written = {(table, column) for _, _, table, column in written_columns()}
+    pairs, starred = _read_pairs()
+    return sorted(
+        (table, column)
+        for table, columns in defined.items() for column in columns
+        if (table, column) not in written
+        and (table, column.lower()) in pairs
+        and table not in starred
+        and not _is_structural(column, tables)
+        and (table, column) not in READ_ONLY)
+
+
+def test_no_column_is_read_where_nothing_writes_it():
+    unwritten = read_but_unwritten()
+
+    assert not unwritten, (
+        "These columns are read by code and written by nothing:\n"
+        + "\n".join(f"  {t}.{c}" for t, c in unwritten)
+        + "\n\nA column with a reader and no writer does not fail — it returns "
+          "its default for ever, and the code around it behaves as though that "
+          "default were an answer. Either something should write it, or add it "
+          "to READ_ONLY with the reason. 'A person is meant to fill it in' is "
+          "not one: that is the defect, and the fix is somewhere for them to "
+          "do it.")
+
+
+def test_the_read_check_inspects_a_meaningful_number_of_reads():
+    """
+    A scan that reads nothing finds nothing and passes. This check's whole
+    value is the absence of a result, so the absence has to be earned.
+    """
+    pairs, _ = _read_pairs()
+    assert len(pairs) > 1000, len(pairs)
+    assert sum(len(c) for c in defined_columns().values()) > 500
+
+
+def test_the_read_check_notices_a_column_nothing_writes():
+    """
+    Planted rather than assumed. `dataset_versions.study_design` is written now;
+    with the writers removed from the surface it has to come back.
+    """
+    defined = defined_columns()
+    pairs, starred = _read_pairs()
+    assert ("dataset_versions", "study_design") in pairs
+    assert "dataset_versions" not in starred
+    assert "study_design" in defined["dataset_versions"]
+    assert not _is_structural("study_design", set(defined))
+
+    without_writers: set[tuple[str, str]] = set()
+    flagged = [
+        (t, c) for t, cols in defined.items() for c in cols
+        if (t, c) not in without_writers and (t, c.lower()) in pairs
+        and t not in starred and not _is_structural(c, set(defined))]
+    assert ("dataset_versions", "study_design") in flagged
+
+
+def test_a_foreign_key_is_not_mistaken_for_an_identifier():
+    tables = set(defined_columns())
+    assert _is_structural("project_id", tables)
+    assert _is_structural("dataset_version_id", tables)
+    # The two that matter: identifiers *of* the paper, not references to a row.
+    assert not _is_structural("arxiv_id", tables)
+    assert not _is_structural("pmid", tables)
+
+
+def test_the_read_allowlist_does_not_outlive_its_entries():
+    defined = defined_columns()
+    stale = sorted(entry for entry in READ_ONLY
+                   if entry[1] not in defined.get(entry[0], set()))
+    assert not stale, (
+        "These are allowlisted as read-only but no longer exist:\n"
+        + "\n".join(f"  {t}.{c}" for t, c in stale))
+
+
 def test_the_allowlist_does_not_outlive_its_entries():
     """
     An allowlist nobody prunes becomes a list of things that used to be true.
