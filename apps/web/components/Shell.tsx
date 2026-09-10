@@ -38,7 +38,7 @@ import { Group, Panel, Separator } from "react-resizable-panels";
 import { DiscoveryMap, api } from "@/lib/api";
 import {
   INSPECTOR, INSPECTOR_DEFAULT, INSPECTOR_MAX, INSPECTOR_MIN,
-  RAIL, RAIL_DEFAULT, RAIL_MAX, RAIL_MIN, WORKSPACE,
+  WORKSPACE,
   readLayout, writeLayout,
 } from "@/lib/layout";
 import { SignedInUser } from "./AccountMenu";
@@ -478,71 +478,13 @@ export function Shell({
 
   const openTheGroup = (label: string) => setOverride({ at: section, group: label });
 
-  const renderGroup = (group: { label: string; items: RailItem[] }) => {
-    const open = group.label === openGroup;
-    const region = `rail-entries-${group.label.replace(/\s+/g, "-").toLowerCase()}`;
-    return (
-      <div className="rail-group" key={group.label}>
-        {/*
-          A real button, not a label with a click handler: this expands and
-          collapses, which is a control, and a keyboard has to reach it in the
-          tab order like any other. `aria-controls` names the region it opens,
-          so a screen reader can say what the count belongs to.
-        */}
-        <button
-          type="button"
-          className="rail-heading"
-          aria-expanded={open}
-          aria-controls={region}
-          onClick={() => openTheGroup(group.label)}
-        >
-          <span>{group.label}</span>
-          <span className="rail-heading-count">{ENTRY_COUNT[group.label]}</span>
-        </button>
-
-        {/* The region exists whether or not it is open, so `aria-controls`
-            names something real; its rows are built only when it is. */}
-        <div id={region} className="rail-entries" hidden={!open}>
-          {open && group.items.map((item) => (
-            <button
-              key={item.id}
-              className="rail-item"
-              aria-current={section === item.id}
-              onClick={() => onSection(item.id)}
-            >
-              {/* Decorative: the label beside it is the accessible name. */}
-              <span className="rail-icon" aria-hidden>
-                {ICONS[item.id]?.({ size: 16 })}
-              </span>
-              <span>
-                {item.label}
-                {item.note && <small className="rail-note">{item.note}</small>}
-              </span>
-              {item.count && counts[item.count] > 0 && (
-                <span className="rail-count">{counts[item.count]}</span>
-              )}
-            </button>
-          ))}
-
-          {/* Real links, because these are separate pages and leaving the
-              workspace is what pressing them does. A button that navigated
-              would break opening one in a new tab. */}
-          {open && group.label === MACHINE && MACHINE_PAGES.map((page) => (
-            <a key={page.href} className="rail-item" href={page.href}
-               title={page.note}>
-              <span className="rail-icon" aria-hidden>
-                {IconHand({ size: 16 })}
-              </span>
-              <span>
-                {page.label}
-                <small className="rail-note">{page.note}</small>
-              </span>
-            </a>
-          ))}
-        </div>
-      </div>
-    );
-  };
+  /**
+   * The open group's own entries, including the machine pages when it is the
+   * one open. They are `<a>`s rather than buttons because they are separate
+   * routes: pressing one leaves the workspace, and a button would break opening
+   * it in a new tab.
+   */
+  const openItems = GROUPS.find((g) => g.label === openGroup)?.items ?? [];
 
   return (
     <div
@@ -602,35 +544,72 @@ export function Shell({
         <AccountControl user={account ?? null} />
       </header>
 
+      {/*
+        The five groups, then the open group's sections. Two rows across the top
+        rather than one column down the side.
+        
+        This replaces the accordion rail T139 built, and the state machine
+        underneath is the one that rail already had: one group open, derived
+        from the current section, with a heading press recorded as a transient
+        override. What changes is where it is drawn. The rail's own argument —
+        that twenty-six entries on screen at once read as too many options —
+        survives, because the section row still shows one group's entries and
+        never all five groups' at once.
+
+        `aria-controls` points the group at the row it fills, so a screen reader
+        can say what a heading opens.
+      */}
+      <nav className="groupbar" aria-label="Areas">
+        {GROUPS.map((group) => (
+          <button
+            key={group.label}
+            type="button"
+            className="groupbar-tab"
+            aria-expanded={group.label === openGroup}
+            aria-controls="workspace-sections"
+            onClick={() => openTheGroup(group.label)}
+          >
+            <span>{group.label}</span>
+            <span className="groupbar-count">{ENTRY_COUNT[group.label]}</span>
+          </button>
+        ))}
+      </nav>
+
+      <nav id="workspace-sections" className="sectionbar" aria-label={openGroup}>
+        {openItems.map((item) => (
+          <button
+            key={item.id}
+            className="sectionbar-item"
+            aria-current={section === item.id}
+            onClick={() => onSection(item.id)}
+          >
+            {/* Decorative: the label beside it is the accessible name. */}
+            <span className="sectionbar-icon" aria-hidden>
+              {ICONS[item.id]?.({ size: 15 })}
+            </span>
+            <span>{item.label}</span>
+            {item.count && counts[item.count] > 0 && (
+              <span className="sectionbar-count">{counts[item.count]}</span>
+            )}
+          </button>
+        ))}
+
+        {openGroup === MACHINE && MACHINE_PAGES.map((page) => (
+          <a key={page.href} className="sectionbar-item" href={page.href} title={page.note}>
+            <span className="sectionbar-icon" aria-hidden>
+              {IconHand({ size: 15 })}
+            </span>
+            <span>{page.label}</span>
+          </a>
+        ))}
+      </nav>
+
       <Group
         className="shell-panels"
         orientation="horizontal"
         defaultLayout={saved}
         onLayoutChanged={writeLayout}
       >
-      <Panel id={RAIL} className="rail-panel"
-             defaultSize={RAIL_DEFAULT} minSize={RAIL_MIN} maxSize={RAIL_MAX}>
-      {/*
-        Two navs, not one. The first scrolls; the second is pinned. The obvious
-        alternative — `margin-top: auto` on the last group — is inert while
-        `.rail` is a block, and resolves to zero the moment a flex column
-        overflows, which is the only case that matters. A sibling outside the
-        scroll region is the mechanism that actually holds.
-      */}
-      <nav className="rail" aria-label="Sections">
-        {GROUPS.filter((group) => group.label !== MACHINE).map(renderGroup)}
-      </nav>
-      <nav className="rail-footer" aria-label={MACHINE}>
-        {GROUPS.filter((group) => group.label === MACHINE).map(renderGroup)}
-      </nav>
-
-      </Panel>
-
-      {/* Named so a screen reader hears what is being resized, not "separator".
-          The library gives it `role="separator"` with the value semantics; the
-          label is ours because only we know what sits on either side. */}
-      <Separator className="shell-divider" aria-label="Resize the navigation" />
-
       <Panel id={WORKSPACE} className="workspace-panel" minSize={320}>
         {strip}
         {/* `key` restarts the enter transition on navigation, so a view change

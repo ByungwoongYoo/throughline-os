@@ -22,32 +22,36 @@
 
 import type { Layout } from "react-resizable-panels";
 
-const KEY = "throughline.shell-layout";
+/*
+ * Bumped when the rail became a header.
+ *
+ * Layouts stored under the old key name a `rail` panel that no longer exists,
+ * and a share allocated to a missing panel is width the workspace never gets
+ * back. Migrating was the wrong trade: this is a fact about somebody's screen,
+ * not about their research, and the cost of losing it is one drag.
+ */
+const KEY = "throughline.shell-layout.v2";
 
 /** Panel ids. Exported so the Shell and this module cannot disagree on them. */
-export const RAIL = "rail";
 export const WORKSPACE = "workspace";
 export const INSPECTOR = "inspector";
 
 /**
- * The widths the product shipped with, in pixels.
+ * The width the inspector shipped with, in pixels.
  *
- * These are the values `--rail` and `--inspector` held when the shell was a
- * fixed CSS grid, kept identical on purpose: a researcher who never touches a
- * divider must not be able to tell that anything changed.
+ * The value `--inspector` held when the shell was a fixed CSS grid, kept
+ * identical on purpose: a researcher who never touches a divider must not be
+ * able to tell that anything changed.
  */
-export const RAIL_DEFAULT = 232;
 export const INSPECTOR_DEFAULT = 360;
 
 /**
- * How far each edge may be dragged.
+ * How far the inspector edge may be dragged.
  *
- * The rail's minimum is the width at which its labels still read; below that it
- * is a column of truncated words, which is worse than a narrower workspace. The
- * maximum stops one edge from eating the surface the work actually happens on.
+ * The minimum is the width at which its labels still read; below that it is a
+ * column of truncated words, which is worse than a narrower workspace. The
+ * maximum stops it from eating the surface the work actually happens on.
  */
-export const RAIL_MIN = 180;
-export const RAIL_MAX = 380;
 export const INSPECTOR_MIN = 260;
 export const INSPECTOR_MAX = 560;
 

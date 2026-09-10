@@ -43,8 +43,8 @@ function heading(label: string): HTMLElement {
 
 /** The rows that are actually on screen, as their labels. */
 function visibleEntries(container: HTMLElement): string[] {
-  return [...container.querySelectorAll(".rail-entries:not([hidden]) .rail-item")]
-    .map((row) => row.querySelector("span:not(.rail-icon)")?.firstChild?.textContent ?? "");
+  return [...container.querySelectorAll(".sectionbar-item")]
+    .map((row) => row.querySelector("span:not(.sectionbar-icon)")?.firstChild?.textContent ?? "");
 }
 
 describe("one group is expanded, and it is the one holding the current section", () => {
@@ -52,7 +52,7 @@ describe("one group is expanded, and it is the one holding the current section",
     /** A collapsed group that did not say how many entries it held would be a
      *  menu, which is the thing this product does not do. */
     const { container } = shell("connections");
-    const names = [...container.querySelectorAll(".rail-heading")]
+    const names = [...container.querySelectorAll(".groupbar-tab")]
       .map((h) => h.textContent);
     expect(names).toEqual(
       ["The project2", "Gather6", "Discover and test8", "Communicate5",
@@ -84,7 +84,7 @@ describe("one group is expanded, and it is the one holding the current section",
 
   it("marks the current entry, which is inside the open group", () => {
     const { container } = shell("findings");
-    const current = container.querySelector(".rail-item[aria-current='true']");
+    const current = container.querySelector(".sectionbar-item[aria-current='true']");
     expect(current?.textContent).toMatch(/^Findings/);
   });
 });
@@ -136,7 +136,7 @@ describe("a heading press expands its group and collapses the rest", () => {
     fireEvent.click(heading("The project"));
     expect(heading("The project")).toHaveAttribute("aria-expanded", "true");
     expect(visibleEntries(container)).toEqual(["Workboard", "Overview"]);
-    expect(container.querySelector('.rail [aria-current="true"]')?.textContent)
+    expect(container.querySelector('.sectionbar [aria-current="true"]')?.textContent)
       .toMatch(/^Overview/);
   });
 
@@ -176,7 +176,7 @@ describe("every one of the twenty-six entries is still reachable", () => {
       // press is skipped only to keep the count of presses honest at two.
       const head = heading(section.group);
       if (head.getAttribute("aria-expanded") === "false") fireEvent.click(head);
-      const rail = container.querySelector(".rail-entries:not([hidden])")!;
+      const rail = container.querySelector(".sectionbar")!;
       const row = within(rail as HTMLElement).getByRole("button",
         { name: (name) => name.startsWith(section.label) });
       fireEvent.click(row);

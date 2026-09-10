@@ -587,14 +587,16 @@ a { color: inherit; }
 
 /* --- app shell (§65) ----------------------------------------------------- */
 
-/* Two rows, one column. The three columns underneath are a resizable panel
-   group now rather than grid tracks, because their widths belong to the
-   researcher: the rail and the inspector were fixed at 232px and 360px, and a
-   long research question or a dense evidence panel had nowhere to go. */
+/* Four rows, one column: identity, the five groups, the open group's sections,
+   then the work. The navigation used to be a column beside the work and is a
+   pair of rows above it now. The two columns underneath are a resizable panel
+   group rather than grid tracks, because the inspector's width belongs to the
+   researcher: it was fixed at 360px, and a dense evidence panel had nowhere to
+   go. */
 .shell {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: 52px minmax(0, 1fr);
+  grid-template-rows: 52px 48px auto minmax(0, 1fr);
   height: 100vh;
 }
 
@@ -606,12 +608,12 @@ a { color: inherit; }
    below its content, which is the overlap bug this codebase has now shipped
    three times. Dragging an edge is exactly the operation that would find it a
    fourth. */
-.rail-panel, .workspace-panel, .inspector-panel {
+.workspace-panel, .inspector-panel {
   min-width: 0;
   display: flex;
   flex-direction: column;
 }
-.rail-panel > *, .workspace-panel > *, .inspector-panel > * {
+.workspace-panel > *, .inspector-panel > * {
   min-width: 0;
   /* `min-height: 0` as well, or `overflow-y: auto` on the rail, workspace and
      inspector never scrolls: a flex child will not shrink below its content
@@ -695,6 +697,131 @@ a { color: inherit; }
   font-weight: 400;
   color: var(--ink-faint);
   font-size: 11px;
+}
+
+/* --- the two navigation rows ---------------------------------------------
+ *
+ * The five groups, then the open group's sections. This replaces the accordion
+ * rail: the state underneath is the same one that rail had — one group open,
+ * derived from the current section — and only the axis changed.
+ *
+ * Selection says two different things here and they must not be confused. The
+ * GROUP row says which stage of the work you are in, and marks it with a
+ * restrained gold underline. The SECTION row says which screen you are on, and
+ * marks it with a pale gold fill. Data selection is blue and lives inside the
+ * workspace; nothing in this chrome may borrow it, or "where I am" and "what I
+ * picked" start to look alike.
+ */
+
+.groupbar,
+.sectionbar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 0 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  /* Constrained windows scroll this row rather than truncating labels into
+     ambiguous icons; the region scrolls, the page never does. */
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.groupbar-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 48px;
+  padding: 0 16px;
+  border: 0;
+  background: none;
+  color: var(--ink-soft);
+  font: inherit;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.groupbar-tab:hover { color: var(--ink); }
+/* The underline sits inside the row rather than on its border, so the row's
+   own rule stays continuous behind it. */
+.groupbar-tab::after {
+  content: "";
+  position: absolute;
+  inset: auto 12px -1px 12px;
+  height: 2px;
+  background: transparent;
+}
+.groupbar-tab[aria-expanded="true"] { color: var(--ink); font-weight: 600; }
+.groupbar-tab[aria-expanded="true"]::after { background: var(--accent); }
+
+.groupbar-count {
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--hover);
+  color: var(--ink-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.sectionbar {
+  gap: 4px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  background: var(--paper);
+}
+
+.sectionbar-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-soft);
+  font: inherit;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+}
+.sectionbar-item:hover { background: var(--hover); color: var(--ink); }
+/*
+ * The pale selected fill, with a label readable on it. Weight carries the
+ * selection too, so the current screen is not marked by colour alone.
+ *
+ * `--accent-soft` rather than a new pale-gold token: it is already the app's
+ * "this row is selected" fill, already contrast-checked against
+ * `--on-accent-soft` in both themes, and it follows the theme. The package's
+ * light master marks navigation in gold and reserves blue for data selection,
+ * where this app's light theme has one blue accent for both. Adopting the
+ * package's split means repainting the whole light palette, which is its own
+ * piece of work and is recorded rather than smuggled in here.
+ */
+.sectionbar-item[aria-current="true"] {
+  background: var(--accent-soft);
+  color: var(--on-accent-soft);
+  font-weight: 600;
+}
+
+.sectionbar-icon {
+  display: inline-flex;
+  color: var(--ink-faint);
+}
+.sectionbar-item:hover .sectionbar-icon { color: var(--ink-soft); }
+.sectionbar-item[aria-current="true"] .sectionbar-icon { color: var(--accent); }
+
+.sectionbar-count {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--hover);
+  color: var(--ink-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 .rail {

@@ -82,9 +82,12 @@ describe("the hand-tracking pages are reachable from the product", () => {
     shell();
     openMachine();
     const link = screen.getByRole("link", { name: /check hand tracking/i });
-    const group = link.closest(".rail-group");
-    expect(group?.textContent).toContain("This machine");
-    expect(group?.textContent).toContain("Settings");
+    // The group's name is in the row above its entries now rather than wrapping
+    // them, so the row states which group it belongs to and the link sits in it
+    // beside Settings.
+    const sections = link.closest("nav.sectionbar");
+    expect(sections?.getAttribute("aria-label")).toBe("This machine");
+    expect(sections?.textContent).toContain("Settings");
   });
 
   it("says what each one is for", () => {

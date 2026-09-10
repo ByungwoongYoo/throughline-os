@@ -130,7 +130,7 @@ function at(path: string) {
 
 const currentProject = () => document.querySelector(".pm-name")?.textContent;
 const currentRailItem = () =>
-  document.querySelector(".rail-item[aria-current='true']")?.textContent ?? null;
+  document.querySelector(".sectionbar-item[aria-current='true']")?.textContent ?? null;
 const search = () => new URLSearchParams(window.location.search);
 
 beforeEach(() => { window.localStorage.clear(); });

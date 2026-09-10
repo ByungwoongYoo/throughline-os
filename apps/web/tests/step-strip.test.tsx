@@ -93,24 +93,31 @@ describe("the shell carries the strip above the workspace", () => {
     expect(main.contains(strip)).toBe(false);
   });
 
-  it("pins This machine in its own nav, outside the scrolling body", () => {
+  it("keeps This machine a group of its own, not a research step", () => {
     const { container } = render(
       <Shell section="settings" onSection={vi.fn()} map={null} inspector={null}
              onCommand={vi.fn()} projectName="P" crumbs={[]} onDropFiles={vi.fn()}>
         <p>content</p>
       </Shell>,
     );
-    // Settings is the current section, so its group is the open one; the point
-    // here is which *nav* holds it, not whether it is expanded.
-    const footer = container.querySelector("nav.rail-footer")!;
-    expect(footer).not.toBeNull();
-    expect(footer.textContent).toContain("Settings");
-    expect(footer.textContent).toContain("Chart primitives");
-    expect(container.querySelector("nav.rail")!.textContent).not.toContain("Settings");
+    /*
+     * Settings is the current section, so This machine is the open group. It
+     * used to be pinned in a nav of its own below the scrolling rail; now the
+     * five groups are a row and it is the last of them. What has to stay true
+     * is the separation, not the mechanism: the machine's entries are reachable
+     * and none of the research steps is filed among them.
+     */
+    const sections = container.querySelector("nav.sectionbar")!;
+    expect(sections.getAttribute("aria-label")).toBe("This machine");
+    expect(sections.textContent).toContain("Settings");
+    expect(sections.textContent).toContain("Chart primitives");
+    for (const step of ["Findings", "Analyses", "Sources", "Reports"]) {
+      expect(sections.textContent).not.toContain(step);
+    }
     // Five groups, named and never numbered: only four sections are step
     // destinations, so a numbered heading would claim a sequence. The name is
-    // the heading's first span; the second is the entry count (T139).
-    const names = [...container.querySelectorAll(".rail-group > .rail-heading")]
+    // the tab's first span; the second is the entry count (T139).
+    const names = [...container.querySelectorAll(".groupbar-tab")]
       .map((h) => h.querySelector("span")?.textContent?.trim());
     expect(names).toEqual(
       ["The project", "Gather", "Discover and test", "Communicate", "This machine"]);
