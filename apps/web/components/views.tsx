@@ -16,6 +16,7 @@ import {
   INGESTION_STAGES, Provenance, SearchResult, Source, ValidationReport, api,
   ingestionStep, isIngesting,
 } from "@/lib/api";
+import { Tabs } from "./Tabs";
 import { columnNotices } from "@/lib/column-notices";
 import { DatasetFormats, extrasNote, uploadAccept } from "@/lib/formats";
 import { ApiState, useApi } from "@/lib/useApi";
@@ -1929,6 +1930,19 @@ export function EvidenceGraphView({ findingId, onOpenAnalysis, onLoaded }: {
  * to agree, so this unions them rather than trusting either — an older run
  * where only one was populated still says what it knew.
  */
+/**
+ * What the Assumptions tab says before anybody opens it.
+ *
+ * A count alone would answer the wrong question. What decides whether that tab
+ * is worth opening is whether anything FAILED, and a run with eight passing
+ * checks and one violation is the case that matters — the number 9 hides it.
+ */
+export function assumptionNote(checks: AnalysisRun["assumption_checks"]): string | undefined {
+  if (checks.length === 0) return "none";
+  const failed = checks.filter((c) => /violat|fail/i.test(c.outcome)).length;
+  return failed > 0 ? `${failed} of ${checks.length} failed` : String(checks.length);
+}
+
 function ResultWarnings({ run }: { run: AnalysisRun }) {
   const fromRun = (run as { warnings?: string[] }).warnings ?? [];
   const fromResult = run.result?.warnings ?? [];
@@ -2012,85 +2026,166 @@ export function AnalysisDetail({ runId, projectId, onMethod, onOpenObject }: {
       )}
 
       {data.status === "completed" && r && (
+        /*
+         * Five readings of one run, which is what the cockpit master is.
+         *
+         * Nothing here is new: this is the same content the screen already
+         * carried, in the order §09 names — Result, Specification, Assumptions,
+         * Sensitivity, Reproducibility. What changes is that it stops being one
+         * long scroll. A researcher comparing two runs reads the specification
+         * of both, then the assumptions of both; scrolling past an interpretation
+         * to reach a seed is the friction the master removes.
+         *
+         * The warnings stay OUTSIDE the tabs, above everything. They say the
+         * estimate may not stand at all, and a reader must not have to open a
+         * panel to find that out.
+         */
         <>
-          {/*
-            * Above the estimate, and that placement is the point.
-            *
-            * A run carries `warnings` and the screen showed only
-            * `limitations`, so two things were computed and thrown away. The
-            * first is the method itself: "Normality is violated. Spearman
-            * correlation is the appropriate alternative." — the system knew
-            * the test was the wrong one, said so, and the researcher read a
-            * Pearson coefficient with nothing beside it. The second is
-            * whatever the statistics library said during the fit, captured by
-            * the runtime: a `ConvergenceWarning` means the estimate below may
-            * be meaningless, and it was being discarded.
-            *
-            * Both change how the number should be read, so they sit before it
-            * rather than under it. `limitations` stays where it is: a
-            * limitation qualifies a result that stands, and a warning
-            * questions whether it stands at all.
-            */}
           <ResultWarnings run={data} />
 
-          {/* §47 — four separate judgements, shown separately. */}
-          <div className="grid-2" style={{ marginBottom: 14 }}>
-            <Stat label={r.estimate_name ?? "estimate"} value={r.estimate?.toFixed(4) ?? "—"} />
-            <Stat label="p-value" value={r.p_value != null ? r.p_value.toExponential(2) : "—"} />
-            <Stat label="sample size" value={r.sample_size ?? "—"} />
-            <Stat label="evidence quality" value={r.evidence_quality} />
-          </div>
+          <Tabs
+            label="Readings of this run"
+            tabs={[
+              {
+                id: "result",
+                label: "Result",
+                panel: () => (
+                  <>
+                    {/* §47 — four separate judgements, shown separately. */}
+                    <div className="grid-2" style={{ marginBottom: 14 }}>
+                      <Stat label={r.estimate_name ?? "estimate"} value={r.estimate?.toFixed(4) ?? "—"} />
+                      <Stat label="p-value" value={r.p_value != null ? r.p_value.toExponential(2) : "—"} />
+                      <Stat label="sample size" value={r.sample_size ?? "—"} />
+                      <Stat label="evidence quality" value={r.evidence_quality} />
+                    </div>
 
-          <div className="card">
-            <h2>Interpretation</h2>
-            <p style={{ color: "var(--ink)" }}>{r.interpretation}</p>
-            <div className="kv" style={{ marginTop: 10 }}>
-              <dt>Statistically significant</dt><dd>{String(r.statistically_significant)}</dd>
-              <dt>Practical significance</dt><dd>{r.practical_significance}</dd>
-              <dt>Method chosen because</dt><dd>{data.method_rationale || "—"}</dd>
-            </div>
-            {r.limitations.length > 0 && (
-              <ul style={{ margin: "10px 0 0", paddingLeft: 18, color: "var(--ink-soft)" }}>
-                {r.limitations.map((l, i) => <li key={i}>{l}</li>)}
-              </ul>
-            )}
-          </div>
-
-          <div className="card">
-            <h2>Assumption checks</h2>
-            <table>
-              <thead><tr><th>Check</th><th>Outcome</th><th>Detail</th></tr></thead>
-              <tbody>
-                {data.assumption_checks.map((c) => (
-                  <tr key={c.name}>
-                    <td className="mono">{c.name}</td>
-                    <td><Status value={c.outcome} /></td>
-                    <td style={{ color: "var(--ink-soft)" }}>{c.detail}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* §44 — everything needed to reproduce the number. */}
-          <div className="card">
-            <h2>Reproducibility</h2>
-            <div className="kv">
-              <dt>Random seed</dt><dd>{data.random_seed}</dd>
-              <dt>Duration</dt><dd>{data.duration_ms} ms</dd>
-              <dt>Dependencies</dt>
-              <dd className="mono">
-                {Object.entries(data.dependency_versions).map(([k, v]) => `${k} ${v}`).join(" · ")}
-              </dd>
-              <dt>Dataset hash</dt><dd className="mono">{data.input_hashes.dataset_content_hash?.slice(0, 16)}…</dd>
-              <dt>Spec hash</dt><dd className="mono">{data.input_hashes.spec_content_hash?.slice(0, 16)}…</dd>
-              <dt>Isolation</dt>
-              <dd className="mono">
-                {data.sandbox_policy.enforced?.separate_process ? "separate process" : "—"};
-                network {data.sandbox_policy.best_effort?.network_egress_disabled ?? "—"}
-              </dd>
-            </div>
-          </div>
+                    <div className="card">
+                      <h2>Interpretation</h2>
+                      <p style={{ color: "var(--ink)" }}>{r.interpretation}</p>
+                      <div className="kv" style={{ marginTop: 10 }}>
+                        <dt>Statistically significant</dt><dd>{String(r.statistically_significant)}</dd>
+                        <dt>Practical significance</dt><dd>{r.practical_significance}</dd>
+                      </div>
+                      {r.limitations.length > 0 && (
+                        <ul style={{ margin: "10px 0 0", paddingLeft: 18, color: "var(--ink-soft)" }}>
+                          {r.limitations.map((l, i) => <li key={i}>{l}</li>)}
+                        </ul>
+                      )}
+                    </div>
+                  </>
+                ),
+              },
+              {
+                id: "specification",
+                label: "Specification",
+                panel: () => (
+                  <div className="card">
+                    <h2>What was asked for</h2>
+                    <div className="kv">
+                      <dt>Method</dt><dd className="mono">{data.method}</dd>
+                      <dt>Question</dt><dd>{data.research_question || "—"}</dd>
+                      <dt>Method chosen because</dt><dd>{data.method_rationale || "—"}</dd>
+                    </div>
+                    {/*
+                      * The variables as the run recorded them, not as a fixed
+                      * exposure/outcome pair. §09: do not force every method
+                      * into one schema — an ANOVA has a factor and a measure,
+                      * a correlation has two continuous columns, and printing
+                      * "exposure" over a factor would be a small lie about
+                      * what was run.
+                      */}
+                    <h3 className="eyebrow" style={{ marginTop: 14 }}>Variables</h3>
+                    {Object.keys(data.variables ?? {}).length === 0 ? (
+                      <p className="note">This run recorded no variable roles.</p>
+                    ) : (
+                      <div className="kv">
+                        {Object.entries(data.variables).map(([role, value]) => (
+                          <Fragment key={role}>
+                            <dt>{role.replace(/_/g, " ")}</dt>
+                            <dd className="mono">{String(value)}</dd>
+                          </Fragment>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ),
+              },
+              {
+                id: "assumptions",
+                label: "Assumptions",
+                note: assumptionNote(data.assumption_checks),
+                panel: () => (
+                  <div className="card">
+                    <h2>Assumption checks</h2>
+                    {data.assumption_checks.length === 0 ? (
+                      <p className="note">This method declared no assumptions to check.</p>
+                    ) : (
+                      <table>
+                        <thead><tr><th>Check</th><th>Outcome</th><th>Detail</th></tr></thead>
+                        <tbody>
+                          {data.assumption_checks.map((c) => (
+                            <tr key={c.name}>
+                              <td className="mono">{c.name}</td>
+                              <td><Status value={c.outcome} /></td>
+                              <td style={{ color: "var(--ink-soft)" }}>{c.detail}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                ),
+              },
+              {
+                id: "sensitivity",
+                label: "Sensitivity",
+                panel: () => (
+                  <div className="card">
+                    <h2>Does it survive another approach</h2>
+                    {/*
+                      * Stated rather than faked. The run family — forking this
+                      * specification and comparing the branches — is a real
+                      * capability of this product, and it is offered by the
+                      * panel below this object rather than from inside this
+                      * tab. §09 forbids retaining a control with no backing
+                      * contract, so this says where the capability is instead
+                      * of growing a button that would not work.
+                      */}
+                    <p className="note">
+                      A sensitivity family is built by forking this run’s recorded
+                      specification and comparing the branches. This run’s forks and
+                      their lineage are listed with the run below.
+                    </p>
+                  </div>
+                ),
+              },
+              {
+                id: "reproducibility",
+                label: "Reproducibility",
+                panel: () => (
+                  /* §44 — everything needed to reproduce the number. */
+                  <div className="card">
+                    <h2>Reproducibility</h2>
+                    <div className="kv">
+                      <dt>Random seed</dt><dd>{data.random_seed}</dd>
+                      <dt>Duration</dt><dd>{data.duration_ms} ms</dd>
+                      <dt>Dependencies</dt>
+                      <dd className="mono">
+                        {Object.entries(data.dependency_versions).map(([k, v]) => `${k} ${v}`).join(" · ")}
+                      </dd>
+                      <dt>Dataset hash</dt><dd className="mono">{data.input_hashes.dataset_content_hash?.slice(0, 16)}…</dd>
+                      <dt>Spec hash</dt><dd className="mono">{data.input_hashes.spec_content_hash?.slice(0, 16)}…</dd>
+                      <dt>Isolation</dt>
+                      <dd className="mono">
+                        {data.sandbox_policy.enforced?.separate_process ? "separate process" : "—"};
+                        network {data.sandbox_policy.best_effort?.network_egress_disabled ?? "—"}
+                      </dd>
+                    </div>
+                  </div>
+                ),
+              },
+            ]}
+          />
         </>
       )}
 

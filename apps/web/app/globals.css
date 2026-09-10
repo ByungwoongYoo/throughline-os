@@ -828,6 +828,41 @@ a { color: inherit; }
   font-variant-numeric: tabular-nums;
 }
 
+/* --- tabs: several readings of one object ---------------------------------
+ *
+ * The strip itself is `.tabs`/`.tab`, which this stylesheet already defined.
+ * Only what those two do not cover is added here.
+ *
+ * Distinct from `.sectionbar` on purpose, and the distinction is the point.
+ * The section row says WHERE you are and is chrome; these say WHICH READING of
+ * the object in front of you, and belong to the object. Making them look alike
+ * would invite reading a tab as navigation, which is the confusion §08's
+ * selection rules exist to prevent.
+ */
+
+.readings { display: block; }
+
+/* A count, or "1 of 9 failed". What decides whether a tab is worth opening is
+   usually not how many things are inside it. */
+.tab-note {
+  margin-left: 7px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--hover);
+  color: var(--ink-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The panel is focusable so a keyboard can scroll what it has just opened; it
+   must not therefore wear a focus ring as though it were a control. */
+.tab-panel { outline: none; }
+.tab-panel:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
 .rail {
   /* No `border-right`: `.shell-divider` draws that line now, and keeping both
      put two hairlines and a gap where the shell had one. */

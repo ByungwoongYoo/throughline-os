@@ -9,6 +9,7 @@
  */
 
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AnalysisDetail } from "@/components/views";
 import { api } from "@/lib/api";
@@ -70,9 +71,25 @@ describe("reading one analysis", () => {
     expect(await screen.findByText(/cannot establish direction/)).toBeTruthy();
   });
 
-  it("says why the method was chosen", async () => {
+  it("says why the method was chosen, under Specification", async () => {
+    /*
+     * The rationale moved when the run became five readings rather than one
+     * scroll: it answers "what was asked for", not "what was found", which is
+     * where §09 puts it. So this now says which reading it is under, and
+     * opening that reading is part of the claim — a rationale filed somewhere
+     * a reader would not look for it is not much better than one missing.
+     */
+    const user = userEvent.setup();
     view();
+    await user.click(await screen.findByRole("tab", { name: /Specification/ }));
     expect(await screen.findByText(/Both variables are continuous/)).toBeTruthy();
+  });
+
+  it("keeps the estimate and the interpretation on the reading it opens with",
+     async () => {
+    /** Whatever else moved, what the run FOUND is what a reader meets first. */
+    view();
+    expect(await screen.findByText(/0\.6234/)).toBeTruthy();
   });
 
   it("says a failed run failed instead of showing a blank result", async () => {
