@@ -66,7 +66,7 @@ const RENDER_SCALE = 1;
  * soft shoulders. Fewer strands, much wider, and a bloom pass to carry the glow
  * is what makes it photographic instead of drawn.
  */
-const STRANDS = 360;
+const STRANDS = 520;
 const SEGMENTS = 384;
 
 /*
@@ -86,7 +86,10 @@ const SEGMENTS = 384;
  * a hot scene with a little bloom — is what produced the blown white core with
  * a hard edge that the reference does not have.
  */
-const EXPOSURE = 0.22;
+/** Raised to pay for the flow term, whose mean is below one. */
+const EXPOSURE = 0.3;
+/** Radial breathing amplitude. 0 gives concentric hoops; this gives a braid. */
+const WEAVE = 0.6;
 const BLOOM = 0.6;
 const BLOOM_THRESHOLD = 0.5;
 /** Ribbon width in CSS pixels before defocus widens it. */
@@ -180,14 +183,34 @@ uniform float uWidth;
 
 in vec4 aStrand;   // radius, height, brightness, phase
 in vec2 aTone;     // hue mix, width multiplier
+in vec4 aWeave;    // radial amplitude, radial frequency, weave phase, flow phase
 
 out float vAcross;
 out float vBright;
 out float vHue;
 out float vFade;
 out float vSpread;
+out float vFlow;
 
-vec3 orbit(float r, float y, float a){ return vec3(r * cos(a), y, r * sin(a)); }
+/*
+ * Not a circle, and that is the whole difference between a river and a hoop.
+ *
+ * A strand at a FIXED radius is a hoop; a field of them is concentric hoops
+ * however finely each is drawn, and rotating them rigidly makes the ring look
+ * like something being spun rather than something flowing. Letting each
+ * strand's radius breathe as it goes round — at its own low frequency and its
+ * own phase — makes strands CROSS. They converge, diverge and braid, which is
+ * what the reference does everywhere, and it is what the eye reads as flow.
+ *
+ * Low frequencies only: one to three swells per revolution. Higher and the
+ * strands wobble instead of braiding, which looks like interference rather
+ * than motion.
+ */
+vec3 orbit(float r, float y, float a, vec4 w){
+  float rr = r + w.x * sin(a * w.y + w.z);
+  float yy = y + w.x * 0.22 * cos(a * w.y * 0.7 + w.z * 1.7);
+  return vec3(rr * cos(a), yy, rr * sin(a));
+}
 
 void main(){
   int seg = gl_VertexID >> 1;
@@ -202,9 +225,20 @@ void main(){
   // instead of rotating rigidly.
   float spin = uT * 8.1 / (r * sqrt(r)) + aStrand.w;
 
-  vec3 p0 = orbit(r, y, a0 + spin);
-  vec3 pPrev = orbit(r, y, a0 - step + spin);
-  vec3 pNext = orbit(r, y, a0 + step + spin);
+  vec3 p0 = orbit(r, y, a0 + spin, aWeave);
+  vec3 pPrev = orbit(r, y, a0 - step + spin, aWeave);
+  vec3 pNext = orbit(r, y, a0 + step + spin, aWeave);
+
+  /*
+   * Brightness travelling ALONG the strand.
+   *
+   * A strand of even brightness cannot show motion. The whole ring can turn and
+   * still look static, because every stretch of it looks like every other
+   * stretch — which is the second half of why this read as a hoop being spun.
+   * The reference's strands are bright along one stretch and dark along the
+   * next, and those patches travel. That is the flow you actually see.
+   */
+  vFlow = 0.45 + 0.55 * sin(a0 * 2.7 + aWeave.w - uT * 12.5 / r);
 
   vec4 c0 = uViewProj * vec4(p0, 1.0);
   vec4 cP = uViewProj * vec4(pPrev, 1.0);
@@ -239,6 +273,7 @@ void main(){
   vHue = aTone.x;
   vSpread = spread;
 
+
   vec3 tang = normalize(vec3(-sin(a0 + spin), 0.0, cos(a0 + spin)));
   vFade = dot(tang, normalize(uRo - p0));
 }`;
@@ -254,6 +289,7 @@ in float vBright;
 in float vHue;
 in float vFade;
 in float vSpread;
+in float vFlow;
 
 out vec4 oC;
 
@@ -271,7 +307,7 @@ void main(){
   // Divided by the spread, so widening a distant ribbon does not brighten it.
   // Without this the far side of the ring gains energy as it defocuses and
   // blows out — the opposite of what distance does.
-  float em = a * vBright * dop * uExpo / vSpread;
+  float em = a * vBright * dop * uExpo * vFlow / vSpread;
   vec3 warm = uTint * vec3(0.86, 0.68, 0.42);
   vec3 hot = vec3(1.0, 0.975, 0.93);
   vec3 col = mix(warm, hot, clamp(vHue * 0.42 + em * 0.58, 0.0, 1.0));
@@ -404,7 +440,7 @@ void main(){
  * same ring on every load, which is the only thing that makes a screenshot
  * comparison mean anything.
  */
-function buildStrands(): { strand: Float32Array; tone: Float32Array } {
+function buildStrands(): { strand: Float32Array; tone: Float32Array; weave: Float32Array } {
   let seed = 0x9e3779b9;
   const rnd = () => {
     seed ^= seed << 13;
@@ -415,6 +451,7 @@ function buildStrands(): { strand: Float32Array; tone: Float32Array } {
 
   const strand = new Float32Array(STRANDS * 4);
   const tone = new Float32Array(STRANDS * 2);
+  const weave = new Float32Array(STRANDS * 4);
   for (let i = 0; i < STRANDS; i++) {
     // Orbital density runs higher toward the inner edge; a uniform draw reads
     // as a printed gradient rather than as material.
@@ -431,8 +468,16 @@ function buildStrands(): { strand: Float32Array; tone: Float32Array } {
     // Wide variance on purpose: a handful of broad ribbons carry the band and
     // the rest texture it. A uniform width reads as a comb.
     tone.set([Math.pow(rnd(), 1.8), 0.35 + 4.2 * Math.pow(rnd(), 3.0)], i * 2);
+    // Amplitude in world units against a band three units wide: enough to
+    // cross a neighbour, not enough to leave the river.
+    weave.set([
+      WEAVE * (0.25 + 1.5 * Math.pow(rnd(), 1.7)),
+      1 + Math.floor(rnd() * 3),
+      rnd() * 6.283185,
+      rnd() * 6.283185,
+    ], i * 4);
   }
-  return { strand, tone };
+  return { strand, tone, weave };
 }
 
 /** One offscreen buffer: a texture and the framebuffer that draws into it. */
@@ -543,7 +588,7 @@ function initGL(canvas: HTMLCanvasElement): GLBundle | null {
   if (!vao) return null;
   gl.bindVertexArray(vao);
 
-  const { strand, tone } = buildStrands();
+  const { strand, tone, weave } = buildStrands();
   const buffers: WebGLBuffer[] = [];
   const bind = (name: string, data: Float32Array, size: number) => {
     const buffer = gl.createBuffer();
@@ -558,6 +603,7 @@ function initGL(canvas: HTMLCanvasElement): GLBundle | null {
   };
   bind("aStrand", strand, 4);
   bind("aTone", tone, 2);
+  bind("aWeave", weave, 4);
 
   // The fullscreen triangle every post pass draws, on its own VAO so binding it
   // never disturbs the instanced strand attributes.
