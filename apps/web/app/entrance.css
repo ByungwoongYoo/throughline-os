@@ -160,6 +160,17 @@ body:has(.entrance-header) {
   will-change: opacity, transform;
   pointer-events: none;
 }
+/*
+ * A chapter that has left must actually leave.
+ *
+ * The controller sets the `hidden` attribute, whose UA rule is `display: none`
+ * — but `.panel-a` sets `display: flex`, and an author rule beats the UA sheet.
+ * So chapter A stayed laid out under three invisible layers with its Explore
+ * link still in the tab order: a keyboard reached a control nobody could see,
+ * which is the trap §03 names. Found by the browser check, not by reading.
+ */
+.panel[hidden] { display: none !important; }
+
 /* The panel is inert scenery except where it holds something operable. */
 .panel a,
 .panel button { pointer-events: auto; }
@@ -389,16 +400,23 @@ body:has(.entrance-header) {
 .mark-spine { stroke: currentColor; stroke-width: 1.4; }
 .mark-dot { fill: currentColor; }
 
+/* Wraps. `space-between` with a non-shrinking row of forms pushed the
+   qualifier clean past the right edge at 320px — 92px of page-wide sideways
+   scroll, which §04 forbids outright. Wrapping is also the honest reading: the
+   qualifier is a sentence, and a sentence with nowhere to go belongs on its own
+   line rather than off the page. */
 .marks-foot {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
-  gap: 24px;
+  gap: 10px 24px;
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid var(--e-line);
 }
-.marks-forms { display: flex; gap: 30px; flex: none; }
+.marks-forms { display: flex; flex-wrap: wrap; gap: 12px 30px; }
+.marks-qualifier { min-width: 0; }
 .marks-form {
   appearance: none;
   background: none;
@@ -477,6 +495,22 @@ body:has(.entrance-header) {
 
 /* Short or narrow windows stop pinning and read as an ordinary document. The
    artwork is worth less than the words, so the words win. */
+/* Reflow to 320px. §02 asks for every action to survive and no page-wide
+   sideways scroll; it does not ask for a mobile design. So the header gives up
+   its section anchors — they are duplicated by the document order below — and
+   the entry button keeps its label while losing its minimum width. */
+@media (max-width: 620px) {
+  .entrance-header { gap: 12px; padding: 0 16px; }
+  .entrance-nav { display: none; }
+  .brand-mark { width: 44px; height: 30px; }
+  .brand-word { font-size: 19px; }
+  .enter { min-width: 0; height: 40px; padding: 0 12px; font-size: 14px; }
+  .motion-toggle { right: 10px; bottom: 10px; }
+  .marks-foot { flex-direction: column; align-items: flex-start; }
+  .marks-qualifier { text-align: left; }
+  body:has(.entrance-header) { --e-header: 64px; }
+}
+
 @media (max-width: 900px), (max-height: 620px) {
   .runway { height: auto !important; }
   .stage { position: static; height: auto; overflow: visible; }
