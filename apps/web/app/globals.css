@@ -200,7 +200,8 @@
      * None of these are new colours. They are the ones the public site and this
      * app's own landing page are already built from: the near-black the
      * black-hole imagery sits in, the pale mist it is written in, and the amber
-     * that imagery casts. `app/landing.css` names them `--deep #0b0d10`,
+     * that imagery casts. The landing page the ring entrance replaced named
+     * them `--deep #0b0d10`,
      * `--mist #f4f2ee`, `--amber #c8a45c`, `--glow #7fa8d4`; the deployed page
      * adds the page ground `#06070a`, the brighter amber `#e8b76a` and the
      * amber-tinted dark `#2a2214`. The dark workspace was a cool blue-grey navy
@@ -279,7 +280,7 @@
      * mistaken for `--caution`/`--warn` (#F59E0B), the one warm hue chrome is
      * allowed to use for state. As CIE76 ΔE in Lab, #c8a45c is 38.4 from it and
      * #e8b76a only 33.5. The deeper amber is the more separable of the two, and
-     * it is the one the site and `landing.css` actually name `--amber`; the
+     * it is the one that landing page actually named `--amber`; the
      * brighter one keeps its site role as the emphasis on a tinted ground.
      *
      * A light accent flips which side is readable, so `--on-accent` moves with
@@ -370,7 +371,8 @@
      * None of these are new colours. They are the ones the public site and this
      * app's own landing page are already built from: the near-black the
      * black-hole imagery sits in, the pale mist it is written in, and the amber
-     * that imagery casts. `app/landing.css` names them `--deep #0b0d10`,
+     * that imagery casts. The landing page the ring entrance replaced named
+     * them `--deep #0b0d10`,
      * `--mist #f4f2ee`, `--amber #c8a45c`, `--glow #7fa8d4`; the deployed page
      * adds the page ground `#06070a`, the brighter amber `#e8b76a` and the
      * amber-tinted dark `#2a2214`. The dark workspace was a cool blue-grey navy
@@ -449,7 +451,7 @@
      * mistaken for `--caution`/`--warn` (#F59E0B), the one warm hue chrome is
      * allowed to use for state. As CIE76 ΔE in Lab, #c8a45c is 38.4 from it and
      * #e8b76a only 33.5. The deeper amber is the more separable of the two, and
-     * it is the one the site and `landing.css` actually name `--amber`; the
+     * it is the one that landing page actually named `--amber`; the
      * brighter one keeps its site role as the emphasis on a tinted ground.
      *
      * A light accent flips which side is readable, so `--on-accent` moves with

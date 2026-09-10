@@ -1,0 +1,495 @@
+/*
+ * The entrance — chapters 1A to 1D over one ring.
+ *
+ * Deliberately not wired to the workspace theme tokens. §01 fixes this page as
+ * dark and §08 forbids dragging that decision into the signed-in product, so
+ * the palette here is stated outright rather than inherited: a reader who keeps
+ * the workspace light still meets the same entrance, and nothing here can move
+ * when the workspace palette changes.
+ *
+ * Values are the handoff's homepage scope, unchanged.
+ */
+
+.entrance-scope,
+body:has(.entrance-header) {
+  --e-bg: #06070a;
+  --e-text: #f4f2ee;
+  --e-muted: #b9b9b4;
+  --e-line: #4d4d49;
+  --e-gold: #e8b76a;
+  --e-silver: #bac5d6;
+  --e-rust: #d48b63;
+  --e-focus: #afc8ff;
+  --e-action: #f4f2ee;
+  --e-action-text: #101216;
+  --e-header: 84px;
+  --e-gutter: clamp(24px, 4vw, 64px);
+}
+
+body:has(.entrance-header) {
+  background: var(--e-bg);
+  color: var(--e-text);
+  /* The runway is the only thing that scrolls; nothing may scroll sideways. */
+  overflow-x: hidden;
+}
+
+/* ---------------------------------------------------------------- header - */
+
+.skip {
+  position: fixed;
+  top: -100px;
+  left: 16px;
+  z-index: 200;
+  padding: 10px 16px;
+  border-radius: 6px;
+  background: var(--e-action);
+  color: var(--e-action-text);
+  font: 500 14px/1 Inter, system-ui, sans-serif;
+  transition: top 120ms ease;
+}
+.skip:focus-visible { top: 16px; }
+
+.entrance-header {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 100;
+  height: var(--e-header);
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  padding: 0 var(--e-gutter);
+  /* Near-opaque rather than a blur: the ring passes behind this band at every
+     camera position, and a translucent header would let a bright filament
+     cross the wordmark. */
+  background: rgba(6, 7, 10, 0.94);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--e-text);
+  text-decoration: none;
+  margin-right: auto;
+}
+.brand-mark { width: 74px; height: 50px; flex: none; }
+.brand-word { font: 500 28px/1 Inter, system-ui, sans-serif; letter-spacing: -0.01em; }
+
+.entrance-nav { display: flex; gap: 40px; }
+.entrance-nav a {
+  position: relative;
+  color: var(--e-text);
+  text-decoration: none;
+  font: 400 16px/1 Inter, system-ui, sans-serif;
+  padding: 6px 0;
+}
+/* A fine underline marks the current section. A filled tab would read as a
+   control that changes state, which these anchors do not. */
+.entrance-nav a::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 1px;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+.entrance-nav a:hover::after { opacity: 0.5; }
+.entrance-nav a[aria-current]::after { opacity: 1; }
+
+.enter {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 190px;
+  height: 48px;
+  padding: 0 22px;
+  border-radius: 6px;
+  background: var(--e-action);
+  color: var(--e-action-text);
+  font: 500 16px/1 Inter, system-ui, sans-serif;
+  text-decoration: none;
+  justify-content: center;
+  transition: transform 140ms ease, background 140ms ease;
+}
+.enter:hover { background: #fff; }
+.enter:active { transform: translateY(1px); }
+
+:where(.entrance-header, .panel, .motion-toggle) :focus-visible,
+.skip:focus-visible {
+  outline: 2px solid var(--e-focus);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+/* ----------------------------------------------------------------- stage - */
+
+.runway { position: relative; }
+
+.stage {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.ring {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: var(--e-bg);
+  pointer-events: none;
+}
+.ring-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.panel {
+  position: absolute;
+  inset: var(--e-header) 0 0 0;
+  z-index: 1;
+  padding: clamp(24px, 5vh, 72px) var(--e-gutter) clamp(24px, 6vh, 64px);
+  opacity: var(--o, 0);
+  /* Only transform and opacity animate. Nothing here triggers layout. */
+  transform: translate3d(0, calc((1 - var(--o, 0)) * 34px), 0);
+  will-change: opacity, transform;
+  pointer-events: none;
+}
+/* The panel is inert scenery except where it holds something operable. */
+.panel a,
+.panel button { pointer-events: auto; }
+
+/* ------------------------------------------------------------- editorial - */
+
+.display {
+  margin: 0;
+  font-family: "Source Serif 4", Georgia, serif;
+  font-weight: 400;
+  line-height: 1.04;
+  letter-spacing: -0.015em;
+  color: var(--e-text);
+  text-wrap: balance;
+}
+.panel-a .display { font-size: clamp(44px, min(5.3vw, 8.5vh), 84px); }
+.panel-b .display,
+.panel-c .display,
+.panel-d .display { font-size: clamp(34px, 4.4vw, 68px); }
+/* The italic continuation is the design's central typographic device. It is a
+   real face, not a synthesised slant — see fonts.css. */
+.display em { font-style: italic; }
+
+.lede {
+  margin: 26px 0 0;
+  max-width: 62ch;
+  font: 400 clamp(17px, 1.25vw, 21px) / 1.5 Inter, system-ui, sans-serif;
+  color: var(--e-text);
+}
+
+.eyebrow,
+.qualifier,
+.fragment-label,
+.station-label,
+.scroll-hint,
+.marks-qualifier {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--e-muted);
+}
+
+.quiet-link {
+  display: inline-block;
+  margin-top: 34px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--e-line);
+  color: var(--e-text);
+  text-decoration: none;
+  font: 400 16px/1 Inter, system-ui, sans-serif;
+}
+.quiet-link:hover { border-bottom-color: var(--e-text); }
+
+/* ---------------------------------------------------------- A · entrance - */
+
+/* Flow, not a grid. The title block sits at the top and the scroll hint is
+   pushed to the base by the free space between them; a grid row assignment put
+   the lede at the bottom of the viewport the first time this rendered. */
+.panel-a { display: flex; flex-direction: column; align-items: flex-start; }
+.panel-a .display { max-width: 710px; }
+.panel-a .lede { max-width: 620px; }
+
+.words {
+  position: absolute;
+  right: var(--e-gutter);
+  top: 54%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 30px;
+  text-align: right;
+}
+.words li {
+  font-family: "Source Serif 4", Georgia, serif;
+  font-style: italic;
+  font-size: clamp(20px, 1.7vw, 27px);
+  color: var(--e-text);
+}
+.words li::before {
+  content: "";
+  display: inline-block;
+  width: 26px;
+  height: 1px;
+  margin-right: 18px;
+  vertical-align: middle;
+  background: var(--e-gold);
+}
+
+.scroll-hint { margin: auto auto 0; align-self: center; }
+
+/* -------------------------------------------------- B · question/evidence - */
+
+.panel-b { text-align: center; }
+.panel-b .display { max-width: 20ch; margin: 0 auto; }
+.panel-b .lede { margin-left: auto; margin-right: auto; text-align: center; }
+
+.fragments {
+  position: absolute;
+  inset: auto var(--e-gutter) 14% var(--e-gutter);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: clamp(24px, 5vw, 90px);
+  align-items: start;
+  text-align: left;
+}
+.fragment { margin: 0; }
+.fragment blockquote {
+  margin: 12px 0 0;
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: clamp(22px, 2vw, 33px);
+  line-height: 1.25;
+  color: var(--e-text);
+}
+.fragment-label { display: flex; align-items: center; gap: 14px; }
+.fragment-label::before {
+  content: "";
+  width: 22px;
+  height: 1px;
+  background: currentColor;
+}
+.fragment-human .fragment-label { color: var(--e-gold); }
+.fragment-model { border-left: 1px solid var(--e-line); padding-left: 22px; }
+.fragment-model .fragment-label { color: var(--e-silver); }
+.fragment-model .fragment-label::before { display: none; }
+.fragment-origin {
+  margin: 12px 0 0;
+  font: 400 13px/1.4 Inter, system-ui, sans-serif;
+  color: var(--e-muted);
+}
+.fragment-working {
+  grid-column: 1 / -1;
+  justify-self: center;
+  text-align: center;
+}
+.fragment-working .fragment-label { justify-content: center; color: var(--e-gold); }
+.fragment-working blockquote { font-size: clamp(24px, 2.3vw, 38px); }
+
+.qualifier { position: absolute; left: var(--e-gutter); bottom: 4%; margin: 0; }
+
+/* ------------------------------------------------------ C · test and trace - */
+
+.panel-c .display { max-width: 16ch; }
+
+.stations {
+  position: absolute;
+  inset: auto auto 12% var(--e-gutter);
+  width: min(62%, 780px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: clamp(18px, 3.4vh, 44px);
+}
+/* Staggered, so the three sit at different depths along the curve without any
+   of them tilting: §02 keeps station text upright and at full opacity. */
+.station:nth-child(1) { margin-left: 8%; }
+.station:nth-child(2) { margin-left: 34%; }
+.station:nth-child(3) { margin-left: 58%; }
+.station-label { display: flex; align-items: center; gap: 14px; }
+.station-label::before { content: ""; width: 26px; height: 1px; background: var(--e-gold); }
+.station-question {
+  margin: 10px 0 0;
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: clamp(20px, 1.85vw, 31px);
+  line-height: 1.22;
+}
+.rejected {
+  position: absolute;
+  right: var(--e-gutter);
+  bottom: 20%;
+  max-width: 22ch;
+  margin: 0;
+  font-family: "Source Serif 4", Georgia, serif;
+  font-style: italic;
+  font-size: clamp(15px, 1.15vw, 19px);
+  line-height: 1.4;
+  color: var(--e-rust);
+  text-align: right;
+}
+.rejected::before {
+  content: "";
+  display: inline-block;
+  width: 26px;
+  height: 1px;
+  margin-right: 14px;
+  vertical-align: middle;
+  background: currentColor;
+}
+
+/* ------------------------------------------------------------- D · marks - */
+
+.panel-d {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-content: start;
+  justify-items: start;
+  padding-left: clamp(24px, 22vw, 340px);
+}
+.panel-d .display { max-width: 18ch; }
+
+.marks { width: min(100%, 800px); margin-top: clamp(12px, 3vh, 40px); }
+.marks-chart { width: 100%; height: auto; display: block; }
+.marks-axis { stroke: var(--e-line); stroke-width: 1; }
+/* The group is the unit of identity: one <g> per value, kept for the life of
+   the page so a reader can follow a single observation through all four forms.
+   It owns the paint, and the four child marks inherit it, so the colour of a
+   mark is set in one place rather than four. */
+.mark { color: var(--e-text); }
+.mark-bar { fill: currentColor; }
+.mark-violin { fill: currentColor; opacity: 0; }
+.mark-spine { stroke: currentColor; stroke-width: 1.4; }
+.mark-dot { fill: currentColor; }
+
+.marks-foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--e-line);
+}
+.marks-forms { display: flex; gap: 30px; }
+.marks-form {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 4px 0 8px;
+  color: var(--e-muted);
+  font: 400 16px/1 Inter, system-ui, sans-serif;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+.marks-form:hover { color: var(--e-text); }
+/* Weight as well as colour, so the pressed form is not carried by hue alone. */
+.marks-form[aria-pressed="true"] {
+  color: var(--e-gold);
+  font-weight: 500;
+  border-bottom-color: var(--e-gold);
+}
+.marks-qualifier { text-transform: none; letter-spacing: 0.04em; }
+
+.capabilities {
+  display: flex;
+  gap: 46px;
+  margin: clamp(14px, 3vh, 34px) 0 0;
+  padding: 0;
+  list-style: none;
+  font: 400 15px/1 Inter, system-ui, sans-serif;
+  color: var(--e-text);
+}
+.capabilities li::before {
+  content: "";
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 12px;
+  vertical-align: -2px;
+  border: 1px solid var(--e-gold);
+  border-radius: 2px;
+}
+
+.closing {
+  margin: clamp(18px, 5vh, 56px) 0 0;
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: clamp(24px, 2.4vw, 38px);
+  color: var(--e-text);
+}
+
+/* ------------------------------------------------------- motion control - */
+
+/* Reachable without scrolling to the end, and out of the way of the reading.
+   §02 allows a small fixed corner control; it is an accessibility affordance,
+   not a second call to action, so it never competes with Open workspace. */
+.motion-toggle {
+  position: fixed;
+  left: 20px;
+  bottom: 18px;
+  z-index: 100;
+  appearance: none;
+  padding: 8px 14px;
+  border: 1px solid var(--e-line);
+  border-radius: 999px;
+  background: rgba(6, 7, 10, 0.8);
+  color: var(--e-muted);
+  font: 400 12px/1 Inter, system-ui, sans-serif;
+  cursor: pointer;
+}
+.motion-toggle:hover { color: var(--e-text); border-color: var(--e-muted); }
+
+/* ------------------------------------------------------------- adaptation - */
+
+/* Short or narrow windows stop pinning and read as an ordinary document. The
+   artwork is worth less than the words, so the words win. */
+@media (max-width: 900px), (max-height: 620px) {
+  .runway { height: auto !important; }
+  .stage { position: static; height: auto; overflow: visible; }
+  .ring { position: fixed; }
+  .panel {
+    position: static;
+    opacity: 1 !important;
+    transform: none !important;
+    min-height: 100vh;
+    display: block;
+    padding-top: calc(var(--e-header) + 32px);
+  }
+  .words,
+  .fragments,
+  .qualifier,
+  .stations,
+  .rejected { position: static; inset: auto; width: auto; text-align: left; }
+  .fragments { grid-template-columns: 1fr; margin-top: 32px; }
+  .station { margin-left: 0 !important; }
+  .words { margin-top: 40px; text-align: left; }
+  .panel-b { text-align: left; }
+  .panel-d { padding-left: var(--e-gutter); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .runway { height: auto !important; }
+  .stage { position: static; height: auto; overflow: visible; }
+  .ring { position: fixed; }
+  .panel {
+    position: static;
+    opacity: 1 !important;
+    transform: none !important;
+    min-height: 100vh;
+    padding-top: calc(var(--e-header) + 32px);
+  }
+  .skip { transition: none; }
+}
