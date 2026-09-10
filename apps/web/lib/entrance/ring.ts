@@ -83,7 +83,7 @@ const FLARE = 0.05;
  * a point reached by travelling `ahead` along the ring's tangent, `inward`
  * toward the axis and `down` below the plane.
  */
-type Key = {
+export type Key = {
   az: number;
   radius: number;
   height: number;
@@ -99,22 +99,29 @@ type Key = {
  * scrolling travels along the ring rather than cutting between viewpoints —
  * which is the whole of "Along the ring".
  */
-const KEYS: readonly Key[] = [
+export const KEYS: readonly Key[] = [
   // A · the band enters low-left and arcs away to the upper right, leaving the
   //     whole upper-left void for the title and the right flank quiet for the
   //     three editorial words.
-  { az: 0.0, radius: 20.0, height: 1.6, ahead: 15, inward: 12, down: 1.3, roll: -0.3, focal: 1.7 },
+  { az: 0.0, radius: 16.0, height: 1.5, ahead: 15, inward: 10, down: 1.75, roll: -0.3, focal: 1.7 },
   // B · flattened and dropped, so the heading sits on black above it and the
   //     working question reads under the bend.
   { az: 0.58, radius: 21.0, height: 1.1, ahead: 15, inward: 13, down: 0.55, roll: 0.05, focal: 1.55 },
   // C · wrapped around the right boundary, clearing the broad left interior
   //     the three method stations need.
   { az: 1.2, radius: 19.0, height: 2.2, ahead: 14, inward: 11, down: 2.2, roll: -0.44, focal: 1.62 },
-  // D · held to the far left and lower perimeter; the marks own the right.
-  { az: 1.86, radius: 22.0, height: 1.4, ahead: 16, inward: 15, down: 1.15, roll: -0.1, focal: 1.45 },
+  // D · looks BACK along the ring, which throws the band onto the far left
+  //     and lower perimeter and leaves the right of the frame for the marks.
+  { az: 1.86, radius: 22.0, height: 1.4, ahead: -16, inward: 15, down: 1.15, roll: -0.1, focal: 1.45 },
 ];
 
-const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+/*
+ * The precise form. `a + (b - a) * t` does not return `b` exactly at t = 1 in
+ * floating point, which left the camera a hair off the approved keyframe at
+ * the end of the runway — invisible on screen, but it means the composition a
+ * screenshot compares against is not quite the one the reference approved.
+ */
+const lerp = (a: number, b: number, t: number) => (1 - t) * a + t * b;
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const ease = (t: number) => t * t * (3 - 2 * t);
 
@@ -123,7 +130,7 @@ const ease = (t: number) => t * t * (3 - 2 * t);
  * equal, and each is eased, so the viewpoint arrives at a chapter at rest
  * rather than still drifting under the text.
  */
-function keyAt(p: number): Key {
+export function keyAt(p: number): Key {
   const t = clamp01(p) * (KEYS.length - 1);
   const i = Math.min(Math.floor(t), KEYS.length - 2);
   const f = ease(t - i);
@@ -606,7 +613,19 @@ export function createRing(container: HTMLElement, options: RingOptions = {}): R
 
   return {
     setProgress(p: number) {
-      progress = clamp01(p);
+      const next = clamp01(p);
+      /*
+       * A no-op update must cost nothing.
+       *
+       * The page's controller pushes progress on every animation frame whether
+       * or not the reader moved, so redrawing on each call made "Pause
+       * background motion" a lie: the ambient loop stopped and the scene was
+       * still re-rendered sixty times a second at the same camera. It cost a
+       * headless capture its timeout before it cost anybody a frame rate, which
+       * is the only reason it was noticed.
+       */
+      if (next === progress) return;
+      progress = next;
       // With motion off the camera still has to arrive at the chapter being
       // read; what stops is the ambient loop, not the page.
       if (!running) renderOnce();

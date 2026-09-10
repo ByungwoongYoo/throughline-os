@@ -127,6 +127,9 @@ export const Marks = forwardRef<MarksHandle, { onFormChange?: (form: Form) => vo
         <svg
           className="marks-chart"
           viewBox={`0 0 ${W} ${H}`}
+          // Capped in height, so without this the letterboxing centres the
+          // marks and they drift away from the copy they sit under.
+          preserveAspectRatio="xMinYMid meet"
           role="img"
           aria-label={
             "The same eight values drawn four ways: as bars, as dots, as violin " +

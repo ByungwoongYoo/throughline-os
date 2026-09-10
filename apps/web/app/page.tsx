@@ -44,7 +44,7 @@ const RUNWAY = 6;
  * Where each chapter is settled and legible. Between them the camera travels
  * and the outgoing chapter has left, so no two headings overlap.
  */
-const CHAPTERS = [
+export const CHAPTERS = [
   { id: "top", label: "Entrance", from: 0.0, to: 0.14 },
   { id: "research", label: "Question and evidence", from: 0.27, to: 0.41 },
   { id: "test-and-trace", label: "Test and trace", from: 0.56, to: 0.7 },
@@ -58,11 +58,15 @@ const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
  * Text enters over roughly a tenth of the runway, which at the specified travel
  * is the 24-48px rise §03 asks for without ever spinning or tilting a word.
  */
-function chapterOpacity(p: number, from: number, to: number, isFirst: boolean, isLast: boolean) {
+export function chapterOpacity(p: number, from: number, to: number, isFirst: boolean, isLast: boolean) {
   const ramp = 0.085;
-  const inAt = isFirst ? clamp01((p - (from - ramp)) / ramp) : clamp01((p - (from - ramp)) / ramp);
-  const outAt = isLast ? 1 : 1 - clamp01((p - to) / ramp);
-  return Math.min(isFirst && p <= from ? 1 : inAt, outAt);
+  // The first chapter is already legible at rest, so it has no entry to ramp:
+  // a reader who has not scrolled must not meet a blank page.
+  const entering = isFirst ? 1 : clamp01((p - (from - ramp)) / ramp);
+  // The last chapter never leaves, because there is nothing after it that needs
+  // the room.
+  const leaving = isLast ? 1 : 1 - clamp01((p - to) / ramp);
+  return Math.min(entering, leaving);
 }
 
 export default function Entrance() {
@@ -85,6 +89,8 @@ export default function Entrance() {
     let raf = 0;
     let bounds = { top: 0, travel: 1 };
     let lastActive = -1;
+    /** Last progress actually acted on, so an unmoved reader costs nothing. */
+    let lastP = -1;
     /**
      * True while the stage is actually pinned. Reduced motion and small windows
      * both unpin it in CSS and show every chapter in ordinary document flow, and
@@ -106,10 +112,27 @@ export default function Entrance() {
       bounds = { top, travel: Math.max(1, el.offsetHeight - window.innerHeight) };
       const st = stage.current;
       pinned = st ? getComputedStyle(st).position === "sticky" : true;
+      // The pin state and the runway length both just changed, so the next
+      // frame has to redo its work even if the reader has not moved.
+      lastP = -1;
     }
 
     function frame() {
       const p = clamp01((window.scrollY - bounds.top) / bounds.travel);
+
+      /*
+       * A still reader costs nothing.
+       *
+       * The loop has to keep running to notice the next scroll, but rewriting
+       * the same opacity onto four panels and the same camera into the renderer
+       * on every frame is work with no output. Skipping it is what makes the
+       * pause control mean something, and what keeps an idle tab cheap.
+       */
+      if (p === lastP) {
+        raf = requestAnimationFrame(frame);
+        return;
+      }
+      lastP = p;
 
       ring.current?.setProgress(p);
       stage.current?.style.setProperty("--p", p.toFixed(4));
