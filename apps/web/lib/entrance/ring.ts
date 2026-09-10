@@ -9,7 +9,7 @@
  * editing `frontend/mods/shader.js`, which is the public page's own module and
  * another session's task. So this is a second renderer of the same object,
  * sharing its tint, its Doppler treatment and its grade, and importing the
- * site's `TLLayers` unchanged for motes and grain.
+ * site's tint and Doppler treatment.
  *
  * Why it draws geometry instead of marching rays. The site's shader integrates
  * ninety bending steps to put the hole's shadow and photon ring on screen. With
@@ -25,8 +25,6 @@
  * One rAF, one progress owner. `setProgress` is the only way the camera moves;
  * the page's scroll controller owns that number and nothing here reads scroll.
  */
-
-import { TLLayers } from "../sky/layers.js";
 
 export type RingOptions = {
   /** Shown when there is no WebGL2, or when the context is lost. */
@@ -58,7 +56,17 @@ const MAX_DPR = 2;
 /** Ribbons are cheap, so the ring renders at full device resolution. */
 const RENDER_SCALE = 1;
 
-const STRANDS = 2600;
+/*
+ * Few and wide, not many and thin.
+ *
+ * The first version drew 2,600 hairlines and the result read as wire rather
+ * than light: at that density neighbouring strands land within a pixel of each
+ * other and interfere, which is visible as a crosshatch moire the reference
+ * does not have anywhere. The reference's band is perhaps eighty ribbons with
+ * soft shoulders. Fewer strands, much wider, and a bloom pass to carry the glow
+ * is what makes it photographic instead of drawn.
+ */
+const STRANDS = 360;
 const SEGMENTS = 384;
 
 /*
@@ -71,6 +79,19 @@ const SEGMENTS = 384;
  * back does not substitute: it shrinks the ring into a planet's rings instead
  * of a river running off both edges.
  */
+/*
+ * Tuned by looking, against the reference crops, not chosen.
+ *
+ * Exposure is low and the bloom carries the brightness. The other way round —
+ * a hot scene with a little bloom — is what produced the blown white core with
+ * a hard edge that the reference does not have.
+ */
+const EXPOSURE = 0.22;
+const BLOOM = 0.6;
+const BLOOM_THRESHOLD = 0.5;
+/** Ribbon width in CSS pixels before defocus widens it. */
+const RIBBON_PX = 3.0;
+
 const R_IN = 11;
 const R_OUT = 14;
 /** Half-thickness per unit radius. Real disks flare; a flat sheet reads as paper. */
@@ -164,6 +185,7 @@ out float vAcross;
 out float vBright;
 out float vHue;
 out float vFade;
+out float vSpread;
 
 vec3 orbit(float r, float y, float a){ return vec3(r * cos(a), y, r * sin(a)); }
 
@@ -198,7 +220,14 @@ void main(){
   float len = length(dir);
   vec2 nrm = len > 1e-4 ? vec2(-dir.y, dir.x) / len : vec2(1.0, 0.0);
 
-  vec2 sp = s0 + nrm * side * (0.5 * uWidth * aTone.y);
+  /*
+   * Defocus with distance, which is what a lens does and what stops a far
+   * ribbon from aliasing. A strand whose width would fall below a pixel is
+   * widened and dimmed rather than point-sampled, so the far side of the ring
+   * becomes a soft wash instead of a crosshatch.
+   */
+  float spread = 1.0 + smoothstep(6.0, 34.0, max(c0.w, 0.001)) * 5.0;
+  vec2 sp = s0 + nrm * side * (0.5 * uWidth * aTone.y * spread);
 
   float w = max(c0.w, 1e-4);
   gl_Position = vec4(sp / (uRes * 0.5) * w, c0.z, w);
@@ -208,6 +237,7 @@ void main(){
   vAcross = side;
   vBright = aStrand.z;
   vHue = aTone.x;
+  vSpread = spread;
 
   vec3 tang = normalize(vec3(-sin(a0 + spin), 0.0, cos(a0 + spin)));
   vFade = dot(tang, normalize(uRo - p0));
@@ -223,25 +253,150 @@ in float vAcross;
 in float vBright;
 in float vHue;
 in float vFade;
+in float vSpread;
 
 out vec4 oC;
 
 void main(){
-  // Gaussian across the ribbon: a filament with a soft edge, not a bar.
-  float a = exp(-vAcross * vAcross * 3.4);
+  // A gentle shoulder. The reference's ribbons fade out across their width;
+  // a tight core with black beside it is what made the first version read as
+  // drawn rather than photographed.
+  float a = exp(-vAcross * vAcross * 2.4);
 
   // Doppler, the site's treatment: the limb travelling toward the camera
   // brightens and cools, the receding one warms and dims.
   float db = max(1.0 + 0.42 * vFade, 0.32);
   float dop = db * db * sqrt(sqrt(db));
 
-  float em = a * vBright * dop * uExpo;
+  // Divided by the spread, so widening a distant ribbon does not brighten it.
+  // Without this the far side of the ring gains energy as it defocuses and
+  // blows out — the opposite of what distance does.
+  float em = a * vBright * dop * uExpo / vSpread;
   vec3 warm = uTint * vec3(0.86, 0.68, 0.42);
   vec3 hot = vec3(1.0, 0.975, 0.93);
   vec3 col = mix(warm, hot, clamp(vHue * 0.42 + em * 0.58, 0.0, 1.0));
   col *= mix(vec3(1.06, 0.985, 0.90), vec3(0.93, 0.975, 1.10), smoothstep(-0.2, 0.95, vFade));
 
   oC = vec4(col * em, 1.0);
+}`;
+
+/*
+ * Bloom, in three passes over a quarter-size buffer.
+ *
+ * This is the difference between light and wire, and it is not decoration. A
+ * bright edge in a photograph bleeds into the pixels around it, and every
+ * reference frame is full of that bleed — the white core of the band is not a
+ * white shape with a hard boundary, it is a bright thing seen through a lens.
+ * Drawing the ribbons alone can never produce it however finely they are drawn,
+ * which is why the first version read as a wireframe at any strand count.
+ *
+ * Two radii, composited together. A tight halo gives an edge its glow; a wide
+ * one lifts the whole band off the black. One radius alone reads as a filter
+ * applied to the image rather than as how the image was made.
+ */
+const SKY_FRAG = `#version 300 es
+precision highp float;
+
+uniform vec3  uRight;
+uniform vec3  uUp;
+uniform vec3  uFwd;
+uniform float uFocal;
+uniform float uAspect;
+uniform vec2  uDrift;
+uniform vec3  uTint;
+
+in vec2 vUV;
+out vec4 oC;
+
+float rhash(vec2 p){
+  vec3 q = fract(vec3(p.xyx) * 0.1031);
+  q += dot(q, q.yzx + 33.33);
+  return fract((q.x + q.y) * q.z);
+}
+
+void main(){
+  vec2 uv = (vUV * 2.0 - 1.0);
+  uv.x *= uAspect;
+  vec3 rd = normalize(uv.x * uRight + uv.y * uUp + uFocal * uFwd);
+
+  // The site's own star lookup: spherical cell hash, drifted by the pointer and
+  // the runway so the deepest layer creeps while the ring sweeps.
+  vec2 sph = vec2(atan(rd.z, rd.x), asin(clamp(rd.y, -1.0, 1.0))) * 177.63 + uDrift;
+  float dens = min(max(fwidth(sph.x), fwidth(sph.y)), 6.0);
+  vec2 cell = floor(sph);
+  float hs = rhash(cell * 1.7);
+  float star = step(0.9955, rhash(cell)) * hs * hs;
+  vec2 cf = fract(sph) - 0.5;
+  star *= smoothstep(0.4, 0.05, length(cf)) * smoothstep(2.4, 0.6, dens);
+  vec3 sc = mix(vec3(0.76, 0.83, 1.0), vec3(1.0, 0.92, 0.80), rhash(cell * 3.31));
+
+  vec3 col = sc * star * 0.9;
+  col += uTint * 0.010 * (1.0 - abs(rd.y));      // faint band haze
+  oC = vec4(col, 1.0);
+}`;
+
+const QUAD_VERT = `#version 300 es
+in vec2 aP;
+out vec2 vUV;
+void main(){ vUV = aP * 0.5 + 0.5; gl_Position = vec4(aP, 0.0, 1.0); }`;
+
+const BRIGHT_FRAG = `#version 300 es
+precision highp float;
+uniform sampler2D uSrc;
+uniform float uThresh;
+in vec2 vUV;
+out vec4 oC;
+void main(){
+  vec3 c = texture(uSrc, vUV).rgb;
+  float l = dot(c, vec3(0.299, 0.587, 0.114));
+  // A soft knee. A hard cutoff puts a visible contour through the band where
+  // the bloom switches on.
+  float k = smoothstep(uThresh, uThresh + 0.45, l);
+  oC = vec4(c * k, 1.0);
+}`;
+
+const BLUR_FRAG = `#version 300 es
+precision highp float;
+uniform sampler2D uSrc;
+uniform vec2 uDir;
+uniform vec2 uTexel;
+in vec2 vUV;
+out vec4 oC;
+void main(){
+  // Nine-tap gaussian, separable: two passes instead of eighty-one samples.
+  float w[5];
+  w[0] = 0.227027; w[1] = 0.1945946; w[2] = 0.1216216; w[3] = 0.054054; w[4] = 0.016216;
+  vec3 c = texture(uSrc, vUV).rgb * w[0];
+  for (int i = 1; i < 5; i++) {
+    vec2 o = uDir * uTexel * float(i) * 1.7;
+    c += texture(uSrc, vUV + o).rgb * w[i];
+    c += texture(uSrc, vUV - o).rgb * w[i];
+  }
+  oC = vec4(c, 1.0);
+}`;
+
+const COMPOSITE_FRAG = `#version 300 es
+precision highp float;
+uniform sampler2D uScene;
+uniform sampler2D uHalo;
+uniform sampler2D uGlow;
+uniform float uBloom;
+in vec2 vUV;
+out vec4 oC;
+void main(){
+  vec3 c = texture(uScene, vUV).rgb;
+  c += texture(uHalo, vUV).rgb * uBloom * 0.85;
+  c += texture(uGlow, vUV).rgb * uBloom * 0.55;
+  // The site's own grade, applied once at the end where it belongs: tonemap,
+  // a touch of film saturation, and the vignette.
+  c = c / (1.0 + c);
+  c = pow(c, vec3(0.78));
+  float sl = dot(c, vec3(0.299, 0.587, 0.114));
+  c = mix(vec3(sl), c, 1.06);
+  vec2 uv = vUV * 2.0 - 1.0;
+  uv.x *= 1.6;
+  c *= 1.0 - 0.30 * smoothstep(0.6, 1.7, length(uv));
+  oC = vec4(max(c, vec3(0.0)), 1.0);
 }`;
 
 /**
@@ -268,16 +423,37 @@ function buildStrands(): { strand: Float32Array; tone: Float32Array } {
     // thin out at the surfaces.
     const g = (rnd() + rnd() + rnd() - 1.5) / 1.5;
     const y = g * FLARE * r;
-    const bright = 0.1 + 0.9 * Math.pow(rnd(), 2.3);
+    // A steeper draw leaves most strands dim and a few bright, which is what
+    // opens dark lanes between the ribbons. A flat distribution washes them
+    // into one sheet — smooth, but not the reference's separated threads.
+    const bright = 0.06 + 0.94 * Math.pow(rnd(), 2.9);
     strand.set([r, y, bright, rnd() * 6.283185], i * 4);
-    tone.set([Math.pow(rnd(), 1.8), 0.55 + 1.5 * Math.pow(rnd(), 2.6)], i * 2);
+    // Wide variance on purpose: a handful of broad ribbons carry the band and
+    // the rest texture it. A uniform width reads as a comb.
+    tone.set([Math.pow(rnd(), 1.8), 0.35 + 4.2 * Math.pow(rnd(), 3.0)], i * 2);
   }
   return { strand, tone };
 }
 
+/** One offscreen buffer: a texture and the framebuffer that draws into it. */
+type Target = {
+  tex: WebGLTexture;
+  fb: WebGLFramebuffer;
+  w: number;
+  h: number;
+};
+
 type GLBundle = {
   gl: WebGL2RenderingContext;
   program: WebGLProgram;
+  sky: WebGLProgram;
+  bright: WebGLProgram;
+  blur: WebGLProgram;
+  composite: WebGLProgram;
+  quad: WebGLBuffer;
+  quadVao: WebGLVertexArrayObject;
+  /** scene, then the two bloom radii. Rebuilt on resize. */
+  targets: Target[];
   buffers: WebGLBuffer[];
   vao: WebGLVertexArrayObject;
   uViewProj: WebGLUniformLocation | null;
@@ -288,6 +464,30 @@ type GLBundle = {
   uTint: WebGLUniformLocation | null;
   uExpo: WebGLUniformLocation | null;
 };
+
+/**
+ * Half-float, because the scene is additive and routinely exceeds 1.0 before
+ * the tonemap. An 8-bit target clips it there, and everything above the clip
+ * becomes flat white with no bloom to extract — which is exactly the hard-edged
+ * blowout the first version had.
+ */
+function makeTarget(gl: WebGL2RenderingContext, w: number, h: number): Target | null {
+  const tex = gl.createTexture();
+  const fb = gl.createFramebuffer();
+  if (!tex || !fb) return null;
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  if (!ok) { gl.deleteTexture(tex); gl.deleteFramebuffer(fb); return null; }
+  return { tex, fb, w, h };
+}
 
 function compile(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader | null {
   const shader = gl.createShader(type);
@@ -310,20 +510,33 @@ function initGL(canvas: HTMLCanvasElement): GLBundle | null {
   });
   if (!gl) return null;
 
-  const vs = compile(gl, gl.VERTEX_SHADER, VERT);
-  const fs = compile(gl, gl.FRAGMENT_SHADER, FRAG);
-  const program = vs && fs ? gl.createProgram() : null;
-  if (!vs || !fs || !program) return null;
+  // Rendering into a half-float target needs this on most implementations;
+  // without it the framebuffer is incomplete and there is no bloom to add.
+  gl.getExtension("EXT_color_buffer_float");
+  gl.getExtension("EXT_float_blend");
 
-  gl.attachShader(program, vs);
-  gl.attachShader(program, fs);
-  gl.linkProgram(program);
-  gl.deleteShader(vs);
-  gl.deleteShader(fs);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    gl.deleteProgram(program);
-    return null;
-  }
+  // An arrow rather than a declaration: a hoisted function loses the null
+  // narrowing on `gl` that the guard above just established.
+  const link = (vertSrc: string, fragSrc: string): WebGLProgram | null => {
+    const vs = compile(gl, gl.VERTEX_SHADER, vertSrc);
+    const fs = compile(gl, gl.FRAGMENT_SHADER, fragSrc);
+    const p = vs && fs ? gl.createProgram() : null;
+    if (!vs || !fs || !p) return null;
+    gl.attachShader(p, vs);
+    gl.attachShader(p, fs);
+    gl.linkProgram(p);
+    gl.deleteShader(vs);
+    gl.deleteShader(fs);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) { gl.deleteProgram(p); return null; }
+    return p;
+  };
+
+  const program = link(VERT, FRAG);
+  const sky = link(QUAD_VERT, SKY_FRAG);
+  const bright = link(QUAD_VERT, BRIGHT_FRAG);
+  const blur = link(QUAD_VERT, BLUR_FRAG);
+  const composite = link(QUAD_VERT, COMPOSITE_FRAG);
+  if (!program || !sky || !bright || !blur || !composite) return null;
   gl.useProgram(program);
 
   const vao = gl.createVertexArray();
@@ -346,10 +559,34 @@ function initGL(canvas: HTMLCanvasElement): GLBundle | null {
   bind("aStrand", strand, 4);
   bind("aTone", tone, 2);
 
+  // The fullscreen triangle every post pass draws, on its own VAO so binding it
+  // never disturbs the instanced strand attributes.
+  const quad = gl.createBuffer();
+  const quadVao = gl.createVertexArray();
+  if (!quad || !quadVao) return null;
+  gl.bindVertexArray(quadVao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+  for (const p of [sky, bright, blur, composite]) {
+    const loc = gl.getAttribLocation(p, "aP");
+    if (loc >= 0) {
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    }
+  }
+  gl.bindVertexArray(null);
+
   const u = (name: string) => gl.getUniformLocation(program, name);
   return {
     gl,
     program,
+    sky,
+    bright,
+    blur,
+    composite,
+    quad,
+    quadVao,
+    targets: [],
     buffers,
     vao,
     uViewProj: u("uViewProj"),
@@ -362,8 +599,16 @@ function initGL(canvas: HTMLCanvasElement): GLBundle | null {
   };
 }
 
+/** The camera basis the sky pass needs to rebuild a ray per pixel. */
+type Basis = {
+  ro: [number, number, number];
+  right: [number, number, number];
+  up: [number, number, number];
+  fwd: [number, number, number];
+};
+
 /** View-projection for a keyframe, written straight into a column-major 4x4. */
-function viewProj(key: Key, aspect: number, out: Float32Array): [number, number, number] {
+function viewProj(key: Key, aspect: number, out: Float32Array): Basis {
   const { az, radius, height, ahead, inward, down, roll, focal } = key;
   const sa = Math.sin(az);
   const ca = Math.cos(az);
@@ -440,7 +685,14 @@ function viewProj(key: Key, aspect: number, out: Float32Array): [number, number,
   out[14] = pz * tZ + pw;
   out[15] = -tZ;
 
-  return ro;
+  return {
+    ro,
+    right: [r2x, r2y, r2z],
+    up: [u2x, u2y, u2z],
+    // Forward is negated in the view matrix; the ray builder wants it pointing
+    // the way the camera looks.
+    fwd: [fx, fy, fz],
+  };
 }
 
 export function createRing(container: HTMLElement, options: RingOptions = {}): RingHandle {
@@ -449,18 +701,35 @@ export function createRing(container: HTMLElement, options: RingOptions = {}): R
     (typeof window !== "undefined" &&
       window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true);
 
+  /*
+   * One canvas.
+   *
+   * There were two: the WebGL scene, and a 2D canvas on top that `TLLayers`
+   * painted stars, dust and film grain onto. That layering is what the public
+   * site does, and it is right there — but there the sky sits behind a hole,
+   * not in front of a bright band. Here it put grain across the brightest part
+   * of the ring, which no reference frame has. The stars moved into the scene
+   * pass, where they are behind the ribbons and inside the same tonemap, and
+   * the vignette moved into the composite. `lib/sky/layers.js` is untouched and
+   * still drives the gate.
+   */
   const glCanvas = document.createElement("canvas");
-  const layerCanvas = document.createElement("canvas");
-  for (const canvas of [glCanvas, layerCanvas]) {
-    canvas.className = "ring-canvas";
-    container.append(canvas);
-  }
+  glCanvas.className = "ring-canvas";
+  container.append(glCanvas);
 
   const bundle = initGL(glCanvas);
-  const layers = bundle ? new TLLayers(layerCanvas) : null;
   const matrix = new Float32Array(16);
 
   let progress = 0;
+  /**
+   * Where the scroll says the camera should be, as opposed to where it is.
+   *
+   * The camera eases toward this rather than snapping to it, which is the
+   * difference between a scene that tracks the wheel and one that flows. The
+   * lag is small — a few frames — but it is what stops a trackpad's discrete
+   * steps from arriving as discrete steps in the artwork.
+   */
+  let target = 0;
   let paused = reduced;
   let running = false;
   let raf = 0;
@@ -478,7 +747,6 @@ export function createRing(container: HTMLElement, options: RingOptions = {}): R
   function showStill() {
     drawing = false;
     glCanvas.remove();
-    layerCanvas.remove();
     if (options.still) {
       container.style.backgroundImage = `url(${options.still})`;
       container.style.backgroundSize = "cover";
@@ -498,12 +766,44 @@ export function createRing(container: HTMLElement, options: RingOptions = {}): R
     if (glCanvas.width !== w || glCanvas.height !== h) {
       glCanvas.width = w;
       glCanvas.height = h;
-      bundle.gl.viewport(0, 0, w, h);
-      bundle.gl.uniform2f(bundle.uRes, w, h);
+      const { gl } = bundle;
+      gl.useProgram(bundle.program);
+      gl.uniform2f(bundle.uRes, w, h);
       // A ribbon is sized in device pixels, so its CSS width holds across DPRs.
-      bundle.gl.uniform1f(bundle.uWidth, 1.0 * dpr);
+      gl.uniform1f(bundle.uWidth, RIBBON_PX * dpr);
+
+      // The bloom buffers are quarter and eighth size. Blur radius is measured
+      // in texels, so a smaller buffer is both cheaper and wider — which is the
+      // whole trick, and why bloom costs almost nothing.
+      for (const t of bundle.targets) { gl.deleteTexture(t.tex); gl.deleteFramebuffer(t.fb); }
+      const q = (n: number, by: number) => Math.max(1, n >> by);
+      const made = [
+        makeTarget(gl, w, h),
+        makeTarget(gl, q(w, 2), q(h, 2)),
+        makeTarget(gl, q(w, 2), q(h, 2)),
+        makeTarget(gl, q(w, 3), q(h, 3)),
+        makeTarget(gl, q(w, 3), q(h, 3)),
+      ];
+      // If half-float targets are refused, draw straight to the canvas without
+      // bloom rather than showing nothing. Dimmer, but still the ring.
+      bundle.targets = made.every((t): t is Target => t !== null) ? made : [];
     }
-    layers?.resize();
+  }
+
+  /** One post pass: bind a target, a source texture, and draw the triangle. */
+  function pass(program: WebGLProgram, dst: Target | null, src: WebGLTexture,
+                set?: (gl: WebGL2RenderingContext) => void) {
+    if (!bundle) return;
+    const { gl } = bundle;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, dst ? dst.fb : null);
+    gl.viewport(0, 0, dst ? dst.w : glCanvas.width, dst ? dst.h : glCanvas.height);
+    gl.useProgram(program);
+    gl.bindVertexArray(bundle.quadVao);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, src);
+    gl.uniform1i(gl.getUniformLocation(program, "uSrc"), 0);
+    set?.(gl);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
   function render(seconds: number) {
@@ -512,30 +812,100 @@ export function createRing(container: HTMLElement, options: RingOptions = {}): R
     const t0 = performance.now();
 
     const key = keyAt(progress);
-    const ro = viewProj(key, glCanvas.width / glCanvas.height, matrix);
+    const cam = viewProj(key, glCanvas.width / glCanvas.height, matrix);
+    const ro = cam.ro;
+    const [scene, haloA, haloB, glowA, glowB] = bundle.targets;
+    const bloomed = bundle.targets.length === 5;
 
+    // ---- the ring itself, into the scene buffer --------------------------
+    gl.bindFramebuffer(gl.FRAMEBUFFER, bloomed ? scene.fb : null);
+    gl.viewport(0, 0, glCanvas.width, glCanvas.height);
     gl.useProgram(bundle.program);
-    gl.bindVertexArray(bundle.vao);
     gl.uniformMatrix4fv(bundle.uViewProj, false, matrix);
     gl.uniform3f(bundle.uRo, ro[0], ro[1], ro[2]);
     gl.uniform1f(bundle.uT, seconds);
     gl.uniform3f(bundle.uTint, TINT[0], TINT[1], TINT[2]);
-    gl.uniform1f(bundle.uExpo, 0.5);
+    gl.uniform1f(bundle.uExpo, EXPOSURE);
 
     gl.disable(gl.DEPTH_TEST);
+    gl.clearColor(0.024, 0.027, 0.039, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+    /*
+     * Stars first, into the same buffer.
+     *
+     * They used to be painted by `TLLayers` onto a second canvas laid over the
+     * top, which put a star field in FRONT of the ring: fine grain speckled
+     * across the brightest part of the band, which no reference frame has,
+     * because a star behind a bright ribbon is not visible through it. Drawn
+     * here they are behind the additive ribbons and inside the same tonemap, so
+     * a bright ribbon washes them out on its own.
+     */
+    gl.useProgram(bundle.sky);
+    gl.bindVertexArray(bundle.quadVao);
+    const sky = (name: string) => gl.getUniformLocation(bundle!.sky, name);
+    gl.uniform3f(sky("uRight"), cam.right[0], cam.right[1], cam.right[2]);
+    gl.uniform3f(sky("uUp"), cam.up[0], cam.up[1], cam.up[2]);
+    gl.uniform3f(sky("uFwd"), cam.fwd[0], cam.fwd[1], cam.fwd[2]);
+    gl.uniform1f(sky("uFocal"), key.focal);
+    gl.uniform1f(sky("uAspect"), glCanvas.width / glCanvas.height);
+    // The deepest layer creeps: pointer drift plus the runway position, so the
+    // sky moves against the ring rather than with it.
+    gl.uniform2f(sky("uDrift"), driftX * 0.8, driftY * 0.8 + progress * 150);
+    gl.uniform3f(sky("uTint"), TINT[0], TINT[1], TINT[2]);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+    // ---- the ribbons, added over it --------------------------------------
+    gl.useProgram(bundle.program);
+    gl.bindVertexArray(bundle.vao);
     gl.enable(gl.BLEND);
     // Additive, so the draw order never matters. Light does not occlude light.
     gl.blendFunc(gl.ONE, gl.ONE);
-    gl.clearColor(0.024, 0.027, 0.039, 1);
-    gl.clear(gl.COLOR_BUFFER_BIT);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, (SEGMENTS + 1) * 2, STRANDS);
+    gl.disable(gl.BLEND);
 
+    if (bloomed) {
+      const texel = (t: Target) => (g: WebGL2RenderingContext) => {
+        g.uniform2f(g.getUniformLocation(bundle!.blur, "uTexel"), 1 / t.w, 1 / t.h);
+      };
+      const dir = (x: number, y: number) => (g: WebGL2RenderingContext) => {
+        g.uniform2f(g.getUniformLocation(bundle!.blur, "uDir"), x, y);
+      };
+      const both = (t: Target, x: number, y: number) => (g: WebGL2RenderingContext) => {
+        texel(t)(g); dir(x, y)(g);
+      };
+
+      pass(bundle.bright, haloA, scene.tex, (g) => {
+        g.uniform1f(g.getUniformLocation(bundle!.bright, "uThresh"), BLOOM_THRESHOLD);
+      });
+      // Tight halo.
+      pass(bundle.blur, haloB, haloA.tex, both(haloB, 1, 0));
+      pass(bundle.blur, haloA, haloB.tex, both(haloA, 0, 1));
+      // Wide lift, blurred twice more at half again the size.
+      pass(bundle.blur, glowA, haloA.tex, both(glowA, 1, 0));
+      pass(bundle.blur, glowB, glowA.tex, both(glowB, 0, 1));
+      pass(bundle.blur, glowA, glowB.tex, both(glowA, 1, 0));
+      pass(bundle.blur, glowB, glowA.tex, both(glowB, 0, 1));
+
+      // ---- composite to the canvas ---------------------------------------
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+      gl.useProgram(bundle.composite);
+      gl.bindVertexArray(bundle.quadVao);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, scene.tex);
+      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, haloA.tex);
+      gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, glowB.tex);
+      gl.uniform1i(gl.getUniformLocation(bundle.composite, "uScene"), 0);
+      gl.uniform1i(gl.getUniformLocation(bundle.composite, "uHalo"), 1);
+      gl.uniform1i(gl.getUniformLocation(bundle.composite, "uGlow"), 2);
+      gl.uniform1f(gl.getUniformLocation(bundle.composite, "uBloom"), BLOOM);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.activeTexture(gl.TEXTURE0);
+    }
+
+    gl.bindVertexArray(null);
     totalMs += performance.now() - t0;
     frames++;
-  }
-
-  function drawLayers(seconds: number) {
-    layers?.draw(seconds, 0, progress, driftX, driftY);
   }
 
   function renderOnce() {
@@ -543,18 +913,21 @@ export function createRing(container: HTMLElement, options: RingOptions = {}): R
     // A held frame still needs a clock, or the ring sits at its t=0 phase where
     // every strand shares an angle and the seam shows.
     render(12);
-    drawLayers(12);
   }
 
   function frame(now: number) {
     if (!running) return;
     if (!startedAt) startedAt = now;
     const seconds = (now - startedAt) / 1000 + 12;
+    // Ease toward the scroll position. 0.12 lands about a fifth of a second
+    // behind a fast flick and is imperceptible on a slow one. This is the
+    // difference between a scene that tracks the wheel and one that flows.
+    progress += (target - progress) * 0.12;
+    if (Math.abs(target - progress) < 0.0002) progress = target;
     driftX += (pointerX - driftX) * 0.06;
     driftY += (pointerY - driftY) * 0.06;
     size();
     render(seconds);
-    drawLayers(seconds);
     raf = requestAnimationFrame(frame);
   }
 
@@ -624,11 +997,14 @@ export function createRing(container: HTMLElement, options: RingOptions = {}): R
        * headless capture its timeout before it cost anybody a frame rate, which
        * is the only reason it was noticed.
        */
-      if (next === progress) return;
-      progress = next;
-      // With motion off the camera still has to arrive at the chapter being
-      // read; what stops is the ambient loop, not the page.
-      if (!running) renderOnce();
+      if (next === target) return;
+      target = next;
+      // With motion off there is no loop to ease it, so the camera arrives at
+      // once. Pause means less movement, not a camera that ignores the reader.
+      if (!running) {
+        progress = next;
+        renderOnce();
+      }
     },
     setPaused(next: boolean) {
       paused = next;
@@ -655,7 +1031,6 @@ export function createRing(container: HTMLElement, options: RingOptions = {}): R
         gl.getExtension("WEBGL_lose_context")?.loseContext();
       }
       glCanvas.remove();
-      layerCanvas.remove();
     },
     stats() {
       return {
