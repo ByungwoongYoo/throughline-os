@@ -745,12 +745,16 @@ a { color: inherit; }
 }
 .groupbar-tab:hover { color: var(--ink); }
 /* The underline sits inside the row rather than on its border, so the row's
-   own rule stays continuous behind it. */
+   own rule stays continuous behind it — and at `bottom: 0`, not `-1px`, because
+   the row scrolls horizontally at constrained widths and `overflow-x: auto`
+   clips anything outside the box. At -1px the mark for the current group was
+   invisible at every width, which is the one thing this row has to say. */
 .groupbar-tab::after {
   content: "";
   position: absolute;
-  inset: auto 12px -1px 12px;
+  inset: auto 12px 0 12px;
   height: 2px;
+  border-radius: 2px;
   background: transparent;
 }
 .groupbar-tab[aria-expanded="true"] { color: var(--ink); font-weight: 600; }
