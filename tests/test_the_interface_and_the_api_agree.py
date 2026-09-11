@@ -221,7 +221,50 @@ def populated():
                 row = cur.fetchone()
                 if row:
                     ids[key] = row["id"]
+
         try:
+            # Inside the `try`, so a step that fails still reaches the
+            # `finally` that deletes the project. Outside it, a failure left
+            # the project behind; the worked example is idempotent per
+            # account, so the next fixture instance was handed that same
+            # project back and every later test failed with "already exists"
+            # — three lines from nothing to do with the real cause.
+            # Things the worked example never does, done here through the product's
+            # own routes so the nested check has something to judge. Seventeen
+            # nested field sets came back empty against the example alone — notes,
+            # their links, lint, registrations, a finding's evidence graph — and an
+            # empty list says nothing about the shape of what it would hold.
+            # Written through the routes rather than into the tables, because a
+            # fixture that writes rows the product cannot produce is how three of
+            # this file's neighbours passed over a defect.
+            # Titled so they cannot collide with the worked example's own notes —
+            # it already has one called "Resistance", and titles are how links
+            # resolve, so the notebook refuses a second.
+            first = client.post(f"/api/projects/{project_id}/notebook", json={
+                "title": "Shape check: resistance",
+                "body": "Tracks [[Shape check: consumption]]. "
+                        "See also [[Shape check: a page nobody wrote]]."})
+            assert first.status_code == 201, first.text
+            second = client.post(f"/api/projects/{project_id}/notebook", json={
+                "title": "Shape check: consumption",
+                "body": "Drives [[Shape check: resistance]]."})
+            assert second.status_code == 201, second.text
+            ids["id"] = first.json()["id"]
+
+            if "connectionId" in ids:
+                recorded = client.post(f"/api/projects/{project_id}/findings", json={
+                    "title": "Consumption tracks resistance",
+                    "finding_type": "statistical",
+                    "from_connections": [ids["connectionId"]]})
+                assert recorded.status_code == 201, recorded.text
+                # The finding the evidence graph can actually walk, rather than
+                # whichever one the database happened to list first.
+                ids["findingId"] = recorded.json()["finding_id"]
+
+            registered = client.post(f"/api/projects/{project_id}/preregistrations", json={
+                "hypothesis": "Antibiotic consumption increases resistance.",
+                "predicted_direction": "increase"})
+            assert registered.status_code == 201, registered.text
             yield client, ids
         finally:
             client.delete(f"/api/projects/{project_id}")
