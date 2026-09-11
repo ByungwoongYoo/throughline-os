@@ -724,3 +724,18 @@ def finding_challenge(run: dict[str, Any], cur: Any) -> dict[str, Any]:
         actor=run["input"].get("actor") or "system:critic",
         confounders=tuple(run["input"].get("confounders") or ()),
     )
+
+
+@REGISTRY.register("visual.render_blender")
+def render_blender(run: dict[str, Any], cur: Any) -> dict[str, Any]:
+    """
+    Render one figure through Blender, on this machine.
+
+    A job rather than a request because a render can take minutes. Raises on
+    failure — returning normally would mark the run completed, and the screen
+    would show success for a render that never happened. The route queues it
+    with a single attempt, so a missing Blender is reported once, at once.
+    """
+    from throughline_domain import visuals
+
+    return visuals.render_through_blender(cur, visual_id=run["input"]["visual_id"])

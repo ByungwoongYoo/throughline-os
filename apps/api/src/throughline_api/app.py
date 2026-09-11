@@ -4498,7 +4498,12 @@ def create_visual(project_id: str, payload: VisualCreate,
 
     return {"visual_id": created["visual_id"], "object_id": created["object_id"],
             "publishable": created["publishable"], "critique": created["critique"],
-            "spec": created["spec"].model_dump(mode="json")}
+            "spec": created["spec"].model_dump(mode="json"),
+            # Assembled here rather than passed through, so a field the domain
+            # adds reaches the interface only if it is named — which is why
+            # this one is. Without it Publish offered PDF, SVG and PNG for a
+            # surface and a Download that could only fail.
+            "exportable": created["exportable"]}
 
 
 @app.get("/api/projects/{project_id}/visuals")
@@ -4659,6 +4664,73 @@ def download_visual_geometry(visual_id: str,
         content=payload, media_type="application/zip",
         headers={"Content-Disposition":
                  f'attachment; filename="{visual_id}-scene.zip"'})
+
+
+@app.post("/api/visuals/{visual_id}/blender-render", status_code=202)
+def start_blender_render(visual_id: str,
+                         user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Render this figure through Blender, on this machine, in the background.
+
+    Blender's renderer was written and tested and called by nothing: Settings
+    found Blender and promised a render for publication that no route could
+    produce. This is the route. It queues the render and answers at once —
+    a render can take minutes — and returns the run already in flight rather
+    than starting a second.
+
+    400 for a figure with no third axis, 409 for one the critic blocked, 503
+    when this machine has no usable Blender — each with a sentence saying why.
+    """
+    with transaction() as cur:
+        try:
+            row = visuals.load_visual(cur, visual_id)
+        except visuals.VisualError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        scoped_project(row["project_id"], user)
+        try:
+            return visuals.request_blender_render(cur, visual_id=visual_id)
+        except visuals.NotASurface as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except visuals.BlenderUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+        except visuals.VisualError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+
+@app.get("/api/visuals/{visual_id}/blender-render")
+def blender_render_state(visual_id: str,
+                         user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Whether this figure can be rendered through Blender, and how far it got."""
+    with transaction() as cur:
+        try:
+            row = visuals.load_visual(cur, visual_id)
+        except visuals.VisualError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        scoped_project(row["project_id"], user)
+        return visuals.blender_render_state(cur, visual_id=visual_id)
+
+
+@app.get("/api/visuals/{visual_id}/blender-render.png")
+def blender_render_image(visual_id: str,
+                         user: dict = Depends(current_user)) -> FileResponse:
+    """
+    The newest Blender render of this figure.
+
+    Named as a render in its filename as well as on screen, because a file
+    that leaves the building loses the label the page gave it.
+    """
+    with transaction() as cur:
+        try:
+            row = visuals.load_visual(cur, visual_id)
+        except visuals.VisualError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        scoped_project(row["project_id"], user)
+        path = visuals.blender_render_file(cur, visual_id=visual_id)
+    if path is None:
+        raise HTTPException(
+            404, "Nothing has been rendered through Blender for this figure yet.")
+    return FileResponse(path, media_type="image/png",
+                        filename=f"{visual_id}-blender-render.png")
 
 
 @app.patch("/api/visuals/{visual_id}")

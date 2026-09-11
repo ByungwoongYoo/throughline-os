@@ -330,7 +330,8 @@ function BlenderRow({ state }: { state: BlenderAvailability }) {
         application, not something this one can install. Every chart here draws
         in the browser without it, and a 3D figure exports as geometry that
         Blender or any other tool can open — this only adds a
-        physically-based render for publication.
+        physically-based render for publication, which Publish offers on any
+        3D figure.
       </p>
       {!state.available && state.withheld !== undefined && (
         <p className="set-note">Without it: {state.withheld}</p>

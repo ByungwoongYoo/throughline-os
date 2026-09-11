@@ -5346,3 +5346,19 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   color: var(--ink-soft); background: var(--panel);
   border: 1px solid var(--line); border-radius: var(--r-card);
 }
+
+/* A Blender render, labelled as a render wherever it appears — beside the
+   reproducible export, never in its place. */
+.blender-render { margin-top: 16px; display: grid; gap: 8px; }
+.blender-render figure { margin: 6px 0 0; display: grid; gap: 8px; }
+.blender-render img {
+  width: 100%; max-width: 640px; height: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--n-25);
+}
+.blender-render figcaption {
+  max-width: 640px;
+  font-size: 12px; line-height: 1.5; color: var(--ink-faint);
+}
+

@@ -182,8 +182,17 @@ def render(
     return path
 
 
-def _draw(spec: ResearchVisualSpec, data: VisualData, axes) -> None:
-    drawers = {
+def _drawers() -> dict[VisualType, Any]:
+    """
+    Every kind of figure this renderer draws. One table, read by `_draw` and by
+    `can_render`, so what the renderer does and what the interface is told it
+    does cannot drift apart.
+
+    Built when asked rather than at import: the drawers are defined further
+    down this module, and a module-level table naming them stopped the whole
+    package from importing — which is how it was first written.
+    """
+    return {
         VisualType.SCATTER: _scatter,
         VisualType.FOREST: _forest,
         VisualType.BOX: _box,
@@ -192,7 +201,25 @@ def _draw(spec: ResearchVisualSpec, data: VisualData, axes) -> None:
         VisualType.HEATMAP: _heatmap,
         VisualType.HEXBIN: _hexbin,
     }
-    drawer = drawers.get(spec.visual_type)
+
+
+def can_render(visual_type: VisualType | str) -> bool:
+    """
+    Whether a publication export exists for this kind of figure at all.
+
+    Asked by the interface before it offers a format picker. The picker used
+    to be shown for every figure, so a fitted surface — which this renderer
+    has never drawn — offered PDF, SVG and PNG, and a Download that failed
+    every time it was pressed.
+    """
+    try:
+        return VisualType(visual_type) in _drawers()
+    except ValueError:
+        return False
+
+
+def _draw(spec: ResearchVisualSpec, data: VisualData, axes) -> None:
+    drawer = _drawers().get(spec.visual_type)
     if drawer is None:
         raise RenderError(f"No publication renderer for {spec.visual_type}")
     drawer(spec, data, axes)
