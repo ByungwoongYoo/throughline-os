@@ -32,19 +32,63 @@ import { Connection } from "@/lib/api";
  *
  * Showing `exploratory` taught the reader our vocabulary instead of telling
  * them what it means. "Tested — needs replication" needs no glossary.
+ *
+ * This table is the product's **only** lifecycle vocabulary (plan §4.6.3,
+ * item 2.10). It lived here and was read only by this card, so the same six
+ * states were also printed raw by the `Status` pill and by the transition
+ * buttons, whose copy was the verb "move" plus the raw state word — three
+ * vocabularies for one enum, and a researcher who met all three on one screen
+ * had to work out that they named the same fact. Every
+ * display of a lifecycle state now reads its words from here:
+ * `primitives.tsx`'s `Status` and `lifecycle.tsx`'s buttons and headings.
+ *
+ * It stays in this file rather than moving to `lifecycle.tsx` because this
+ * module imports nothing from `components/` — `lifecycle.tsx` imports
+ * `primitives.tsx`, so a table there would have made `primitives` and
+ * `lifecycle` import each other.
+ *
+ * `action` is the same fact as an imperative: what a button that moves a
+ * finding *into* this state should say. It is here rather than beside the
+ * buttons so that a state cannot be given a label in one file and a verb
+ * that contradicts it in another. `tests/lifecycle-vocabulary.test.tsx`
+ * reads `packages/schemas/src/throughline_schemas/enums.py` and fails if any
+ * state the domain knows is missing from this table.
  */
-export const LIFECYCLE: Record<string, { label: string; tone: string }> = {
-  candidate:   { label: "Preliminary — not yet tested", tone: "caution" },
-  exploratory: { label: "Tested — needs replication",   tone: "caution" },
-  validated:   { label: "Replicated",                   tone: "positive" },
-  replicated:  { label: "Replicated",                   tone: "positive" },
-  conflicted:  { label: "Contradicted by other evidence", tone: "negative" },
-  rejected:    { label: "Not supported",                tone: "negative" },
-  deprecated:  { label: "Withdrawn",                    tone: "muted" },
+export const LIFECYCLE: Record<string, { label: string; tone: string; action: string }> = {
+  candidate:   { label: "Preliminary — not yet tested", tone: "caution",
+                 action: "Send it back to preliminary" },
+  exploratory: { label: "Tested — needs replication",   tone: "caution",
+                 action: "Mark it tested, and needing replication" },
+  // "Replicated" was this state's label too, which said a finding had been
+  // reproduced when all it had done was survive the six robustness checks —
+  // the same defect as calling an exploratory result validated, and the one
+  // `ResultCard.test.tsx` guards in the other direction. Harmless while only
+  // this card read the table; not harmless now that the transition buttons
+  // and the standing line read it, where it offered to "record that it has
+  // been replicated" for a finding already described as replicated.
+  validated:   { label: "Checked — survived the robustness checks", tone: "positive",
+                 action: "Validate it against the robustness checks" },
+  replicated:  { label: "Replicated",                   tone: "positive",
+                 action: "Record that it has been replicated" },
+  conflicted:  { label: "Contradicted by other evidence", tone: "negative",
+                 action: "Mark it contradicted by other evidence" },
+  rejected:    { label: "Not supported",                tone: "negative",
+                 action: "Record that it is not supported" },
+  deprecated:  { label: "Withdrawn",                    tone: "muted",
+                 action: "Retire this finding" },
 };
 
+/**
+ * The words for one state, and a readable fallback for one we have not met.
+ *
+ * A state with no entry falls back to its own word rather than to nothing:
+ * an unknown state is a deployment mismatch, and printing it is how somebody
+ * finds out. The test above is what stops that fallback becoming the norm.
+ */
 export function lifecycleLabel(status: string) {
-  return LIFECYCLE[status] ?? { label: status.replace(/_/g, " "), tone: "muted" };
+  return LIFECYCLE[status]
+    ?? { label: status.replace(/_/g, " "), tone: "muted",
+         action: `Move it to ${status.replace(/_/g, " ")}` };
 }
 
 /** Effect magnitude in words, so the reader is not left to judge r themselves. */

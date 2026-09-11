@@ -220,3 +220,47 @@ describe("a project with nothing to plot", () => {
     expect(await screen.findByText(/Nothing to plot yet/)).toBeTruthy();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Which export looks like the default (plan §4.12, Slice 3 item 3.2)
+// ---------------------------------------------------------------------------
+
+describe("the two ways a figure leaves the screen", () => {
+  it("puts the accountable export first, and gives it the weight", async () => {
+    /*
+     * `publish.tsx:5-28` lists what the DOM save drops: the VISUALIZES edge
+     * LAW 5 rests on, the critic that must refuse an unpublishable figure, the
+     * formats journals ask for, and a filename that is still legible a month
+     * later. For as long as the two controls sat one above the other at the
+     * same weight, with "Save this view" on top, the path that loses all four
+     * was the one that read as the default — and it produced a file, which is
+     * why nobody noticed.
+     */
+    serve();
+    await openOneRelationship([run()]);
+
+    const publish = await screen.findByRole("button",
+      { name: /Export for publication/ });
+    const save = screen.getByRole("button", { name: /Save this view/ });
+
+    // DOCUMENT_POSITION_FOLLOWING: the save strip comes after the export.
+    expect(publish.compareDocumentPosition(save)
+      & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(publish.className).toContain("btn-primary");
+    expect(save.className).not.toContain("btn-primary");
+  });
+
+  it("keeps the honest sentence about what the quick save is, pointing the right way", async () => {
+    /*
+     * Nothing was removed — the SVG save is still one press. Its sentence had
+     * to change one word, because it said "export it below" and the export
+     * moved above it; a sentence that names a place is a control that does not
+     * do what it says once the place moves (§123).
+     */
+    serve();
+    await openOneRelationship([run()]);
+
+    expect(await screen.findByText(/Quick, and related to nothing/)).toBeTruthy();
+    expect(screen.queryByText(/export it below/)).toBeNull();
+  });
+});

@@ -142,7 +142,7 @@ export function SpecificationCurve({ projectId, datasetVersionId, columns }: {
               </button>
             ))}
           </div>
-          <button className="nj-primary" onClick={() => void run()}
+          <button className="btn btn-primary" onClick={() => void run()}
                   disabled={busy}>
             {busy ? "Fitting…" : `Fit ${2 ** candidates.length} specifications`}
           </button>

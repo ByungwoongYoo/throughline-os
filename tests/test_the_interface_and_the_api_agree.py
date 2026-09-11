@@ -362,14 +362,21 @@ UNREAD: dict[str, set[str]] = {
         "project_id", "statement", "summary", "title", "updated_at",
     },
     "Project in lib/api.ts": {"updated_at"},
-    # Another deliberately narrow local type, for the variables screen.
+    # Another deliberately narrow local type, for the variables screen. The
+    # four provenance fields are read on the Sources list (D211) and have
+    # nowhere to sit here: this screen is about a dataset's columns, not about
+    # where the dataset came from.
     "Source in components/variables.tsx": {
-        "content_hash", "created_at", "ingestion_detail", "ingestion_status",
-        "paper", "passage_count", "source_type", "trust_level",
+        "connector_id", "content_hash", "created_at", "ingestion_detail",
+        "ingestion_status", "licence", "original_uri", "paper",
+        "passage_count", "repository", "source_type", "trust_level",
     },
+    # `connector_id` and `original_uri` left this set under D211: the Sources
+    # list prints *from Zenodo · CC-BY-4.0* under an imported dataset and links
+    # the record, so both are read.
     "Source in lib/api.ts": {
-        "connector_id", "content_hash", "external_identifier", "file_id",
-        "original_uri", "project_id", "updated_at",
+        "content_hash", "external_identifier", "file_id",
+        "project_id", "updated_at",
     },
     # `rejected_aliases` is now named and shown. `pending_aliases` is a count
     # of the `pending` list the panel already renders in full, so the number

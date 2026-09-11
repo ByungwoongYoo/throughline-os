@@ -1,29 +1,39 @@
 "use client";
 
-import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AnalysisRunRow, ArtifactSummary, Capabilities, Connection, DiscoveryMap,
   Finding, Project, Source, api,
 } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import {
-  DEFAULT_SECTION, searchForSection, sectionFromSearch,
+  DEFAULT_SECTION, Place, placeFromSearch, projectFromSearch, searchForPlace,
+  searchForProject,
 } from "@/lib/section-url";
-import { Centered, Failure, Loading } from "@/components/primitives";
-import { Crumb, SECTIONS, Section, Shell } from "@/components/Shell";
+import {
+  Kind, lastProject, placeFor, rememberProject, selectionAt,
+} from "@/lib/place";
+import { currentStep, loopSteps, stepTarget } from "@/lib/loop";
+import { StepStrip } from "@/components/StepStrip";
+import { Centered, Failure, Fold, Loading } from "@/components/primitives";
+import { Crumb, PAGES, SECTIONS, Section, Shell } from "@/components/Shell";
 import { CommandPalette, buildCommands } from "@/components/CommandPalette";
 import {
   AnalysisDetail, ConnectionDetail, ConnectionsTable, Discover, EvidenceGraphView,
-  Findings, Overview, Search, SourceDetail, Sources,
+  EvidenceGraphSummary, Findings, ObjectHistoryFor, Overview, Search, SourceDetail,
+  Sources,
 } from "@/components/views";
+import { TakeItFurther } from "@/components/takeitfurther";
+import { canDraftReport } from "@/components/reports";
+import { GraphStats } from "@/components/graphstats";
+import { Preregister } from "@/components/preregister";
 import { ReportDetail, Reports } from "@/components/reports";
 import { GraphView } from "@/components/graphview";
 import { Figures } from "@/components/figures";
 import { Gallery } from "@/components/gallery";
 import { EmbeddingSpace } from "@/components/embeddingspace";
 import { ProjectMenu } from "@/components/ProjectMenu";
-import { AccountMenu, SignedInUser } from "@/components/AccountMenu";
+import { SignedInUser } from "@/components/AccountMenu";
 import { FirstProject, NewProject } from "@/components/FirstProject";
 import { DataSearch } from "@/components/datasearch";
 import { ReadFigure } from "@/components/readfigure";
@@ -52,7 +62,7 @@ import { Journal } from "@/components/journal";
 import { Variables } from "@/components/variables";
 import { AnalysisList, PlainReading } from "@/components/analyses";
 
-type AuthStatus = { needs_setup: boolean; authenticated: boolean; user: { display_name: string } | null };
+import { AuthStatus, Gate } from "@/components/Gate";
 
 export default function Home() {
   const auth = useApi<AuthStatus>("/api/auth/status");
@@ -72,134 +82,17 @@ export default function Home() {
   return <Workspace user={auth.data.user as SignedInUser} />;
 }
 
-/** First run creates the local account; afterwards it signs in. */
-function Gate({ status, onDone }: { status: AuthStatus; onDone: () => void }) {
-  const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
-  const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-  /*
-   * Three modes, not two.
-   *
-   * `needs_setup` is the very first account on a fresh install. After that a
-   * visitor may still need to *create* an account — previously they could not:
-   * setup runs once and everything else required a session, so the second
-   * person to open this installation had no way in at all.
-   */
-  const setup = status.needs_setup;
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
-  const creating = setup || mode === "signup";
-
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    setBusy(true); setError(null);
-    try {
-      if (setup) {
-        await api.post("/api/auth/setup",
-                       { email, display_name: name || "Researcher", password });
-      } else if (mode === "signup") {
-        await api.post("/api/auth/register",
-                       { email, display_name: name || "Researcher", password });
-      } else {
-        await api.post("/api/auth/login", { email, password });
-      }
-      onDone();
-    } catch (err) {
-      setError(err);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const message = error instanceof Error ? error.message : error ? String(error) : null;
-
-  return (
-    <div className="gate">
-      {/* The entrance carries depth; the instrument beyond it does not (§115). */}
-      <aside className="gate-art">
-        <div className="gate-art-copy">
-          <h2>An interesting pattern is not a discovery.</h2>
-          <p>
-            Everything you load stays on this machine — the database, the
-            embeddings and the analysis sandbox all run locally. Nothing is
-            uploaded anywhere.
-          </p>
-        </div>
-      </aside>
-
-      <div className="gate-form">
-        <div className="gate-form-inner">
-          <div className="gate-mark">
-            <i aria-hidden />
-            <span>Throughline</span>
-          </div>
-
-          <h1>
-            {setup ? "Set up this machine"
-                   : mode === "signup" ? "Create your account" : "Welcome back"}
-          </h1>
-          <p className="gate-sub">
-            {setup
-              ? "The first account on this machine. It scopes your projects and signs the audit trail."
-              : mode === "signup"
-                ? "Your own workspace on this machine. You will not see anyone else's projects, and they will not see yours."
-                : "Sign in to your local workspace."}
-          </p>
-
-          <form onSubmit={submit}>
-            {creating && (
-              <label className="gate-field">
-                <span>Name</span>
-                <input type="text" value={name} placeholder="Dr Chen"
-                       onChange={(e) => setName(e.target.value)} />
-              </label>
-            )}
-            <label className="gate-field">
-              <span>Email</span>
-              <input type="email" required autoComplete="username" value={email}
-                     placeholder="you@lab.local"
-                     onChange={(e) => setEmail(e.target.value)} />
-            </label>
-            <label className="gate-field">
-              <span>Password</span>
-              <input type="password" required minLength={creating ? 12 : 1}
-                     autoComplete={creating ? "new-password" : "current-password"}
-                     value={password} onChange={(e) => setPassword(e.target.value)} />
-              {creating && <span className="gate-hint">At least 12 characters. It protects an entire research corpus.</span>}
-            </label>
-
-            {message ? <div className="gate-error" role="alert">{message}</div> : null}
-
-            <button className="gate-submit" type="submit" disabled={busy}>
-              {busy ? "Working…"
-                    : creating ? "Create account and continue" : "Sign in"}
-            </button>
-          </form>
-
-          {/* Not shown during first-run setup: there is nothing to switch to
-              until an account exists. */}
-          {!setup && (
-            <p className="gate-switch">
-              {mode === "signin" ? "New here?" : "Already have an account?"}{" "}
-              <button type="button" onClick={() => {
-                setMode(mode === "signin" ? "signup" : "signin");
-                setError(null);
-              }}>
-                {mode === "signin" ? "Create an account" : "Sign in instead"}
-              </button>
-            </p>
-          )}
-
-          <Link className="gate-back" href="/">← Back</Link>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 const SECTION_LABEL: Record<Section, string> = Object.fromEntries(
   SECTIONS.map((s) => [s.id, s.label])) as Record<Section, string>;
+
+/**
+ * How often the project's counts are re-read while something is running.
+ *
+ * Only while: the discovery map says how many workflow runs are still in
+ * flight, and the interval exists for exactly as long as that is not zero. A
+ * workspace left open overnight makes no requests.
+ */
+const REFRESH_WHILE_BUSY_MS = 2500;
 
 function Workspace({ user }: { user: SignedInUser }) {
   /*
@@ -211,43 +104,130 @@ function Workspace({ user }: { user: SignedInUser }) {
   const [creating, setCreating] = useState(false);
   const projects = useApi<Project[]>("/api/projects");
   const capabilities = useApi<Capabilities>("/api/system/capabilities");
-  const [projectId, setProjectId] = useState<string | null>(null);
+
   /*
-   * The section is read from the address bar, not merely mirrored into it.
+   * Where the researcher is, read from the address bar rather than merely
+   * mirrored into it — and all three parts of it, not one (D196).
    *
-   * Held in `useState` alone, four ordinary things did not work: the view
-   * could not be linked to, a reload went back to Overview however deep the
-   * researcher was, so did reopening the app, and the browser's Back gesture
-   * left the product entirely rather than going back one section. See
-   * `lib/section-url.ts` for why this is the URL and not `localStorage`.
+   * The section alone was put in the URL by T108, and four ordinary things
+   * started working: the view could be linked to, a reload kept the screen,
+   * reopening the app did too, and Back went back one section. But a section
+   * is not a place. `?section=findings` named a screen in whichever project
+   * happened to be newest, so a reload from deep inside one project landed
+   * in another; and the finding that was open was not in the address at all,
+   * so Back from a detail left the section instead of closing the detail.
+   *
+   * So the address carries the project, the section and the item. Which
+   * project, in order of authority: the one the address names; failing that,
+   * the one this account had open last on this browser; failing that, the
+   * newest — and the list is the arbiter of all three, because an id from a
+   * bookmark or from storage may belong to a project that was deleted, or to
+   * a different account on the same machine.
    *
    * Initialised from `window.location` inside the initialiser rather than in
-   * an effect, so a deep link renders its own section on the first paint
+   * an effect, so a deep link renders its own place on the first paint
    * instead of showing Overview and then replacing it — a flash that reads as
    * the link having failed.
    */
-  const [section, setSectionState] = useState<Section>(() =>
+  const [place, setPlaceState] = useState<Place>(() =>
     typeof window === "undefined"
-      ? DEFAULT_SECTION
-      : sectionFromSearch(window.location.search));
+      ? { section: DEFAULT_SECTION, item: null }
+      : placeFromSearch(window.location.search));
+  const [projectId, setProjectIdState] = useState<string | null>(() =>
+    typeof window === "undefined"
+      ? null
+      : projectFromSearch(window.location.search) ?? lastProject(user.id));
+
+  // Read by callbacks that must see the current value without being
+  // recreated on every navigation.
+  const placeRef = useRef(place);
+  placeRef.current = place;
+  const projectRef = useRef(projectId);
+  projectRef.current = projectId;
+
+  const project = projects.data?.find((p) => p.id === projectId) ?? null;
+  const activeId = project?.id ?? null;
 
   /**
-   * Move to a section, leaving a history entry behind.
+   * Move to a place, leaving a history entry behind.
    *
-   * `pushState`, so Back goes back one section. `replaceState` would fix the
-   * link and the reload and leave Back doing what it did before, which was the
-   * complaint that started this.
+   * `pushState`, so Back goes back one step — one section, or from a detail
+   * to its list. `replaceState` would fix the link and the reload and leave
+   * Back doing what it did before, which was the complaint that started this.
+   * The project goes into the address on every navigation, so that anything
+   * copied or reloaded from here on comes back to the same project.
    */
-  const setSection = useCallback((next: Section) => {
-    setSectionState(next);
+  const go = useCallback((next: Place, options: { project?: string; replace?: boolean } = {}) => {
+    setPlaceState(next);
     if (typeof window === "undefined") return;
-    const search = searchForSection(next, window.location.search);
-    window.history.pushState(null, "",
-      `${window.location.pathname}${search}${window.location.hash}`);
+    const search = searchForProject(
+      options.project ?? projectRef.current,
+      searchForPlace(next, window.location.search));
+    const url = `${window.location.pathname}${search}${window.location.hash}`;
+    if (options.replace) window.history.replaceState(null, "", url);
+    else window.history.pushState(null, "", url);
   }, []);
 
+  /**
+   * Open a thing of a kind, in the section that shows it (D195).
+   *
+   * This is the one rule every in-view link follows now. Before, a link set
+   * the selection and left the section alone, and because each section renders
+   * a detail only for its own kind, the finding's "computations behind it"
+   * showed the Findings *list* with a run id in the breadcrumb, and recording a
+   * finding from a connection left the researcher on the Connections list,
+   * never seeing what they had just made.
+   */
+  const open = useCallback((kind: Kind, id: string, options: { replace?: boolean } = {}) => {
+    go(placeFor(kind, id, placeRef.current.section), options);
+  }, [go]);
+
+  /** Switch project: a different project is a different place, so it starts at the front. */
+  const chooseProject = useCallback((id: string) => {
+    setProjectIdState(id);
+    go({ section: DEFAULT_SECTION, item: null }, { project: id });
+  }, [go]);
+
+  /**
+   * Take up a project that was just made — by the form or the worked example —
+   * and open it. The row goes into the list at once so the shell can render it
+   * before the refetch lands; the refetch then replaces the whole list with the
+   * server's, which is the copy that counts.
+   */
+  const adopt = useCallback((created: Project) => {
+    projects.setData([created, ...(projects.data ?? []).filter((p) => p.id !== created.id)]);
+    setCreating(false);
+    chooseProject(created.id);
+    projects.reload();
+  }, [projects, chooseProject]);
+
   /*
-   * Back and Forward move between sections rather than out of the product.
+   * The list is the arbiter of which project is open.
+   *
+   * An id from the address or from storage may name a project that was
+   * deleted, or one that belongs to another account on this machine. Either
+   * way the newest project is the honest fallback — and if the *address* was
+   * the source of the bad id, it is corrected in place, so a reload does not
+   * repeat the same wrong turn.
+   */
+  useEffect(() => {
+    const list = projects.data;
+    if (!list?.length || project) return;
+    setProjectIdState(list[0].id);
+    if (typeof window !== "undefined" && projectFromSearch(window.location.search)) {
+      const search = searchForProject(list[0].id, window.location.search);
+      window.history.replaceState(null, "",
+        `${window.location.pathname}${search}${window.location.hash}`);
+    }
+  }, [projects.data, project]);
+
+  // Remembered per account, so opening the app fresh comes back here.
+  useEffect(() => {
+    if (activeId) rememberProject(user.id, activeId);
+  }, [activeId, user.id]);
+
+  /*
+   * Back and Forward move between places rather than out of the product.
    *
    * `popstate` is the only signal for this: the browser changes the URL
    * without React hearing about it, so without this the address bar and the
@@ -255,10 +235,17 @@ function Workspace({ user }: { user: SignedInUser }) {
    * it at all, because the URL then lies about what is shown.
    */
   useEffect(() => {
-    const onPop = () => setSectionState(sectionFromSearch(window.location.search));
+    const onPop = () => {
+      setPlaceState(placeFromSearch(window.location.search));
+      const named = projectFromSearch(window.location.search);
+      if (named) setProjectIdState(named);
+    };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
+
+  const section = place.section;
+  const selection = selectionAt(place);
 
   /*
    * §36. The assistant is told which screen the question was asked from, and
@@ -268,7 +255,6 @@ function Workspace({ user }: { user: SignedInUser }) {
    * qualifying it with a filter nobody has in force any more.
    */
   useEffect(() => { enterScreen(section); }, [section]);
-  const [selection, setSelection] = useState<{ kind: string; id: string } | null>(null);
   /*
    * The method of the analysis on screen, reported up by the detail view so the
    * branch panel below it can offer a fork that swaps it. Held here rather than
@@ -280,30 +266,81 @@ function Workspace({ user }: { user: SignedInUser }) {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<unknown>(null);
 
-  useEffect(() => {
-    if (!projectId && projects.data?.length) setProjectId(projects.data[0].id);
-  }, [projects.data, projectId]);
-
-  const map = useApi<DiscoveryMap>(projectId ? `/api/projects/${projectId}/discovery-map` : null);
-  const sources = useApi<Source[]>(projectId ? `/api/projects/${projectId}/sources` : null);
+  /*
+   * Re-read on every navigation (the `[section]` dependency), because these
+   * are what the rail's counts, the Overview's meters and the breadcrumbs are
+   * drawn from, and a researcher looks at those precisely when they arrive
+   * somewhere. Fetched once per project, they went stale the moment anything
+   * happened in the background (D194): the worked example finished building
+   * in seconds while the screen kept saying nothing had.
+   */
+  const map = useApi<DiscoveryMap>(
+    activeId ? `/api/projects/${activeId}/discovery-map` : null, [section]);
+  const sources = useApi<Source[]>(
+    activeId ? `/api/projects/${activeId}/sources` : null, [section]);
   /*
    * Every analysis in the project, not only the ones discovery turned into a
    * connection. The Figures screen draws a run, and a run a researcher
    * specified belongs to no connection.
    */
   const analyses = useApi<AnalysisRunRow[]>(
-    projectId ? `/api/projects/${projectId}/analyses?limit=200` : null,
-    [projectId]);
+    activeId ? `/api/projects/${activeId}/analyses?limit=200` : null, [section]);
   const connections = useApi<Connection[]>(
-    projectId ? `/api/projects/${projectId}/connections?limit=200` : null);
-  const findings = useApi<Finding[]>(projectId ? `/api/projects/${projectId}/findings` : null);
+    activeId ? `/api/projects/${activeId}/connections?limit=200` : null, [section]);
+  const findings = useApi<Finding[]>(
+    activeId ? `/api/projects/${activeId}/findings` : null, [section]);
   // Approved display names, so breadcrumbs and the palette never show a raw
   // column name either (Part C: zero raw names outside the mapping screen).
   const variables = useApi<{ labels: Record<string, string> }>(
-    projectId ? `/api/projects/${projectId}/variables` : null);
+    activeId ? `/api/projects/${activeId}/variables` : null);
   const artifacts = useApi<ArtifactSummary[]>(
-    projectId ? `/api/projects/${projectId}/artifacts` : null);
-  const project = projects.data?.find((p) => p.id === projectId);
+    activeId ? `/api/projects/${activeId}/artifacts` : null);
+  // Saved figures, so the palette can jump to one by title or id.
+  const visuals = useApi<Array<{ id: string; title: string | null; visual_type: string }>>(
+    activeId ? `/api/projects/${activeId}/visuals` : null);
+  // Every connection the project has, across lifecycle states: the lists are
+  // capped at 100 and 200 rows, and this is the denominator that lets them
+  // say so (D201).
+  const connectionTotal = Object.values(map.data?.connections ?? {}).reduce((a, b) => a + b, 0);
+  /*
+   * The evidence graph the finding detail has loaded, lifted once so the
+   * "Take it further" card knows which run and which connection to act on
+   * without fetching the graph twice. Reset when the finding changes, or the
+   * previous finding's ids would seed the next card for a moment.
+   */
+  const [evidence, setEvidence] = useState<EvidenceGraphSummary | null>(null);
+  useEffect(() => { setEvidence(null); }, [place.item]);
+
+  /*
+   * While the project has work in flight, keep the counts current; the moment
+   * it finishes, re-read the lists the work will have changed.
+   *
+   * The server says how many workflow runs are still queued or running
+   * (`counts.in_flight`), so this polls for exactly as long as that is true
+   * and not a second longer — the alternative, guessing a duration, is how a
+   * screen ends up either stale or hammering a local API forever. The lists
+   * are refreshed once, on the transition to idle, because that is when the
+   * analyses, connections and findings the run produced have all landed.
+   */
+  const inFlight = map.data?.counts.in_flight ?? 0;
+  const wasBusy = useRef(false);
+  const { reload: reloadMap } = map;
+  const { reload: reloadSources } = sources;
+  const { reload: reloadAnalyses } = analyses;
+  const { reload: reloadConnections } = connections;
+  const { reload: reloadFindings } = findings;
+  useEffect(() => {
+    if (inFlight > 0) {
+      wasBusy.current = true;
+      const timer = window.setInterval(reloadMap, REFRESH_WHILE_BUSY_MS);
+      return () => window.clearInterval(timer);
+    }
+    if (wasBusy.current) {
+      wasBusy.current = false;
+      reloadSources(); reloadAnalyses(); reloadConnections(); reloadFindings();
+    }
+    return undefined;
+  }, [inFlight, reloadMap, reloadSources, reloadAnalyses, reloadConnections, reloadFindings]);
 
   /*
    * Global keys. ⌘K opens the palette; Escape leaves a detail view for the list
@@ -326,58 +363,61 @@ function Workspace({ user }: { user: SignedInUser }) {
         // Don't steal Escape from a field the researcher is typing in.
         const tag = (event.target as HTMLElement | null)?.tagName;
         if (tag === "INPUT" || tag === "TEXTAREA") return;
-        setSelection((current) => (current ? null : current));
+        const current = placeRef.current;
+        if (current.item) go({ section: current.section, item: null });
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [paletteOpen]);
+  }, [paletteOpen, go]);
 
   const upload = useCallback(async (files: FileList | null) => {
-    if (!files?.length || !projectId) return;
+    if (!files?.length || !activeId) return;
     setUploading(true);
     setUploadError(null);
-    setSection("sources");
-    setSelection(null);
+    go({ section: "sources", item: null });
     try {
       for (const file of Array.from(files)) {
-        await api.upload(`/api/projects/${projectId}/sources`, file);
+        await api.upload(`/api/projects/${activeId}/sources`, file);
       }
-      sources.reload();
-      map.reload();
+      reloadSources();
+      reloadMap();
     } catch (err) {
       setUploadError(err);
     } finally {
       setUploading(false);
     }
-  }, [projectId, sources, map, setSection]);
+  }, [activeId, go, reloadSources, reloadMap]);
 
-  if (projects.loading) return <Centered><Loading rows={3} label="Loading projects" /></Centered>;
+  // `!projects.data`, not `loading` alone: the list is refetched after a
+  // project is created or deleted, and a refetch must not blank the screen
+  // that is already showing the rest of the workspace.
+  if (projects.loading && !projects.data) {
+    return <Centered><Loading rows={3} label="Loading projects" /></Centered>;
+  }
   if (projects.error) return <Centered><Failure error={projects.error} retry={projects.reload} /></Centered>;
   if (!projects.data?.length) {
-    return <FirstProject onCreated={() => { setCreating(false); projects.reload(); }}
-                         user={user} />;
+    return <FirstProject onCreated={adopt} user={user} />;
   }
   if (creating) {
-    return <NewProject onCreated={() => { setCreating(false); projects.reload(); }}
-                       onCancel={() => setCreating(false)} />;
+    return <NewProject onCreated={adopt} onCancel={() => setCreating(false)}
+                       offerExample />;
   }
   if (!project) return <Centered><Loading rows={2} /></Centered>;
 
-  function select(kind: string) {
-    return (id: string) => { setSelection({ kind, id }); };
+  function select(kind: Kind) {
+    return (id: string) => open(kind, id);
   }
 
   function goSection(next: Section) {
-    setSection(next);
-    setSelection(null);
+    go({ section: next, item: null });
   }
 
   // The breadcrumb is what makes a detail view escapable by mouse, and what
   // tells the researcher where a palette jump just landed them.
   const crumbs: Crumb[] = [{
     label: SECTION_LABEL[section],
-    onClick: selection ? () => setSelection(null) : undefined,
+    onClick: selection ? () => go({ section, item: null }) : undefined,
   }];
   if (selection) {
     const named =
@@ -392,9 +432,47 @@ function Workspace({ user }: { user: SignedInUser }) {
             ? findings.data?.find((f) => f.id === selection.id)?.title
             : selection.kind === "artifact"
               ? artifacts.data?.find((a) => a.id === selection.id)?.title
-              : undefined;
+              : selection.kind === "analysis"
+                // The method, as the detail's own heading spells it; a run id
+                // in a breadcrumb tells the researcher nothing about where
+                // they are.
+                ? analyses.data?.find((a) => a.id === selection.id)?.method
+                    .replace(/_/g, " ")
+                : undefined;
     crumbs.push({ label: named ?? selection.id });
   }
+
+  /*
+   * Where the project is in the loop, and what to do about it, computed once
+   * here and read by the strip above the workspace and by the inspector — so
+   * the two cannot name different steps. `here` is true when this screen is
+   * the step's destination, and then the strip offers no button: the real
+   * control is on the page (T135).
+   */
+  const loopMap = map.data;
+  const steps = loopMap ? loopSteps(loopMap) : [];
+  const step = loopMap ? currentStep(loopMap) : null;
+  const target = step && loopMap
+    ? stepTarget(step, loopMap, variables.data?.labels) : null;
+  const here = !!target && section === target.section
+    && (target.item ? place.item === target.item : true);
+  const takeStep = () => {
+    if (!target) return;
+    if (target.item) open("connection", target.item);
+    else goSection(target.section);
+  };
+  const strip = loopMap ? (
+    <StepStrip
+      step={step}
+      index={step ? steps.findIndex((s) => s.id === step.id) + 1 : 0}
+      total={steps.length}
+      here={here}
+      actionLabel={target?.label ?? null}
+      onAction={takeStep}
+      onShowLoop={() => goSection("overview")}
+      working={inFlight}
+    />
+  ) : null;
 
   const commands = buildCommands({
     labels: variables.data?.labels ?? {},
@@ -402,8 +480,12 @@ function Workspace({ user }: { user: SignedInUser }) {
     sources: sources.data ?? [],
     connections: connections.data ?? [],
     findings: findings.data ?? [],
+    pages: PAGES,
+    analyses: analyses.data ?? [],
+    reports: artifacts.data ?? [],
+    figures: visuals.data ?? [],
     go: goSection,
-    open: (target, kind, id) => { setSection(target); setSelection({ kind, id }); },
+    open: (target, _kind, id) => go({ section: target, item: id }),
   });
 
   return (
@@ -417,27 +499,25 @@ function Workspace({ user }: { user: SignedInUser }) {
         projectMenu={
           <ProjectMenu
             projects={projects.data}
-            currentId={projectId}
-            onSelect={(id) => {
-              // Clear anything scoped to the project being left, so nothing
-              // from the previous one can render against the new one.
-              setSelection(null);
-              setSection("overview");
-              setProjectId(id);
-            }}
+            currentId={project.id}
+            onSelect={chooseProject}
             onChanged={() => {
-              // The deleted project may be the one on screen. Drop the
-              // selection and let the effect below pick the first survivor.
-              setSelection(null);
-              setProjectId(null);
+              // The deleted project may be the one on screen. Refetch, and let
+              // the effect above pick the first survivor.
               projects.reload();
             }}
             onCreate={() => setCreating(true)}
           />
         }
-        accountMenu={<AccountMenu user={user} />}
+        account={user}
+        strip={strip}
         inspector={
-          <Inspector selection={selection} capabilities={capabilities.data} map={map.data} />
+          // No selection, no panel: a column saying "Nothing is selected" beside
+          // every list is chrome, not context (T139). The installation readout
+          // it carried stays one press away wherever an object is open.
+          selection
+            ? <Inspector selection={selection} capabilities={capabilities.data} />
+            : null
         }
       >
         {section === "board" && (
@@ -446,12 +526,14 @@ function Workspace({ user }: { user: SignedInUser }) {
            * research objects — an analysis, a figure, an excerpt — so arranging
            * the board arranges the work rather than a set of shortcuts to it.
            */
-          <Board projectId={project.id} />
+          <Board projectId={project.id} onOpen={(kind, id) => open(kind, id)} />
         )}
 
         {section === "overview" && (
           <>
-            <Overview project={project} map={map.data} onGo={goSection} />
+            <Overview project={project} map={map.data} onGo={goSection}
+                      onOpen={(kind, id) => open(kind, id)} onAddSources={upload}
+                      labels={variables.data?.labels} />
             {/*
               Directly under the meters, because the Contradictions meter is
               what this panel makes honest. The count read from a table nothing
@@ -470,10 +552,14 @@ function Workspace({ user }: { user: SignedInUser }) {
                   setPendingDiscovery(versionId);
                   goSection("discover");
                 }}
+                onOpenSource={select("source")}
+                onGo={goSection}
+                labels={variables.data?.labels}
+                onOpenObject={select("object")}
                 // A table imported from a database is a new source, so the
                 // list beside this one is out of date until it is re-read —
                 // the same reload an upload already triggers.
-                onImported={() => sources.reload()}
+                onImported={() => reloadSources()}
               />
             : <>
                 {/*
@@ -492,23 +578,40 @@ function Workspace({ user }: { user: SignedInUser }) {
               </>
         )}
         {section === "variables" && <Variables projectId={project.id} />}
-        {section === "search" && <Search projectId={project.id} />}
+        {section === "search" && (
+          <Search projectId={project.id} onOpenSource={select("source")} />
+        )}
         {section === "discover" && (
           selection?.kind === "connection"
             ? <ConnectionDetail connectionId={selection.id} projectId={project.id}
-                                  onRecordFinding={select("finding")} />
-            : <Discover
-                projectId={project.id} sources={sources}
-                onSelectConnection={select("connection")}
-                startWith={pendingDiscovery} onStarted={() => setPendingDiscovery(null)}
-              />
+                                  onRecordFinding={(id) => { reloadFindings(); open("finding", id); }}
+                                  onDraftedReport={(id) => { reloadMap(); open("artifact", id); }} />
+            : <>
+                <Discover
+                  projectId={project.id} sources={sources}
+                  onSelectConnection={select("connection")}
+                  startWith={pendingDiscovery} onStarted={() => setPendingDiscovery(null)}
+                  connectionTotal={connectionTotal}
+                />
+                {/*
+                  The screen that runs the sweep now shows the running total
+                  the correction depends on, and offers to register a
+                  hypothesis at the one moment registering one is meaningful —
+                  before the next test, not after (plan §4.10). Quiet, because
+                  Discovery's primary belongs to the sweep and the strip.
+                */}
+                <ExplorationLedger projectId={project.id} />
+                <Preregister projectId={project.id} emphasis="secondary" />
+              </>
         )}
         {section === "connections" && (
           selection?.kind === "connection"
             ? <ConnectionDetail connectionId={selection.id} projectId={project.id}
-                                  onRecordFinding={select("finding")} />
+                                  onRecordFinding={(id) => { reloadFindings(); open("finding", id); }}
+                                  onDraftedReport={(id) => { reloadMap(); open("artifact", id); }} />
             : <>
-                <ConnectionList projectId={project.id} onSelect={select("connection")} />
+                <ConnectionList projectId={project.id} onSelect={select("connection")}
+                                total={connectionTotal} />
                 {/*
                   Under the connections rather than beside the results. The
                   count is context for what has just been read, and a reader who
@@ -522,13 +625,20 @@ function Workspace({ user }: { user: SignedInUser }) {
                   how much of it was the looking that was planned.
                 */}
                 <Deviations projectId={project.id} />
+                {/*
+                  A structural fact about the project's graph, beside the
+                  ledger that counts its tests: which objects it has connected
+                  most. Stated as structure, never as a finding.
+                */}
+                <GraphStats projectId={project.id} onOpen={(id) => open("object", id)} />
               </>
         )}
         {section === "findings" && (
           selection?.kind === "finding"
             ? <>
                 <EvidenceGraphView findingId={selection.id}
-                                   onOpenAnalysis={select("analysis")} />
+                                   onOpenAnalysis={select("analysis")}
+                                   onLoaded={setEvidence} />
                 {/*
                   Directly under the evidence, because the evidence is what
                   decides whether it may move at all: anything past candidate
@@ -549,14 +659,42 @@ function Workspace({ user }: { user: SignedInUser }) {
                   it behind a tab means it is never opened.
                 */}
                 <Challenges projectId={project.id} findingId={selection.id} />
+                {/*
+                  The loop's last step, from the object step 5 produced: publish
+                  a figure of the run behind this finding, or draft a report from
+                  the connection it rests on. Gated on the evidence having
+                  arrived, so a loading screen is not told there is nothing to
+                  draft and then told there is.
+                */}
+                {evidence && (
+                  <TakeItFurther
+                    projectId={project.id}
+                    findingId={selection.id}
+                    analysisRunId={evidence.analyses?.[0]?.id ?? null}
+                    connection={(evidence.connections ?? []).find(canDraftReport) ?? null}
+                    onDrafted={(id) => { reloadMap(); open("artifact", id); }}
+                  />
+                )}
                 <LibraryNote projectId={project.id} findingId={selection.id} />
+                {/*
+                  Last on the screen: what was written about this finding and
+                  what it used to say (D213, plan §4.6.2). It goes after the
+                  library note because a note being written is part of the
+                  argument above; the journal is the record of that argument
+                  having been made, and the versions are how you go back.
+                */}
+                <ObjectHistoryFor projectId={project.id} kind="finding"
+                                  id={selection.id}
+                                  onOpenObject={select("object")} />
               </>
             : <Findings projectId={project.id} onSelect={select("finding")} />
         )}
         {section === "analyses" && (
           selection?.kind === "analysis"
             ? <>
-                <AnalysisDetail runId={selection.id} onMethod={setRunMethod} />
+                <AnalysisDetail runId={selection.id} projectId={project.id}
+                                onMethod={setRunMethod}
+                                onOpenObject={select("object")} />
                 {/*
                   §75. Beside the run, because "how was this computed" is
                   asked while looking at the number.
@@ -576,13 +714,13 @@ function Workspace({ user }: { user: SignedInUser }) {
                 */}
                 <ForkLineage projectId={project.id} runId={selection.id}
                              method={runMethod}
-                             onOpen={(id) => select("analysis")(id)} />
+                             onOpen={select("analysis")} />
               </>
             : <AnalysisList projectId={project.id} onSelect={select("analysis")} />
         )}
         {section === "reports" && (
           selection?.kind === "artifact"
-            ? <ReportDetail artifactId={selection.id}
+            ? <ReportDetail artifactId={selection.id} projectId={project.id}
                             onOpenArtifact={select("artifact")} />
             : <>
                 {/*
@@ -625,20 +763,50 @@ function Workspace({ user }: { user: SignedInUser }) {
         )}
         {section === "notebook" && <Notebook projectId={project.id} />}
         {section === "journal" && (
-          <Journal projectId={project.id} onOpenObject={select("analysis")} />
+          /*
+           * An entry is about a research object, and the place that shows one
+           * is the research graph, with the object's own journal open beside
+           * it. This used to hand the id to the analysis detail, which reads
+           * run ids, and to leave the section on Journal — so the link changed
+           * the breadcrumb and nothing else (D195).
+           */
+          <Journal projectId={project.id} onOpenObject={select("object")} />
         )}
         {section === "activity" && <ProjectActivity projectId={project.id} />}
-        {section === "settings" && <Settings />}
+        {section === "settings" && <Settings projectId={project.id} />}
         {section === "graph" && (
-          <GraphView projectId={project.id} onSelect={select("object")} />
+          /*
+           * `replace`, not push: a graph is browsed by clicking node after
+           * node, and a history entry per node would make Back walk through
+           * every one of them before it left the screen. The address still
+           * names the open object, so a reload or a copied link comes back to
+           * it.
+           */
+          <GraphView projectId={project.id}
+                     focus={selection?.kind === "object" ? selection.id : null}
+                     onSelect={(id) => open("object", id, { replace: true })} />
         )}
         {section === "embedding" && <EmbeddingSpace projectId={project.id} />}
         {section === "gallery" && <Gallery />}
-        {section === "datasearch" && <DataSearch />}
-        {section === "readfigure" && <ReadFigure projectId={project.id} />}
+        {section === "datasearch" && (
+          /* A found dataset comes in through the same door a dropped file uses,
+             and the researcher goes with it to watch it being profiled. */
+          <DataSearch projectId={project.id}
+                      onImported={(id) => { reloadSources(); reloadMap(); open("source", id); }} />
+        )}
+        {section === "readfigure" && (
+          /*
+           * The digitised points go in as a dataset, and the researcher goes
+           * with them: the new source's screen shows it being profiled, the
+           * same way a recorded finding is shown rather than announced.
+           */
+          <ReadFigure projectId={project.id}
+                      onAdded={(id) => { reloadSources(); reloadMap(); open("source", id); }} />
+        )}
 
         {section === "figures" && (
-          <Figures projectId={project.id} runs={analyses} />
+          <Figures projectId={project.id} runs={analyses}
+                   focusId={section === "figures" ? place.item : null} />
         )}
       </Shell>
 
@@ -649,7 +817,12 @@ function Workspace({ user }: { user: SignedInUser }) {
   );
 }
 
-function ConnectionList({ projectId, onSelect }: { projectId: string; onSelect: (id: string) => void }) {
+function ConnectionList({ projectId, onSelect, total }: {
+  projectId: string; onSelect: (id: string) => void;
+  /** How many connections the project has in all, so the capped list can say
+   *  how many it is not showing (D201). */
+  total?: number;
+}) {
   const { data, error, loading, reload } = useApi<Connection[]>(`/api/projects/${projectId}/connections?limit=200`);
   /*
    * The list is capped at two hundred, and a cap miscounts in exactly the way
@@ -668,7 +841,8 @@ function ConnectionList({ projectId, onSelect }: { projectId: string; onSelect: 
       <p className="lede">
         Every candidate that was tested, with its corrected q-value and lifecycle state.
       </p>
-      <ConnectionsTable connections={data} error={error} loading={loading} reload={reload} onSelect={onSelect} />
+      <ConnectionsTable connections={data} error={error} loading={loading} reload={reload}
+                        onSelect={onSelect} total={total} />
     </>
   );
 }
@@ -692,44 +866,72 @@ function ConnectionList({ projectId, onSelect }: { projectId: string; onSelect: 
 // be imported — the component was module-private, so the one control standing
 // between a new researcher and a working project was the one control no test
 // could touch.
-function Inspector({ selection, capabilities, map }: {
+/** What a selected object is, in one line. Never more than one. */
+const WHAT_IS_SELECTED: Record<string, string> = {
+  connection: "A connection is a tested relationship, not a cause.",
+  finding: "A finding is a claim, carried by the evidence linked to it.",
+  artifact: "A report references its findings rather than copying them.",
+  analysis: "An analysis is one run, with its seed and its assumption checks.",
+  source: "A source is a file as it was ingested, and what was made of it.",
+};
+
+/**
+ * The context panel: at most three items, and every explanation folded (T139).
+ *
+ * It used to open with the loop's recommendation and a button carrying the
+ * loop's action — the same sentence and the same act as the step strip two
+ * hundred pixels to its left, on every one of twenty-four screens. The strip
+ * cannot be scrolled away and this panel is dropped entirely below 1101 px,
+ * so of the two the strip is the one that has to hold the action; a second
+ * copy here was the duplication D204 removed from the Overview reappearing
+ * one column over.
+ *
+ * What is left is what only this panel says: what the selected object is, and
+ * what this installation can do. The installation readout is five rows and two
+ * caveats — a permanent sixty words of machine configuration beside every
+ * screen — so it rests closed, with the number of facts on its summary.
+ */
+function Inspector({ selection, capabilities }: {
   selection: { kind: string; id: string } | null;
   capabilities: Capabilities | null;
-  map: DiscoveryMap | null;
 }) {
+  const what = selection ? WHAT_IS_SELECTED[selection.kind] : null;
+
   return (
     <>
       <h3 className="eyebrow">Context</h3>
-      {selection?.kind === "connection" && (
-        <p className="note">
-          A connection is a tested relationship. Validate it to see whether it survives
-          bootstrap resampling, outlier exclusion and adjustment for confounders.
-        </p>
-      )}
-      {!selection && map && (
-        <p className="note">{map.recommended_next_action}</p>
-      )}
+      {what
+        ? <p className="note one-line">{what}</p>
+        : <p className="note one-line">Nothing is selected.</p>}
 
-      <h3 className="eyebrow" style={{ marginTop: 20 }}>This installation</h3>
       {!capabilities && <Loading rows={2} />}
       {capabilities && (
-        <div className="kv">
-          <dt>Search</dt>
-          <dd>{capabilities.retrieval.semantic ? "hybrid" : "lexical only"}</dd>
-          <dt>Model</dt>
-          <dd className="mono">{capabilities.retrieval.model ?? "none"}</dd>
-          <dt>Sandbox</dt>
-          <dd>{capabilities.analysis.sandbox ? "enabled" : "unavailable"}</dd>
-          <dt>Methods</dt>
-          <dd>{capabilities.analysis.methods?.length ?? 0}</dd>
-          <dt>AI provider</dt>
-          <dd>{capabilities.llm.configured ? "configured" : "none"}</dd>
-        </div>
+        <Fold summary="This installation" count={5}>
+          <div className="kv">
+            <dt>Search</dt>
+            <dd>{capabilities.retrieval.semantic ? "hybrid" : "lexical only"}</dd>
+            {/* Named by what each model does. "Model: none" two lines above
+                "AI provider: configured" read as two contradictory statements
+                about one thing (D204). */}
+            <dt>Search model</dt>
+            <dd className="mono">
+              {capabilities.retrieval.model ?? "none installed — search is lexical only"}
+            </dd>
+            <dt>Sandbox</dt>
+            <dd>{capabilities.analysis.sandbox ? "enabled" : "unavailable"}</dd>
+            <dt>Methods</dt>
+            <dd>{capabilities.analysis.methods?.length ?? 0}</dd>
+            <dt>Writing model</dt>
+            <dd>{capabilities.llm.configured ? "configured" : "none"}</dd>
+          </div>
+          {!capabilities.llm.configured && (
+            <p className="note">{capabilities.llm.note}</p>
+          )}
+          {capabilities.retrieval.note && (
+            <p className="note">{capabilities.retrieval.note}</p>
+          )}
+        </Fold>
       )}
-      {capabilities && !capabilities.llm.configured && (
-        <p className="note">{capabilities.llm.note}</p>
-      )}
-      {capabilities?.retrieval.note && <p className="note">{capabilities.retrieval.note}</p>}
     </>
   );
 }

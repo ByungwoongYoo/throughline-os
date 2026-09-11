@@ -51,7 +51,13 @@
      shouting over the sections around them. */
   /* The hero is the largest thing on the page and is used once. Raised
      so the first screen reads as a statement rather than as a header. */
-  --type-display: clamp(3rem, 8.4vw, 7.6rem);
+  /* Scaled from the viewport's HEIGHT as well as its width. Width alone
+     let the headline reach ~630px tall on a 1440×900 laptop, which pushed
+     the lede off the bottom and put the only way into the product —
+     "Open the workspace" — below the fold (D200). 7.5vh keeps five lines
+     of headline under half the screen, so the call to action is in the
+     first frame at every laptop size. */
+  --type-display: clamp(2.5rem, min(8.4vw, 7.5vh), 7.6rem);
   --type-beat:    clamp(2.1rem, 4.6vw, 3.8rem);
   --type-h2:      clamp(1.7rem, 3.6vw, 2.9rem);
 

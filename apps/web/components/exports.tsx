@@ -137,17 +137,13 @@ export function ExportedDocuments({ projectId, onOpen }: {
           <li key={document.artifact_id} className="card" style={{ marginBottom: 12 }}>
             <p style={{ fontWeight: 560, margin: "0 0 4px" }}>
               {/*
-                Styled inline rather than with a class: the global stylesheet
-                has no shared link-button, and the one that exists (`.nb-links
-                button`) is scoped to the notebook. Inventing a class name here
-                would produce an unstyled button that no test could catch, since
-                the suite applies no CSS.
+                `.pick` is the shared in-list opener — a title that is also the
+                way in, inheriting the font and colour of the row it lands in.
+                This was styled inline because no such class existed when it was
+                written; it does now, and one vocabulary is the point (§4.6.4).
               */}
               {onOpen ? (
-                <button type="button"
-                        style={{ border: "none", background: "none", padding: 0,
-                                 color: "var(--accent)", font: "inherit",
-                                 textAlign: "left", cursor: "pointer" }}
+                <button type="button" className="pick"
                         onClick={() => onOpen(document.artifact_id)}>
                   {document.title}
                 </button>

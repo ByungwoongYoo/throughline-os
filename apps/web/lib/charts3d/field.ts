@@ -51,10 +51,24 @@ export type Glyph = {
   clamped: boolean;
 };
 
+/** The two numbers an axis was scaled by, in the caller's own units. */
+export type Extent = { min: number; max: number };
+
 export type Field = {
   glyphs: Glyph[];
   /** The measured range, so a legend can be honest about what colour means. */
-  range: { min: number; max: number };
+  range: Extent;
+  /**
+   * Where the samples actually are, per axis, before normalisation.
+   *
+   * Handed out rather than left for a caller to sweep again, and the reason is
+   * that a second sweep can disagree with this one — `place` normalises against
+   * the *usable* samples, so a field carrying a NaN would be labelled from a
+   * wider domain than it was drawn on. Nothing about the picture would look
+   * wrong: a tick reading 40 would simply sit where 45 is, and the reader would
+   * read the field off it.
+   */
+  domain: { x: Extent; y: Extent; z: Extent };
   /** How many samples were thinned away. */
   dropped: number;
   /** How many arrows hit the length clamp. */
@@ -102,8 +116,10 @@ export function prepareField(samples: Sample[],
   const invalid = samples.length - usable.length;
 
   if (usable.length === 0) {
-    return { glyphs: [], range: { min: 0, max: 0 }, dropped: 0, clamped: 0,
-             invalid };
+    const nothing = { min: 0, max: 0 };
+    return { glyphs: [], range: nothing,
+             domain: { x: nothing, y: nothing, z: nothing },
+             dropped: 0, clamped: 0, invalid };
   }
 
   /*
@@ -190,7 +206,16 @@ export function prepareField(samples: Sample[],
     };
   });
 
-  return { glyphs, range: { min, max }, dropped, clamped, invalid };
+  // Read off `spans`, which is what `place` used, rather than swept again.
+  const reach = (axis: "x" | "y" | "z"): Extent => ({
+    min: spans[axis].min, max: spans[axis].min + spans[axis].span,
+  });
+
+  return {
+    glyphs, range: { min, max },
+    domain: { x: reach("x"), y: reach("y"), z: reach("z") },
+    dropped, clamped, invalid,
+  };
 }
 
 /**

@@ -25,7 +25,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { ObjectVersions } from "./objectversions";
 import { currentView } from "@/lib/view-context";
-import { Failure, Loading } from "./primitives";
+import { Failure, Fold, Loading } from "./primitives";
 
 type Note = {
   id: string;
@@ -49,10 +49,32 @@ type Context = {
   notes: Note[];
 };
 
-export function NodeJournal({ projectId, objectId, onClose, onOpen }: {
+export function NodeJournal({ projectId, objectId, onClose, onOpen,
+                              landmark = true }: {
   projectId: string;
   objectId: string;
-  onClose: () => void;
+  /**
+   * Whether this panel is a landmark of its own.
+   *
+   * The graph mounts it as the panel beside the diagram, where it is a
+   * complementary region a screen reader should be able to jump straight to.
+   * `<ObjectHistory>` mounts it inside a titled section of a detail screen,
+   * which is already that page's region — and a complementary landmark nested
+   * inside another gives a screen reader two regions where the page has one.
+   */
+  landmark?: boolean;
+  /**
+   * Close the panel — the graph's node panel opens over the diagram and has to
+   * be dismissable.
+   *
+   * Optional since `<ObjectHistory>` mounts this panel as a section of a
+   * detail screen, where there is nothing to dismiss. Both the ✕ and the
+   * Escape key are wired only when it is passed: a close control that fires a
+   * callback the mounting site never supplied is the defect this codebase has
+   * named three times, and a second window-level Escape listener would steal
+   * the key the workspace uses to close the detail it is embedded in.
+   */
+  onClose?: () => void;
   /** Follow a provenance link to another node. */
   onOpen?: (objectId: string) => void;
 }) {
@@ -76,8 +98,11 @@ export function NodeJournal({ projectId, objectId, onClose, onOpen }: {
     return () => { live = false; };
   }, [base]);
 
-  // Escape closes. A panel that traps you is a panel you stop opening.
+  // Escape closes. A panel that traps you is a panel you stop opening — and a
+  // panel with nothing to close listens for nothing, so the key still belongs
+  // to whatever the panel is embedded in.
   useEffect(() => {
+    if (!onClose) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };
@@ -118,8 +143,12 @@ export function NodeJournal({ projectId, objectId, onClose, onOpen }: {
     if (ok) setQuestion("");
   }
 
+  // `aside` or `section` by the same fact, so the element and the label never
+  // disagree about whether this is a region of its own.
+  const Frame = landmark ? "aside" : "section";
+
   return (
-    <aside className="nj" aria-label="Node journal">
+    <Frame className="nj" aria-label={landmark ? "Node journal" : undefined}>
       <header className="nj-head">
         <div>
           <p className="eyebrow">
@@ -127,7 +156,9 @@ export function NodeJournal({ projectId, objectId, onClose, onOpen }: {
           </p>
           <h2>{context?.object.title ?? "…"}</h2>
         </div>
-        <button className="nj-close" onClick={onClose} aria-label="Close">✕</button>
+        {onClose && (
+          <button className="nj-close" onClick={onClose} aria-label="Close">✕</button>
+        )}
       </header>
 
       {loading && <Loading rows={3} label="Reading the record" />}
@@ -149,9 +180,18 @@ export function NodeJournal({ projectId, objectId, onClose, onOpen }: {
                   <ul>
                     {context.derived_from.map((link) => (
                       <li key={link.id}>
-                        <button onClick={() => onOpen?.(link.id)}>
-                          {link.title}
-                        </button>
+                        {onOpen ? (
+                          <button onClick={() => onOpen(link.id)}>
+                            {link.title}
+                          </button>
+                        ) : (
+                          /* No host to open it: the name is what it is, not a
+                             control that would do nothing (§123). */
+                          <span style={{ marginLeft: 0, fontSize: 13,
+                                         color: "var(--ink)" }}>
+                            {link.title}
+                          </span>
+                        )}
                         <span>{link.relation.replace(/_/g, " ")}</span>
                       </li>
                     ))}
@@ -164,9 +204,18 @@ export function NodeJournal({ projectId, objectId, onClose, onOpen }: {
                   <ul>
                     {context.used_by.map((link) => (
                       <li key={link.id}>
-                        <button onClick={() => onOpen?.(link.id)}>
-                          {link.title}
-                        </button>
+                        {onOpen ? (
+                          <button onClick={() => onOpen(link.id)}>
+                            {link.title}
+                          </button>
+                        ) : (
+                          /* No host to open it: the name is what it is, not a
+                             control that would do nothing (§123). */
+                          <span style={{ marginLeft: 0, fontSize: 13,
+                                         color: "var(--ink)" }}>
+                            {link.title}
+                          </span>
+                        )}
                         <span>{link.relation.replace(/_/g, " ")}</span>
                       </li>
                     ))}
@@ -211,6 +260,14 @@ export function NodeJournal({ projectId, objectId, onClose, onOpen }: {
             ))}
           </section>
 
+          {/*
+            The composer folds (T139). A journal is read far more often than it
+            is written to, and an always-open textarea, a save button, an ask
+            box and an ask button are four controls asking for attention on
+            every screen that mounts a history. The summary says what is inside
+            and how many notes it would join.
+          */}
+          <Fold summary="Write a note, or ask about this" count={context.notes.length}>
           <section className="nj-compose">
             <label className="sr-only" htmlFor="nj-draft">Write a note</label>
             <textarea
@@ -228,8 +285,9 @@ export function NodeJournal({ projectId, objectId, onClose, onOpen }: {
             />
             <div className="nj-actions">
               <span className="nj-hint">⌘↵ to save</span>
+              {/* Plain: the page's one primary is the step strip's. */}
               <button
-                className="nj-primary"
+                className="btn"
                 disabled={!draft.trim() || busy !== null}
                 onClick={() => void addNote()}
               >
@@ -261,6 +319,7 @@ export function NodeJournal({ projectId, objectId, onClose, onOpen }: {
               a model note, never as yours.
             </p>
           </section>
+          </Fold>
         </>
       )}
       {/*
@@ -270,6 +329,6 @@ export function NodeJournal({ projectId, objectId, onClose, onOpen }: {
       */}
       <ObjectVersions projectId={projectId} objectId={objectId}
                       onRestored={(id) => onOpen?.(id)} />
-    </aside>
+    </Frame>
   );
 }

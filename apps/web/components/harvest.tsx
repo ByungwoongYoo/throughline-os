@@ -111,7 +111,7 @@ export function Harvest({ projectId }: { projectId: string }) {
           style={{ minWidth: 280 }}
           onChange={(event) => setUrl(event.target.value)}
         />
-        <button type="button" onClick={identify} disabled={!url || busy !== null}>
+        <button type="button" className="btn" onClick={identify} disabled={!url || busy !== null}>
           {busy === "identify" ? "Asking…" : "Identify"}
         </button>
       </div>
@@ -135,7 +135,7 @@ export function Harvest({ projectId }: { projectId: string }) {
         <input aria-label="Maximum records" type="number" min={1} max={5000}
                value={limit} style={{ width: 110 }}
                onChange={(event) => setLimit(Number(event.target.value))} />
-        <button type="button" onClick={harvest} disabled={!url || busy !== null}>
+        <button type="button" className="btn" onClick={harvest} disabled={!url || busy !== null}>
           {busy === "harvest" ? "Harvesting…" : "Harvest"}
         </button>
       </div>

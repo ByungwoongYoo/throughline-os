@@ -9,7 +9,7 @@
  * product exists to keep honest.
  */
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectionsTable } from "@/components/views";
 import { DataSearch } from "@/components/datasearch";
@@ -56,6 +56,31 @@ describe("the connections table", () => {
     ]);
     expect(screen.getByText("national-surveillance.csv")).toBeTruthy();
     expect(screen.getByText("amr_surveillance.csv")).toBeTruthy();
+  });
+
+  it("puts every value under its own heading", () => {
+    /*
+     * The header row declared seven columns and each body row rendered eight
+     * cells — the dataset cell had no heading — so everything from the method
+     * rightward sat one column left of its label: the correlation coefficient
+     * under "q-value", the q-value under "n", the lifecycle state past the last
+     * header (D209). The tests above assert that values are *present*, which a
+     * shifted table satisfies; this one asserts where each value sits, by
+     * reading the cell at the same index as its header.
+     */
+    table([connection({ dataset_name: "national-surveillance.csv" })]);
+    const headers = screen.getAllByRole("columnheader").map((h) => h.textContent?.trim());
+    const cells = within(screen.getAllByRole("row")[1]).getAllByRole("cell")
+      .map((c) => c.textContent?.trim() ?? "");
+    expect(cells.length).toBe(headers.length);
+    const under = (label: string) => cells[headers.indexOf(label)];
+    expect(under("Dataset")).toBe("national-surveillance.csv");
+    expect(under("Method")).toBe("pearson correlation");
+    expect(under("Estimate")).toMatch(/0\.62/);
+    expect(under("q-value")).toMatch(/0\.012/);
+    expect(under("n")).toBe("120");
+    expect(under("Evidence")).toBe("moderate");
+    expect(under("State")).toMatch(/exploratory/i);
   });
 
   it("says nothing rather than breaking when there is no dataset", () => {

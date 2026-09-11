@@ -21,7 +21,7 @@
 import { useEffect, useState } from "react";
 import { TabPanel, ViewTabs } from "./ViewTabs";
 import { api } from "@/lib/api";
-import { Empty, Failure, Loading } from "./primitives";
+import { Empty, Failure, Fold, Loading } from "./primitives";
 import { VerdictBody, VerdictCard } from "./Verdict";
 import { SpecificationCurve } from "./speccurve";
 import { Diagnostics } from "./diagnostics";
@@ -185,9 +185,15 @@ export function Patterns({ projectId, datasetVersionId, columns }: {
       <TabPanel name="patterns" value={view}>
         <p className="lede">
           What the shape of this project&rsquo;s results looks like taken together.
-          Nothing here is a new test — every number was computed under correction
-          already.
         </p>
+        {/* The caveat that has to be available and does not have to be read
+            every visit: this screen computes nothing (T139). */}
+        <Fold summary="Whether anything here is a new test" count={1}>
+          <p>
+            Nothing here is. Every number on this screen was computed under
+            correction already, by the run that produced it.
+          </p>
+        </Fold>
 
         <Multiplicity context={detected.multiplicity} />
 
@@ -270,7 +276,11 @@ function Multiplicity({ context }: { context: Multiplicity }) {
           expected to be noise
         </span>
       </div>
-      <p>{context.note}</p>
+      {/* The three counts are the frame and stay on the screen; the sentence
+          that unpacks them is the argument for the frame, and folds (T139). */}
+      <Fold summary="What this much looking does to a result" count={1}>
+        <p>{context.note}</p>
+      </Fold>
     </aside>
   );
 }
@@ -299,7 +309,14 @@ function KeyFindingCard({ finding }: { finding: KeyFinding }) {
         </p>
       </header>
 
-      <p className="pat-read">{finding.read_with}</p>
+      {/*
+        How to read it, not what it is. The name, the state, the evidence grade
+        and n are the line; the paragraph telling a reader what to make of them
+        was printed under every card, which is the repetition T139 removes.
+      */}
+      <Fold summary="How to read this one" count={1}>
+        <p className="pat-read">{finding.read_with}</p>
+      </Fold>
 
       {/* LAW 3 — what argues against it sits with it, not in an appendix. */}
       {finding.contradicting_patterns.length > 0 && (

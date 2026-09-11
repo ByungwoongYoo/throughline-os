@@ -110,7 +110,7 @@ export function DatasetSynthesis({ projectId, sources }: {
       </div>
 
       <div className="syn-actions">
-        <button className="nj-primary" disabled={chosen.length < 2 || busy}
+        <button className="btn btn-primary" disabled={chosen.length < 2 || busy}
                 onClick={() => void run(chosen)}>
           {busy ? "Adjudicating…" : `Compare ${chosen.length || ""} datasets`}
         </button>
@@ -352,7 +352,7 @@ export function ImageComparison({ projectId, sources }: {
       </div>
 
       <div className="syn-actions">
-        <button className="nj-primary" disabled={chosen.length < 2 || busy}
+        <button className="btn btn-primary" disabled={chosen.length < 2 || busy}
                 onClick={() => void run(chosen)}>
           {busy ? "Comparing…" : `Compare ${chosen.length || ""} figures`}
         </button>

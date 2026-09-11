@@ -22,6 +22,21 @@
  */
 import { chromium } from "playwright";
 
+/** The rail shows one stage at a time (T139): press headings until the entry exists. */
+async function railRow(page, re) {
+  const row = page.locator("button.rail-item").filter({ hasText: re });
+  if (!(await row.count())) {
+    const heads = page.locator("button.rail-heading");
+    const n = await heads.count();
+    for (let i = 0; i < n; i++) {
+      await heads.nth(i).click();
+      if (await row.count()) break;
+    }
+  }
+  return row;
+}
+
+
 const EMAIL = process.env.MEASURE_EMAIL ?? "measure@local.test";
 const PASSWORD = process.env.MEASURE_PASSWORD ?? "measure-only-local-throwaway";
 const URL = process.env.MEASURE_URL ?? "http://localhost:3100";
@@ -35,7 +50,7 @@ await p.locator("input[type=password]").fill(PASSWORD);
 await p.getByRole("button", { name: /sign in/i }).click();
 await p.waitForTimeout(2500);
 
-await p.locator("button.rail-item").filter({ hasText: /^Evidence graph/ }).click();
+await (await railRow(p, /^Research graph/)).click();
 await p.waitForTimeout(2000);
 
 const canvases = await p.evaluate(() =>

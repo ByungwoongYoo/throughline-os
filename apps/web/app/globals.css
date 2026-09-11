@@ -34,7 +34,7 @@
    * Text drawn *on* the accent.
    *
    * Not `--n-0`, which is what this used to be. `--n-0` is the neutral
-   * extreme and flips with the theme — white in light, #0A0C0F in dark —
+   * extreme and flips with the theme — white in light, #06070a in dark —
    * while `--accent` does not flip at all. So every primary button in the
    * product was white on blue in light mode and near-black on the same blue
    * in dark mode: 3.79:1, under the 4.5:1 that normal text needs. It was
@@ -53,8 +53,9 @@
    *
    * #1443B8 is 6.82:1 on the tint and is not invented here — it is the accent
    * this file's own `prefers-contrast: more` block already picks for light.
-   * In dark the accent is light enough that the tint pairing already passes at
-   * 6.68:1, so this simply follows the accent there. */
+   * The dark theme states its own: its tint is the site's amber-tinted dark
+   * and its readable side is the site's *brighter* amber, 8.53:1 on it against
+   * the accent's own 6.67:1 — the same question, answered from that palette. */
   --on-accent-soft: #1443B8;
 
   /* Semantic — state only, never decoration. */
@@ -71,6 +72,20 @@
   --replicated:  var(--positive);
   --conflicted:  var(--negative);
   --deprecated:  var(--n-500);
+
+  /*
+   * Which palette the *browser* draws with — scrollbars, form controls, the
+   * canvas behind an overscroll.
+   *
+   * The `<meta name="color-scheme">` in the layout can only say which schemes
+   * the page supports; the browser then resolves it from the operating system.
+   * That was close enough while the default theme followed the operating
+   * system too. It is not any more: dark is now the default stamp, so a reader
+   * on a light machine would get a near-black page with white scrollbars and
+   * light native controls. Declared here and in the dark blocks, it follows
+   * the theme that actually resolved.
+   */
+  color-scheme: light;
 
   /* Roles, so components never reach into the ramp directly. */
   --paper: var(--n-25);
@@ -90,7 +105,8 @@
    * Its own token because a globe is an object in front of the page, not a
    * panel that is part of it. Drawn in `--panel` it measured 1.03:1 against
    * the dark page — the land was there and could not be seen. `--n-500`
-   * clears 3:1 in both themes; `--n-400` reaches only 2.60 on dark, which is
+   * clears 3:1 in both themes; on the warm dark ramp it is 5.19:1 on the page
+   * and 4.75:1 on a card, while `--n-400` reaches only 2.79 and 2.56, which is
    * how this was chosen rather than eyeballed.
    */
   --sphere: var(--n-500);
@@ -119,6 +135,11 @@
   --surface-2: var(--hover);
   --danger: #B91C1C;
   --danger-soft: #FEE2E2;
+  /* The readable side of `--danger`, for the same reason `--on-accent` exists:
+     `.btn-danger` paints text *on* it, and in dark `--danger` is a light red,
+     so a literal `#fff` there is a guess that survives only until the token
+     moves. White on #B91C1C is 6.47:1; the dark theme states its own. */
+  --on-danger: #FFFFFF;
 
   --ease-out-expo:     cubic-bezier(0.16, 1, 0.3, 1);
   --ease-out-quart:    cubic-bezier(0.25, 1, 0.5, 1);
@@ -173,74 +194,167 @@
    who picks light gets the media query's dark values anyway, because the media
    query would still match. */
 :root[data-theme="dark"] {
-    /* In dark theme elevation is lightness, not shadow: surfaces get lighter as
-       they rise, because a shadow on a near-black surface is invisible. */
-    --n-0:   #0A0C0F;
-    --n-25:  #0E1116;
-    --n-50:  #14181F;
-    --n-100: #1B2028;
-    --n-200: #262C36;
-    --n-300: #333A45;
-    --n-400: #4C5563;
-    --n-500: #6E7787;
-    --n-600: #97A0AE;
-    --n-800: #D5DAE2;
-    --n-900: #F0F2F5;
+    /*
+     * The workspace wears the product's own palette.
+     *
+     * None of these are new colours. They are the ones the public site and this
+     * app's own landing page are already built from: the near-black the
+     * black-hole imagery sits in, the pale mist it is written in, and the amber
+     * that imagery casts. `app/landing.css` names them `--deep #0b0d10`,
+     * `--mist #f4f2ee`, `--amber #c8a45c`, `--glow #7fa8d4`; the deployed page
+     * adds the page ground `#06070a`, the brighter amber `#e8b76a` and the
+     * amber-tinted dark `#2a2214`. The dark workspace was a cool blue-grey navy
+     * ramp with a blue accent, so the product had two identities and the tool
+     * wore the one nobody had designed.
+     *
+     * Every ratio below is the WCAG relative-luminance contrast against the two
+     * grounds text actually sits on here — the page (`--bg`/`--paper`, #06070a)
+     * and a card (`--panel`, #10141a) — computed, not judged by eye. Where a
+     * number replaces an older one, the older one is quoted beside it.
+     *
+     * This block exists twice — once for the toggle's `[data-theme="dark"]`,
+     * once for `prefers-color-scheme: dark` — and the two copies are identical
+     * token for token, which `css-tokens.test.ts` now holds them to. They
+     * disagreed once before, on `--bg` and `--warn`, and the copy that was
+     * wrong was the one most readers actually get.
+     */
 
-    /* Faint text needs one step further here than in light.
+    /* Surfaces. In dark theme elevation is lightness, not shadow: a shadow on a
+       near-black surface is invisible. The first three are the site's own three
+       grounds; #171c24 continues the same step for `--hover`, which the site
+       has no equivalent of because it has nothing to hover. */
+    --n-0:   #06070a;
+    --n-25:  #0b0d10;
+    --n-50:  #10141a;
+    --n-100: #171c24;
+
+    /* Lines and text: the site's mist #f4f2ee at alpha tiers, composited over
+     * the page so each value is opaque and reads the same on any surface. Two
+     * of the alphas are the site's own named tiers — .34 is `--mist-faint`, .66
+     * is `--mist-soft` — which is the check that the two systems agree rather
+     * than merely resemble each other.
      *
-     * The scale flips with the theme, so the same token is a different colour:
-     * measured against the two grounds faint text actually sits on — a card at
-     * #14181F and the page at #0E1116 — n-400 is 2.36:1 and 2.51:1, and n-500
-     * is still only 3.94:1 and 4.19:1. Both fail the 4.5:1 that normal text
-     * needs. n-600 is 6.74:1 and 7.16:1.
+     * The alphas that are *not* the site's were chosen to hold the weight this
+     * ramp already had. The old `--line` (#262C36 on the old card #14181F) was
+     * 1.27:1; mist at .11 — the site's hairline, which sits on its lighter page
+     * — would be 1.15:1 here, so the rules a dense table depends on would have
+     * gone quieter. .14 restores 1.25:1. The site is airy and this is an
+     * instrument; the same alpha is not the same line.
      *
-     * It is also the value `prefers-contrast: more` already remaps this token
-     * to, which is the tell: the accessible answer was in the palette, offered
-     * only to readers who knew to ask the operating system for it. */
+     * Ratios below are page / card. */
+    --n-200: #27282a;  /* mist .14 — 1.37 / 1.25, matching the old 1.39 / 1.27 */
+    --n-300: #363638;  /* mist .20 — 1.67 / 1.53, matching the old 1.70 / 1.55 */
+    --n-400: #575758;  /* mist .34, the site's --mist-faint — 2.79 / 2.56 */
+    --n-500: #828181;  /* mist .52 — 5.19 / 4.75; see the note below */
+    --n-600: #a3a2a0;  /* mist .66, the site's --mist-soft — 7.90 / 7.24 */
+    --n-800: #d0cfcc;  /* mist .85 — 12.93 / 11.85 */
+    --n-900: #f4f2ee;  /* the site's --mist itself — 18.02 / 16.52 */
+
+    /* Why n-500 sits at .52 rather than the .49 that would space the ramp
+       evenly: `--deprecated` is n-500 and it is *text* — `.status-deprecated`
+       and `.status-rejected` — so it needs the 4.5:1 that normal text needs,
+       on a card as well as on the page. .49 reaches 4.32:1 on a card; .52
+       reaches 4.75:1. The old dark n-500 (#6E7787) reached 3.94:1 there, a
+       number this file already recorded while rejecting it for `--ink-faint`,
+       and then went on using for `--deprecated` anyway. */
+
+    /* Faint text still takes one step further than in light.
+     *
+     * n-500 now passes on both grounds (5.19:1 and 4.75:1), so this is no
+     * longer a failure being avoided — it is headroom being kept. `--ink-faint`
+     * carries the rail's group labels, the context note, step descriptions,
+     * captions and counts, which is most of the quiet text in the product, and
+     * n-600 gives it 7.90:1 and 7.24:1 rather than a pass with 0.25 to spare. */
     --ink-faint: var(--n-600);
-
-    /* The three semantic colours that never got a dark variant.
-     *
-     * `--warn` was given one; `--caution` and `--positive` were not, and
-     * `--caution` is the *same* colour as light `--warn` (#B45309), so they
-     * should share the dark one too. Measured on the grounds they sit on — a
-     * card at #14181F and the page at #0E1116 — the light values give
-     * candidate/exploratory 3.54:1 and a completed step 3.55:1, both under the
-     * 4.5:1 normal text needs. These are 8.29:1 and 9.26:1.
-     *
-     * Same defect as `--n-0` on `--accent` before it: a pairing chosen for one
-     * theme and inherited by the other. */
-    --caution: #F59E0B;
-    --positive: #34D399;
 
     /* The accent, and the side of it that stays readable.
      *
-     * `--accent: #2563EB` was chosen against a white page and never flipped, so
-     * on a dark ground it is 3.44:1 — under the 4.5:1 normal text needs. That
-     * matters more than one label: the stylesheet uses the accent as a *text*
-     * colour in 45 places and as a background in 10, so the failing role is the
-     * common one.
+     * The amber the site's imagery casts. Two candidates, and contrast does not
+     * separate them: #c8a45c is 8.56:1 on the page and 7.85:1 on a card,
+     * #e8b76a is 10.95:1 and 10.04:1, and since the stylesheet uses the accent
+     * as a *text* colour in 45 rules and as a background in 10, both clear the
+     * 4.5:1 normal text needs with room to spare.
      *
-     * #7FA8FF is 7.58:1 on a card and 8.06:1 on the page, and is not invented
-     * here — it is what this file's own `prefers-contrast: more` block already
-     * chose for dark, offered until now only to readers who knew to ask their
-     * operating system for it.
+     * What decides it is a different measurement: the accent must not be
+     * mistaken for `--caution`/`--warn` (#F59E0B), the one warm hue chrome is
+     * allowed to use for state. As CIE76 ΔE in Lab, #c8a45c is 38.4 from it and
+     * #e8b76a only 33.5. The deeper amber is the more separable of the two, and
+     * it is the one the site and `landing.css` actually name `--amber`; the
+     * brighter one keeps its site role as the emphasis on a tinted ground.
      *
      * A light accent flips which side is readable, so `--on-accent` moves with
-     * it: white on #7FA8FF is 2.33:1, near-black is over 9:1. That pairing is
-     * the entire reason `--on-accent` is a token rather than a literal, and
-     * `accent-contrast.test.ts` holds the two together. */
-    --accent: #7FA8FF;
-    --on-accent: #0A0C0F;
-    --on-accent-soft: var(--accent);
+     * it: the page ground on #c8a45c is 8.56:1, white would be 2.35:1. That
+     * pairing is the entire reason `--on-accent` is a token rather than a
+     * literal, and `accent-contrast.test.ts` holds the two together.
+     *
+     * The tint is the site's own #2a2214, at 1.18:1 against a card — a shade
+     * *more* present than the blue tint it replaces (#16233C was 1.14:1 on the
+     * old card), so a selected row has not gone quieter. `--on-accent-soft` is
+     * the brighter amber, 8.53:1 on it. */
+    --accent: #c8a45c;
+    --on-accent: #06070a;
+    --accent-soft: #2a2214;
+    --on-accent-soft: #e8b76a;
 
+    /* State colours.
+     *
+     * `--caution`, `--warn` and `--positive` keep the dark variants this file
+     * already measured. On the new, darker grounds they went up rather than
+     * down: caution 9.38 / 8.60 (was 9.12 / 8.29), positive 10.48 / 9.61 (was
+     * 10.19 / 9.26).
+     *
+     * `--negative` and `--info` never got a dark variant at all, and measuring
+     * them is what shows why that mattered: #B91C1C is 3.11 / 2.85 here and
+     * #0369A1 is 3.39 / 3.11, both under 4.5:1, and both were under it on the
+     * *old* dark grounds too (3.03 / 2.75 and 3.30 / 3.00). The warm ground did
+     * not cause this — it is the third instance of the defect the notes above
+     * describe twice, a pairing chosen for the light theme and inherited by the
+     * dark one. Nine rules paint `--negative` and four paint `--info`, all of
+     * them as text or as a left rule on a card.
+     *
+     * `--info` takes the site's cool `--glow` #7fa8d4: 8.11 / 7.44, and it is
+     * the only cool hue in this palette, which is what "info" wants to be next
+     * to a warm caution.
+     *
+     * `--negative` takes #F87171 — the red-400 sibling of the amber-500 and
+     * emerald-400 already standing here — at 7.28 / 6.68. The site's own
+     * `--rust` #c47b5f also passes (6.09 / 5.58) and was rejected on
+     * separation: ΔE 27.7 from the accent, close enough that a conflicted
+     * finding would read as a selected one. #F87171 is 50.3 from the accent and
+     * 57.8 from caution. */
+    --caution:  #F59E0B;
+    --positive: #34D399;
+    --negative: #F87171;
+    --info:     #7fa8d4;
+
+    /* `--danger` is `--negative` under the name the buttons and dialogs use, so
+     * it moves with it — but it is also the only state colour used as a
+     * *background* (`.btn-danger`), where the readable side flips exactly as it
+     * does for the accent. Hence `--on-danger`, and hence the literal
+     * `color: #fff` that rule carried is now a token: white on the light
+     * #B91C1C is 6.47:1, the page ground on the dark #F87171 is 7.28:1.
+     *
+     * `--danger-soft` follows too. #FEE2E2 is a near-white pink — 15.12:1
+     * against a card — so in dark it painted a bright chip on a near-black
+     * page. #321a1d is the dark negative laid over the page at the same 18%
+     * that makes the site's #2a2214 out of its amber: 1.14:1 against a card,
+     * with the danger text on it at 5.83:1. */
+    --danger:      #F87171;
+    --on-danger:   #06070a;
+    --danger-soft: #321a1d;
+
+    /* Scrollbars, form controls and the overscroll canvas follow the theme
+       that resolved, not the operating system. See the light block's note. */
+    color-scheme: dark;
+
+    /* Roles. `--bg` and `--warn` are stated here rather than inherited: they
+       were once defined in only one of the two dark blocks, and the block that
+       lacked them was the one most readers actually get. */
     --paper: var(--n-0);
-    --bg: var(--n-0);
-    --warn: #F59E0B;
+    --bg:    var(--n-0);
+    --warn:  #F59E0B;
     --panel: var(--n-50);
     --hover: var(--n-100);
-    --accent-soft: #16233C;
 
     --e1: none;
     --e2: none;
@@ -250,82 +364,167 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    /* `--bg` and `--warn` restated here, not inherited.
+    /*
+     * The workspace wears the product's own palette.
      *
-     * These two were defined only in the `[data-theme="dark"]` block, so the
-     * two dark paths disagreed — and the one that disagreed is the common one.
-     * A reader whose system is dark and who never touched the toggle got
-     * `--bg: #0E1116` against the toggle's `#0A0C0F`, and `--warn: #B45309`,
-     * the *light* amber, at 3.77:1 instead of 8.81:1. Measured in the browser
-     * by reading both paths, not inferred. */
-    --bg: var(--n-0);
-    --warn: #F59E0B;
-    /* In dark theme elevation is lightness, not shadow: surfaces get lighter as
-       they rise, because a shadow on a near-black surface is invisible. */
-    --n-0:   #0A0C0F;
-    --n-25:  #0E1116;
-    --n-50:  #14181F;
-    --n-100: #1B2028;
-    --n-200: #262C36;
-    --n-300: #333A45;
-    --n-400: #4C5563;
-    --n-500: #6E7787;
-    --n-600: #97A0AE;
-    --n-800: #D5DAE2;
-    --n-900: #F0F2F5;
+     * None of these are new colours. They are the ones the public site and this
+     * app's own landing page are already built from: the near-black the
+     * black-hole imagery sits in, the pale mist it is written in, and the amber
+     * that imagery casts. `app/landing.css` names them `--deep #0b0d10`,
+     * `--mist #f4f2ee`, `--amber #c8a45c`, `--glow #7fa8d4`; the deployed page
+     * adds the page ground `#06070a`, the brighter amber `#e8b76a` and the
+     * amber-tinted dark `#2a2214`. The dark workspace was a cool blue-grey navy
+     * ramp with a blue accent, so the product had two identities and the tool
+     * wore the one nobody had designed.
+     *
+     * Every ratio below is the WCAG relative-luminance contrast against the two
+     * grounds text actually sits on here — the page (`--bg`/`--paper`, #06070a)
+     * and a card (`--panel`, #10141a) — computed, not judged by eye. Where a
+     * number replaces an older one, the older one is quoted beside it.
+     *
+     * This block exists twice — once for the toggle's `[data-theme="dark"]`,
+     * once for `prefers-color-scheme: dark` — and the two copies are identical
+     * token for token, which `css-tokens.test.ts` now holds them to. They
+     * disagreed once before, on `--bg` and `--warn`, and the copy that was
+     * wrong was the one most readers actually get.
+     */
 
-    /* Faint text needs one step further here than in light.
+    /* Surfaces. In dark theme elevation is lightness, not shadow: a shadow on a
+       near-black surface is invisible. The first three are the site's own three
+       grounds; #171c24 continues the same step for `--hover`, which the site
+       has no equivalent of because it has nothing to hover. */
+    --n-0:   #06070a;
+    --n-25:  #0b0d10;
+    --n-50:  #10141a;
+    --n-100: #171c24;
+
+    /* Lines and text: the site's mist #f4f2ee at alpha tiers, composited over
+     * the page so each value is opaque and reads the same on any surface. Two
+     * of the alphas are the site's own named tiers — .34 is `--mist-faint`, .66
+     * is `--mist-soft` — which is the check that the two systems agree rather
+     * than merely resemble each other.
      *
-     * The scale flips with the theme, so the same token is a different colour:
-     * measured against the two grounds faint text actually sits on — a card at
-     * #14181F and the page at #0E1116 — n-400 is 2.36:1 and 2.51:1, and n-500
-     * is still only 3.94:1 and 4.19:1. Both fail the 4.5:1 that normal text
-     * needs. n-600 is 6.74:1 and 7.16:1.
+     * The alphas that are *not* the site's were chosen to hold the weight this
+     * ramp already had. The old `--line` (#262C36 on the old card #14181F) was
+     * 1.27:1; mist at .11 — the site's hairline, which sits on its lighter page
+     * — would be 1.15:1 here, so the rules a dense table depends on would have
+     * gone quieter. .14 restores 1.25:1. The site is airy and this is an
+     * instrument; the same alpha is not the same line.
      *
-     * It is also the value `prefers-contrast: more` already remaps this token
-     * to, which is the tell: the accessible answer was in the palette, offered
-     * only to readers who knew to ask the operating system for it. */
+     * Ratios below are page / card. */
+    --n-200: #27282a;  /* mist .14 — 1.37 / 1.25, matching the old 1.39 / 1.27 */
+    --n-300: #363638;  /* mist .20 — 1.67 / 1.53, matching the old 1.70 / 1.55 */
+    --n-400: #575758;  /* mist .34, the site's --mist-faint — 2.79 / 2.56 */
+    --n-500: #828181;  /* mist .52 — 5.19 / 4.75; see the note below */
+    --n-600: #a3a2a0;  /* mist .66, the site's --mist-soft — 7.90 / 7.24 */
+    --n-800: #d0cfcc;  /* mist .85 — 12.93 / 11.85 */
+    --n-900: #f4f2ee;  /* the site's --mist itself — 18.02 / 16.52 */
+
+    /* Why n-500 sits at .52 rather than the .49 that would space the ramp
+       evenly: `--deprecated` is n-500 and it is *text* — `.status-deprecated`
+       and `.status-rejected` — so it needs the 4.5:1 that normal text needs,
+       on a card as well as on the page. .49 reaches 4.32:1 on a card; .52
+       reaches 4.75:1. The old dark n-500 (#6E7787) reached 3.94:1 there, a
+       number this file already recorded while rejecting it for `--ink-faint`,
+       and then went on using for `--deprecated` anyway. */
+
+    /* Faint text still takes one step further than in light.
+     *
+     * n-500 now passes on both grounds (5.19:1 and 4.75:1), so this is no
+     * longer a failure being avoided — it is headroom being kept. `--ink-faint`
+     * carries the rail's group labels, the context note, step descriptions,
+     * captions and counts, which is most of the quiet text in the product, and
+     * n-600 gives it 7.90:1 and 7.24:1 rather than a pass with 0.25 to spare. */
     --ink-faint: var(--n-600);
-
-    /* The three semantic colours that never got a dark variant.
-     *
-     * `--warn` was given one; `--caution` and `--positive` were not, and
-     * `--caution` is the *same* colour as light `--warn` (#B45309), so they
-     * should share the dark one too. Measured on the grounds they sit on — a
-     * card at #14181F and the page at #0E1116 — the light values give
-     * candidate/exploratory 3.54:1 and a completed step 3.55:1, both under the
-     * 4.5:1 normal text needs. These are 8.29:1 and 9.26:1.
-     *
-     * Same defect as `--n-0` on `--accent` before it: a pairing chosen for one
-     * theme and inherited by the other. */
-    --caution: #F59E0B;
-    --positive: #34D399;
 
     /* The accent, and the side of it that stays readable.
      *
-     * `--accent: #2563EB` was chosen against a white page and never flipped, so
-     * on a dark ground it is 3.44:1 — under the 4.5:1 normal text needs. That
-     * matters more than one label: the stylesheet uses the accent as a *text*
-     * colour in 45 places and as a background in 10, so the failing role is the
-     * common one.
+     * The amber the site's imagery casts. Two candidates, and contrast does not
+     * separate them: #c8a45c is 8.56:1 on the page and 7.85:1 on a card,
+     * #e8b76a is 10.95:1 and 10.04:1, and since the stylesheet uses the accent
+     * as a *text* colour in 45 rules and as a background in 10, both clear the
+     * 4.5:1 normal text needs with room to spare.
      *
-     * #7FA8FF is 7.58:1 on a card and 8.06:1 on the page, and is not invented
-     * here — it is what this file's own `prefers-contrast: more` block already
-     * chose for dark, offered until now only to readers who knew to ask their
-     * operating system for it.
+     * What decides it is a different measurement: the accent must not be
+     * mistaken for `--caution`/`--warn` (#F59E0B), the one warm hue chrome is
+     * allowed to use for state. As CIE76 ΔE in Lab, #c8a45c is 38.4 from it and
+     * #e8b76a only 33.5. The deeper amber is the more separable of the two, and
+     * it is the one the site and `landing.css` actually name `--amber`; the
+     * brighter one keeps its site role as the emphasis on a tinted ground.
      *
      * A light accent flips which side is readable, so `--on-accent` moves with
-     * it: white on #7FA8FF is 2.33:1, near-black is over 9:1. That pairing is
-     * the entire reason `--on-accent` is a token rather than a literal, and
-     * `accent-contrast.test.ts` holds the two together. */
-    --accent: #7FA8FF;
-    --on-accent: #0A0C0F;
-    --on-accent-soft: var(--accent);
+     * it: the page ground on #c8a45c is 8.56:1, white would be 2.35:1. That
+     * pairing is the entire reason `--on-accent` is a token rather than a
+     * literal, and `accent-contrast.test.ts` holds the two together.
+     *
+     * The tint is the site's own #2a2214, at 1.18:1 against a card — a shade
+     * *more* present than the blue tint it replaces (#16233C was 1.14:1 on the
+     * old card), so a selected row has not gone quieter. `--on-accent-soft` is
+     * the brighter amber, 8.53:1 on it. */
+    --accent: #c8a45c;
+    --on-accent: #06070a;
+    --accent-soft: #2a2214;
+    --on-accent-soft: #e8b76a;
 
+    /* State colours.
+     *
+     * `--caution`, `--warn` and `--positive` keep the dark variants this file
+     * already measured. On the new, darker grounds they went up rather than
+     * down: caution 9.38 / 8.60 (was 9.12 / 8.29), positive 10.48 / 9.61 (was
+     * 10.19 / 9.26).
+     *
+     * `--negative` and `--info` never got a dark variant at all, and measuring
+     * them is what shows why that mattered: #B91C1C is 3.11 / 2.85 here and
+     * #0369A1 is 3.39 / 3.11, both under 4.5:1, and both were under it on the
+     * *old* dark grounds too (3.03 / 2.75 and 3.30 / 3.00). The warm ground did
+     * not cause this — it is the third instance of the defect the notes above
+     * describe twice, a pairing chosen for the light theme and inherited by the
+     * dark one. Nine rules paint `--negative` and four paint `--info`, all of
+     * them as text or as a left rule on a card.
+     *
+     * `--info` takes the site's cool `--glow` #7fa8d4: 8.11 / 7.44, and it is
+     * the only cool hue in this palette, which is what "info" wants to be next
+     * to a warm caution.
+     *
+     * `--negative` takes #F87171 — the red-400 sibling of the amber-500 and
+     * emerald-400 already standing here — at 7.28 / 6.68. The site's own
+     * `--rust` #c47b5f also passes (6.09 / 5.58) and was rejected on
+     * separation: ΔE 27.7 from the accent, close enough that a conflicted
+     * finding would read as a selected one. #F87171 is 50.3 from the accent and
+     * 57.8 from caution. */
+    --caution:  #F59E0B;
+    --positive: #34D399;
+    --negative: #F87171;
+    --info:     #7fa8d4;
+
+    /* `--danger` is `--negative` under the name the buttons and dialogs use, so
+     * it moves with it — but it is also the only state colour used as a
+     * *background* (`.btn-danger`), where the readable side flips exactly as it
+     * does for the accent. Hence `--on-danger`, and hence the literal
+     * `color: #fff` that rule carried is now a token: white on the light
+     * #B91C1C is 6.47:1, the page ground on the dark #F87171 is 7.28:1.
+     *
+     * `--danger-soft` follows too. #FEE2E2 is a near-white pink — 15.12:1
+     * against a card — so in dark it painted a bright chip on a near-black
+     * page. #321a1d is the dark negative laid over the page at the same 18%
+     * that makes the site's #2a2214 out of its amber: 1.14:1 against a card,
+     * with the danger text on it at 5.83:1. */
+    --danger:      #F87171;
+    --on-danger:   #06070a;
+    --danger-soft: #321a1d;
+
+    /* Scrollbars, form controls and the overscroll canvas follow the theme
+       that resolved, not the operating system. See the light block's note. */
+    color-scheme: dark;
+
+    /* Roles. `--bg` and `--warn` are stated here rather than inherited: they
+       were once defined in only one of the two dark blocks, and the block that
+       lacked them was the one most readers actually get. */
     --paper: var(--n-0);
+    --bg:    var(--n-0);
+    --warn:  #F59E0B;
     --panel: var(--n-50);
     --hover: var(--n-100);
-    --accent-soft: #16233C;
 
     --e1: none;
     --e2: none;
@@ -343,7 +542,9 @@ html, body {
   background: var(--paper);
   color: var(--ink);
   font-family: var(--sans);
-  font-size: 13.5px;
+  /* 14px, and everything quiet is 12.5px. Two sizes for interface text, so a
+     screen has one voice and one aside rather than a gradient of six. */
+  font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
@@ -361,11 +562,22 @@ a { color: inherit; }
 .mono { font-family: var(--mono); font-size: 11.5px; }
 .serif { font-family: var(--serif); }
 
+/*
+ * The quiet label, spelled once.
+ *
+ * This and `h3` were the same voice at two sizes — 10px/0.11em/`--ink-faint`
+ * here, 12px/0.04em/`--ink-soft` there — and the markup carries both, often on
+ * the same element, so the first `h3` on the Overview computed to the 10px
+ * one and the density contract's h3 never reached the screen. Two spellings of
+ * one voice is the thing this pass exists to remove, so `.eyebrow` says what
+ * `h3` says. It stays a class because plenty of these labels sit on a `span`
+ * or a `div` where an `h3` would claim a section that is not there.
+ */
 .eyebrow {
-  font-size: 10px;
-  letter-spacing: 0.11em;
+  font-size: 12px;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--ink-faint);
+  color: var(--ink-soft);
   font-weight: 600;
 }
 
@@ -492,7 +704,10 @@ a { color: inherit; }
 }
 
 .rail-group { margin-bottom: 18px; }
-.rail-group > .eyebrow { padding: 0 16px 6px; display: block; }
+/* The group's name is `button.rail-heading` now, not an `.eyebrow` label: it
+   expands and collapses, which is a control. The rule that padded the old
+   label is gone rather than kept for a day it might come back — a selector
+   that matches nothing is a claim about the markup that is no longer true. */
 
 .rail-item {
   display: flex;
@@ -570,7 +785,9 @@ a { color: inherit; }
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--panel);
-  padding: 14px 16px;
+  /* 12/14, down from 14/16. Two pixels a side is nothing on one card and about
+     a card and a half of vertical room over a screen that stacks eight. */
+  padding: 12px 14px;
   margin-bottom: 12px;
 }
 
@@ -583,14 +800,106 @@ a { color: inherit; }
   justify-content: space-between;
 }
 
-h1 { font-size: 19px; font-weight: 640; letter-spacing: -0.015em; margin: 0 0 3px; }
-h2 { font-size: 14px; font-weight: 620; margin: 0 0 10px; letter-spacing: -0.005em; }
-h3 { font-size: 12px; font-weight: 620; margin: 0 0 6px; }
+/*
+ * Page headings are set in the serif, upright.
+ *
+ * The serif was reserved for text lifted out of a paper, which left the
+ * workspace with no display voice at all while the landing page and the public
+ * site both head themselves in Source Serif 4 — the same product speaking in
+ * two typefaces depending on which door you came through.
+ *
+ * Upright, not the site's italic. Two reasons, and the second is measurable: an
+ * instrument's headings are read in passing, dozens per session, where an
+ * italic reads as emphasis rather than as level; and `fonts.css` self-hosts
+ * only upright faces (`font-style: normal`), so an italic here would be a
+ * browser-synthesised oblique — a slanted upright, not the typeface.
+ *
+ * `.gate h1`, `.first-inner h1` and `.l-display` keep their own weights, which
+ * they already state.
+ *
+ * **Three levels, three kinds of thing (T139).** They were 19/14/12 at weights
+ * 600/620/620, which is one voice at three sizes: a heading, a slightly smaller
+ * heading and a slightly smaller heading again, all of them shouting as loudly
+ * as the body text between them. The owner read a screen of that as "everywhere
+ * it is just writing". So the serif carries the page's name at 20 and drops to
+ * 500, because a display face at 20 does not need weight as well as size; h2 is
+ * a sans label the eye skips between; and h3 is an eyebrow — small, uppercase,
+ * quiet — which is what it had already become in practice everywhere it
+ * appears.
+ */
+h1 {
+  font-family: var(--serif);
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  color: var(--ink-strong);
+  margin: 0 0 3px;
+}
+h2 {
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -0.005em;
+  margin: 0 0 10px;
+}
+h3 {
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+  margin: 0 0 6px;
+}
 p  { margin: 0 0 8px; color: var(--ink-soft); }
 
-.lede { color: var(--ink-soft); max-width: 70ch; margin-bottom: 18px; }
+/* The aside voice, stated once so every screen spells it the same way. */
+.muted { font-size: 12.5px; color: var(--ink-soft); }
+
+/* 65ch, not 70: the measure in the type contract. Longer than that and the eye
+   loses the start of the next line on a 1440px screen. */
+.lede { color: var(--ink-soft); max-width: 65ch; margin-bottom: 18px; }
 
 table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+
+/*
+ * A table wider than the column it sits in scrolls. It never clips.
+ *
+ * The connections table is eight columns of fixed vocabulary — the headers
+ * cannot wrap, or "Q-VALUE" reads as two columns — so below about 1300px it
+ * outgrows the workspace column. `main` scrolls vertically only, so the
+ * overrun simply vanished: at 1280 the last header read "ESTIMA" and its cells
+ * were cut in half, which is a number a researcher is reading being hidden by
+ * the furniture.
+ *
+ * `:has(> table)` reaches the table's own wrapper without a class on it, so no
+ * screen has to remember to add one, and `overflow-x: auto` shows a bar only on
+ * the screens that need it. `:not([class])` keeps this to the plain tables the
+ * base rule above styles: `.syn-table` and `.chart-table` have sticky headers,
+ * and a new scroll ancestor would silently stick them to the wrong box.
+ */
+main :is(div, section, li):has(> table:not([class])) { overflow-x: auto; }
+
+/*
+ * And the bar is drawn, not left to the browser's overlay. An overlay
+ * scrollbar appears only once you are already scrolling, so a table with a
+ * column past the edge looks like a table with a column missing — the same
+ * complaint in a quieter voice. Styling the pseudo-element is also what turns
+ * a Blink overlay bar into a permanent one; browsers that do not know these
+ * selectors keep their own bar, which is the behaviour we are asking for
+ * anyway.
+ */
+main :is(div, section, li):has(> table:not([class]))::-webkit-scrollbar {
+  height: 8px;
+}
+main :is(div, section, li):has(> table:not([class]))::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 4px;
+}
+main :is(div, section, li):has(> table:not([class]))::-webkit-scrollbar-track {
+  background: transparent;
+}
 th {
   text-align: left;
   /* Headers and figures must not wrap mid-token; "7.44e-39" split across two
@@ -655,16 +964,35 @@ tbody tr:hover { background: var(--hover); }
 
 /* --- buttons ------------------------------------------------------------- */
 
+/*
+ * `.btn` is the text-weight control and `.btn-primary` is the only filled one.
+ *
+ * Every control on a screen used to be a panel-filled box with a `--line-strong`
+ * edge, so eight of them in a row read as eight equal invitations and the one
+ * that mattered had to shout in the accent to be found at all. A transparent
+ * ground and a hairline make the ordinary control a piece of text you can
+ * press; the fill is then a real signal rather than a decoration, and the step
+ * strip is where it is spent.
+ */
 .btn {
   padding: 5px 11px;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--line);
   border-radius: 4px;
-  background: var(--panel);
+  background: transparent;
+  color: var(--ink);
   font-size: 12px;
   font-weight: 540;
 }
-.btn:hover:not(:disabled) { background: var(--hover); border-color: var(--accent); }
+/* `--hover` is the surface one step up from the panel: `--n-50` in light,
+   which is what the density contract names, and `--n-100` in dark, where
+   `--n-50` *is* the panel and a hover painted in it would not move. */
+.btn:hover:not(:disabled) { background: var(--hover); border-color: var(--line-strong); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+/* An anchor wearing `.btn` is a button to the reader, so it must not also be
+   a link to the eye. `a { color: inherit }` above resets the colour and leaves
+   the underline, which is why four same-rank controls on the finding detail
+   had four appearances — one of them underlined (§4.6.4). */
+a.btn { text-decoration: none; }
 .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .btn-primary:hover:not(:disabled) { filter: brightness(1.1); background: var(--accent); }
 
@@ -1144,6 +1472,10 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 
 /* --- confounder picker --------------------------------------------------- */
 
+/* The confounder picker's option card. Was `.pick`, which collided with
+   the in-list opener of the same name defined later in this file — the
+   later rule won, and this grid card had been losing its `display: grid`
+   ever since (T136). */
 .picker {
   display: grid;
   gap: 6px;
@@ -1151,7 +1483,7 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
 }
 
-.pick {
+.pick-option {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 3px 9px;
@@ -1162,12 +1494,12 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   cursor: pointer;
   transition: border-color 160ms ease, background 160ms ease;
 }
-.pick:hover { border-color: var(--line-strong); }
+.pick-option:hover { border-color: var(--line-strong); }
 /* Selected reads as a border, a background *and* the checkbox itself (§118). */
-.pick[data-on="true"] { border-color: var(--accent); background: var(--hover); }
-.pick input { margin: 0; grid-row: span 2; }
-.pick-name { font-family: var(--mono); font-size: 12.5px; color: var(--ink); word-break: break-word; }
-.pick-meta { grid-column: 2; font-size: 11px; color: var(--ink-faint); }
+.pick-option[data-on="true"] { border-color: var(--accent); background: var(--hover); }
+.pick-option input { margin: 0; grid-row: span 2; }
+.pick-option-name { font-family: var(--mono); font-size: 12.5px; color: var(--ink); word-break: break-word; }
+.pick-option-meta { grid-column: 2; font-size: 11px; color: var(--ink-faint); }
 
 /* --- the loop checklist -------------------------------------------------- */
 
@@ -1269,7 +1601,7 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 
 /* --- focus is always visible (§118) -------------------------------------- */
 
-:where(a, button, input, textarea, select, label.pick, [tabindex]):focus-visible {
+:where(a, button, input, textarea, select, label.pick-option, [tabindex]):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 4px;
@@ -2265,19 +2597,6 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   font-size: 13px; color: var(--ink-faint);
 }
-.ct-dataset {
-  padding: 5px 11px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: var(--panel);
-  font-size: 13px;
-  color: var(--ink);
-  cursor: pointer;
-  transition: border-color var(--micro) var(--ease-out-expo),
-              background var(--micro) var(--ease-out-expo);
-}
-.ct-dataset:hover { border-color: var(--accent); background: var(--hover); }
-
 .ct-provenance { margin-top: 14px; font-size: 12px; color: var(--ink-faint); }
 
 /* Recording what a dataset observes, offered from the refusal that needed it.
@@ -2633,17 +2952,17 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   margin-top: 8px; display: flex; align-items: center; gap: 10px;
 }
 .nj-hint { font-size: 11px; color: var(--ink-faint); }
-.nj-primary {
-  margin-left: auto;
-  padding: 7px 14px;
-  border: 1px solid var(--accent);
-  border-radius: 7px;
-  background: var(--accent);
-  color: var(--on-accent);
-  font-size: 13px;
-  cursor: pointer;
-}
-.nj-primary:disabled { opacity: 0.45; cursor: default; }
+/*
+ * `.nj-primary` used to live here and twelve controls across nine screens
+ * borrowed it, so "Search" was `btn-primary` on Search sources and a second
+ * shape on Find papers and Find data (§4.6.4). It is now `.btn .btn-primary`
+ * everywhere. It also carried `margin-left: auto` — a class that styled *and*
+ * positioned — so every bar that borrowed it inherited a right-edge push it
+ * never asked for. `.btn-primary` only styles; the two bars that actually
+ * wanted the push ask for it, here.
+ */
+.nj-actions .btn-primary,
+.syn-actions .btn-primary { margin-left: auto; }
 
 .nj-ask { margin-top: 14px; display: flex; gap: 8px; }
 .nj-ask input { flex: 1; }
@@ -3335,7 +3654,7 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 .btn:active:not(:disabled) { transform: translateY(1px); }
 .btn-lg { padding: 9px 16px; font-size: 13.5px; border-radius: 5px; }
 .btn-danger {
-  background: var(--danger); border-color: var(--danger); color: #fff;
+  background: var(--danger); border-color: var(--danger); color: var(--on-danger);
 }
 .btn-danger:hover:not(:disabled) { filter: brightness(1.08); background: var(--danger); }
 
@@ -3740,18 +4059,7 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 }
 /* Only the check that cannot be made by rereading gets an accent. */
 .nb-lint-item[data-kind="stale_evidence"] { border-left-color: var(--warn); }
-.nb-lint-item summary {
-  font-size: 12.5px; cursor: pointer; color: var(--ink); list-style: none;
-}
-.nb-lint-item summary::-webkit-details-marker { display: none; }
-.nb-lint-kind {
-  display: inline-block; margin-right: 8px; font-size: 10.5px;
-  text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint);
-}
-.nb-lint-why, .nb-lint-do {
-  margin: 6px 0 0 0; font-size: 12px; line-height: 1.55; color: var(--ink-soft);
-}
-.nb-lint-do { color: var(--ink-faint); }
+
 
 
 /* --- notebook index -------------------------------------------------------
@@ -3868,32 +4176,45 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
     --on-accent: #FFFFFF;
   }
 
+  /*
+   * Dark reaches this block by two routes, and until now only one of them
+   * arrived.
+   *
+   * `:root[data-theme="dark"]` scores (0,2,0) and the `:root` above scores
+   * (0,1,0), so a reader whose theme is stamped dark keeps their theme's
+   * `--accent` and never sees a high-contrast one; only the tokens the dark
+   * theme leaves alone — `--line` among them — were reaching the remap, and
+   * they were reaching the *light* branch's version of it. That was a corner
+   * while dark had to be chosen deliberately. Dark is now the default stamp,
+   * so it is the ordinary case, which is why the same body is stated for the
+   * attribute as for the media query. The two are identical declaration for
+   * declaration and `css-tokens.test.ts` holds them that way.
+   *
+   * The accent brightens rather than darkens, because in dark the readable
+   * side is the light one: #e8b76a is the site's brighter amber at 10.95:1 on
+   * the page and 10.04:1 on a card, against #c8a45c's 8.56:1 and 7.85:1. The
+   * pairing follows it — the page ground on #e8b76a is 10.95:1, white is
+   * 1.84:1 — which is the whole reason `--on-accent` is a token.
+   */
+  :root[data-theme="dark"] {
+    --line: var(--n-500);
+    --line-strong: var(--n-600);
+    --ink-faint: var(--n-600);
+    --ink-soft: var(--n-800);
+    --ink: var(--n-900);
+    --accent: #e8b76a;
+    --on-accent: #06070a;
+  }
+
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --line: var(--n-500);
       --line-strong: var(--n-600);
       --ink-faint: var(--n-600);
-
-    /* The three semantic colours that never got a dark variant.
-     *
-     * `--warn` was given one; `--caution` and `--positive` were not, and
-     * `--caution` is the *same* colour as light `--warn` (#B45309), so they
-     * should share the dark one too. Measured on the grounds they sit on — a
-     * card at #14181F and the page at #0E1116 — the light values give
-     * candidate/exploratory 3.54:1 and a completed step 3.55:1, both under the
-     * 4.5:1 normal text needs. These are 8.29:1 and 9.26:1.
-     *
-     * Same defect as `--n-0` on `--accent` before it: a pairing chosen for one
-     * theme and inherited by the other. */
-    --caution: #F59E0B;
-    --positive: #34D399;
       --ink-soft: var(--n-800);
       --ink: var(--n-900);
-      --accent: #7FA8FF;
-      /* This accent is *light*, so the readable side flips: white on it is
-         2.33:1, near-black is over 9:1. The pairing follows the accent, which
-         is the whole reason this is a token of its own. */
-      --on-accent: #0A0C0F;
+      --accent: #e8b76a;
+      --on-accent: #06070a;
     }
   }
 
@@ -4231,18 +4552,14 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   padding-bottom: 0.75rem;
 }
 /*
- * The bar's plain buttons are outlines. `.nj-primary` is not one of them, and
- * this rule used to catch it too: `background: transparent` beat the accent
- * fill on specificity, leaving `--n-0` text — near black — on the dark panel.
- * "Put something on the board" rendered as an empty rectangle, which is a
- * fair description of a board with nothing on it, so it did not look wrong.
+ * The bar used to style its own buttons by descendant selector, with
+ * `:not(.nj-primary)` carved out of it — and when that carve-out was written
+ * `background: transparent` had already beaten the accent fill on
+ * specificity once, leaving near-black text on the dark panel. Both buttons
+ * now carry `.btn` and the primary carries `.btn-primary`, so there is
+ * nothing left to carve out and nothing left to lose a specificity fight
+ * (§4.6.4). Only the bar's layout is the bar's business.
  */
-.board-bar button:not(.nj-primary) {
-  padding: 0.3rem 0.65rem; border-radius: 6px; font: inherit; cursor: pointer;
-  border: 1px solid rgba(120,130,150,0.4); background: transparent;
-}
-.board-bar button:disabled { opacity: 0.45; cursor: default; }
-.board-bar .nj-primary { margin-left: 0; }
 .board-zoom, .board-count { font-size: 0.85rem; opacity: 0.7; }
 .board-problem { color: rgb(150,40,40); margin: 0 0 0.5rem; }
 
@@ -4780,6 +5097,11 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   cursor: pointer;
 }
 .pick:hover { color: var(--accent); }
+/* The full-width target is right in a table cell and wrong in a flex row: on
+   the evidence walk the opener sits beside the run's id, and `width: 100%`
+   there makes the two shrink against each other instead of reading as a name
+   and its identifier (§4.6.4). */
+.row > .pick { width: auto; }
 /* Visible focus, or the whole exercise is pointless — a keyboard user who
    cannot see where they are has gained a tab stop and nothing else. */
 .pick:focus-visible {
@@ -5167,6 +5489,439 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   border: 1px solid var(--line); border-radius: 4px;
   background: var(--panel); color: var(--ink); }
 
+/* --- the loop as the shell (T135) -------------------------------------------
+ *
+ * The rail's body scrolls and its "This machine" group is pinned beneath it,
+ * so Settings and the three machine pages stay on a 900 px laptop. The
+ * arithmetic: 848 px of rail for ~1,020 px of entries before this; a 5 px row
+ * and a 12 px group margin buy back ~100 px, the pinned footer takes ~180 px
+ * of its own, and about three rows (Notebook, Journal, Activity) still scroll
+ * behind a visible fade. That is the whole of the improvement, stated.
+ */
+.rail-panel { container: rail / inline-size; }
+.rail {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 4px 0 4px;
+  /* A scroll with a visible edge is not a hide; the fade is the edge. */
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+}
+.rail-footer {
+  flex: 0 0 auto;
+  padding: 4px 0 6px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+.rail-footer .rail-group { margin-bottom: 0; }
+
+/*
+ * A 30 px row, back up from the 26 px that fitting all 26 entries on a 900 px
+ * laptop cost. One group is open now — eight rows at the widest — so the rail
+ * has room it did not have, and a 30 px target is the comfortable one.
+ */
+.rail-item { padding: 5px 16px; line-height: 20px; }
+.rail-group { margin-bottom: 4px; }
+
+/*
+ * The group heading: a stage of the loop, its entry count, and a chevron.
+ *
+ * `h3`'s voice — 12 px, uppercase, 0.04em — because that is exactly what this
+ * is, and the count is one step quieter again. The count uses `--ink-faint`
+ * rather than a literal `--n-500`: that is what it resolves to in light, and
+ * in dark the token deliberately takes one further step to `--n-600` for the
+ * reason the token block states, quiet text on a near-black ground being the
+ * first thing to disappear.
+ */
+.rail-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 16px;
+  min-height: 30px;
+  border: 0;
+  background: none;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+.rail-heading:hover { background: var(--hover); color: var(--ink); }
+.rail-heading > span:first-of-type { flex: 1; }
+
+/* The chevron is drawn, not shipped: one glyph per heading is five more
+   files' worth of markup for a triangle. It points down when the group is
+   open, which is the direction its entries went. */
+.rail-heading::before {
+  content: "";
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid var(--n-400);
+  border-bottom: 1.5px solid var(--n-400);
+  transform: rotate(-45deg);
+  transition: transform var(--micro) var(--ease-out-quad);
+}
+.rail-heading[aria-expanded="true"]::before { transform: rotate(45deg); }
+
+.rail-heading-count {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-faint);
+  letter-spacing: 0;
+}
+
+/* Nothing of its own: the rows inside carry the padding. Named so the
+   heading's `aria-controls` points at a region that exists — and deliberately
+   without a `display`, because an author `display: block` here would outrank
+   the user agent's `[hidden] { display: none }` and quietly un-hide a closed
+   group the day somebody renders its rows unconditionally. */
+.rail-entries { min-width: 0; }
+
+/* The gate's two doors, as equal labelled buttons above the form. */
+.gate-modes { display: flex; gap: 8px; margin-bottom: 18px; }
+
+/* The one-clause note beside a label, shown only when the rail is wide enough
+   to carry it without wrapping the row: a note that pushed rows off the
+   bottom would hide more than it explained. */
+.rail-note { display: none; }
+@container rail (min-width: 300px) {
+  .rail-note {
+    display: inline;
+    margin-left: 8px;
+    font-size: 11px;
+    color: var(--ink-faint);
+    font-weight: 400;
+  }
+}
+
+/* The step strip: one 36 px line above the workspace's scroll region. */
+.step-strip {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 36px;
+  padding: 0 26px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  /* The aside voice, because the strip is a caption on the project's state;
+     the step it names is the one thing in it drawn at full strength. */
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+.step-strip-where {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.step-strip-where b { color: var(--ink-strong); font-weight: 560; }
+button.step-strip-where { cursor: pointer; }
+button.step-strip-where:hover b { color: var(--accent); }
+.step-strip .btn { white-space: nowrap; flex: 0 0 auto; }
+
+/* Overview loop rows: a destination on every row, a verb on the current one.
+   Every row was a button and none looked like one; the blue NEXT was the most
+   button-like thing on the card and did nothing. The state word is demoted to
+   a word, and the current row carries a real primary control beside it. */
+.steps li { display: flex; align-items: stretch; gap: 8px; }
+.steps li > button {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* Tick, text, destination, state — four children on one row. */
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+}
+.step-go { color: var(--ink-faint); font-size: 12px; white-space: nowrap; margin-left: 10px; }
+.steps .step-state { font-weight: 500; }
+.steps li[data-next="true"] .step-state { color: var(--ink-soft); }
+.step-action { display: flex; align-items: center; flex: 0 0 auto; padding-right: 4px; }
+/* `.steps button` strips every button in the card down to a text row, which is
+   right for the rows and wrong for the one real control among them. Two
+   classes outrank that one-class-one-element rule and give the control its
+   chrome back. */
+.step-action .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  padding: 5px 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--panel);
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 540;
+}
+.step-action .btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+.step-action .btn-primary:hover { filter: brightness(1.1); background: var(--accent); }
+.step-action input[type="file"] { display: none; }
+.steps-note { margin: 0 0 8px; }
+
+/* The actions band: what you can do with this object, under its result. */
+.oa {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 16px;
+}
+.oa-item {
+  padding: 5px 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--panel);
+  font-size: 12px;
+  font-weight: 540;
+  color: var(--ink);
+}
+.oa-item:hover:not(:disabled) { background: var(--hover); border-color: var(--accent); }
+.oa-item:disabled { opacity: 0.45; cursor: not-allowed; }
+/* The band's first entry points at the screen's act; it is not the act. A
+   fill here would put two gold buttons on one screen (T139: one filled
+   primary per screen), so it is marked by weight and an accent hairline. */
+.oa-item-primary { font-weight: 600; color: var(--ink-strong); border-color: var(--accent); }
+.oa-item-primary:hover:not(:disabled) { background: var(--hover); border-color: var(--accent); }
+.oa-note { font-size: 12.5px; color: var(--ink-soft); }
+
+/* A glossed term (D207): the word, then its one-clause meaning, visible. */
+.term { display: inline; }
+.term-word { font-weight: 560; }
+.term-gloss { color: var(--ink-soft); }
+
+/* Notebook lint: each finding kind is a named block, its detail a sentence.
+   (The findings used to be a row of collapsed <details>; they are open now,
+   because a check whose results are folded away is a check nobody reads.) */
+.nb-lint-group { margin-bottom: 14px; }
+.nb-lint-detail { margin: 0; font-size: 12.5px; color: var(--ink); }
+
+/* The lifecycle pill speaks in phrases: the phrase in sentence case, the
+   machine word small beside it. */
+.status-phrase { text-transform: none; letter-spacing: 0; font-size: 11.5px; }
+.status-word { font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); text-transform: none; }
+
+/* A transition button states its direction on a second, quieter line. */
+.btn-direction { display: block; font-size: 11.5px; font-weight: 400; color: var(--ink-faint); margin-top: 2px; }
+.btn:has(.btn-direction) { text-align: left; }
+
+/* A text-weight control, for the demoted "Save this view" beside the real
+   export. */
+.btn-text { background: none; border: 0; padding: 0; font: inherit; color: var(--ink-faint); cursor: pointer; text-decoration: underline dotted; }
+.btn-text:hover { color: var(--accent); }
+
+/* Export staleness, per document. Only the state where the numbers moved
+   under unchanged prose is coloured as a warning. */
+.status-values_changed { color: var(--conflicted); }
+.status-superseded { color: var(--ink-faint); }
+.status-not_checkable { color: var(--ink-faint); }
+
+/* The one-line provenance footer under a traceable report block: the
+   note's size and colour without its rule, which would repeat down a page. */
+.block-prov-line { font-size: 12px; color: var(--ink-soft); margin: 3px 0 4px; }
+
+/* The three take-away exports, stacked in one card. */
+.take-away .bib:first-child { margin-top: 0; }
+.take-away .bib:last-child { margin-bottom: 0; }
+
+/* A disclosure whose summary states its contents; not tied to charts. */
+.disclosure > summary { cursor: pointer; font-size: 12px; color: var(--ink-faint); padding: 8px 0; list-style-position: outside; }
+.disclosure > summary:hover { color: var(--ink); }
+
+/* An in-list opener used inside a sentence. */
+.pick-inline { display: inline; width: auto; }
+
+/* The topbar's visible "New project": `flex: none` is load-bearing, since
+   `.crumbs > *` may shrink and this must not be what gets squeezed out. */
+.pm-new-inline { flex: none; margin-left: 6px; }
+
+/* A source whose failed ingestion still offers importable tables. */
+.status-importable { color: var(--candidate); }
+
+/* The profiled-schema row a subset jumped to; the scroll margin keeps it out
+   from under the step strip. */
+tr[data-lit="true"] { background: var(--hover); scroll-margin-block: 80px; }
+
+/* NodeJournal embedded in a detail screen: no second frame, no second
+   scroller inside a column that already scrolls. */
+.nj-embedded { max-height: none; overflow: visible; border: 0; padding: 0; background: none; }
+
+/* A cohort name is a control only when something answers it. */
+.cohort-tree .name[data-static] { cursor: default; }
+
+/* Each notebook lint finding: why it matters, then what to do about it. */
+.nb-lint-why { margin: 0 0 4px; font-size: 12.5px; color: var(--ink); }
+.nb-lint-do { margin: 0; font-size: 12px; color: var(--ink-soft); }
+
+/* The saved figure a jump landed on. */
+.card[data-focus="true"] { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* --- the fold, and the one control at the right of the topbar (T139) --------
+ *
+ * Two pieces of the same argument. Nothing is removed and nothing hides behind
+ * a menu; a thing that opens in place, states what it is in one noun phrase and
+ * says how many are behind it, is not a menu. The rail's group headings are the
+ * navigation-sized version of this and live with the rail above; `.fold` is the
+ * content-sized one, and the account control is the stated exception the shell
+ * argues for in its own comment.
+ */
+
+/*
+ * `details.fold` — the disclosure the workspace uses everywhere.
+ *
+ * The count lives in `data-count` and is drawn by CSS rather than written into
+ * the summary, so the markup carries the number as data and only one rule
+ * decides how a count looks. Toggling is observed with `onToggle` on the
+ * `details`; a click handler on the summary would miss the keyboard, which
+ * opens a disclosure without ever dispatching one.
+ */
+details.fold { border-bottom: 1px solid var(--line); }
+
+details.fold > summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 2px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  list-style: none;
+  /* One line. A summary that wraps stops reading as a control. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Safari draws its own triangle from a pseudo-element `list-style` misses. */
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary:hover { background: var(--hover); color: var(--ink); }
+
+details.fold > summary::before {
+  content: "";
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid var(--n-400);
+  border-bottom: 1.5px solid var(--n-400);
+  transform: rotate(-45deg);
+  transition: transform var(--micro) var(--ease-out-quad);
+}
+details.fold[open] > summary::before { transform: rotate(45deg); }
+
+/* The count, drawn from the attribute. `--ink-faint` is `--n-500` in light and
+   one step brighter in dark, for the reason the token block gives. */
+summary[data-count]::after {
+  content: " · " attr(data-count);
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Open, the summary becomes the head of something, so it takes a rule. */
+details.fold[open] > summary { border-bottom: 1px solid var(--line); }
+details.fold > *:not(summary) { padding: 8px 2px 10px; }
+/* Named as well as positional, because a fold whose body is a fragment of
+   several elements has nowhere for the padding to land otherwise. */
+.fold-body { padding: 8px 2px 10px; }
+
+@media (prefers-reduced-motion: reduce) {
+  details.fold > summary::before, .rail-heading::before { transition: none; }
+}
+
+/*
+ * The account control: one button at the right of the topbar, wearing the
+ * signed-in name. The popup reuses the account menu's own rules — `.am-pop`,
+ * `.am-who`, `.am-note`, `.am-out` — because it is that menu with the theme
+ * added, and a second set of near-identical rules is how two menus in one
+ * topbar end up looking different.
+ */
+.acct-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 190px;
+  padding: 3px 8px 3px 3px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: none;
+  color: var(--ink-soft);
+  font-size: 12.5px;
+}
+.acct-trigger:hover { background: var(--hover); border-color: var(--line); color: var(--ink); }
+
+/*
+ * On a narrow screen, the two things in the topbar that can yield, yield.
+ *
+ * The topbar is one 52px row of five things — the project menu, the crumbs,
+ * "New project", the command bar and this control — and below about 780px
+ * their content widths add up to more than the row, so items whose content
+ * refuses to shrink overlap each other instead. Two of them are carrying
+ * something they can do without: the ⌘K hint, which is a keyboard's business
+ * and there is no keyboard here, and the account name, which the initials in
+ * the same button already give. Nothing is hidden — both are still in the
+ * menu and on the key — and the row stops overlapping itself.
+ *
+ * This is the small end of a mobile shell, not the whole of one: a 390px
+ * viewport still asks more of this row than one line can hold.
+ */
+@media (max-width: 780px) {
+  .topbar { gap: 10px; padding: 0 12px; }
+  .command { min-width: 0; }
+  .command kbd { display: none; }
+  .acct-name { display: none; }
+}
+.acct-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The theme as one segmented row, the current choice held.
+   `menuitemradio` rather than three buttons, because Radix moves focus between
+   items only and a row a keyboard cannot reach is a row that is not there. */
+.acct-theme {
+  display: flex;
+  gap: 2px;
+  margin: 6px 4px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+.acct-theme-option {
+  /* Sized from its own label, not into equal thirds: "Match this machine" is
+     three times the width of "Dark", and equal thirds truncated it to "Match
+     thi…" — a control whose third option cannot be read is a control with two
+     options. The free space is still shared, so the row fills its panel. */
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 3px;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acct-theme-option:hover { background: var(--hover); color: var(--ink); }
+.acct-theme-option[data-state="checked"] {
+  background: var(--accent-soft);
+  color: var(--on-accent-soft);
+  font-weight: 560;
 /* Stating what a file did not record — see `components/imaging/Declare.tsx`.
    Matched to `.case-open` and `.case-privacy`, because it is the same kind of
    thing: a panel the researcher fills in, not a result they read. */

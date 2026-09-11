@@ -26,37 +26,45 @@
  * the method named, where the computation cannot be written out honestly in a
  * few lines.
  */
+import { Fold } from "./primitives";
+
 export function ReproductionScriptLink({ runId }: { runId: string }) {
+  // A `div`, not a `p`: the fold below is a `<details>`, and a details inside
+  // a paragraph is closed by the parser before it is rendered.
   return (
-    <p className="prov-log">
+    <div className="prov-log">
       <a className="btn" href={`/api/analyses/${runId}/reproduce.py`} download>
         Download the script
-      </a>{" "}
-      <span className="note">
-        Re-runs this one analysis from the recorded specification. It does not
-        re-run the assumption checks or the correction that decided whether the
-        result survived — a p-value on its own is not a finding.
-      </span>
-    </p>
+      </a>
+      <Fold summary="What the script re-runs, and what it does not" count={1}>
+        <span className="note">
+          Re-runs this one analysis from the recorded specification. It does not
+          re-run the assumption checks or the correction that decided whether the
+          result survived — a p-value on its own is not a finding.
+        </span>
+      </Fold>
+    </div>
   );
 }
 
 
 export function ProvenanceLogLink({ findingId }: { findingId: string }) {
   return (
-    <p className="prov-log">
+    <div className="prov-log">
       <a
         className="btn"
         href={`/api/findings/${findingId}/provenance.md`}
         download
       >
         Download the provenance log
-      </a>{" "}
-      <span className="note">
-        Every analysis behind this finding, with its seed, its library versions
-        and the hash of the data it read — what a methods section needs, and
-        what a reviewer would ask for.
-      </span>
-    </p>
+      </a>
+      <Fold summary="What the provenance log holds" count={1}>
+        <span className="note">
+          Every analysis behind this finding, with its seed, its library versions
+          and the hash of the data it read — what a methods section needs, and
+          what a reviewer would ask for.
+        </span>
+      </Fold>
+    </div>
   );
 }

@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import "./fonts.css";
 import "./globals.css";
+import "./density.css";
+import "./sky.css";
 
 export const metadata: Metadata = {
   title: "Throughline",
@@ -13,15 +15,27 @@ export const metadata: Metadata = {
  * Reading the stored theme in an effect would mean a dark-mode user sees a
  * white page for one frame on every navigation — the flash that makes a theme
  * toggle feel broken even when it works. This runs synchronously in the head,
- * before the body renders, which is the only way to avoid it.
+ * before the body renders, which is the only way to avoid it. With dark as the
+ * default that flash is now what almost every reader would get, so this script
+ * has to know the default rather than only the stored values.
+ *
+ * It cannot import `DEFAULT_THEME` from `components/Theme.tsx`: that module is
+ * `"use client"`, so a server component importing it gets a client reference
+ * rather than the string. The default is therefore stated twice, and
+ * `tests/theme-default.test.tsx` runs this script and `readTheme()` against the
+ * same inputs and fails if the two ever disagree.
  *
  * Kept deliberately tiny and dependency-free: it must not be able to throw, or
- * the page never paints at all.
+ * the page never paints at all. Hence the inner `try` — a browser with storage
+ * disabled throws on `getItem`, and that reader still deserves the default
+ * rather than a blank document.
  */
 const THEME_SCRIPT = `
 try {
-  var t = localStorage.getItem("throughline-theme");
-  if (t === "light" || t === "dark") {
+  var t = null;
+  try { t = localStorage.getItem("throughline-theme"); } catch (e) {}
+  if (t !== "light" && t !== "dark" && t !== "system") { t = "dark"; }
+  if (t !== "system") {
     document.documentElement.setAttribute("data-theme", t);
   }
 } catch (e) {}

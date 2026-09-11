@@ -3,31 +3,51 @@
 /**
  * The application shell (§65, §66).
  *
- *   left   — Research / Discover / Communicate
- *   top    — breadcrumb and the global command bar
+ *   left   — the loop, one stage open at a time
+ *   top    — breadcrumb, the global command bar, and one control for the
+ *            account and the theme
  *   center — the current workspace
  *   right  — the context inspector
  *
  * The rail shows live counts because §70 wants the project's state legible at a
  * glance, and a nav item that never shows a number teaches nothing.
+ *
+ * **One stage at a time (T139).** All twenty-six entries used to be on screen
+ * at once, five headings and twenty-six rows down an 848 px rail, and the owner
+ * read the result as "there are too many options on screen". Nothing is
+ * removed: the rail is an accordion whose five headings are always visible and
+ * always say how many entries they hold, and only the group holding the current
+ * section is expanded. That is rule 4 of `docs/THE_LOOP_IS_THE_SHELL.md`
+ * applied to navigation — a capability may sit inside a disclosure whose closed
+ * summary states what is inside it, and may never sit behind a menu. A heading
+ * that names its stage and says how many entries it holds is the first of
+ * those, not the second.
+ *
+ * An expansion the researcher makes by hand is transient: it is remembered
+ * against the section it was made from, so choosing an entry — or arriving
+ * anywhere else — hands the rail back to the section's own group. There is no
+ * effect and no stored state; see `openGroup` below.
  */
 
 import {
-  DragEvent, ReactElement, ReactNode, useCallback, useState, useSyncExternalStore,
+  DragEvent, ReactElement, ReactNode, useCallback, useState,
+  useSyncExternalStore,
 } from "react";
+import * as Menu from "@radix-ui/react-dropdown-menu";
 import { Group, Panel, Separator } from "react-resizable-panels";
-import { DiscoveryMap } from "@/lib/api";
+import { DiscoveryMap, api } from "@/lib/api";
 import {
   INSPECTOR, INSPECTOR_DEFAULT, INSPECTOR_MAX, INSPECTOR_MIN,
   RAIL, RAIL_DEFAULT, RAIL_MAX, RAIL_MIN, WORKSPACE,
   readLayout, writeLayout,
 } from "@/lib/layout";
-import { ThemeToggle } from "./Theme";
+import { SignedInUser } from "./AccountMenu";
+import { THEME_CHOICES, THEME_LABEL, useThemeChoice } from "./Theme";
 import {
   IconAnalyses, IconCompare, IconConnections, IconData, IconDiscover,
   IconFigures, IconFindings, IconGallery, IconGraph, IconHand, IconLiterature,
-  IconNotebook, IconOverview, IconPatterns, IconReports, IconSearch,
-  IconSettings, IconSources,
+  IconLogout, IconNotebook, IconOverview, IconPatterns, IconReports, IconSearch,
+  IconSettings, IconSources, IconUser,
 } from "./icons";
 
 export type Section =
@@ -41,9 +61,34 @@ export type Section =
 
 export type Crumb = { label: string; onClick?: () => void };
 
-const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; count?: keyof CountMap }> }> = [
+type RailItem = {
+  id: Section; label: string; count?: keyof CountMap;
+  /**
+   * One clause on what the entry is for, shown beside the label when the rail
+   * is wide enough to carry it (see `.rail-note`). Three consecutive one-word
+   * labels sharing one glyph — Notebook, Journal, Activity — told a researcher
+   * their names and nothing else; the distinction lived in code comments.
+   */
+  note?: string;
+};
+
+/*
+ * Five groups. The first four are kinds of screen a researcher uses in the
+ * order the work happens — the project itself, gathering, discovering and
+ * testing, communicating — and the fifth is this machine. Groups are named,
+ * never numbered: only four of the twenty-three sections are destinations of
+ * a loop step, and a numbered eyebrow over Compare or the research graph would
+ * claim a sequence the screen is not part of. The loop's numbering lives in
+ * the step strip, which knows the project's state (T135).
+ *
+ * "Research" used to hold a canvas, a dashboard, two object lists and four
+ * tools under one word. Splitting the two whole-project surfaces out is the
+ * only structural change; every id, label, icon, count and within-group order
+ * is unchanged, so no address, saved link or palette result changes meaning.
+ */
+const GROUPS: Array<{ label: string; items: RailItem[] }> = [
   {
-    label: "Research",
+    label: "The project",
     items: [
       /*
        * First, because §4 calls the workboard "the central operating surface
@@ -53,6 +98,11 @@ const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; 
        */
       { id: "board", label: "Workboard" },
       { id: "overview", label: "Overview" },
+    ],
+  },
+  {
+    label: "Gather",
+    items: [
       { id: "sources", label: "Sources", count: "sources" },
       /*
        * Beside Sources, because that is what it is about: what the columns of
@@ -84,7 +134,7 @@ const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; 
     ],
   },
   {
-    label: "Discover",
+    label: "Discover and test",
     items: [
       /*
        * "Discovery", matching the screen. The rail said "Discovery map",
@@ -131,7 +181,7 @@ const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; 
     items: [
       { id: "reports", label: "Reports", count: "reports" },
       { id: "figures", label: "Figures", count: "figures" },
-      { id: "notebook", label: "Notebook" },
+      { id: "notebook", label: "Notebook", note: "your pages, and what they link to" },
       /*
        * Beside the notebook, because both are writing — but they are not the
        * same view of it. The notebook is pages and links; the journal is
@@ -139,7 +189,7 @@ const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; 
        * including what a model wrote, which is the only place that can be
        * read across objects rather than one object at a time.
        */
-      { id: "journal", label: "Journal" },
+      { id: "journal", label: "Journal", note: "everything written, in order" },
       /*
        * Beside the journal for the same reason the journal sits beside the
        * notebook, and the distinction is the same one: the journal is
@@ -151,10 +201,18 @@ const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; 
        * this repository's named recurring defect at table scale. A route
        * without a screen would have recreated it one layer up.
        */
-      { id: "activity", label: "Activity" },
+      { id: "activity", label: "Activity", note: "everything done, in order" },
     ],
   },
   {
+    /*
+     * Rendered as the rail's pinned footer rather than as its last scrolling
+     * group. At 1440×900 the rail has 848 px for about 1,020 px of entries,
+     * and what fell off the bottom was this group — Settings, model choice,
+     * feature packs, the version, and the three pages that were URL-only
+     * until they were filed here. A group that exists to rescue entries from
+     * being unreachable must itself stay on screen.
+     */
     label: "This machine",
     items: [
       /*
@@ -173,11 +231,14 @@ const GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; 
        * Keeping it away from the figure-making surface keeps the two from
        * reading as alternatives.
        */
-      { id: "gallery", label: "Chart primitives" },
+      { id: "gallery", label: "Chart primitives", note: "every chart, drawn against illustrative data" },
       { id: "settings", label: "Settings" },
     ],
   },
 ];
+
+/** The group rendered as the rail's pinned footer. */
+const MACHINE = "This machine";
 
 /**
  * Pages that are routes of their own rather than sections of the workspace.
@@ -214,6 +275,44 @@ const MACHINE_PAGES: Array<{ href: string; label: string; note: string }> = [
 /** Flattened for the command palette, which needs the group name too. */
 export const SECTIONS = GROUPS.flatMap((g) =>
   g.items.map((i) => ({ id: i.id, label: i.label, group: g.label })));
+
+/**
+ * The three machine pages, for the command palette (plan §4.3.6).
+ *
+ * Deliberately a second export rather than three more rows in `SECTIONS`, and
+ * the reason is what a caller has to *do* with one. A section is a view of
+ * this page, reached by calling `onSection`; these are routes of their own,
+ * reached by a real page load. Folding them together would hand the palette a
+ * list whose entries need two different mechanisms and no way to tell which —
+ * and `tests/rail-follows-the-work.test.ts` reads `SECTIONS` as the rail's own
+ * order and asserts that no id in it is `charts-3d`, which is right to.
+ *
+ * The rail already links to all three (`MACHINE_PAGES`, and the links are real
+ * `<a>`s so a new tab still works). This is the second door: 26 rail rows do
+ * not fit 848 px, and somebody who reaches for ⌘K should not have to know
+ * which of them scrolled off the bottom.
+ */
+export const PAGES: Array<{ href: string; label: string; group: string }> =
+  MACHINE_PAGES.map((page) => ({
+    href: page.href, label: page.label, group: MACHINE,
+  }));
+
+/**
+ * How many entries a group holds, drawn beside its name.
+ *
+ * A collapsed heading has to say what is behind it or it is a menu. "This
+ * machine" counts its three plain links too, because from the rail they are
+ * rows exactly like the other two.
+ */
+const ENTRY_COUNT: Record<string, number> = Object.fromEntries(
+  GROUPS.map((group) => [
+    group.label,
+    group.items.length + (group.label === MACHINE ? MACHINE_PAGES.length : 0),
+  ]));
+
+/** Which group a section is filed under. */
+const GROUP_OF: Record<string, string> = Object.fromEntries(
+  GROUPS.flatMap((group) => group.items.map((item) => [item.id, group.label])));
 
 type CountMap = { sources: number; connections: number; findings: number;
                   analyses: number; figures: number; reports: number };
@@ -287,7 +386,7 @@ function useRoomForInspector(): boolean {
 
 export function Shell({
   section, onSection, map, children, inspector, onCommand, projectName, crumbs,
-  onDropFiles, projectMenu, accountMenu,
+  onDropFiles, projectMenu, account, strip,
 }: {
   section: Section;
   onSection: (s: Section) => void;
@@ -300,7 +399,13 @@ export function Shell({
   onDropFiles: (files: FileList) => void;
   /** The project switcher. Rendered here so the topbar owns its layout. */
   projectMenu?: ReactNode;
-  accountMenu?: ReactNode;
+  /** Who is signed in, for the one control at the right of the topbar. */
+  account?: SignedInUser;
+  /**
+   * The step strip (`StepStrip`), rendered above the workspace's scroll
+   * region so the loop's next action cannot be scrolled out of sight.
+   */
+  strip?: ReactNode;
 }) {
   const counts: CountMap = {
     sources: map?.counts.sources ?? 0,
@@ -346,6 +451,99 @@ export function Shell({
   // Group starts from, and re-reading it while dragging would fight the drag.
   const [saved] = useState(readLayout);
 
+  /*
+   * Which group is open.
+   *
+   * Derived, not stored. The rule is "the group holding the current section",
+   * and a heading press is an override recorded *against the section it was
+   * made from* — so the moment the section changes, the override no longer
+   * matches and the rail hands itself back to the new section's own group. An
+   * effect that cleared the state on every section change would do the same
+   * thing one render later and would fight the browser's Back button; this
+   * cannot get out of step because there is nothing to keep in step.
+   *
+   * One group is always open, and pressing the open heading leaves it open.
+   * The toggle used to close it, on the argument that `aria-expanded` promises
+   * a move in both directions — but with one group open at a time the other
+   * direction lands on an empty rail: five headings, no rows, and no
+   * `aria-current` anywhere, so the rail stops answering the one question it
+   * exists to answer, which is where you are. This is a choice among five, the
+   * way a radio group is; `aria-expanded` still states each group's real state,
+   * and the only way to close a group is to open another.
+   */
+  const [override, setOverride] = useState<{ at: Section; group: string } | null>(null);
+  const openGroup = override?.at === section
+    ? override.group
+    : (GROUP_OF[section] ?? GROUPS[0].label);
+
+  const openTheGroup = (label: string) => setOverride({ at: section, group: label });
+
+  const renderGroup = (group: { label: string; items: RailItem[] }) => {
+    const open = group.label === openGroup;
+    const region = `rail-entries-${group.label.replace(/\s+/g, "-").toLowerCase()}`;
+    return (
+      <div className="rail-group" key={group.label}>
+        {/*
+          A real button, not a label with a click handler: this expands and
+          collapses, which is a control, and a keyboard has to reach it in the
+          tab order like any other. `aria-controls` names the region it opens,
+          so a screen reader can say what the count belongs to.
+        */}
+        <button
+          type="button"
+          className="rail-heading"
+          aria-expanded={open}
+          aria-controls={region}
+          onClick={() => openTheGroup(group.label)}
+        >
+          <span>{group.label}</span>
+          <span className="rail-heading-count">{ENTRY_COUNT[group.label]}</span>
+        </button>
+
+        {/* The region exists whether or not it is open, so `aria-controls`
+            names something real; its rows are built only when it is. */}
+        <div id={region} className="rail-entries" hidden={!open}>
+          {open && group.items.map((item) => (
+            <button
+              key={item.id}
+              className="rail-item"
+              aria-current={section === item.id}
+              onClick={() => onSection(item.id)}
+            >
+              {/* Decorative: the label beside it is the accessible name. */}
+              <span className="rail-icon" aria-hidden>
+                {ICONS[item.id]?.({ size: 16 })}
+              </span>
+              <span>
+                {item.label}
+                {item.note && <small className="rail-note">{item.note}</small>}
+              </span>
+              {item.count && counts[item.count] > 0 && (
+                <span className="rail-count">{counts[item.count]}</span>
+              )}
+            </button>
+          ))}
+
+          {/* Real links, because these are separate pages and leaving the
+              workspace is what pressing them does. A button that navigated
+              would break opening one in a new tab. */}
+          {open && group.label === MACHINE && MACHINE_PAGES.map((page) => (
+            <a key={page.href} className="rail-item" href={page.href}
+               title={page.note}>
+              <span className="rail-icon" aria-hidden>
+                {IconHand({ size: 16 })}
+              </span>
+              <span>
+                {page.label}
+                <small className="rail-note">{page.note}</small>
+              </span>
+            </a>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div
       className="shell"
@@ -371,11 +569,37 @@ export function Shell({
           <span>Jump to anything</span>
           <kbd>⌘K</kbd>
         </button>
-        {/* Next to the command bar rather than buried in Settings: the reason
-            to reach for it is usually "I am about to export a figure and
-            exports render light", which is a ten-second errand. */}
-        <ThemeToggle />
-        {accountMenu}
+        {/*
+          One control at the right, for the two questions that are about the
+          *session* rather than about any research object: who am I, and which
+          palette am I in.
+
+          It used to be two. A three-button segmented theme toggle sat beside an
+          avatar that opened a menu, so every screen in the product carried two
+          permanent controls for things a researcher touches about once a
+          session — and the toggle spent that permanence on the least
+          consequential choice on screen. Merging them costs one press to reach
+          the theme and gives the topbar back to the breadcrumb and the command
+          bar, which are what a person actually aims at.
+
+          The menu's contents are still a **stated exception** to "nothing is
+          hidden" rather than an oversight (plan §6, §4.16.2), and the argument
+          is unchanged: these are properties of the session, so the placement
+          law — an action lives on the object that produced it — has no object
+          to put them on; there is no source, connection or finding that "sign
+          out" acts upon. And a sign-out control sitting permanently in the
+          topbar is a hazard, not a capability: the only thing a persistent one
+          can do to a researcher three hours into an analysis is end their
+          session by accident. The theme joins them because it is the same kind
+          of thing — a property of this browser, not of this project.
+
+          "New project" went the other way for the opposite reason — it acts on
+          the project, which is the object the topbar is already naming, so it
+          is a visible button beside the name (`ProjectMenu.tsx`). An omission
+          that is argued is not a hidden capability; this comment is the
+          argument, and `librarynote.tsx:92-97` is the template for it.
+        */}
+        <AccountControl user={account ?? null} />
       </header>
 
       <Group
@@ -386,42 +610,18 @@ export function Shell({
       >
       <Panel id={RAIL} className="rail-panel"
              defaultSize={RAIL_DEFAULT} minSize={RAIL_MIN} maxSize={RAIL_MAX}>
+      {/*
+        Two navs, not one. The first scrolls; the second is pinned. The obvious
+        alternative — `margin-top: auto` on the last group — is inert while
+        `.rail` is a block, and resolves to zero the moment a flex column
+        overflows, which is the only case that matters. A sibling outside the
+        scroll region is the mechanism that actually holds.
+      */}
       <nav className="rail" aria-label="Sections">
-        {GROUPS.map((group) => (
-          <div className="rail-group" key={group.label}>
-            <span className="eyebrow">{group.label}</span>
-            {group.items.map((item) => (
-              <button
-                key={item.id}
-                className="rail-item"
-                aria-current={section === item.id}
-                onClick={() => onSection(item.id)}
-              >
-                {/* Decorative: the label beside it is the accessible name. */}
-                <span className="rail-icon" aria-hidden>
-                  {ICONS[item.id]?.({ size: 16 })}
-                </span>
-                <span>{item.label}</span>
-                {item.count && counts[item.count] > 0 && (
-                  <span className="rail-count">{counts[item.count]}</span>
-                )}
-              </button>
-            ))}
-
-            {/* Real links, because these are separate pages and leaving the
-                workspace is what pressing them does. A button that navigated
-                would break opening one in a new tab. */}
-            {group.label === "This machine" && MACHINE_PAGES.map((page) => (
-              <a key={page.href} className="rail-item" href={page.href}
-                 title={page.note}>
-                <span className="rail-icon" aria-hidden>
-                  {IconHand({ size: 16 })}
-                </span>
-                <span>{page.label}</span>
-              </a>
-            ))}
-          </div>
-        ))}
+        {GROUPS.filter((group) => group.label !== MACHINE).map(renderGroup)}
+      </nav>
+      <nav className="rail-footer" aria-label={MACHINE}>
+        {GROUPS.filter((group) => group.label === MACHINE).map(renderGroup)}
       </nav>
 
       </Panel>
@@ -432,6 +632,7 @@ export function Shell({
       <Separator className="shell-divider" aria-label="Resize the navigation" />
 
       <Panel id={WORKSPACE} className="workspace-panel" minSize={320}>
+        {strip}
         {/* `key` restarts the enter transition on navigation, so a view change
             reads as a change rather than a silent content swap (§116). */}
         <main className="workspace" key={section}>{children}</main>
@@ -443,9 +644,11 @@ export function Shell({
         flex-based panel group cannot use — a hidden panel leaves its share of
         the width behind as empty space. So the panel is not rendered at all,
         and the divider with it, which is also the honest version: a divider
-        that resizes nothing is a control that lies.
+        that resizes nothing is a control that lies. The same holds when the
+        page has nothing to put in it: an empty context panel is a column of
+        chrome, so `inspector={null}` leaves the column out too.
       */}
-      {roomForInspector && (
+      {roomForInspector && inspector && (
         <>
           <Separator className="shell-divider" aria-label="Resize the context panel" />
           <Panel id={INSPECTOR} className="inspector-panel"
@@ -466,5 +669,124 @@ export function Shell({
         </div>
       )}
     </div>
+  );
+}
+
+/*
+ * `AccountMenu.tsx` is not retired by the merged control: `tests/destructive.test.tsx`
+ * still renders that component to hold what sign-out does, and this file and
+ * `FirstProject.tsx` import `SignedInUser` from it. Deleting the file is a
+ * separate decision with that test attached to it.
+ */
+
+/** Initials for the avatar, from whatever the account actually has. */
+function initials(user: SignedInUser): string {
+  const name = (user.display_name || "").trim();
+  if (name) {
+    const parts = name.split(/\s+/);
+    return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase();
+  }
+  return (user.email[0] ?? "?").toUpperCase();
+}
+
+/**
+ * The one control at the right of the topbar: identity, theme, sign out.
+ *
+ * **Sign-out does a full document navigation, not a client-side state reset.**
+ * That is the important thing in here and it is not a detail of styling.
+ * Clearing state by hand means enumerating every place a previous user's data
+ * might be sitting — hook state, component state, in-flight requests that have
+ * not resolved, memoised derivations, worker messages — and being right about
+ * all of them forever, including in code written after this. Getting that list
+ * wrong once shows one researcher another researcher's corpus. A navigation
+ * drops the entire JavaScript heap and starts from an empty one, for a few
+ * hundred milliseconds on an action taken once a session. For the same reason
+ * it happens even if the logout request fails: the local session should end
+ * whether or not the server acknowledged it.
+ *
+ * Outside click, Escape, focus into the popup and focus back to the trigger are
+ * Radix's, and the theme row is a `RadioGroup` rather than three plain buttons
+ * for one reason: Radix moves focus between items only, so a hand-rolled row
+ * inside the menu would be visible to the eye and unreachable by keyboard. The
+ * three items suppress the default select-and-close, because changing the
+ * palette is the one thing in this menu somebody might do twice.
+ */
+function AccountControl({ user }: { user: SignedInUser | null }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [choice, choose] = useThemeChoice();
+
+  // No account is a real state — the shell renders before `/api/auth/status`
+  // answers — and an empty avatar that opens an empty menu says less than
+  // nothing.
+  if (!user) return null;
+
+  const name = user.display_name || user.email;
+
+  async function signOut() {
+    setBusy(true);
+    try {
+      await api.post("/api/auth/logout");
+    } catch {
+      // Ignored on purpose. If the server did not answer, the local session
+      // still has to end — leaving someone signed in because the network
+      // failed is the wrong way to be careful.
+    } finally {
+      window.location.assign("/workspace");
+    }
+  }
+
+  return (
+    <Menu.Root open={open} onOpenChange={setOpen}>
+      <div className="am">
+        <Menu.Trigger asChild>
+          <button className="acct-trigger" title={name}>
+            <span className="am-avatar" aria-hidden>{initials(user)}</span>
+            <span className="acct-name">{name}</span>
+          </button>
+        </Menu.Trigger>
+
+        <Menu.Portal>
+          <Menu.Content className="am-pop" align="end" sideOffset={8}
+                        collisionPadding={8}>
+            <div className="am-who">
+              <span className="am-avatar am-avatar-lg" aria-hidden>
+                {initials(user)}
+              </span>
+              <div>
+                <b>{user.display_name || "Researcher"}</b>
+                <em>{user.email}</em>
+                {user.is_admin && <span className="badge badge-quiet">Administrator</span>}
+              </div>
+            </div>
+
+            <Menu.RadioGroup className="acct-theme" value={choice}
+                             onValueChange={(next) => choose(next as typeof choice)}>
+              {THEME_CHOICES.map((option) => (
+                <Menu.RadioItem key={option} className="acct-theme-option"
+                                value={option}
+                                onSelect={(event) => event.preventDefault()}>
+                  {THEME_LABEL[option]}
+                </Menu.RadioItem>
+              ))}
+            </Menu.RadioGroup>
+
+            <p className="am-note">
+              <IconUser size={13} aria-hidden />
+              Everything in this workspace belongs to this account and stays on
+              this machine.
+            </p>
+
+            {/* The one command in here, last and under the hairline the note
+                above draws. Everything before it is identity or preference. */}
+            <Menu.Item className="am-out" disabled={busy}
+                       onSelect={() => void signOut()}>
+              <IconLogout size={15} />
+              <span>{busy ? "Signing out…" : "Sign out"}</span>
+            </Menu.Item>
+          </Menu.Content>
+        </Menu.Portal>
+      </div>
+    </Menu.Root>
   );
 }

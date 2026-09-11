@@ -5,6 +5,9 @@ description = "Research object model, lineage, findings and durable workflows"
 requires-python = ">=3.12"
 dependencies = [
   "throughline-schemas",
+  # `dataset_import` derives its host allowlist from the connector registry
+  # rather than typing a second copy of it, so the registry is a dependency.
+  "throughline-connectors",
   "throughline-visual",
   # Verifying a release signature on update (T083). Base rather than an extra:
   # a verification somebody has to install first is one nobody performs, and the

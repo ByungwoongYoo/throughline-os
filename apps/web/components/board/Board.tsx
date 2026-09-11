@@ -47,7 +47,7 @@ import {
   BoardHistory, describeCommand, type BoardCommand,
 } from "@/lib/board/history";
 import { Empty, Failure, Loading } from "../primitives";
-import { CardDetail } from "./CardDetail";
+import { CardDetail, type OpenKind } from "./CardDetail";
 import { objectTypeName } from "@/lib/api";
 
 export type Placeable = {
@@ -76,7 +76,20 @@ export type Placement = {
 /** How far a pointer may move before it is a drag rather than a click. */
 const DRAG_THRESHOLD = 3;
 
-export function Board({ projectId }: { projectId: string }) {
+export function Board({ projectId, onOpen }: {
+  projectId: string;
+  /**
+   * Open a research object where the workspace shows it — the same
+   * `open(kind, id)` every other in-view link goes through, so a card's
+   * dependents follow `placeFor`'s one rule (`lib/place.ts:60-71`, D195).
+   *
+   * Optional, and threaded down as-is: `CardDetail` renders a name as text
+   * rather than as a dead button when it is absent, because a control that
+   * fires a callback its mounting site never passed is this repository's own
+   * named recurring defect (`CardDetail.tsx:6-9`).
+   */
+  onOpen?: (kind: OpenKind, id: string) => void;
+}) {
   const placed = useApi<{ placements: Placement[] }>(
     `/api/projects/${projectId}/board`);
 
@@ -143,6 +156,37 @@ export function Board({ projectId }: { projectId: string }) {
    * was impossible because nothing showed a research object on its own.
    */
   const [opened, setOpened] = useState<string | null>(null);
+
+  /**
+   * Open a card, and raise it while opening.
+   *
+   * Both doors come through here — the pointer's press-and-release on the card
+   * face, and the title control the card face carries for the keyboard — so
+   * that opening from the keyboard is the same act as opening with a mouse and
+   * not a quieter version of it (§123, §30).
+   *
+   * A failure to raise is reported and the panel still opens: the raise is
+   * about which card is on top, and refusing to show what is behind a card
+   * because the z-order could not be written would be a much larger refusal
+   * than the failure deserves.
+   */
+  const openCard = useCallback((objectId: string) => {
+    setOpened(objectId);
+    void api.post(`/api/projects/${projectId}/board/${objectId}/front`)
+      .then((result) => {
+        const z = (result as { z?: number }).z;
+        if (typeof z !== "number") return;
+        setCards((current) => {
+          const raised = current.map((c) =>
+            c.object_id === objectId ? { ...c, z } : c);
+          // Re-sorted so the DOM order matches the depth, which is what
+          // actually decides what covers what.
+          return raised.sort((a, b) => a.z - b.z);
+        });
+      })
+      .catch(() => setProblem("That card could not be raised."));
+  }, [projectId]);
+
   const surface = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
 
@@ -438,29 +482,20 @@ export function Board({ projectId }: { projectId: string }) {
 
     if (!active.moved) {
       /*
-       * A press raises the card. Deliberately not "open it": there is nowhere
-       * in this workspace that shows a research object on its own yet, and a
-       * callback the host cannot satisfy is dead surface — a prop declared,
-       * threaded through and never supplied, which this codebase has produced
-       * three times already.
+       * A press raises the card and opens it. This file used to say opening
+       * was impossible — "there is nowhere in this workspace that shows a
+       * research object on its own yet, and a callback the host cannot satisfy
+       * is dead surface" — and `CardDetail` is what made it possible.
        *
        * Raising is also what a board is for. Cards overlap, and the one you
        * pressed is the one you meant.
+       *
+       * The body is in `openCard` because the title control §4.7.1 adds is the
+       * second door onto the same act, and a card that raised when opened by
+       * pointer but not when opened by keyboard would be one control with two
+       * behaviours (§123).
        */
-      setOpened(active.id);
-      void api.post(`/api/projects/${projectId}/board/${active.id}/front`)
-        .then((result) => {
-          const z = (result as { z?: number }).z;
-          if (typeof z !== "number") return;
-          setCards((current) => {
-            const raised = current.map((c) =>
-              c.object_id === active.id ? { ...c, z } : c);
-            // Re-sorted so the DOM order matches the depth, which is what
-            // actually decides what covers what.
-            return raised.sort((a, b) => a.z - b.z);
-          });
-        })
-        .catch(() => setProblem("That card could not be raised."));
+      openCard(active.id);
       return;
     }
 
@@ -640,15 +675,19 @@ export function Board({ projectId }: { projectId: string }) {
       <p className="lede">
         The project&rsquo;s objects, arranged. Position is all this remembers —
         what a card means and how it relates to another lives in the object
-        itself, not in where you put it.
+        itself, not in where you put it. Every card&rsquo;s title is a control:
+        Tab reaches it and Enter opens what is behind that card. Arranging the
+        cards — moving them, framing an area, tidying — needs a pointer.
       </p>
       <div className="board-bar">
-        <button type="button" className="nj-primary"
+        {/* Plain: arranging the board is not a step of the loop, and the strip
+            above is carrying the step that is (T139). */}
+        <button type="button" className="btn"
                 onClick={() => setPicking((open) => !open)}>
           {picking ? "Close" : "Put something on the board"}
         </button>
-        <button type="button" onClick={() => setCamera(ORIGIN)}>Reset view</button>
-        <button type="button"
+        <button type="button" className="btn" onClick={() => setCamera(ORIGIN)}>Reset view</button>
+        <button type="button" className="btn"
                 onClick={() => setCamera(fitTo(cards, size))}
                 disabled={cards.length === 0}>
           Fit to contents
@@ -670,6 +709,7 @@ export function Board({ projectId }: { projectId: string }) {
       <div className="board-organise">
         <button
           type="button"
+          className="btn"
           onClick={() => {
             const name = window.prompt("What is this part of the board for?");
             if (name) void drawRegion(name);
@@ -687,7 +727,7 @@ export function Board({ projectId }: { projectId: string }) {
             aria-label="How to organise the board"
           />
         </label>
-        <button type="button" onClick={() => void previewPlan()}
+        <button type="button" className="btn" onClick={() => void previewPlan()}
                 disabled={cards.length === 0}>
           Preview tidy
         </button>
@@ -706,11 +746,11 @@ export function Board({ projectId }: { projectId: string }) {
             {plan.moves.length === 1 ? "card" : "cards"} would move. Nothing has
             moved yet.
           </p>
-          <button type="button" className="nj-primary"
+          <button type="button" className="btn btn-primary"
                   onClick={() => void confirmPlan()}>
             Apply
           </button>
-          <button type="button" onClick={() => setPlan(null)}>Discard</button>
+          <button type="button" className="btn" onClick={() => setPlan(null)}>Discard</button>
         </div>
       )}
 
@@ -718,11 +758,13 @@ export function Board({ projectId }: { projectId: string }) {
 
       {openedCard && (
         <CardDetail
+          projectId={projectId}
           objectId={openedCard.object_id}
           title={openedCard.title}
           objectType={openedCard.object_type}
           status={openedCard.status}
           onClose={() => setOpened(null)}
+          onOpen={onOpen}
         />
       )}
 
@@ -747,7 +789,7 @@ export function Board({ projectId }: { projectId: string }) {
       {takenOff && (
         <p className="board-problem" role="status">
           {takenOff.title} is off the board.{" "}
-          <button type="button" onClick={() => void putBack()}>Put it back</button>
+          <button type="button" className="btn" onClick={() => void putBack()}>Put it back</button>
         </p>
       )}
 
@@ -878,16 +920,47 @@ export function Board({ projectId }: { projectId: string }) {
               }}
             >
               <span className="board-kind">{objectTypeName(card.object_type)}</span>
-              <h3>{card.title}</h3>
+              {/*
+                * The card's title is the card's opener (§4.7.1, plan §4.7 item
+                * 1). Cards are `<article>` elements and `openCard` used to fire
+                * only from the pointer-up branch below, so every capability
+                * behind `CardDetail` — impact, mentions, notes, versions — was
+                * pointer-only, and this slice is adding more of them. §30 is
+                * law here: the keyboard reaches everything the pointer does.
+                *
+                * `button.pick` rather than a class of its own: `.pick` inherits
+                * font, colour and alignment, so the title still reads as the
+                * title, and it brings the focus ring a new class would have had
+                * to reinvent. It is the same opener the rest of the product
+                * uses in a list.
+                *
+                * `onPointerDown` stops here, the way `.board-lower` and
+                * `.board-remove` already do, so a press on the title is a press
+                * and not the start of a drag that never gets a drop. The cost is
+                * stated rather than hidden: the title is no longer a drag
+                * handle, and the rest of the card face — the kind, the status,
+                * the padding around them — still is.
+                */}
+              <h3>
+                <button
+                  type="button"
+                  className="pick"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={() => openCard(card.object_id)}
+                >
+                  {card.title}
+                </button>
+              </h3>
               <span className="board-status">{card.status}</span>
               {/*
                 * `onPointerDown` stops here rather than reaching the surface,
                 * which would otherwise read the press as the start of a drag
                 * and leave a gesture in flight for a card that is going away.
                 *
-                * It is a real button, so this is also the first thing on this
-                * board a keyboard can reach: the cards themselves are moved by
-                * pointer only.
+                * A real button, and until the title became one this was the
+                * only thing on a card a keyboard could reach. Both are now
+                * reachable; moving a card is still pointer-only, which the
+                * board's lede says rather than leaving it to be discovered.
                 */}
               {/*
                 * §54 layers. `/front` already existed and happens on

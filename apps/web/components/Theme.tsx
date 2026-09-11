@@ -1,32 +1,70 @@
 "use client";
 
 /**
- * The theme toggle.
+ * The theme choice.
  *
- * Following the operating system is the right *default* and a poor *only*
- * option. Researchers work in rooms whose light does not match their laptop
- * settings, read at night on a machine set to light, and — the case that
- * actually matters here — build a figure they are about to export.
+ * Dark is the default, and that is a claim about identity rather than about
+ * ambient light. The public site and this app's own landing page are drawn in
+ * one palette — a near-black ground, pale mist text, an amber accent — and a
+ * researcher who followed either of them into the workspace used to arrive
+ * somewhere that looked like a different product, because the default was
+ * `system` and most machines say light. Deferring to the operating system is
+ * the polite answer to "which of our two looks do you want?", and the honest
+ * answer is that there is only supposed to be one.
  *
- * Exports always render light regardless of app theme, so someone working in
- * dark mode is composing a figure they cannot see as it will appear. Being able
- * to flip the whole workspace to light for ten seconds is the cheapest possible
- * fix for that, and it is why this is a three-way control rather than a switch:
- * `system` has to remain reachable, because someone who only ever wanted a peek
- * should be able to give the choice back.
+ * It is a default, not a lock. All three options stay, and each earns its keep:
+ *
+ *  - *light* is one press away, and it has to be, because exports always render
+ *    light regardless of app theme. Someone composing a figure in dark mode
+ *    cannot see it as it will appear, and flipping the workspace for ten
+ *    seconds is the cheapest possible fix for that.
+ *  - *system* stays reachable so someone who only ever wanted a peek can give
+ *    the choice back — including back to a machine that says dark, which is not
+ *    the same state as choosing dark here.
  *
  * The choice is written to `data-theme` on the document element and persisted.
  * CSS resolves it with `:root[data-theme="…"]` rules that outrank the media
  * query, so nothing has to be re-rendered and there is no flash on navigation.
+ *
+ * The default is duplicated in the inline script in `app/layout.tsx`, which has
+ * to run before this module is loaded at all; `tests/theme-default.test.tsx`
+ * runs that script and this function against the same inputs and fails if they
+ * ever disagree.
+ *
+ * Where the choice is *offered* moved in T139. The topbar used to carry a
+ * three-button segmented toggle of its own beside an account avatar — two
+ * controls at the right of every screen, for two questions a researcher asks
+ * about once a session. The three choices are now one row inside the single
+ * account control (`Shell.tsx`), which is why the state and the labels are
+ * exported from here rather than living inside `ThemeToggle`: the toggle and
+ * the menu row are two renderings of one piece of state, and a second copy of
+ * `choose` would be a second place for the storage key to drift.
  */
 
 import { useEffect, useState } from "react";
 
 export type ThemeChoice = "system" | "light" | "dark";
 
-const STORAGE_KEY = "throughline-theme";
+/** Exported so the layout's inline script cannot drift onto another key. */
+export const THEME_STORAGE_KEY = "throughline-theme";
 
-const LABEL: Record<ThemeChoice, string> = {
+/**
+ * What an unconfigured reader gets: the product's own look.
+ *
+ * Exported so a test can state the decision once, rather than each of the two
+ * places that implement it asserting its own version of it.
+ */
+export const DEFAULT_THEME: ThemeChoice = "dark";
+
+/**
+ * The order the three are offered in, darkest first.
+ *
+ * Dark leads because it is the default and the product's own look; "match this
+ * machine" is last because it is the answer that hands the question back.
+ */
+export const THEME_CHOICES: readonly ThemeChoice[] = ["dark", "light", "system"];
+
+export const THEME_LABEL: Record<ThemeChoice, string> = {
   system: "Match this machine",
   light: "Light",
   dark: "Dark",
@@ -48,19 +86,29 @@ export function applyTheme(choice: ThemeChoice): void {
 
 export function readTheme(): ThemeChoice {
   try {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
     if (stored === "light" || stored === "dark" || stored === "system") {
       return stored;
     }
   } catch {
-    // Private browsing, or storage disabled. Following the system is a fine
-    // answer and is what would have happened anyway.
+    // Private browsing, or storage disabled. Nothing was chosen, so the
+    // default applies — the same answer as for a reader who has never touched
+    // the control, which is what a failed read actually means.
   }
-  return "system";
+  return DEFAULT_THEME;
 }
 
-export function ThemeToggle() {
-  const [choice, setChoice] = useState<ThemeChoice>("system");
+/**
+ * The chosen theme, and the one way to change it.
+ *
+ * The initial value is the default the pre-hydration script already used, not
+ * the stored one: reading storage during render would differ from what the
+ * server rendered. The effect corrects it on the first client frame, which is
+ * before anything is painted twice because the *attribute* was stamped by the
+ * head script long before this runs.
+ */
+export function useThemeChoice(): [ThemeChoice, (next: ThemeChoice) => void] {
+  const [choice, setChoice] = useState<ThemeChoice>(DEFAULT_THEME);
 
   useEffect(() => setChoice(readTheme()), []);
 
@@ -68,11 +116,25 @@ export function ThemeToggle() {
     setChoice(next);
     applyTheme(next);
     try {
-      window.localStorage.setItem(STORAGE_KEY, next);
+      window.localStorage.setItem(THEME_STORAGE_KEY, next);
     } catch {
       // The theme still applies for this session; only persistence is lost.
     }
   }
+
+  return [choice, choose];
+}
+
+/**
+ * The standalone segmented toggle.
+ *
+ * No longer rendered in the topbar — the theme is one row inside the account
+ * control now — but kept because it is the smallest complete rendering of the
+ * choice, and because a settings screen or a sign-in page has somewhere to put
+ * three buttons and nowhere to put a menu.
+ */
+export function ThemeToggle() {
+  const [choice, choose] = useThemeChoice();
 
   return (
     <div className="theme-toggle" role="group" aria-label="Colour theme">
@@ -82,13 +144,13 @@ export function ThemeToggle() {
           type="button"
           className="theme-option"
           aria-pressed={choice === option}
-          title={LABEL[option]}
+          title={THEME_LABEL[option]}
           onClick={() => choose(option)}
         >
           <span aria-hidden>
             {option === "system" ? "◐" : option === "light" ? "☀" : "☾"}
           </span>
-          <span className="sr-only">{LABEL[option]}</span>
+          <span className="sr-only">{THEME_LABEL[option]}</span>
         </button>
       ))}
     </div>

@@ -41,12 +41,75 @@ const REPORT = {
 describe("how fragile is this", () => {
   beforeEach(() => vi.restoreAllMocks());
 
-  it("leads with the number", async () => {
+  it("shows the number, labelled, under the sentence", async () => {
     vi.spyOn(api, "get").mockResolvedValue(REPORT as never);
 
     render(<Fragility connectionId="con_1" />);
 
     expect(await screen.findByText("1.42")).toBeTruthy();
+    // Labelled in words, and glossed on first use (D207): a bare 1.42 is a
+    // quantity with no claim attached.
+    // The label above the figure, not the server's own sentence lower down.
+    expect(screen.getByText("E-value")).toBeTruthy();
+    expect(screen.getByText(
+      /how much stronger than everything measured an unmeasured cause/))
+      .toBeTruthy();
+  });
+
+  it("answers the heading with a sentence before it shows a number", async () => {
+    /**
+     * Item 2.11, and ResultCard's law applied here: the panel answered "how
+     * fragile is this?" with a 2.4rem "1.42" and put the sentence that made
+     * it mean something underneath, where it reached a reader who had already
+     * formed an impression of the number.
+     */
+    vi.spyOn(api, "get").mockResolvedValue(REPORT as never);
+
+    const { container } = render(<Fragility connectionId="con_1" />);
+    await screen.findByText("1.42");
+
+    const first = container.querySelector("section.fragility h2 + p");
+    const text = first?.textContent?.trim() ?? "";
+    expect(text).not.toMatch(/^[\d.]/);
+    expect(text.split(/\s+/).length).toBeGreaterThanOrEqual(8);
+    // The number the sentence carries is the server's, said in words rather
+    // than recomputed.
+    expect(text).toMatch(/1.42 times stronger/);
+  });
+
+  it("says a fragile result would not take much, in the same sentence", async () => {
+    vi.spyOn(api, "get").mockResolvedValue(
+      { ...REPORT, headline: 1.05 } as never);
+
+    render(<Fragility connectionId="con_1" />);
+
+    expect(await screen.findByText(/would be enough to explain this away/))
+      .toBeTruthy();
+  });
+
+  it("keeps the assumptions closed, behind a summary that says what they are",
+     async () => {
+    /**
+     * Principle 4 — depth may be layered, but a closed summary has to state
+     * what is inside it, or the layering is a hide.
+     *
+     * The summary used to spell the count into its own sentence ("— 2
+     * assumptions behind the conversion"). It is the workspace's `Fold` now
+     * (T139), so the noun phrase is the label and the count is on
+     * `data-count`, drawn by the one CSS rule that draws every count in the
+     * product. The behaviour held here is unchanged — closed, and saying how
+     * much is inside — only the place the number is written has moved.
+     */
+    vi.spyOn(api, "get").mockResolvedValue(REPORT as never);
+
+    const { container } = render(<Fragility connectionId="con_1" />);
+    await screen.findByText("1.42");
+
+    const details = container.querySelector("details.fold");
+    expect(details?.hasAttribute("open")).toBe(false);
+    const summary = details?.querySelector("summary");
+    expect(summary?.textContent).toMatch(/What this number rests on/);
+    expect(summary?.getAttribute("data-count")).toBe("2");
   });
 
   it("names both variables the confounder would have to touch", async () => {

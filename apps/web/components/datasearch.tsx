@@ -22,10 +22,18 @@
  * search response, so an empty file list there means the repository did not
  * say, not that the record has none. Those are rendered as an open question in
  * different words from a real blocker.
+ *
+ * **A usable record can be added, and an unusable one says why instead.** The
+ * rail entry beside this one imports a paper in a click; this screen's only
+ * onward control was a link out to the repository, so a researcher who found
+ * the data left the product to fetch it (D202, plan §4.14.1). The refusal case
+ * was already designed — the dimmed record above with its blocker named — so
+ * the offer is made only where the record is usable, and the reason it is not
+ * offered is the sentence already on the row.
  */
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 import { Empty, Failure, Loading } from "./primitives";
 import { SourceChip, SourceMark } from "./SourceMark";
 
@@ -76,12 +84,88 @@ function bytes(value: number | null): string {
   return `${n < 10 && i > 0 ? n.toFixed(1) : Math.round(n)} ${units[i]}`;
 }
 
-export function DataSearch() {
+/** What the import route returns — the same shape as an uploaded file. */
+type Imported = {
+  source_id: string;
+  workflow_run_id: string;
+  ingestion_status: string;
+};
+
+export function DataSearch({ projectId, onImported }: {
+  /**
+   * The project a record would be added to.
+   *
+   * Optional because this screen searches repositories whether or not a
+   * project is open, and a control that cannot work is worse than an absent
+   * one (§123). With no project id the search is unchanged and no "Add to this
+   * project" appears — there is no project for it to name.
+   */
+  projectId?: string;
+  /**
+   * Called with the new source's id once a record has been imported.
+   *
+   * The screen says the record is in Sources; this is how the caller makes
+   * that true — reload the source list, or open the source it just made.
+   */
+  onImported?: (sourceId: string) => void;
+}) {
   const [query, setQuery] = useState("");
   const [repositories, setRepositories] = useState<Repository[] | null>(null);
   const [results, setResults] = useState<Results | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  /*
+   * What has been added, and what the server said when adding failed — both
+   * keyed by the record's own key, because the refusal belongs on the row it
+   * refused and a single screen-level error message would name no record at
+   * all (§104).
+   */
+  const [imported, setImported] = useState<Map<string, Imported>>(new Map());
+  const [refused, setRefused] = useState<Map<string, string>>(new Map());
+  const [adding, setAdding] = useState<string | null>(null);
+
+  /**
+   * Add one record to the project.
+   *
+   * The body is the four things the importer needs and nothing else: where the
+   * file is, what to call it, which repository it came from, and the licence
+   * the repository stated. Everything after that — allowlist, file type, size
+   * cap — is checked on the server, and its refusal sentence is what the row
+   * shows, because this browser cannot know which hosts the installation
+   * searches.
+   */
+  async function add(key: string, record: Dataset) {
+    if (!projectId) return;
+    setAdding(key);
+    setRefused((current) => {
+      const next = new Map(current);
+      next.delete(key);
+      return next;
+    });
+    try {
+      const result = await api.post<Imported>(
+        `/api/projects/${projectId}/datasets/import`, {
+          url: record.url,
+          title: record.title,
+          repository: record.repository,
+          // Not `|| null` on a falsy string only: "not stated" is a real fact
+          // about the record, and the empty string the search returns for it
+          // is not a licence.
+          licence: record.licence ? record.licence : null,
+        });
+      setImported((current) => new Map(current).set(key, result));
+      onImported?.(result.source_id);
+    } catch (err) {
+      // §104 — the server's own sentence names the reason: a host that is not
+      // one of the repositories this installation searches, a file that is not
+      // tabular, a file over the cap. Any of those is information; "could not
+      // add" is not.
+      setRefused((current) => new Map(current).set(
+        key, err instanceof ApiError ? err.message : String(err)));
+    } finally {
+      setAdding(null);
+    }
+  }
 
   useEffect(() => {
     api.get<{ repositories: Repository[] }>("/api/datasets/repositories")
@@ -117,7 +201,9 @@ export function DataSearch() {
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => { if (event.key === "Enter") void search(); }}
         />
-        <button className="nj-primary" disabled={busy} onClick={() => void search()}>
+        {/* Plain, for the reason Find papers is: the filled control belongs to
+            the step strip, which is on this screen too (T139). */}
+        <button className="btn" disabled={busy} onClick={() => void search()}>
           {busy ? "Searching…" : "Search"}
         </button>
       </div>
@@ -169,8 +255,12 @@ export function DataSearch() {
                   const use = record.usability;
                   const formats = [...new Set(record.files.map((f) => f.format)
                     .filter(Boolean))];
+                  // The same key the list is drawn with, so what was added and
+                  // what was refused stay attached to the row they belong to.
+                  const key = `${record.repository}-${record.doi ?? index}`;
+                  const added = imported.get(key);
                   return (
-                    <li key={`${record.repository}-${record.doi ?? index}`}>
+                    <li key={key}>
                       {/* Unusable records stay visible and dimmed. Filtering
                           them would hide the reason a promising title is
                           not actually usable. */}
@@ -272,7 +362,53 @@ export function DataSearch() {
                             <a href={record.url} target="_blank"
                                rel="noreferrer noopener">Open record</a>
                           )}
+
+                          {/*
+                            §4.14.1 — the same affordance and the same word as
+                            Find papers' Add (`literature.tsx:428-434`), because
+                            it is the same act on the rail entry beside it. The
+                            wording is longer here for one reason: a dataset row
+                            already carries an "Open record" link out to the
+                            repository, and "Add" beside it read as "add to a
+                            list on this screen".
+                          */}
+                          {projectId && use.usable && (
+                            <button
+                              className="btn"
+                              disabled={added !== undefined || adding === key}
+                              onClick={() => void add(key, record)}
+                            >
+                              {added !== undefined ? "In this project"
+                                : adding === key ? "Adding…"
+                                : "Add to this project"}
+                            </button>
+                          )}
                         </footer>
+
+                        {/*
+                          Where it went, in words. "Added" alone leaves a
+                          researcher looking for it, and the answer — Sources,
+                          the same door an uploaded file comes through — is the
+                          one thing that makes this screen part of the loop
+                          rather than a search box beside it.
+                        */}
+                        {added && (
+                          <p className="note" role="status"
+                             style={{ margin: "6px 0 0" }}>
+                            In Sources now, being read like any file you
+                            upload. Its ingestion state is{" "}
+                            <span className="mono">{added.ingestion_status}</span>.
+                          </p>
+                        )}
+
+                        {refused.get(key) && (
+                          // The server's sentence, in place, as a sentence —
+                          // never a disabled button and never a toast.
+                          <p className="ds-blocked" role="alert"
+                             style={{ margin: "6px 0 0" }}>
+                            Not added: {refused.get(key)}
+                          </p>
+                        )}
                       </article>
                     </li>
                   );

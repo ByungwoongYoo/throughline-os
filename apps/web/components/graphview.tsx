@@ -8,7 +8,7 @@
  * and screen-reader path, and it stays in sync because both read one array.
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useApi } from "@/lib/useApi";
 import { Empty, Failure, Loading } from "./primitives";
@@ -41,9 +41,16 @@ type GraphPayload = {
   note?: string | null;
 };
 
-export function GraphView({ projectId, onSelect }: {
+export function GraphView({ projectId, onSelect, focus = null }: {
   projectId: string;
   onSelect: (id: string) => void;
+  /**
+   * An object to open on arrival: the one a journal entry named, or the one
+   * the address bar carries after a reload. Without it a hand-off from another
+   * screen landed on the graph and nothing else — the object the researcher
+   * had clicked was somewhere in the layout, unmarked (D195).
+   */
+  focus?: string | null;
 }) {
   const [limit, setLimit] = useState(120);
   const graph = useApi<GraphPayload>(
@@ -51,7 +58,11 @@ export function GraphView({ projectId, onSelect }: {
   const [selected, setSelected] = useState<GraphNode | null>(null);
   // The node the journal is open on. Kept as an id rather than a node, so a
   // provenance link can open something the current view has not laid out.
-  const [journalOn, setJournalOn] = useState<string | null>(null);
+  const [journalOn, setJournalOn] = useState<string | null>(focus);
+
+  // Follow a later hand-off too, not only the first: the journal can name a
+  // second object while this view is already mounted.
+  useEffect(() => { if (focus) setJournalOn(focus); }, [focus]);
 
   // Double-click expands the neighbourhood. With no per-node expansion endpoint
   // yet, this raises the bound — honest, and it keeps the gesture live rather

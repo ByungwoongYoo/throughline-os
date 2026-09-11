@@ -45,6 +45,23 @@ function when(stamp: string) {
   return new Date(stamp).toLocaleString();
 }
 
+/**
+ * The date, only where it changes.
+ *
+ * Nineteen rows created inside the same minute printed the same date nineteen
+ * times — fifty-odd words of identical text down the leftmost column, which is
+ * the "writing writing writing" this screen was counted for (T139). The date
+ * is on the first row of each day and on nothing else, so the column reads as
+ * a day with times under it. Nothing is lost: the full stamp is on the cell's
+ * `title`, and the span of the whole record is stated above the table.
+ */
+function stamp(entry: Entry, previous: Entry | undefined) {
+  const at = new Date(entry.created_at);
+  const day = at.toLocaleDateString();
+  const before = previous ? new Date(previous.created_at).toLocaleDateString() : null;
+  return { day: day === before ? null : day, time: at.toLocaleTimeString() };
+}
+
 export function ProjectActivity({ projectId }: { projectId: string }) {
   const [before, setBefore] = useState<string | null>(null);
   const query = before ? `?before=${encodeURIComponent(before)}` : "";
@@ -102,9 +119,14 @@ export function ProjectActivity({ projectId }: { projectId: string }) {
             </tr>
           </thead>
           <tbody>
-            {entries.map((e) => (
+            {entries.map((e, i) => (
               <tr key={e.id}>
-                <td className="mono">{when(e.created_at)}</td>
+                <td className="mono" title={when(e.created_at)}>
+                  {(() => {
+                    const { day, time } = stamp(e, entries[i - 1]);
+                    return day ? <>{day}<br />{time}</> : time;
+                  })()}
+                </td>
                 <td>{e.actor}</td>
                 <td>{e.action}</td>
                 <td className="mono">

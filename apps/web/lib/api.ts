@@ -237,6 +237,22 @@ export type Source = {
    */
   metadata?: { injection_signals?: string[] } & Record<string, unknown>;
   /**
+   * Where a dataset came from, when it was not a file somebody dropped on the
+   * window (D211).
+   *
+   * Find data brings a record in from a repository, and the import records all
+   * four: which connector fetched it, the record at its origin, the
+   * repository's name and the licence it stated. An uploaded file has none of
+   * them and every one arrives null — not "", which would print as a
+   * provenance line with nothing in it. `original_uri` is what makes the
+   * provenance checkable rather than merely asserted: the researcher can open
+   * the record and read it themselves.
+   */
+  connector_id?: string | null;
+  original_uri?: string | null;
+  repository?: string | null;
+  licence?: string | null;
+  /**
    * When this source was withdrawn upstream, and why.
    *
    * Harvesting marks a source withdrawn rather than deleting it, because
@@ -360,6 +376,12 @@ export type DiscoveryMap = {
   connections: Record<string, number>;
   top_connections: Connection[];
   recommended_next_action: string;
+  /**
+   * Which loop step the recommendation is about, as an id the interface can
+   * act on (`lib/loop.ts`), beside the sentence a person reads. Absent from
+   * older servers, and null when nothing is left to do or work is in flight.
+   */
+  recommended_step?: "sources" | "profile" | "discover" | "validate" | "record" | "communicate" | null;
 };
 
 /**

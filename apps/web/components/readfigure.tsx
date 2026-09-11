@@ -68,7 +68,16 @@ type Values = Record<RefKey, string>;
 
 const NO_VALUES: Values = { x1: "", x2: "", y1: "", y2: "" };
 
-export function ReadFigure({ projectId }: { projectId: string }) {
+export function ReadFigure({ projectId, onAdded }: {
+  projectId: string;
+  /**
+   * Called with the new source's id once the digitised points are in the
+   * project. Without a way in, this screen ended at a download (D206): the
+   * numbers a researcher had just recovered from a picture left the product
+   * instead of entering it.
+   */
+  onAdded?: (sourceId: string) => void;
+}) {
   const [file, setFile] = useState<File | null>(null);
   const [url, setUrl] = useState<string | null>(null);
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
@@ -150,16 +159,53 @@ export function ReadFigure({ projectId }: { projectId: string }) {
     }
   }
 
-  const csv = useMemo(() => {
+  // The table as rows, with no comment line: a leading "# …" would become the
+  // header of the dataset the project profiles. The provenance travels in the
+  // source's title instead, where a reader of the Sources list meets it.
+  const table = useMemo(() => {
     if (!reading?.series.length) return null;
-    const rows = [
-      "# " + reading.provenance,
+    return [
       "x,y,x_error,y_error",
       ...reading.series.map((p) =>
         [p.x, p.y, p.x_error, p.y_error].map((n) => String(n)).join(",")),
     ].join("\n");
-    return "data:text/csv;charset=utf-8," + encodeURIComponent(rows);
   }, [reading]);
+
+  const csv = useMemo(() => {
+    if (!reading?.series.length || !table) return null;
+    return "data:text/csv;charset=utf-8,"
+      + encodeURIComponent("# " + reading.provenance + "\n" + table);
+  }, [reading, table]);
+
+  const [adding, setAdding] = useState(false);
+  const [added, setAdded] = useState<string | null>(null);
+  const [addError, setAddError] = useState<unknown>(null);
+
+  /**
+   * Put the digitised points into the project as a dataset, through the same
+   * door a dropped file uses. The title says what it is — read from pixels,
+   * not measured — so the Sources list and every figure drawn from it carry
+   * the caveat without anyone having to remember it.
+   */
+  async function addToProject() {
+    if (!table || !file) return;
+    setAdding(true);
+    setAddError(null);
+    try {
+      const name = `digitised from ${file.name} (read from pixels, not measured).csv`;
+      // The upload route answers `source_id` (and `deduplicated` when the same
+      // bytes were already in the project); it is not a source row.
+      const source = await api.upload<{ source_id: string }>(
+        `/api/projects/${projectId}/sources`,
+        new File([table], name, { type: "text/csv" }));
+      setAdded(source.source_id);
+      onAdded?.(source.source_id);
+    } catch (failure) {
+      setAddError(failure);
+    } finally {
+      setAdding(false);
+    }
+  }
 
   return (
     <section className="readfig">
@@ -291,10 +337,18 @@ export function ReadFigure({ projectId }: { projectId: string }) {
                 </tbody>
               </table>
               {csv && (
-                <a className="btn" href={csv} download="digitised.csv">
-                  Download as CSV
-                </a>
+                <div className="row" style={{ gap: 8, justifyContent: "flex-start", marginTop: 10 }}>
+                  <button type="button" className="btn btn-primary"
+                          onClick={() => void addToProject()}
+                          disabled={adding || added !== null}>
+                    {added ? "Added to this project" : adding ? "Adding…" : "Add to this project as a dataset"}
+                  </button>
+                  <a className="btn" href={csv} download="digitised.csv">
+                    Download as CSV
+                  </a>
+                </div>
               )}
+              {addError != null && <Failure error={addError} />}
             </>
           )}
           <p className="note">{reading.provenance}</p>

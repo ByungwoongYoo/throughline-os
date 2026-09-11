@@ -24,7 +24,7 @@
 import { useState } from "react";
 import { ApiError, api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
-import { Empty, Failure, Loading } from "./primitives";
+import { Empty, Failure, Fold, Loading } from "./primitives";
 
 type Probe = {
   name?: string;
@@ -105,6 +105,9 @@ export function Challenges({ projectId, findingId }: {
 
   if (data.challenges.length === 0) {
     return (
+      // "none" on the summary, which is the fact; the sentence that keeps it
+      // from being read as "this finding is sound" is the first thing inside.
+      <Fold summary="Challenges to this finding" count={0}>
       <Empty
         title="Nothing has challenged this finding"
         // Not "this finding is sound". Nobody has argued against it, which is a
@@ -113,13 +116,17 @@ export function Challenges({ projectId, findingId }: {
         hint="No critic has run against it yet. That is not the same as it having survived one."
         action={<RunChallenge findingId={findingId} onFinished={reload} />}
       />
+      </Fold>
     );
   }
 
   return (
     <section aria-labelledby="challenges-heading">
       <h2 id="challenges-heading">Challenges</h2>
-      <p className="note">{data.note}</p>
+      <Fold summary="What a challenge is, and what surviving one means"
+            count={data.challenges.length}>
+        <p className="note" style={{ marginTop: 0 }}>{data.note}</p>
+      </Fold>
 
       {/* Running it again is legitimate: the evidence behind a finding changes,
           and a verdict from before that change is a verdict about a different

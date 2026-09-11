@@ -101,11 +101,39 @@ function save(bytes: Uint8Array, filename: string, type: string) {
   URL.revokeObjectURL(url);
 }
 
-export function PublishFigure({ projectId, analysisRunId, spec, findingId }: {
+export function PublishFigure({ projectId, analysisRunId, spec, findingId,
+                                emphasis = "primary" }: {
   projectId: string;
   analysisRunId: string;
+  /**
+   * How much weight this control takes.
+   *
+   * §4.12 gave it `btn-primary` so it would not read as the equal of the DOM
+   * save sitting under it on the Figures screen — the path that drops the
+   * VISUALIZES edge, the critic and the journal formats. That argument holds
+   * exactly where the pair is on screen together. On the finding's "Take it
+   * further" card there is no save beside it and the step strip above already
+   * carries the page's one primary, so the caller there asks for the plain
+   * button (T139) and nothing it was distinguished from is on screen to be
+   * confused with it.
+   */
+  emphasis?: "primary" | "secondary";
   /** The recommendation's spec, when the researcher is looking at one. */
   spec?: Record<string, unknown> | null;
+  /**
+   * The finding this figure illustrates, when there is one.
+   *
+   * Documented and passed to `POST /visuals` since this panel was written, and
+   * for that whole time no caller supplied it — the Figures screen draws a
+   * *run*, and knows no finding. A declared prop with nowhere to land is this
+   * repository's own named recurring defect (`CardDetail.tsx:6-9`), and it was
+   * recurring on the object researchers most want to communicate. §4.6.1's
+   * "Take it further" card is the caller: `takeitfurther.tsx` passes the
+   * finding it is mounted on, so the figure is recorded against it.
+   *
+   * Still optional, because the Figures screen is a legitimate caller that has
+   * no finding to give.
+   */
   findingId?: string | null;
 }) {
   const [created, setCreated] = useState<Created | null>(null);
@@ -186,7 +214,9 @@ export function PublishFigure({ projectId, analysisRunId, spec, findingId }: {
   if (!created) {
     return (
       <div>
-        <button className="btn" disabled={busy} onClick={() => void prepare()}>
+        {/* See `emphasis` above: primary where the DOM save is beside it. */}
+        <button className={emphasis === "primary" ? "btn btn-primary" : "btn"}
+                disabled={busy} onClick={() => void prepare()}>
           {busy ? "Checking the figure…" : "Export for publication"}
         </button>
         {error && <div className="notice" role="alert">{error}</div>}

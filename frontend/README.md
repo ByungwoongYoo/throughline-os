@@ -16,11 +16,34 @@ is 2.2 MB of regenerable screenshots.
 
 ## Deploying it
 
+Three directories are called some variant of `dist` and only one of them is
+uploaded. This cost a whole session once, so it is stated first:
+
+| Directory | Written by | Uploaded? |
+|---|---|---|
+| `frontend/dist/` | `mkharness.mjs` | **No** — the page alone, no downloads beside it |
+| `dist/` | `python scripts/manage.py release` | **No** — the release alone, no page |
+| `dist-upload/` | assembled by hand from the two above | **Yes** — this is the site |
+
+The page and the release have to be served from one origin, because the
+download buttons point at paths on the site itself. Either directory uploaded
+on its own is a broken site: the page without the release gives every button a
+404, and the release without the page gives the visitor nothing to press.
+`dist-upload/` is gitignored, so a fresh clone does not have it and nothing in
+git will remind you it exists.
+
 ```bash
 node frontend/assemble.mjs                                    # sources -> Main.dc.html
 node frontend/tools/mkharness.mjs \
-  frontend/Main.dc.html frontend/dist/index.html              # -> the page you upload
+  frontend/Main.dc.html frontend/dist/index.html              # -> the page
+python scripts/manage.py release                              # -> dist/
+mkdir -p dist-upload && cp dist/* frontend/dist/index.html dist-upload/
+rm -f dist-upload/throughline.rb                              # Homebrew, not web
 ```
+
+Then upload **`dist-upload/`** as the whole site root. Delete any previous
+release's tarball from it first, or the site serves two versions and `latest.json`
+names only one of them.
 
 **Upload `index.html` from that second command — not `Main.dc.html`.** This was
 got wrong once and the symptom is worth knowing, because it does not look like a
@@ -45,7 +68,8 @@ exists for. Override the host when assembling:
 TL_RELEASES=https://downloads.example.com node frontend/assemble.mjs
 ```
 
-The host must serve what `python scripts/manage.py release` writes into `dist/`:
+The host is the site's own origin, so `dist-upload/` must carry everything
+`python scripts/manage.py release` writes into `dist/` alongside the page:
 
 | File | What it is |
 |---|---|
@@ -58,7 +82,18 @@ The host must serve what `python scripts/manage.py release` writes into `dist/`:
 
 `tests/test_landing_downloads.py` fails if the page links a file the release
 does not publish, because those are two lists in two languages that must name
-the same things, and nothing else connects them.
+the same things, and nothing else connects them. It does **not** check
+`dist-upload/`, and cannot: that directory is gitignored and exists only on the
+machine that deploys. Verify the upload against the live site instead —
+
+```bash
+curl -sI https://throughline-research.pages.dev/install.sh | head -3
+```
+
+should answer `200` with `content-type: text/plain`, which is `_headers` doing
+its job. If it downloads instead of displaying, `_headers` did not reach the
+root of the deployment. T086 would end the hand-assembly by publishing on a tag
+push.
 
 **`__TL_GITHUB__` still points at a private repository.** For a public page that
 button is a 404 with a promise on it; decide whether to remove it or point it

@@ -226,6 +226,8 @@ def test_an_already_running_throughline_is_opened_not_restarted(monkeypatch, cap
     is already up, the right outcome is to open it — not to refuse, and not to
     kill it. Killing would end whatever analysis was mid-flight and surprise
     anyone with the app open in a tab, to fix a problem that opening solves.
+    What is opened is the product at `/workspace`, not the marketing landing
+    page at `/` (D198).
     """
     opened: list[str] = []
     monkeypatch.setattr(manage, "_throughline_at", lambda port: True)
@@ -235,7 +237,8 @@ def test_an_already_running_throughline_is_opened_not_restarted(monkeypatch, cap
     monkeypatch.setattr(manage, "_spawn", lambda *a, **k: started.append(a))
 
     assert manage.dev(api_port=8080, web_port=3000, open_browser=True) == 0
-    assert opened == ["http://localhost:8080"], "it did not open what was running"
+    assert opened == ["http://localhost:8080/workspace"], \
+        "it did not open what was running"
     assert started == [], "it started a second copy alongside the running one"
     assert "already running" in capsys.readouterr().out
 
@@ -310,3 +313,27 @@ def test_nothing_in_start_ever_kills_a_process_it_did_not_start():
         assert weapon not in body, (
             f"`dev` calls {weapon}; nothing here should signal a process it "
             "did not start")
+
+
+def test_the_launcher_opens_the_product_not_the_landing_page():
+    """D198: `/` is the marketing landing page — a scroll animation and an
+    "Open the workspace →" button — meant for somebody who has not installed
+    Throughline yet, and it is deployed separately at
+    throughline-research.pages.dev. Somebody who *has* installed Throughline
+    and launches it (the second time, the hundredth time) should land at the
+    door of the product, `/workspace`, not be routed back through the pitch.
+
+    This scans the body of `dev()` rather than pinning line numbers, so a
+    fourth call to `_open_when_ready` added later — another branch, another
+    fallback — is caught here instead of silently reopening the landing page.
+    """
+    source = (ROOT / "scripts" / "manage.py").read_text()
+    body = source[source.index("def dev("):]
+    body = body[:body.index("\ndef ", 10)]
+
+    calls = [line.strip() for line in body.splitlines()
+             if "_open_when_ready(" in line and not line.strip().startswith("#")]
+    assert calls, "dev() no longer calls _open_when_ready at all"
+    for call in calls:
+        assert "/workspace" in call, (
+            f"_open_when_ready call does not open the workspace: {call}")

@@ -13,10 +13,25 @@ here is bounded and expands from a focus node outward.
 from __future__ import annotations
 
 from typing import Any, Sequence
-from throughline_schemas.words import counted
+from throughline_schemas.enums import WorkflowState
+from throughline_schemas.words import counted, plural
 
 #:  — a hard ceiling, not a suggestion.
 MAX_NODES = 300
+
+#: Workflow states the machine is still working through, for `counts.in_flight`.
+#: The same three `claim_next` will pick up — queued and retrying are waiting
+#: for a worker, running is either leased or about to be reclaimed — so this
+#: agrees with what the worker itself treats as unfinished.
+#:
+#: `awaiting_user` and `awaiting_approval` are deliberately excluded. Those wait
+#: on a person, not on the machine, and a client that polls until this reaches
+#: zero would poll for as long as nobody answered.
+IN_FLIGHT_WORKFLOW_STATES = (
+    WorkflowState.QUEUED,
+    WorkflowState.RUNNING,
+    WorkflowState.RETRYING,
+)
 
 
 def knowledge_graph(
@@ -248,6 +263,23 @@ def discovery_map(cur, *, project_id: str) -> dict[str, Any]:
         cur.execute(query, (project_id,))
         counts[label] = int(cur.fetchone()["n"])
 
+    # Whether the machine is still working, which the screen could not ask.
+    # The overview is drawn while the pipeline behind a new project is still
+    # running, and with no way to tell "nothing here" from "not yet" it showed
+    # the empty counts as though they were the answer and advised on them —
+    # "add a dataset" while the dataset was being profiled (D194). A client
+    # polls the map while this is above zero.
+    #
+    # Scoped by project like every other count: a run with no project of its
+    # own — `system.echo`, a connector sync — belongs to no project's overview,
+    # and `project_id = %s` never matches NULL.
+    cur.execute(
+        "SELECT COUNT(*) AS n FROM workflow_runs WHERE project_id = %s "
+        "AND state = ANY(%s)",
+        (project_id, [str(state) for state in IN_FLIGHT_WORKFLOW_STATES]),
+    )
+    counts["in_flight"] = int(cur.fetchone()["n"])
+
     cur.execute(
         "SELECT lifecycle_status, COUNT(*) AS n FROM findings WHERE project_id = %s "
         "GROUP BY lifecycle_status",
@@ -289,42 +321,116 @@ def discovery_map(cur, *, project_id: str) -> dict[str, Any]:
     )
     top_connections = list(cur.fetchall())
 
+    # One ladder, read once. The sentence a person reads and the step a screen
+    # acts on are chosen by the same rung, so a control can never open
+    # somewhere other than where the sentence above it says to go.
+    step, action = _recommendation(
+        counts, findings_by_status, connections_by_status,
+        candidates_without_evidence=candidates_without_evidence,
+        in_flight=counts["in_flight"])
+
     return {
         "counts": counts,
         "findings": findings_by_status,
         "connections": connections_by_status,
         "top_connections": top_connections,
-        "recommended_next_action": _recommend(
-            counts, findings_by_status, connections_by_status,
-            candidates_without_evidence=candidates_without_evidence),
+        "recommended_next_action": action,
+        "recommended_step": step,
     }
 
 
 def _recommend(counts: dict[str, Any], findings: dict[str, int],
                connections: dict[str, int], *,
-               candidates_without_evidence: int = 0) -> str:
+               candidates_without_evidence: int = 0,
+               in_flight: int = 0) -> str:
     """One concrete next step, chosen from the project's actual state."""
+    return _recommendation(
+        counts, findings, connections,
+        candidates_without_evidence=candidates_without_evidence,
+        in_flight=in_flight)[1]
+
+
+def _recommendation(counts: dict[str, Any], findings: dict[str, int],
+                    connections: dict[str, int], *,
+                    candidates_without_evidence: int = 0,
+                    in_flight: int = 0) -> tuple[str | None, str]:
+    """The next step twice over: which loop step it is, and how to say it.
+
+    The sentence is what the overview reads out. The step is the same advice
+    in the vocabulary the interface can act on — the six steps of the research
+    loop (`sources`, `profile`, `discover`, `validate`, `record`,
+    `communicate`; `apps/web/lib/loop.ts` owns the ids), so a screen can open
+    the right place and label the right button without parsing prose. `None`
+    where naming a step would be a worse answer than naming none.
+
+    Both come off one ladder deliberately. A second ladder choosing the step
+    is a button that opens somewhere the sentence above it did not send
+    anybody, and this file's argument throughout is that advice which is wrong
+    is worse than no advice at all.
+    """
+    # Above every other rung, because a project whose work is still running has
+    # not finished telling this function what its state is. Read mid-pipeline,
+    # the ladder below sends a researcher to add the dataset that is being
+    # profiled as they read it — and advice that is wrong is worse than none,
+    # which is the whole argument of this file.
+    #
+    # No step, for the same reason: the machine is working and there is nothing
+    # for a person to take yet. A step here would put a button under a sentence
+    # whose whole content is "wait".
+    if in_flight:
+        return None, (f"{counted(in_flight, 'step')} {plural(in_flight, 'is', 'are')} "
+                      "still running in the background — this screen updates as each "
+                      "one finishes.")
     if not counts["sources"]:
-        return "Add sources: upload papers or a dataset to begin."
+        return "sources", "Add sources: upload papers or a dataset to begin."
     if not counts["datasets"]:
-        return "Add a dataset — discovery needs tabular data to test relationships."
+        # `profile`, not `sources`. The dataset is a step of its own even though
+        # it is taken on the Sources screen, and it is the one whose control
+        # says "Add a dataset" rather than the one that says "Add sources" —
+        # which is the difference this sentence is drawing.
+        return "profile", ("Add a dataset — discovery needs tabular data to test "
+                           "relationships.")
     if not counts["analyses"]:
-        return "Run discovery on a dataset to generate candidate relationships."
+        return "discover", ("Run discovery on a dataset to generate candidate "
+                            "relationships.")
     if connections.get("exploratory"):
-        return (f"{counted(connections['exploratory'], 'exploratory connection')} are awaiting "
-                "robustness validation. Supply candidate confounders and validate them.")
+        return "validate", (
+            f"{counted(connections['exploratory'], 'exploratory connection')} "
+            f"{'is' if connections['exploratory'] == 1 else 'are'} awaiting "
+            "robustness validation. Supply candidate confounders and validate them.")
     if connections.get("validated") and not findings:
-        return ("Validated connections exist but no findings have been recorded. "
-                "Turn the strongest into a finding with its evidence.")
+        return "record", ("Validated connections exist but no findings have been recorded. "
+                          "Turn the strongest into a finding with its evidence.")
     if candidates_without_evidence:
-        return (f"{counted(candidates_without_evidence, 'finding')} still need "
-                "evidence before promotion.")
+        # `record`, rather than a step of its own, because recording is how a
+        # finding gets evidence: it is recorded *from* a result, which is why
+        # the control lives on the connection and not on the findings list
+        # (`recordfinding.tsx`). "Go and add evidence" names no other place.
+        return "record", (f"{counted(candidates_without_evidence, 'finding')} still need "
+                          "evidence before promotion.")
     if findings.get("candidate"):
         # Has its evidence and has not moved. Telling this researcher to go
         # and find evidence sends them looking for something they already
         # have, which is worse than saying nothing.
-        return (f"{counted(findings['candidate'], 'finding')} have their "
-                "evidence recorded. Promote the ones that hold to exploratory.")
+        #
+        # Still `record`: what moves is the finding, and the finding is that
+        # step's object. `communicate` would offer to draft a report out of a
+        # result this very sentence has not yet judged fit to promote.
+        return "record", (f"{counted(findings['candidate'], 'finding')} have their "
+                          "evidence recorded. Promote the ones that hold to exploratory.")
     if findings.get("validated"):
-        return "Challenge the validated findings before communicating them."
-    return "Review the project's contradictions and gaps."
+        # `validate` — the loop's step for trying to destroy what survived. A
+        # challenge is that test aimed at a finding rather than at a
+        # connection, down to the confounders it takes, so the act is the same
+        # one even though the control ranks a connection to aim it at.
+        #
+        # Not `communicate`: this sentence withholds exactly that until the
+        # challenge is done, and naming no step is no better here, because the
+        # client then falls through to its own first-unfinished step, which at
+        # this point in the loop is the report being withheld.
+        return "validate", "Challenge the validated findings before communicating them."
+    # No step. Nothing in the loop is outstanding; this rung is a look back over
+    # the project rather than one of the six, and contradictions and gaps are
+    # read across everything rather than taken on a screen. A step here would
+    # attach a confident button to the vaguest sentence the ladder can produce.
+    return None, "Review the project's contradictions and gaps."

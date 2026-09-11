@@ -22,7 +22,7 @@ import { Cartesian, CartesianMark, Datum } from "./charts/Cartesian";
 import { Estimate, Interval } from "./charts/Interval";
 import { Cell, Matrix } from "./charts/Matrix";
 import { Density, DensityCurve } from "./charts/Density";
-import { Empty, Failure, Loading } from "./primitives";
+import { Empty, Failure, Fold, Loading } from "./primitives";
 import { SavedFigures } from "./savedfigures";
 import { PublishFigure } from "./publish";
 import { MapView, mappable } from "./mapview";
@@ -154,9 +154,11 @@ function transformOf(scale?: string): string | undefined {
 }
 
 
-export function Figures({ projectId, runs }: {
+export function Figures({ projectId, runs, focusId = null }: {
   projectId: string;
   runs: ApiState<AnalysisRunRow[]>;
+  /** A saved figure to land on — the one the palette or the address named. */
+  focusId?: string | null;
 }) {
   const [chosen, setChosen] = useState<string | null>(null);
   const [view, setView] = useState<"one" | "all" | "matrix" | "spread" | "map">("all");
@@ -209,10 +211,18 @@ export function Figures({ projectId, runs }: {
     <>
       <h1>Figures</h1>
       <p className="lede">
-        The chart is chosen from the shape of the data and the question, and the
-        reason is shown with it. Every figure exports as a vector, and the numbers
-        behind it are one click away.
+        The chart is chosen from the shape of the data and the question.
       </p>
+      <Fold summary="How a figure is chosen and what comes with it" count={2}>
+        <p className="note" style={{ marginTop: 0 }}>
+          The reason for the chart is shown with it, so a figure is never a
+          choice somebody has to take on trust.
+        </p>
+        <p className="note">
+          Every figure exports as a vector, and the numbers behind it are one
+          click away.
+        </p>
+      </Fold>
 
       {/* Two lenses on the same run: everything that was tested, or one
           relationship in detail. The overview is the default because the
@@ -286,7 +296,7 @@ export function Figures({ projectId, runs }: {
         Under the live chart, because the list is a record of what has already
         been made rather than the thing a researcher came to this screen to do.
       */}
-      <SavedFigures projectId={projectId} />
+      <SavedFigures projectId={projectId} focusId={focusId} />
     </>
   );
 }
@@ -463,7 +473,12 @@ function ForestView({ state }: { state: ApiState<EstimatePayload> }) {
             + `consistent with no relationship.`}
         />
       </div>
-      <p className="note">{note}</p>
+      {/* The caption under the chart already says how many were tested and
+          how many survived; this is the paragraph about what a crossing
+          interval means, which is the same paragraph on every visit. */}
+      <Fold summary="What an interval crossing the line means" count={1}>
+        <p className="note" style={{ margin: 0 }}>{note}</p>
+      </Fold>
 
       {/* Part P — the same figure as a table. */}
       <details className="kg-table">
@@ -760,25 +775,42 @@ function Figure({ run, recommendation, labels, projectId, versionId }: {
         ) : null}
       </div>
 
-      <div className="row" style={{ marginBottom: 14 }}>
-        <button className="btn" onClick={exportSvg}>Save this view</button>
-        <span className="note" style={{ margin: 0 }}>
-          The SVG on screen, as it is. Quick, and related to nothing — for a
-          figure that has to be traceable back to its analysis, export it below.
-        </span>
-      </div>
-
       {/*
+        * §4.12 — the emphasis swapped, and nothing removed.
+        *
         * The same figure, but through the server: critiqued, recorded against
         * the analysis it came from, and rendered in the formats journals ask
-        * for. The button above copies what the browser is holding; this one
-        * produces a figure the system can account for.
+        * for. It renders first and carries the screen's primary weight because
+        * `publish.tsx:5-28` lists exactly what the other path drops — the
+        * VISUALIZES edge, the critic, PDF/EPS/TIFF, a traceable filename — and
+        * until now the path that loses all four was the one that looked like
+        * the default, sitting directly above this one at the same weight. The
+        * layering now matches the stated cost.
         */}
       <PublishFigure
         projectId={projectId}
         analysisRunId={run.id}
         spec={recommendation.spec as unknown as Record<string, unknown>}
       />
+
+      {/*
+        * Still here, still one press, and now at the weight of the thing it
+        * is: a copy of what the browser is holding. `.chart-export` is the
+        * save strip that belongs to a figure rather than to the prose about
+        * it — 11px, quiet until hovered — which is what "demoted to text
+        * weight" means in the vocabulary this stylesheet already has.
+        */}
+      <div className="chart-export" style={{ marginBottom: 14 }}>
+        <button className="btn" onClick={exportSvg}>Save this view</button>
+        <span className="note" style={{ margin: 0 }}>
+          The SVG on screen, as it is. Quick, and related to nothing — for a
+          figure that has to be traceable back to its analysis, export it
+          {/* "below" until §4.12 moved the export above this row. A sentence
+              that names a place has to be re-read when the place moves, or it
+              is a control that does not do what it says (§123). */}
+          {" "}above.
+        </span>
+      </div>
 
       {/* Part P — an always-available table alternative. */}
       <details className="kg-table">

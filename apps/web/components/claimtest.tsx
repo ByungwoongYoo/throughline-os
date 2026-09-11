@@ -226,7 +226,7 @@ export function ClaimTest({ projectId, sources }: {
                 {datasets.map((d) => (
                   <button
                     key={d.id}
-                    className="ct-dataset"
+                    className="btn"
                     onClick={() => void test(c, d.dataset!.dataset_version_id)}
                   >
                     {d.title}

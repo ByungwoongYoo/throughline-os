@@ -36,6 +36,21 @@ type Cohort = {
   parent_count: number;
   total_count: number;
   sentence: string;
+  /**
+   * The ranges that select the rows — `[{column, min, max}]`, as
+   * `throughline_domain.cohorts.validate` records them and `SELECT *` returns
+   * them (`cohorts.py:59-100`, `list_cohorts` in `app.py`).
+   *
+   * Read for one purpose only: to say which profiled column a subset is drawn
+   * on, so pressing its name can take the reader to that column. Nothing here
+   * evaluates a range or counts a row — the counts above came from the server
+   * and this file never computes one (the note on `define` below).
+   *
+   * Optional because an older server, or a fixture written before this, sends
+   * a subset without one; the caller is then told the subset names no column
+   * rather than being handed a guess.
+   */
+  definition?: Array<{ column: string; min: number | null; max: number | null }>;
 };
 
 type Listing = {
@@ -48,10 +63,42 @@ function share(part: number, whole: number): string {
   return `${((part / whole) * 100).toFixed(2)}%`;
 }
 
+/**
+ * The columns a subset is drawn on, in the order it names them.
+ *
+ * A read of what the server stored, not a derivation: the definition is the
+ * subset's own record of which ranges select its rows, and this pulls the
+ * column names out of it so the caller can point at them. A subset from a
+ * server that does not send `definition` names no column, which the caller
+ * states rather than guessing at.
+ */
+function columnsOf(cohort: Cohort): string[] {
+  return (cohort.definition ?? [])
+    .map((range) => range?.column)
+    .filter((column): column is string => typeof column === "string" && column !== "");
+}
+
 export function CohortTree({ projectId, datasetVersionId, onSelect }: {
   projectId: string;
   datasetVersionId: string;
-  onSelect?: (cohortId: string) => void;
+  /**
+   * Follow a subset to the column it is drawn on (D205, plan §4.8.1).
+   *
+   * This was declared and never supplied, and the name was rendered as a
+   * `<button>` regardless — so on the one screen that mounts this tree,
+   * pressing a subset did nothing at all. That is the §123 breach this closes,
+   * and it is closed in both directions: the handler is passed where there is
+   * a schema to jump into, and where it is absent the name renders as text
+   * rather than as a control that does nothing.
+   *
+   * The name and the columns travel with the id because the caller cannot work
+   * either out: only the subset knows which ranges define it, and only the
+   * caller knows which columns its profile is showing. Passing the id alone
+   * would force the caller to guess by matching a subset's *name* against a
+   * column's, which is how a jump lands on the wrong row — and would leave it
+   * with an id where a sentence needs a name.
+   */
+  onSelect?: (subset: { id: string; name: string; columns: string[] }) => void;
 }) {
   const [listing, setListing] = useState<Listing | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -164,10 +211,24 @@ export function CohortTree({ projectId, datasetVersionId, onSelect }: {
       <ol className="cohort-tree">
         {rows.map((cohort) => (
           <li key={cohort.id} style={{ paddingLeft: `${cohort.depth * 1.1}rem` }}>
-            <button type="button" className="name"
-                    onClick={() => onSelect?.(cohort.id)}>
-              {cohort.name}
-            </button>
+            {/*
+              A control only where pressing it goes somewhere (§123). The
+              `.name` rule carries `cursor: pointer`, which is right for the
+              button and a lie on the text, so the static case says so.
+            */}
+            {onSelect ? (
+              <button type="button" className="name"
+                      onClick={() => onSelect({
+                        id: cohort.id, name: cohort.name,
+                        columns: columnsOf(cohort),
+                      })}>
+                {cohort.name}
+              </button>
+            ) : (
+              <span className="name" style={{ cursor: "default" }}>
+                {cohort.name}
+              </span>
+            )}
             <span className="rows">{cohort.row_count.toLocaleString()}</span>
             <span className="of">
               {share(cohort.row_count, cohort.parent_count)}{" "}

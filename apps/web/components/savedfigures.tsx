@@ -56,7 +56,15 @@ export function blocking(critique: Critique | null): Critique["critiques"] {
     (c) => c.severity === "blocking" && c.outcome === "violated");
 }
 
-export function SavedFigures({ projectId }: { projectId: string }) {
+export function SavedFigures({ projectId, focusId = null }: {
+  projectId: string;
+  /**
+   * The figure to land on. The palette can jump to a saved figure by title
+   * or id, and a jump that lands on the list with nothing marked is a control
+   * that half does what it says (§123).
+   */
+  focusId?: string | null;
+}) {
   const figures = useApi<SavedFigure[]>(`/api/projects/${projectId}/visuals`);
   const [editing, setEditing] = useState<SavedFigure | null>(null);
 
@@ -85,7 +93,12 @@ export function SavedFigures({ projectId }: { projectId: string }) {
       </p>
 
       {figures.data.map((figure) => (
-        <div className="card" key={figure.id}>
+        <div className="card" key={figure.id}
+             data-focus={figure.id === focusId || undefined}
+             aria-current={figure.id === focusId ? "true" : undefined}
+             ref={figure.id === focusId ? (el) => {
+               if (el && typeof el.scrollIntoView === "function") el.scrollIntoView({ block: "center" });
+             } : undefined}>
           <div className="row">
             <div>
               <div style={{ fontWeight: 560 }}>

@@ -91,6 +91,45 @@ describe("testing the tracking without an account", () => {
     expect(await screen.findByRole("button", { name: /try hand gestures/i }))
       .toBeTruthy();
   });
+
+  it("puts the control under the banner that names it, above the figures",
+     async () => {
+    /**
+     * Plan §4.16.1. The verdict at the top says 'The camera is not on yet.
+     * Press "Try hand gestures", then "Turn on the camera"', and both buttons
+     * sat two full chart-heights below it — the page's own instruction
+     * pointing at nothing the reader could see, with "Reset the view" the only
+     * control in the first viewport. The charts are what you check *after* the
+     * camera is on.
+     */
+    const { container } = render(<GestureCheck />);
+
+    const banner = container.querySelector(".gc-verdict");
+    const control = await screen.findByRole("button", { name: /try hand gestures/i });
+    const firstChart = container.querySelector("canvas, .chart, figure");
+
+    expect(banner).toBeTruthy();
+    expect(firstChart).toBeTruthy();
+    const before = (a: Node, b: Node) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(before(banner!, control)).toBe(true);
+    expect(before(control, firstChart!)).toBe(true);
+  });
+
+  it("still explains the camera before asking for it", async () => {
+    /**
+     * The consent sequence is the thing the move must not disturb: nothing
+     * starts on mount, and the panel is a button that explains before it is a
+     * panel that asks (`SpatialControl.tsx:1-19`). Moving it up the page put
+     * it in front of more people, which is exactly why this is asserted here
+     * and not only in `spatial-control.test.tsx`.
+     */
+    render(<GestureCheck />);
+
+    await screen.findByRole("button", { name: /try hand gestures/i });
+    expect(screen.queryByRole("button", { name: /turn on the camera/i })).toBeNull();
+    expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
+  });
 });
 
 describe("numbers rather than adjectives", () => {

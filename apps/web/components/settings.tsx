@@ -33,8 +33,8 @@
  */
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
-import { Failure, Loading } from "./primitives";
+import { ApiError, api } from "@/lib/api";
+import { Failure, Fold, Loading } from "./primitives";
 import { ConfirmDialog } from "./ConfirmDialog";
 
 type Installed = {
@@ -188,7 +188,9 @@ export function Accounts() {
             <input type="password" value={next} autoComplete="new-password"
                    onChange={(e) => setNext(e.target.value)} />
           </label>
-          <button className="nj-primary"
+          {/* Plain: Settings is not a step in the research loop, so the filled
+              control on this screen is the strip's and only the strip's (T139). */}
+          <button className="btn"
                   disabled={!current || next.length < 12}
                   onClick={() => void changePassword()}>
             Change password
@@ -233,7 +235,7 @@ export function Accounts() {
             <input value={password} type="password" autoComplete="new-password"
                    onChange={(e) => setPassword(e.target.value)} />
           </label>
-          <button className="ct-dataset"
+          <button className="btn"
                   disabled={!email || password.length < 12}
                   onClick={() => void addPerson()}>
             Add person
@@ -722,7 +724,7 @@ export function StartingPanel() {
                   : " There is not one yet."}
               </p>
               <div className="set-pack-actions">
-                <button type="button" onClick={addToMenu} disabled={adding}>
+                <button type="button" className="btn" onClick={addToMenu} disabled={adding}>
                   {adding ? "Adding…"
                     : launcher.desktop_entry_installed
                       ? "Add it again"
@@ -745,9 +747,36 @@ export function StartingPanel() {
   );
 }
 
-export function Settings() {
+/** What `POST /api/projects/{id}/graph-projection` returns (`app.py:1120`). */
+type Rebuilt = { nodes: number; edges: number; source_watermark: string | null };
+
+export function Settings({ projectId }: {
+  /**
+   * The project whose graph projection this screen can rebuild.
+   *
+   * Optional, and the rebuild control is what needs it: the projection is
+   * per-project (`POST /api/projects/{id}/graph-projection`), while everything
+   * else on this screen is a property of the machine. Without one the panel
+   * still states what the projection is and what it answers — it simply says
+   * that rebuilding happens per project, rather than offering a control that
+   * has nothing to act on (§123).
+   */
+  projectId?: string;
+}) {
   const [models, setModels] = useState<Models | null>(null);
   const [projection, setProjection] = useState<Projection | null>(null);
+  /*
+   * The maintenance action, and what the server said about it.
+   *
+   * Housekeeping, not research: rebuilding writes nothing to the record and
+   * changes no result. That is exactly why it can be offered as a plain button
+   * with no confirmation, and why the panel says so in words — a control on a
+   * settings screen that a researcher suspects might touch their data is a
+   * control they will not press.
+   */
+  const [rebuilding, setRebuilding] = useState(false);
+  const [rebuilt, setRebuilt] = useState<Rebuilt | null>(null);
+  const [rebuildFailure, setRebuildFailure] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
@@ -770,6 +799,35 @@ export function Settings() {
       .then((c) => setProjection(c.graph_projection))
       .catch(() => setProjection(null));
   }, []);
+
+  /**
+   * Rebuild this project's Neo4j projection from PostgreSQL.
+   *
+   * Whole-project, because the route is (ADR 0002): a projection that is
+   * *nearly* right invites exactly the trust a derived store must never be
+   * given. Afterwards the capability readout is re-fetched rather than patched
+   * from the response, so the node and edge counts on screen keep coming from
+   * the same place they came from before the press.
+   */
+  async function rebuildProjection() {
+    if (!projectId) return;
+    setRebuilding(true);
+    setRebuildFailure(null);
+    try {
+      const result = await api.post<Rebuilt>(
+        `/api/projects/${projectId}/graph-projection`, {});
+      setRebuilt(result);
+      const fresh = await api.get<{ graph_projection: Projection }>(
+        "/api/system/capabilities");
+      setProjection(fresh.graph_projection);
+    } catch (err) {
+      // §104 — the route answers 503 with the projection's own sentence when
+      // Neo4j cannot be reached. That sentence is the whole diagnosis.
+      setRebuildFailure(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setRebuilding(false);
+    }
+  }
 
   /**
    * Choose a model, confirming first if it is not this machine.
@@ -883,19 +941,29 @@ export function Settings() {
       <section className="set-section">
         <h2>Model</h2>
         <p className="lede">
-          Throughline runs against whichever model you point it at. The model
-          reads papers and writes prose — it never writes a number or a
-          verdict. Statistics come from executed code, comparability from
-          deterministic checks, and every sentence it quotes is verified
-          against the paper before it is kept, so an altered quote is discarded
-          rather than shown.
+          Throughline runs against whichever model you point it at. It reads
+          papers and writes prose; it never writes a number or a verdict.
         </p>
-        <p className="lede">
-          What does change with the model is how much it finds. A smaller one
-          locates fewer of the sentences in a paper, and a field it misses is
-          simply absent rather than flagged — so the trade is coverage, not
-          correctness. Each extraction records the model that produced it.
-        </p>
+        {/*
+          The two paragraphs that used to open this screen. They are the
+          argument for the sentence above, and an argument is what folds: 222
+          words stood between a reader and the one control here, on a screen
+          people arrive at knowing what they came to change (T139).
+        */}
+        <Fold summary="What the model does and does not decide" count={2}>
+          <p>
+            Statistics come from executed code, comparability from
+            deterministic checks, and every sentence the model quotes is
+            verified against the paper before it is kept — so an altered quote
+            is discarded rather than shown.
+          </p>
+          <p>
+            What does change with the model is how much it finds. A smaller one
+            locates fewer of the sentences in a paper, and a field it misses is
+            simply absent rather than flagged — so the trade is coverage, not
+            correctness. Each extraction records the model that produced it.
+          </p>
+        </Fold>
 
         {error ? <Failure error={error} /> : null}
 
@@ -1132,6 +1200,77 @@ export function Settings() {
             )}
           </dl>
           <p className="set-note">{projection.note}</p>
+
+          {/*
+            Plan §3.4 (Slice 3) — the rebuild route had no caller anywhere in
+            the interface, and this readout is the only place in the product
+            that knows the projection exists. Framed as housekeeping and placed
+            with the version and the feature packs, not with anything a
+            researcher would mistake for an analysis: it re-derives a cache from
+            the record and can change no result, which is why it asks nothing
+            before running.
+          */}
+          <div style={{ marginTop: 14 }}>
+            <h3 className="eyebrow">Maintenance</h3>
+
+            {!projection.configured || !projection.reachable ? (
+              /*
+                Stated, never removed (principle 7). A rebuild control that
+                vanishes when Neo4j is absent leaves a reader unable to tell a
+                feature they do not have from one that failed to render — and
+                the honest fact is a reduced feature set, not a broken product.
+              */
+              <p className="set-note">
+                There is no projection to rebuild on this machine.{" "}
+                {projection.configured
+                  ? "Neo4j is configured but cannot be reached."
+                  : "Neo4j is not configured."}{" "}
+                Path-finding, influence ranking and clustering are unavailable
+                until it is; provenance, evidence graphs, search and every
+                verdict are unaffected, because PostgreSQL is the record.
+              </p>
+            ) : !projectId ? (
+              // Per project, and this screen is about the machine. Said rather
+              // than shown as a dead control (§123).
+              <p className="set-note">
+                The projection is rebuilt one project at a time, from the
+                project it belongs to.
+              </p>
+            ) : (
+              <>
+                <p className="set-note">
+                  Housekeeping. The projection is derived from PostgreSQL and
+                  rebuilt whole, so this changes no result, no analysis and
+                  nothing on the record — it only brings the three traversal
+                  queries up to date with what the project now contains.
+                </p>
+                <button
+                  type="button" className="btn" disabled={rebuilding}
+                  onClick={() => void rebuildProjection()}
+                >
+                  {rebuilding
+                    ? "Rebuilding the graph projection…"
+                    : "Rebuild the graph projection"}
+                </button>
+
+                {rebuildFailure && (
+                  // The server's words, in place. A rebuild fails for exactly
+                  // one interesting reason and the route says which.
+                  <p className="set-note" role="alert">{rebuildFailure}</p>
+                )}
+
+                {rebuilt && !rebuildFailure && (
+                  <p className="set-note" role="status">
+                    Rebuilt from PostgreSQL:{" "}
+                    <b className="numeric">{rebuilt.nodes.toLocaleString()}</b>{" "}
+                    objects and{" "}
+                    <b className="numeric">{rebuilt.edges.toLocaleString()}</b>{" "}
+                    relationships projected.
+                  </p>
+                )}
+              </>
+            )}
+          </div>
         </section>
       )}
 

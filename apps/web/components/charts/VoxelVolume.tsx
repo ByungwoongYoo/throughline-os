@@ -19,6 +19,14 @@
  * correction all happen in `lib/charts3d/voxels.ts`, where they can be tested
  * against numbers rather than pixels. This file projects, sorts, and draws.
  *
+ * **The frame is the grid's own directions, and the key is the value.** A
+ * voxel sits where it was sampled, so the three directions are measurements
+ * and carry a scale — in samples by default, because a `Grid` is a count and
+ * knows nothing about how far apart they are, and in the caller's own units
+ * when it says. The colour is the one variable no direction carries: what was
+ * measured there. A volume whose ramp had no key looked quantitative and could
+ * not be read, which is the failure `Colourbar` exists for.
+ *
  * **A volume is the case where §10's warning is sharpest.** Depth costs
  * occlusion, and a volume is nothing but occlusion — so the count of what is
  * hidden, the window in use and the sampling stride are all stated in the
@@ -33,13 +41,15 @@ import {
   ScreenPoint, TargetRef, ViewState, VisualizationController,
 } from "@/lib/spatial/commands";
 import {
-  Camera, DEFAULT_CAMERA, insidePolygon, resetCamera, rotateCamera, toCanvas, zoomCamera,
+  Axes3D, Camera, DEFAULT_CAMERA, insidePolygon, resetCamera, rotateCamera, toCanvas, zoomCamera,
 } from "@/lib/charts/scene3d";
+import { AxisNaming, framing, namedIndex } from "@/lib/charts/frame";
 import { canvasPoint, isClick } from "@/lib/charts/pointer";
 import { isDarkPage } from "@/lib/charts/theme";
 import { useSpatialKeys } from "@/lib/charts/spatialKeys";
 import { drawLitSphere } from "@/lib/charts3d/shading";
 import { ChartExport } from "@/components/charts/ChartExport";
+import { Colourbar } from "@/components/charts/Colourbar";
 import { isZoomWheel, wheelZoomFactor } from "@/lib/charts/wheel";
 import {
   DEFAULT_VOLUME, Grid, Splat, Volume, VolumeSettings, Window, describeVolume,
@@ -65,6 +75,23 @@ export type VoxelVolumeProps = {
   onViewChange?: (view: ViewState) => void;
   onSelect?: (target: TargetRef | null) => void;
   caption?: string;
+  /**
+   * What the three grid directions are, and how far across they reach.
+   *
+   * A `Grid` is a count of samples and nothing else — it carries the units of
+   * its *values* and no geometry at all — so unnamed directions are numbered
+   * in samples: `i (voxel)`, 0 to nx−1. A caller that knows the physical
+   * extent, from a scan's pixel spacing or from the bounds it sampled over,
+   * gives both ends and the axis reads in those units instead.
+   */
+  axes?: { i?: AxisNaming; j?: AxisNaming; k?: AxisNaming };
+  /**
+   * What the values are, for the colour key.
+   *
+   * The unit comes from the grid, which already carries it. This is the name:
+   * "Density", "Attenuation", "Probability" — the word the ramp is a scale of.
+   */
+  valueLabel?: string;
 };
 
 /** How near a pointer must be, in pixels, to count as on a voxel. */
@@ -82,7 +109,7 @@ const SPLAT_RADIUS = 2.6;
 
 export function VoxelVolume({
   grid, settings = DEFAULT_VOLUME, width = 720, height = 520, controllerRef,
-  onWindowChange, onViewChange, onSelect, caption,
+  onWindowChange, onViewChange, onSelect, caption, axes,
 }: VoxelVolumeProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const cameraRef = useRef<Camera>({ ...DEFAULT_CAMERA });
@@ -132,6 +159,21 @@ export function VoxelVolume({
     () => prepareVolume(grid, window_ ? { ...settings, window: window_ }
                                       : settings),
     [grid, settings, window_]);
+
+  /*
+   * The frame. `prepareVolume` places a splat at `i / (nx - 1)` mapped onto
+   * −1..1, so the domain of the scene's x is 0 to nx−1 exactly — the same two
+   * numbers rather than a second reading of them. The stride does not change
+   * it: striding drops samples, it does not rescale the ones that are left.
+   *
+   * i runs across the screen, j up it and k into it, which is the order
+   * `prepareVolume` writes into x, y and z.
+   */
+  const scene: Axes3D = useMemo(() => ({
+    x: namedIndex(axes?.i, "i", grid.nx),
+    y: namedIndex(axes?.j, "j", grid.ny),
+    z: namedIndex(axes?.k, "k", grid.nz),
+  }), [axes, grid.nx, grid.ny, grid.nz]);
 
   /*
    * The window as the extractor resolved it, readable without waiting for a
@@ -326,7 +368,7 @@ export function VoxelVolume({
         // Flat while it is moving. See `paintVolume`'s `shaded` parameter for
         // the measurement behind that.
         paintVolume(canvasRef.current, volume, cameraRef.current,
-                    { width, height }, selected, false, dark);
+                    { width, height }, selected, false, dark, scene);
         // And once more, shaded, when the camera has stopped changing. A
         // single 15ms frame after a drag ends is imperceptible; the same cost
         // during the drag is not.
@@ -334,7 +376,7 @@ export function VoxelVolume({
         settle = window.setTimeout(() => {
           if (running && !dirtyRef.current) {
             paintVolume(canvasRef.current, volume, cameraRef.current,
-                        { width, height }, selected, true, dark);
+                        { width, height }, selected, true, dark, scene);
           }
         }, SETTLE_MS);
       }
@@ -349,7 +391,7 @@ export function VoxelVolume({
     // `dark` is a dependency: without it, switching theme with the figure on
     // screen leaves the ramp built for the other background in place, which is
     // exactly the state this fix exists to prevent.
-  }, [volume, width, height, selected, dark]);
+  }, [volume, width, height, selected, dark, scene]);
 
   const dragging = useRef<{ x: number; y: number } | null>(null);
   /** Where a press began, so a click can be told from a rotation. */
@@ -568,6 +610,14 @@ export function paintVolume(
    * contrasts with the background, and one ramp cannot do that for both.
    */
   dark = true,
+  /**
+   * What the three directions measure, or nothing.
+   *
+   * Optional so the paint tests that predate the frame still describe what
+   * they meant to: they read the splats off the call list in order, and a wall
+   * drawn before them would be a true statement about a different chart.
+   */
+  axes: Axes3D | null = null,
 ): void {
   if (!canvas) return;
   const context = canvas.getContext("2d");
@@ -575,6 +625,11 @@ export function paintVolume(
 
   const { width, height } = size;
   context.clearRect(0, 0, width, height);
+
+  // Recomputed here, inside the frame, because which walls face away changes
+  // continuously as the scene turns.
+  const frame = framing(context, canvas, axes, camera, size);
+  frame.behind();
 
   /*
    * Back to front, and this sort is the correctness of the whole chart.
@@ -629,4 +684,10 @@ export function paintVolume(
       context.restore();
     }
   }
+
+  // The second pass, after every splat: the axis lines, the numbers and the
+  // three names go over the volume rather than under it. A label drawn before
+  // the splats is a label a dense volume swallows, and this one is dense by
+  // construction.
+  frame.front();
 }

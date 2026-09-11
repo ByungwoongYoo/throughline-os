@@ -90,3 +90,87 @@ export function searchForSection(section: Section, search: string): string {
   const query = params.toString();
   return query ? `?${query}` : "";
 }
+
+/*
+ * The section was the first thing to move into the address, and it stopped
+ * one level short (D196). `?section=findings` names a screen, not a place: a
+ * researcher with three projects who reloads it lands on the *newest*
+ * project's findings, a colleague who follows the link lands on theirs, and
+ * the finding that was open is gone either way. So the address now carries
+ * three things — which project, which section, which object within it — and
+ * the workspace reads all three back on load, on reload and on Back.
+ *
+ * `item` is the id of the thing a section is showing when it is showing one
+ * thing: a finding, a connection, an analysis run, a source. Which *kind* of
+ * thing it is follows from the section (`lib/selection.ts`), so the address
+ * does not have to say — an id that does not belong to the section's kind
+ * simply does not resolve, and the list renders instead.
+ */
+
+/** Where the workspace is: a section, and the one object it is open on. */
+export type Place = { section: Section; item: string | null };
+
+const ITEM_KEY = "item";
+const PROJECT_KEY = "project";
+
+/**
+ * What an id in the address may look like.
+ *
+ * Every id this system issues is a short prefix, an underscore and hex
+ * (`fnd_f77968c0b5d94e1cb8f2`). The check is looser than that on purpose — a
+ * future id format should not break every bookmark — but it refuses anything
+ * that is not plausibly an id, for the same reason `isSection` refuses an
+ * unknown section: the value is typed by a stranger and flows into a request.
+ */
+const ID_SHAPE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/;
+
+function idFromSearch(search: string, key: string): string | null {
+  const value = new URLSearchParams(search).get(key);
+  return value && ID_SHAPE.test(value) ? value : null;
+}
+
+/** The object a URL asks to open, or null when it names none. */
+export function itemFromSearch(search: string): string | null {
+  return idFromSearch(search, ITEM_KEY);
+}
+
+/** The project a URL asks for, or null when it names none. */
+export function projectFromSearch(search: string): string | null {
+  return idFromSearch(search, PROJECT_KEY);
+}
+
+/** The section and item a URL asks for, with the same fallbacks as each. */
+export function placeFromSearch(search: string): Place {
+  return { section: sectionFromSearch(search), item: itemFromSearch(search) };
+}
+
+/**
+ * The address for a place, preserving everything else already in the URL.
+ *
+ * The default section stays out of the address for the reason
+ * `searchForSection` gives; an absent item is removed rather than written
+ * empty, so closing a detail view leaves a clean list address behind.
+ */
+export function searchForPlace(place: Place, search: string): string {
+  const params = new URLSearchParams(searchForSection(place.section, search));
+  if (place.item) params.set(ITEM_KEY, place.item);
+  else params.delete(ITEM_KEY);
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+/**
+ * The address with the project set (or, given null, removed).
+ *
+ * Written whenever the workspace navigates, not the moment a project is
+ * chosen: the front door stays `/workspace` on arrival, and the first click
+ * puts the project in the address so that everything copied or reloaded from
+ * then on comes back to the same place.
+ */
+export function searchForProject(projectId: string | null, search: string): string {
+  const params = new URLSearchParams(search);
+  if (projectId) params.set(PROJECT_KEY, projectId);
+  else params.delete(PROJECT_KEY);
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}

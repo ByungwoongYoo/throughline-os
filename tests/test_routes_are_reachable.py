@@ -57,13 +57,6 @@ WITHOUT_A_CLIENT = {
 
     # Optional Neo4j analytics. These answer 503 with a reason wherever the
     # projection is not configured, and no page offers them at all.
-    "POST /api/projects/*/graph-projection":
-        "Graph analytics have no interface. The projection must be built "
-        "before the four routes below answer, and nothing builds it.",
-    "GET /api/projects/*/graph/centrality": "Graph analytics have no interface.",
-    "GET /api/projects/*/graph/communities": "Graph analytics have no interface.",
-    "GET /api/projects/*/graph/path": "Graph analytics have no interface.",
-    "GET /api/projects/*/graph/reachable": "Graph analytics have no interface.",
 
     # The writing half of a screen that can only read. This class was invisible
     # until the scan learned to read verbs.
@@ -77,14 +70,6 @@ WITHOUT_A_CLIENT = {
     # The reading half of a screen that only writes — the same gap mirrored.
 
     # Read-side routes the existing screens cover another way.
-    "GET /api/retrievals/*": "No interface shows a retrieval on its own.",
-    "GET /api/validations/*":
-        "The interface reads a connection's validations, never one by id.",
-    "GET /api/projects/*/artifacts/*/staleness":
-        "For one artifact. The exports screen reads the project-wide list.",
-    "GET /api/projects/*/deviations/*":
-        "For one registration. The deviations screen shows every registration "
-        "at once.",
     "GET /api/visuals/*":
         "One figure, with its spec and its renders. The saved-figures list "
         "carries the title, caption and whether the critic passed it, which is "

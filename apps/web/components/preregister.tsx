@@ -21,6 +21,12 @@
  * *increases* resistance" can be wrong. A prediction that cannot be wrong is a
  * description, and exempting a description would turn the whole mechanism into
  * a way of laundering exploratory work.
+ *
+ * **It mounts anywhere a project id is in hand.** It holds no state belonging
+ * to the screen around it and reads nothing from Deviations, so Discovery
+ * mounts it too (plan §4.10.3) — the moment before a sweep is the only moment
+ * registering a hypothesis is worth anything, and until now it was reachable
+ * only from a panel two screens away, after the looking had been done.
  */
 
 import { useState } from "react";
@@ -68,9 +74,26 @@ export function planIsCheckable(fields: {
                  || covariatesFrom(fields.covariates));
 }
 
-export function Preregister({ projectId, onRegistered }: {
+export function Preregister({ projectId, onRegistered, emphasis = "primary" }: {
   projectId: string;
   onRegistered?: () => void;
+  /**
+   * How loud the closed control is.
+   *
+   * "primary" — the default, and what Deviations has always rendered: on that
+   * panel registering is the only thing to do, and the empty state exists to
+   * offer it.
+   *
+   * "secondary" — for the Discovery mount (plan §4.10.3). Registering before a
+   * sweep is the right moment to offer it, but the sweep is what that screen is
+   * for, and principle 2 gives every screen exactly one `btn-primary`. A second
+   * one beside the step strip's would make the screen ask twice.
+   *
+   * The form is unchanged either way: only the closed opener changes weight,
+   * because the choice is about where this sits among other controls, never
+   * about what it does (§123).
+   */
+  emphasis?: "primary" | "secondary";
 }) {
   const [open, setOpen] = useState(false);
   const [hypothesis, setHypothesis] = useState("");
@@ -84,6 +107,21 @@ export function Preregister({ projectId, onRegistered }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<Registered | null>(null);
+
+  /** Empty the form. A second registration is a different hypothesis, and
+   *  leaving the first one's fields in place is how a covariate list ends up
+   *  registered against a plan nobody chose it for. */
+  function reset() {
+    setHypothesis("");
+    setDirection("");
+    setOutcome("");
+    setExposure("");
+    setMethod("");
+    setDesign("");
+    setCovariates("");
+    setFalsifiedIf("");
+    setError(null);
+  }
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -117,13 +155,29 @@ export function Preregister({ projectId, onRegistered }: {
             what that does and does not buy. Restating it here would let the
             two drift. */}
         <p style={{ margin: 0 }}>{done.note}</p>
+        {/*
+          A way back to the form, because this component is mounted where a
+          researcher registers hypotheses one after another — a project has
+          several, and a confirmation that replaces the control permanently
+          makes the second one reachable only by reloading the screen.
+        */}
+        <button
+          className="btn" type="button" style={{ marginTop: 10 }}
+          onClick={() => { setDone(null); setOpen(true); reset(); }}
+        >
+          Register another hypothesis
+        </button>
       </div>
     );
   }
 
   if (!open) {
     return (
-      <button className="btn btn-primary" onClick={() => setOpen(true)}>
+      <button
+        className={emphasis === "primary" ? "btn btn-primary" : "btn"}
+        type="button"
+        onClick={() => setOpen(true)}
+      >
         Register a hypothesis
       </button>
     );

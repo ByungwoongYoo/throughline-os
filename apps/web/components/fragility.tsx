@@ -23,7 +23,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, api } from "@/lib/api";
-import { Failure, Loading } from "./primitives";
+import { Failure, Fold, Loading } from "./primitives";
+import { Term } from "./term";
 
 type Report = {
   variables: [string, string];
@@ -44,6 +45,21 @@ type Report = {
   assumptions: string[];
   sentence: string;
 };
+
+/**
+ * The server's number, in the form a sentence can carry.
+ *
+ * Formatting, not arithmetic: `headline` is what the API sent and nothing
+ * here recomputes it (principle 10). Three significant figures is what the
+ * figure below the sentence shows; a sentence saying "about 29.4 times
+ * stronger" claims a precision the reader is not meant to take, so from ten
+ * upwards it is read to the nearest whole number — the same number, said the
+ * way a person says it.
+ */
+function readable(headline: number): string {
+  if (headline >= 10) return String(Math.round(headline));
+  return String(Number(headline.toPrecision(3)));
+}
 
 export function Fragility({ connectionId }: { connectionId: string }) {
   const [report, setReport] = useState<Report | null>(null);
@@ -134,33 +150,59 @@ export function Fragility({ connectionId }: { connectionId: string }) {
     return (
       <section className="fragility">
         <h2>How fragile is this?</h2>
-        <p className="note">
-          An E-value is computed for correlations. This connection&rsquo;s
-          method is not one it can convert to a risk ratio honestly, so no
-          number is shown rather than a confident one with no meaning.
+        <p className="lede">
+          This connection&rsquo;s method is not one it can convert to a risk
+          ratio honestly, so no number is shown rather than a confident one
+          with no meaning. The number this panel reports for a correlation is
+          the <Term id="E-value" />.
         </p>
       </section>
     );
   }
 
   const fragile = report!.headline < 1.25;
+  const both = report!.variables?.[0] && report!.variables?.[1]
+    ? `both ${report!.variables[0]} and ${report!.variables[1]}`
+    : "both variables";
+  const assumptions = report!.assumptions ?? [];
 
   return (
     <section className="fragility">
       <h2>How fragile is this?</h2>
+      {/*
+        * ResultCard's law, which §6 keeps and item 2.11 applies here: the
+        * sentence comes first, and the number is a labelled figure under it.
+        * A 2.4rem numeral directly beneath the heading answered "how fragile
+        * is this?" with "1.42", which is a quantity and not an answer — and
+        * the sentence that made it mean something was below it, where a
+        * reader who had already formed an impression of the number was.
+        */}
+      <p className="lede">
+        {fragile
+          ? `An unmeasured confounder only ${readable(report!.headline)} times stronger `
+            + `than anything measured here — on ${both} — would be enough to explain `
+            + `this away entirely.`
+          : `An unmeasured confounder would have to be about ${readable(report!.headline)} `
+            + `times stronger than anything measured here — on ${both} — to explain `
+            + `this away entirely.`}
+      </p>
+      <p style={{ margin: "0.6rem 0 0" }}>
+        <span className="eyebrow"><Term id="E-value" /></span>
+      </p>
       <p className="big" data-fragile={fragile ? "yes" : "no"}>
         {report!.headline.toPrecision(3)}
-      </p>
-      <p className="lede">
-        The strength an unmeasured confounder would need with{" "}
-        <strong>both</strong> {report!.variables?.[0]} and {report!.variables?.[1]},
-        as a risk ratio, to explain this association away entirely.
       </p>
       {(report!.sentence ?? "").split("\n").filter(Boolean).map((line) => (
         <p key={line} className="note">{line}</p>
       ))}
-      <details>
-        <summary>What this number rests on</summary>
+      {/*
+        §4/principle 4 — a closed summary states what is inside it, so nothing
+        is hidden by being one press away. It says it in the workspace's own
+        disclosure now (T139): the count moved out of the label and onto
+        `data-count`, which is where every other fold on this screen carries
+        it, so the reader meets one control rather than two idioms.
+      */}
+      <Fold summary="What this number rests on" count={assumptions.length}>
         {/* Guarded the way the rest of this screen is: a report missing a
             field shows less rather than taking the whole panel down with it. */}
         {typeof report!.risk_ratio === "number"
@@ -175,11 +217,11 @@ export function Fragility({ connectionId }: { connectionId: string }) {
           </p>
         )}
         <ul>
-          {(report!.assumptions ?? []).map((assumption) => (
+          {assumptions.map((assumption) => (
             <li key={assumption}>{assumption}</li>
           ))}
         </ul>
-      </details>
+      </Fold>
     </section>
   );
 }

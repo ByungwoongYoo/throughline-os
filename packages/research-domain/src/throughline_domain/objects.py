@@ -230,6 +230,107 @@ def create_object(
     return object_id
 
 
+#: The domain rows that stand for a research object, and the query that gets
+#: from one to the other. Keyed by the word the caller uses.
+#:
+#: Every one of these is a join the *writers* already make — `create_finding`
+#: sets `findings.object_id`, `analysis.record_result` sets
+#: `analysis_runs.object_id`, `corpus.store_paper` and `corpus.store_dataset`
+#: write `object_id` onto the paper and the dataset — so this reads the link
+#: that exists rather than inferring one from titles or timestamps.
+#:
+#: Each query is scoped **twice**, on the domain row's project and again on the
+#: object's, and both matter. The first stops a finding id from another project
+#: resolving at all; the second is the belt to that brace, because the id this
+#: returns is handed straight back to `/objects/{id}/journal`, which will show
+#: whatever object it is given inside the project that asked. Leaking across
+#: projects is this repository's named recurring defect and the cost here is a
+#: researcher reading somebody else's notes.
+_OBJECT_FOR = {
+    "finding": """
+        SELECT o.id, o.object_type
+          FROM findings f
+          JOIN research_objects o ON o.id = f.object_id
+         WHERE f.id = %(ref_id)s
+           AND f.project_id = %(project_id)s
+           AND o.project_id = %(project_id)s
+    """,
+    "analysis_run": """
+        SELECT o.id, o.object_type
+          FROM analysis_runs r
+          JOIN research_objects o ON o.id = r.object_id
+         WHERE r.id = %(ref_id)s
+           AND r.project_id = %(project_id)s
+           AND o.project_id = %(project_id)s
+    """,
+    # A source can hold both a paper and a dataset — one PDF with a table
+    # profiled out of it — so the two are asked for in one query and ordered.
+    # The paper wins, because the paper *is* the source read as a document:
+    # `store_paper` titles its object from the document and hangs the passages
+    # off it, while `store_dataset` names its object after the extracted table.
+    # `list_sources` puts them in the same order for the same reason.
+    "source": """
+        SELECT o.id, o.object_type, 0 AS rank
+          FROM papers p
+          JOIN research_objects o ON o.id = p.object_id
+         WHERE p.source_id = %(ref_id)s
+           AND p.project_id = %(project_id)s
+           AND o.project_id = %(project_id)s
+        UNION ALL
+        SELECT o.id, o.object_type, 1 AS rank
+          FROM datasets d
+          JOIN research_objects o ON o.id = d.object_id
+         WHERE d.source_id = %(ref_id)s
+           AND d.project_id = %(project_id)s
+           AND o.project_id = %(project_id)s
+         ORDER BY rank
+         LIMIT 1
+    """,
+}
+
+
+def object_for(cur, *, project_id: str, kind: str,
+               ref_id: str) -> dict[str, Any] | None:
+    """The research object standing for a finding, an analysis run or a source.
+
+    **The screens that hold a domain id cannot use the routes that take an
+    object id (D213).** Object history — the journal and the version chain —
+    hangs off `/api/projects/{id}/objects/{obj_...}/...`, and the finding,
+    source and analysis detail screens each hold `fnd_…`, `src_…` and `arun_…`
+    instead. Nothing joined the two, so the history was mounted on the board's
+    card detail alone and mounting it anywhere else would have 404ed.
+
+    Returns `{"object_id": ..., "object_type": ...}`, or `None` when the row
+    exists and has no object — which is a real and ordinary state, not a bug:
+    a finding recorded by hand before anything computed one has a null
+    `object_id` (see `findings.create_finding`), a run that failed or has not
+    finished never gets one, and a source whose ingestion is still queued has
+    produced neither a paper nor a dataset. `None` is also what an unknown id
+    and another project's id give, deliberately: a caller cannot tell "no such
+    finding" from "not yours", which is the same answer `scoped_project` gives
+    for a project id.
+
+    A source that produced both a paper and a dataset resolves to the **paper**
+    — see the note on the query — and never to the `citation` object
+    `corpus._source_object` creates, which stands for the raw bytes rather than
+    for anything read out of them.
+
+    Raises `ObjectError` for a kind it does not know, rather than returning
+    `None`: a typo'd kind is a caller bug and answering it with "no object"
+    would hide it behind an ordinary miss.
+    """
+    query = _OBJECT_FOR.get(kind)
+    if query is None:
+        raise ObjectError(
+            f"{kind!r} is not something that stands for a research object. "
+            f"Known kinds: {', '.join(sorted(_OBJECT_FOR))}.")
+    cur.execute(query, {"ref_id": ref_id, "project_id": project_id})
+    row = cur.fetchone()
+    if row is None:
+        return None
+    return {"object_id": row["id"], "object_type": row["object_type"]}
+
+
 def has_descendants(cur, object_id: str) -> bool:
     cur.execute(
         "SELECT 1 FROM artifact_lineage_edges WHERE source_artifact_id = %s LIMIT 1",

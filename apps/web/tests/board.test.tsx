@@ -15,6 +15,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { Board, Placement } from "@/components/board/Board";
 
 const CARDS: Placement[] = [
@@ -43,6 +44,24 @@ function detailResponse(url: string): Response | null {
   }
   if (url.includes("/mentions")) {
     return new Response("[]", { status: 200 });
+  }
+  /*
+   * The card panel now ends with `<ObjectHistory>`, which is `NodeJournal` and
+   * the version chain (plan §4.6.2). Both fetch, and a mock that answered them
+   * with the board payload would make the panel throw — which is how two tests
+   * here once went green over a crash.
+   */
+  if (url.includes("/journal")) {
+    return new Response(JSON.stringify({
+      object: { id: "obj1", object_type: "analysis",
+                title: "Sleep and reaction time",
+                created_by: "usr_1", created_at: "2026-03-01T10:00:00Z" },
+      derived_from: [], used_by: [], notes: [],
+    }), { status: 200 });
+  }
+  if (url.includes("/versions")) {
+    return new Response(JSON.stringify({ current: "obj1", versions: [] }),
+                        { status: 200 });
   }
   return null;
 }
@@ -578,6 +597,19 @@ describe("opening a card", () => {
       if (path.includes("/mentions")) {
         return new Response("[]", { status: 200 });
       }
+      // The panel's history section, as above.
+      if (path.includes("/journal")) {
+        return new Response(JSON.stringify({
+          object: { id: "obj1", object_type: "analysis",
+                    title: "Sleep and reaction time",
+                    created_by: "usr_1", created_at: "2026-03-01T10:00:00Z" },
+          derived_from: [], used_by: [], notes: [],
+        }), { status: 200 });
+      }
+      if (path.includes("/versions")) {
+        return new Response(JSON.stringify({ current: "obj1", versions: [] }),
+                            { status: 200 });
+      }
       if (init?.method === "DELETE") {
         return new Response(JSON.stringify({ removed: "obj1" }), { status: 200 });
       }
@@ -668,5 +700,124 @@ describe("opening a card", () => {
     fireEvent.pointerUp(surface, { clientX: 300, clientY: 300, pointerId: 1 });
 
     await waitFor(() => expect(screen.queryByRole("complementary")).toBeNull());
+  });
+});
+
+
+describe("opening a card without a mouse", () => {
+  /**
+   * §30, and plan §4.7 item 1.
+   *
+   * Cards are `<article>` elements and opening one used to fire only from the
+   * pointer-up branch, so everything behind `CardDetail` — impact, mentions,
+   * notes, versions, and the graph reach this slice adds — was reachable by
+   * pointer only. These guard the door, not the panel: that the title is a
+   * real control, that a keyboard gets to it, that pressing it opens the same
+   * panel a mouse opens, and that it did not cost the drag.
+   */
+  function mockOpenable() {
+    const calls: { url: string; method: string }[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      const path = String(url);
+      calls.push({ url: path, method: init?.method ?? "GET" });
+      if (path.endsWith("/front")) {
+        return new Response(JSON.stringify({ z: 9 }), { status: 200 });
+      }
+      if (init?.method === "PUT") return new Response("{}", { status: 200 });
+      return detailResponse(path)
+        ?? new Response(JSON.stringify({ placements: CARDS }), { status: 200 });
+    }));
+    return calls;
+  }
+
+  it("gives the card face a control named by the card's own title", async () => {
+    // Named by the title and nothing else: a card opener called "Open" tells a
+    // screen reader reading a board of forty cards nothing about which card.
+    mockOpenable();
+    render(<Board projectId="prj_1" />);
+    const opener = await screen.findByRole("button",
+      { name: "Sleep and reaction time" });
+    expect(opener.closest("[data-object='obj1']")).not.toBeNull();
+  });
+
+  it("puts that control in the tab order", async () => {
+    /*
+     * The failure this guards: a title that is a heading, or a `div` with a
+     * click handler, or a button with `tabIndex={-1}` — all of which look
+     * identical on screen and none of which a keyboard can reach.
+     */
+    mockOpenable();
+    render(<Board projectId="prj_1" />);
+    const opener = await screen.findByRole("button",
+      { name: "Sleep and reaction time" });
+
+    let reached = false;
+    for (let i = 0; i < 40 && !reached; i += 1) {
+      await userEvent.tab();
+      reached = document.activeElement === opener;
+    }
+    expect(reached).toBe(true);
+  });
+
+  it("opens the card when that control is pressed with Enter", async () => {
+    mockOpenable();
+    render(<Board projectId="prj_1" />);
+    const opener = await screen.findByRole("button",
+      { name: "Sleep and reaction time" });
+
+    opener.focus();
+    await userEvent.keyboard("{Enter}");
+
+    expect(await screen.findByRole("complementary",
+      { name: /About Sleep and reaction time/ })).toBeTruthy();
+  });
+
+  it("raises the card it opened, exactly as a press does", async () => {
+    // One act with two doors. A card that came to the front when opened with a
+    // mouse and stayed underneath when opened with a keyboard would be one
+    // control with two behaviours (§123).
+    const calls = mockOpenable();
+    render(<Board projectId="prj_1" />);
+    const opener = await screen.findByRole("button",
+      { name: "Sleep and reaction time" });
+
+    opener.focus();
+    await userEvent.keyboard("{Enter}");
+
+    await waitFor(() => expect(
+      calls.filter((c) => c.url.endsWith("/board/obj1/front"))).toHaveLength(1));
+  });
+
+  it("does not start a drag when the title is pressed", async () => {
+    /*
+     * The same stop `.board-lower` and `.board-remove` make. Without it the
+     * press reaches the surface, is read as the beginning of a drag, and a
+     * gesture is left in flight for a card that is being opened.
+     */
+    const calls = mockOpenable();
+    render(<Board projectId="prj_1" />);
+    const opener = await screen.findByRole("button",
+      { name: "Sleep and reaction time" });
+
+    fireEvent.pointerDown(opener, { clientX: 10, clientY: 10, pointerId: 1 });
+    const surface = document.querySelector('[data-testid="board-surface"]')!;
+    fireEvent.pointerMove(surface, { clientX: 200, clientY: 200, pointerId: 1 });
+    fireEvent.pointerUp(surface, { clientX: 200, clientY: 200, pointerId: 1 });
+
+    expect(calls.filter((c) => c.method === "PUT")).toHaveLength(0);
+  });
+
+  it("says in the lede what the keyboard can do here and what it cannot", async () => {
+    /*
+     * Claiming drag parity that was not built would be worse than the gap: a
+     * researcher who cannot use a pointer needs to know that arranging is
+     * still pointer-only, not to discover it by pressing arrow keys at a card.
+     */
+    mockOpenable();
+    render(<Board projectId="prj_1" />);
+    await screen.findByText(/Sleep and reaction time/);
+    const lede = document.querySelector(".lede")!;
+    expect(lede.textContent).toMatch(/Tab reaches it and Enter opens/);
+    expect(lede.textContent).toMatch(/needs a pointer/);
   });
 });

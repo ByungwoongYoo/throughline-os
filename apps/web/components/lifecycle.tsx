@@ -27,7 +27,9 @@
 import { useState } from "react";
 import { ApiError, api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
-import { Failure, Loading } from "./primitives";
+import { Failure, Fold, Loading } from "./primitives";
+import { lifecycleLabel } from "./ResultCard";
+import { Term } from "./term";
 
 /**
  * The legal transitions, mirroring `FINDING_PROMOTION` in the schemas package.
@@ -77,9 +79,72 @@ export function checksToSend(answers: Record<string, CheckState>): Record<string
   return sent;
 }
 
-/** How a lifecycle state reads to a person. */
+/**
+ * An underscored machine word, spaced. Not a translation.
+ *
+ * Still used for the things that are *not* lifecycle states — the six
+ * robustness checks and the outcomes validation records — whose words are
+ * their own vocabulary and are not in the lifecycle table.
+ */
 export function stateName(state: string): string {
   return state.replace(/_/g, " ");
+}
+
+/**
+ * A lifecycle state in the product's one vocabulary (plan §4.6.3, item 2.10).
+ *
+ * The phrases live in `ResultCard.tsx` and are read by this screen, by the
+ * `Status` pill and by the card, so a finding cannot be "exploratory" here,
+ * "Tested — needs replication" on its card and "EXPLORATORY" in the list.
+ */
+export function statePhrase(state: string): string {
+  return lifecycleLabel(state).label;
+}
+
+/**
+ * The ladder a finding climbs. `conflicted` is deliberately not on it.
+ *
+ * Only used to say which way a move goes; the moves themselves come from
+ * `LEGAL_NEXT`, which mirrors the server. Being contradicted is not a rung —
+ * it is a state a finding is knocked sideways into and can come back from —
+ * and the terminal states are not rungs either.
+ */
+const LADDER = ["candidate", "exploratory", "validated", "replicated"];
+
+/** The phrase, lower-cased so it reads inside a clause. */
+function midSentence(state: string): string {
+  const phrase = statePhrase(state);
+  return phrase.charAt(0).toLowerCase() + phrase.slice(1);
+}
+
+/**
+ * What a transition button says, and which way it says the move goes.
+ *
+ * The buttons said the verb "move" plus the raw target word, which named the
+ * destination in a vocabulary the reader had not been taught and said nothing
+ * about direction: a researcher looking at a conflicted finding could not tell
+ * from the row whether exploratory was a promotion or a retreat, and the
+ * retirement of a finding — the one irreversible move on the screen — looked
+ * exactly like the other three (item 2.10, D207).
+ */
+export function transitionCopy(from: string, to: string): { action: string; direction: string } {
+  const action = lifecycleLabel(to).action;
+  // `rejected` is the connection lifecycle's terminal state and never appears
+  // in the findings map, so asking the map alone would call it a rung.
+  if (LEGAL_NEXT[to]?.length === 0 || to === "rejected") {
+    return { action, direction: "the end of its lifecycle — nothing follows from there" };
+  }
+  if (to === "conflicted") {
+    return { action,
+             direction: `a step sideways from ${midSentence(from)} — other evidence disagrees` };
+  }
+  const here = LADDER.indexOf(from);
+  const there = LADDER.indexOf(to);
+  if (here === -1) return { action, direction: `a way out of ${midSentence(from)}` };
+  return { action,
+           direction: there > here
+             ? `a step forward from ${midSentence(from)}`
+             : `a step back from ${midSentence(from)}` };
 }
 
 /** What validation observed for one check, as the server recorded it. */
@@ -160,8 +225,8 @@ export function FindingLifecycle({
   if (legal.length === 0) {
     return (
       <p className="note">
-        This finding is {stateName(status)}, which is where its lifecycle ends.
-        Nothing follows from here.
+        This finding is {statePhrase(status)} (<span className="mono">{status}</span>),
+        which is where its lifecycle ends. Nothing follows from here.
       </p>
     );
   }
@@ -170,7 +235,7 @@ export function FindingLifecycle({
     <section aria-labelledby="lifecycle-heading" style={{ marginTop: 20 }}>
       <h2 id="lifecycle-heading">Where this finding stands</h2>
       <p className="note">
-        It is <b>{stateName(status)}</b>, with{" "}
+        It is <b>{statePhrase(status)}</b> (<span className="mono">{status}</span>), with{" "}
         {evidenceTotal === 0
           ? "no linked evidence"
           : `${evidenceTotal} piece${evidenceTotal === 1 ? "" : "s"} of linked evidence`}.
@@ -180,21 +245,53 @@ export function FindingLifecycle({
           + " evidence attached before it can move."
         )}
       </p>
+      {/*
+        * D207 — the two words this panel would otherwise assume. They are
+        * glossed on their first use here rather than in a glossary somebody
+        * has to go and find, and the sentence itself is the distinction the
+        * panel exists to keep: passing the checks below moves the state, and
+        * says nothing about whether anything licenses the word "causes".
+        */}
+      <Fold summary="What this state does and does not claim" count={1}>
+        <p className="note" style={{ marginTop: 0 }}>
+          That is its <Term id="lifecycle state" /> — not its{" "}
+          <Term id="causal status" />, which no move on this screen changes.
+        </p>
+      </Fold>
 
       {!target ? (
         <div className="row" style={{ gap: "0.5rem", flexWrap: "wrap" }}>
-          {legal.map((next) => (
-            <button key={next} className="btn" onClick={() => setTarget(next)}>
-              Move to {stateName(next)}
-            </button>
-          ))}
+          {/*
+            * Each button says what it does and which way it goes (§123, item
+            * 2.10). Retiring a finding is the one move nothing comes back
+            * from, and it used to be the same shape of sentence as a
+            * promotion; now it reads "Retire this finding — the end of its
+            * lifecycle". The raw state word rides along in the small line
+            * because it is what the API and any export will call it.
+            */}
+          {legal.map((next) => {
+            const copy = transitionCopy(status, next);
+            return (
+              <button key={next} className="btn" style={{ textAlign: "left" }}
+                      onClick={() => setTarget(next)}>
+                {copy.action}
+                <span style={{ display: "block", fontSize: 11.5, fontWeight: 400,
+                               color: "var(--ink-faint)", marginTop: 2 }}>
+                  {copy.direction} · <span className="mono">{next}</span>
+                </span>
+              </button>
+            );
+          })}
         </div>
       ) : (
         <form className="card" onSubmit={submit}
-              aria-label={`Move to ${stateName(target)}`}>
-          <h3 style={{ marginTop: 0 }}>
-            {stateName(status)} → {stateName(target)}
-          </h3>
+              aria-label={transitionCopy(status, target).action}>
+          <h3 style={{ marginTop: 0 }}>{transitionCopy(status, target).action}</h3>
+          <p className="note" style={{ marginTop: 0 }}>
+            From <b>{statePhrase(status)}</b> (<span className="mono">{status}</span>) to{" "}
+            <b>{statePhrase(target)}</b> (<span className="mono">{target}</span>) —{" "}
+            {transitionCopy(status, target).direction}.
+          </p>
 
           <label style={{ display: "block", marginBottom: 10 }}>
             Why does it belong there?
@@ -251,7 +348,7 @@ export function FindingLifecycle({
 
           <div className="row" style={{ gap: "0.5rem", marginTop: 10 }}>
             <button className="btn btn-primary" type="submit" disabled={busy}>
-              {busy ? "Recording…" : `Move to ${stateName(target)}`}
+              {busy ? "Recording…" : transitionCopy(status, target).action}
             </button>
             <button className="btn" type="button" onClick={() => setTarget(null)}>
               Cancel

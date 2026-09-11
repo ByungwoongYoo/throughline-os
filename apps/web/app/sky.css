@@ -1,0 +1,334 @@
+/*
+ * Sky: the entrance wears the public site's black hole and starfield (T140).
+ * Loaded after globals.css and density.css. Nothing here styles text.
+ *
+ * That last line is now half true and worth correcting rather than deleting.
+ * Two sentences do get styled here — the one under the hole on the gate and
+ * the hero on the first-project screen — because where they sit is part of the
+ * composition: the site sets its headline under the disk, and a rule about
+ * where a sentence sits is not a rule about what it says.
+ *
+ * §115 is the boundary this file respects. The entrance carries depth; the
+ * instrument does not. Nothing below reaches past `.gate` and `.first`.
+ */
+
+/* --- the stage --------------------------------------------------------- */
+
+/*
+ * The container is server-rendered and empty; `lib/sky` makes the stage and
+ * the two canvases in an effect. Its ground is the entrance's own page colour
+ * rather than `--n-0`, which is white in the light theme — the entrance is a
+ * dark screen in both themes, the way `.gate` has always been.
+ */
+.sky {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background: var(--gate-page);
+}
+
+.sky-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  /* Where the still lands when there is no WebGL2. `50% 34%` puts the still's
+     own hole on the hole's screen anchor, whatever the container's shape. */
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: 50% 34%;
+}
+
+.sky-stage canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+/* Paint order stated rather than inherited from insertion order: the hole is
+   the ground, the near layers are on it, and the fx canvas never takes a
+   click through to the form behind it. */
+.sky-stage .tl-gl { z-index: 0; }
+.sky-stage .tl-fx { z-index: 1; pointer-events: none; }
+
+/*
+ * A gradient rather than a hard edge at the bottom of the stage: the canvas
+ * ends somewhere, and where it ends is either against text or against the rest
+ * of the page. It starts below the disk (the shader anchors the hole at 0.34h
+ * and the glow reaches to about 0.52h), so nothing it does touches the hole.
+ */
+.sky-stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    transparent 56%,
+    color-mix(in srgb, var(--gate-page) 55%, transparent) 100%);
+}
+
+
+/* --- the gate ----------------------------------------------------------- */
+
+.gate.gate-sky {
+  /* One number, used by the grid and by the stage, so the hole's column and
+     the sentence's column cannot drift apart. */
+  --sky-split: 40%;
+  /* Narrow, the band and the form together are taller than the viewport, and
+     `.gate` is a fixed element that would otherwise clip the password field. */
+  overflow-y: auto;
+  grid-template-columns: 1fr;
+  grid-template-rows: 42vh auto;
+}
+
+.gate.gate-sky > .sky { z-index: 0; }
+
+/* Narrow: a band across the top, hole centred in it, the form underneath. */
+.gate.gate-sky > .sky > .sky-stage {
+  inset: 0 0 auto 0;
+  height: 42vh;
+}
+.gate.gate-sky > .sky > .sky-stage::after {
+  /* All the way to the page colour here, because what follows is the form and
+     a visible canvas edge behind a text field looks like a rendering fault. */
+  background: linear-gradient(to bottom, transparent 50%, var(--gate-page) 100%);
+}
+
+/*
+ * The art column stops being a decorated panel and becomes the sky's column.
+ * Its grid and its two blurred gradient blobs are switched off rather than
+ * layered under the starfield: two depth treatments in one frame read as a
+ * mistake, and the shader's own vignette already does what they were doing.
+ */
+.gate.gate-sky > .gate-art {
+  display: block;
+  position: relative;
+  z-index: 1;
+  padding: 0;
+  border: 0;
+  grid-row: 1;
+}
+.gate.gate-sky > .gate-art::before,
+.gate.gate-sky > .gate-art::after { content: none; }
+
+/*
+ * Under the hole, the way the site sets its headline under the hole: 0.62h,
+ * clear of the disk and its glow (0.18h–0.52h on the canvas).
+ */
+.gate.gate-sky .gate-art-copy {
+  position: absolute;
+  left: 50%;
+  top: 62%;
+  transform: translateX(-50%);
+  /* Wide enough for the sentence to break where it means to, and no wider:
+     the paragraph under it keeps its own measure. */
+  width: min(560px, 82%);
+  max-width: none;
+  text-align: center;
+}
+.gate.gate-sky .gate-art-copy h2 {
+  /* `globals.css` colours this `--n-900`, which is bright in the dark theme and
+     near-black in the light one — so on a light-theme machine the sentence was
+     already invisible against the gate's dark art column, before there was a
+     sky behind it. The gate has its own ink; this is it. */
+  color: var(--gate-ink);
+  font-size: clamp(1.35rem, 2.3vw, 2.1rem);
+  line-height: 1.16;
+  margin: 0 0 12px;
+  /* The site's own: the sentence sits on a starfield, not on a panel. */
+  text-shadow: 0 2px 24px var(--gate-page);
+}
+.gate.gate-sky .gate-art-copy p {
+  /* The band is 42vh; a paragraph under the sentence would run into the form.
+     Restored at the width where the sky is a full column. */
+  display: none;
+  text-shadow: 0 1px 16px var(--gate-page);
+}
+
+/*
+ * The panel the form sits on. Its text contrast is unchanged because it is
+ * still text on a panel — the sky is behind the panel, never under the words.
+ */
+.gate.gate-sky > .gate-form {
+  position: relative;
+  z-index: 1;
+  grid-row: 2;
+  /* The gate's own raised surface, not `--n-25`. The neutral scale flips with
+     the theme and this screen does not: `--n-25` is near-white in the light
+     theme, which turned the panel white under text that stayed `--gate-ink`
+     and made the whole form unreadable. `--gate-panel` is the same value
+     `globals.css` already gives `.gate-form`, one point lighter, and it is
+     dark in both themes because the entrance is. */
+  --gate-panel: color-mix(in oklab, var(--gate-ink) 5%, var(--gate-page));
+  background: color-mix(in srgb, var(--gate-panel) 92%, transparent);
+  backdrop-filter: blur(20px) saturate(1.08);
+  -webkit-backdrop-filter: blur(20px) saturate(1.08);
+  border-top: 1px solid var(--gate-ink-14);
+}
+
+/*
+ * The two doors, in the gate's palette rather than the theme's.
+ *
+ * `.btn` takes its surface from `--panel` and its ink from whatever it sits in.
+ * On this screen that is `--gate-ink`, and in the light theme `--panel` is
+ * white — so "I already have an account" was white text on a white button,
+ * invisible, on the one screen where both choices have to be equally visible.
+ * The pairing predates the sky; it is fixed here because this is the file that
+ * owns how the gate looks.
+ */
+.gate.gate-sky .gate-modes .btn {
+  color: var(--gate-ink);
+  background: var(--gate-ink-06);
+  border-color: var(--gate-ink-25);
+}
+.gate.gate-sky .gate-modes .btn:hover:not(:disabled) {
+  background: var(--gate-ink-14);
+  border-color: var(--gate-ink-42);
+}
+.gate.gate-sky .gate-modes .btn-primary,
+.gate.gate-sky .gate-modes .btn-primary:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+@media (min-width: 900px) {
+  .gate.gate-sky {
+    grid-template-columns: var(--sky-split) 1fr;
+    /* `minmax(0, 1fr)`, not `1fr`: an `auto` minimum lets the row grow to the
+       form's own height, and on a wide, short window (1200x560) that pushed
+       the submit button and "Back" off a `.gate` that does not scroll. */
+    grid-template-rows: minmax(0, 1fr);
+    overflow: hidden;
+  }
+  .gate.gate-sky > .gate-form {
+    grid-column: 1;
+    grid-row: 1;
+    border-top: 0;
+    border-right: 1px solid var(--gate-ink-14);
+    /* The panel scrolls, not the screen: the hole is anchored to its column
+       and must not slide up when somebody on a short window reaches for the
+       button under the password field. */
+    overflow-y: auto;
+  }
+  .gate.gate-sky > .gate-art {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .gate.gate-sky > .sky > .sky-stage {
+    inset: 0 0 0 var(--sky-split);
+    height: auto;
+  }
+  .gate.gate-sky > .sky > .sky-stage::after {
+    background: linear-gradient(
+      to bottom,
+      transparent 56%,
+      color-mix(in srgb, var(--gate-page) 55%, transparent) 100%);
+  }
+  .gate.gate-sky .gate-art-copy p {
+    display: block;
+    max-width: 42ch;
+    margin: 0 auto;
+    font-size: 12.5px;
+    line-height: 1.7;
+  }
+  /* The one edge of the sky that is not the edge of the screen. Without this
+     the disk's near arch and the star field stop dead against the panel's
+     hairline, which reads as a canvas that ran out rather than a window. The
+     fade is deliberately short — a wide one dissolves the arch itself. */
+  .gate.gate-sky > .sky > .sky-stage::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    background: linear-gradient(
+      to right,
+      var(--gate-page) 0%,
+      color-mix(in srgb, var(--gate-page) 45%, transparent) 1.6%,
+      transparent 4%);
+  }
+}
+
+
+/* --- the first-project screen ------------------------------------------- */
+
+/*
+ * The hero composition: hole high and centred, everything else below 0.58h.
+ * The screen takes the entrance's palette rather than the theme's, for the
+ * same reason `.gate` does — half its values are derived against a dark page,
+ * and a starfield under light-theme text is not a theme, it is a mistake.
+ */
+.first.first-sky {
+  position: relative;
+  color: var(--gate-ink);
+  background: var(--gate-page);
+  /* Every ink level, not only the ones this screen happens to name today: a
+     heading that inherited `--ink-strong` from the light theme came out
+     near-black on the starfield and was all but invisible. */
+  --ink-strong: var(--gate-ink);
+  --ink: var(--gate-ink);
+  --ink-soft: var(--gate-ink-70);
+  /* 56%, not the 42% the gate's field labels use: this is the level the dark
+     theme's own `--ink-faint` reaches, and the note under the two actions is
+     body copy on a starfield rather than a label on a panel. */
+  --ink-faint: var(--gate-ink-56);
+  --panel: color-mix(in oklab, var(--gate-ink) 6%, var(--gate-page));
+  --paper: var(--gate-ink-03);
+  --hover: var(--gate-ink-06);
+  --line: var(--gate-ink-14);
+  --line-strong: var(--gate-ink-25);
+  place-items: start center;
+  padding: 0 24px 72px;
+}
+
+/* One viewport tall, not the height of the page: the hole is anchored to the
+   screen the reader is looking at, and the steps below it scroll past. */
+.first.first-sky > .sky {
+  bottom: auto;
+  height: 100vh;
+}
+.first.first-sky > .sky > .sky-stage::after {
+  background: linear-gradient(
+    to bottom,
+    transparent 44%,
+    color-mix(in srgb, var(--gate-page) 80%, transparent) 78%,
+    var(--gate-page) 100%);
+}
+
+.first.first-sky > .first-inner {
+  position: relative;
+  z-index: 1;
+  margin-top: 58vh;
+  text-align: center;
+}
+.first.first-sky .first-inner h1 {
+  text-shadow: 0 2px 24px var(--gate-page);
+}
+.first.first-sky .first-lede,
+.first.first-sky .first-note {
+  margin-left: auto;
+  margin-right: auto;
+}
+.first.first-sky .first-lede,
+.first.first-sky .first-note,
+.first.first-sky .badge { text-shadow: 0 1px 16px var(--gate-page); }
+.first.first-sky .first-actions { justify-content: center; }
+/* The three steps are a table of contents, not part of the hero: they keep
+   their own left-aligned cards below the fold. */
+.first.first-sky .first-steps { text-align: left; }
+
+@media (max-width: 719px) {
+  /* On a phone, 58vh of sky above a headline leaves the two actions off the
+     screen entirely. The hole still leads; it just leads by less — and the sky
+     is shortened with it rather than the copy simply being pushed up into it.
+     Both of the composition's numbers are measured against the stage, so
+     shrinking the stage is what keeps them true at once: at 844 tall the stage
+     is 658, its disk and glow run 118-342 (0.18h-0.52h) and 0.58h is 382, and
+     the copy starts at 388. Raising the copy alone put the badge at 388 on a
+     844-tall stage, which is inside the arc. */
+  .first.first-sky > .sky { height: 78vh; }
+  .first.first-sky > .first-inner { margin-top: 46vh; }
+}

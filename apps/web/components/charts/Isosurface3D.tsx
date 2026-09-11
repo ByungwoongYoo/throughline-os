@@ -22,6 +22,16 @@
  * specular highlights, which on a scientific surface read as features of the
  * data rather than of the renderer.
  *
+ * **The three directions are the grid's own, so they are framed and
+ * numbered.** A shell is a set of positions in a sampled box, and where it
+ * reaches is most of what a reader wants off it. The grid knows how many
+ * samples it holds in each direction and cannot know how far apart they are,
+ * so the default scale is the sample index and the caller supplies millimetres
+ * if it has them. The *level* is not one of these axes: it is one value across
+ * the whole shell, it is already on the control below the picture, and a
+ * colour key beside a surface shaded by a lamp would offer a scale the
+ * shading does not carry.
+ *
  * **Back faces are kept, not culled.** Culling assumes a closed shell, and this
  * one is deliberately open wherever the data had holes: cull the back faces and
  * an open shell shows the inside of nothing, so the hole stops being visible as
@@ -34,7 +44,8 @@ import {
 } from "react";
 import { ScreenPoint, TargetRef, VisualizationController } from "@/lib/spatial/commands";
 import { canvasPoint, isClick } from "@/lib/charts/pointer";
-import { AXES_SCALED_SEPARATELY, Camera, DEFAULT_CAMERA, insidePolygon, resetCamera, rotateCamera, toCanvas, zoomCamera } from "@/lib/charts/scene3d";
+import { AXES_SCALED_SEPARATELY, Axes3D, Camera, DEFAULT_CAMERA, insidePolygon, resetCamera, rotateCamera, toCanvas, zoomCamera } from "@/lib/charts/scene3d";
+import { AxisNaming, framing, namedIndex } from "@/lib/charts/frame";
 import { useSpatialKeys } from "@/lib/charts/spatialKeys";
 import { ChartExport } from "@/components/charts/ChartExport";
 import { isZoomWheel, wheelZoomFactor } from "@/lib/charts/wheel";
@@ -54,6 +65,17 @@ export type Isosurface3DProps = {
   /** Told when the reader moves the level, so a caller can keep it. */
   onLevelChange?: (level: number) => void;
   caption?: string;
+  /**
+   * What the three grid directions are, and how far across they reach.
+   *
+   * A `Grid` is a count of samples and nothing else — it carries the units of
+   * its *values* and no geometry at all — so unnamed directions are numbered
+   * in samples: `i (voxel)`, 0 to nx−1. A caller that knows the physical
+   * extent gives both ends of it and the axis reads in those units instead,
+   * which is exact here because a regular grid's coordinate is linear in its
+   * index.
+   */
+  axes?: { i?: AxisNaming; j?: AxisNaming; k?: AxisNaming };
 };
 
 /** Where the lamp sits. Over the viewer's shoulder, which is what a reader expects. */
@@ -61,7 +83,7 @@ const LAMP = { x: -0.4, y: 0.6, z: 0.7 };
 
 export function Isosurface3D({
   grid, level, settings = DEFAULT_SURFACE, width = 720, height = 520,
-  controllerRef, onLevelChange, caption,
+  controllerRef, onLevelChange, caption, axes,
 }: Isosurface3DProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const cameraRef = useRef<Camera>({ ...DEFAULT_CAMERA });
@@ -94,6 +116,22 @@ export function Isosurface3D({
    */
   const surface: Surface = useMemo(
     () => extractSurface(grid, at, settings), [grid, at, settings]);
+
+  /*
+   * The frame. `extractSurface` places a corner at `i / (nx - 1)` mapped onto
+   * −1..1, so the domain of the scene's x is 0 to nx−1 exactly — the same two
+   * numbers, not a second reading of them. Marching with a stride does not
+   * change it: the extractor normalises against the grid's full extent so a
+   * coarser march puts the shell in the same place rather than a scaled one.
+   *
+   * i runs across the screen, j up it and k into it, which is the order
+   * `extractSurface` writes into x, y and z.
+   */
+  const scene: Axes3D = useMemo(() => ({
+    x: namedIndex(axes?.i, "i", grid.nx),
+    y: namedIndex(axes?.j, "j", grid.ny),
+    z: namedIndex(axes?.k, "k", grid.nz),
+  }), [axes, grid.nx, grid.ny, grid.nz]);
 
   const rotate = useCallback((dx: number, dy: number) => {
     rotateCamera(cameraRef.current, dx, dy);
@@ -279,13 +317,13 @@ export function Isosurface3D({
       if (dirtyRef.current) {
         dirtyRef.current = false;
         paintSurface(canvasRef.current, surface, cameraRef.current,
-                     { width, height }, selectedRef.current);
+                     { width, height }, selectedRef.current, scene);
       }
       handle = requestAnimationFrame(tick);
     };
     handle = requestAnimationFrame(tick);
     return () => { running = false; cancelAnimationFrame(handle); };
-  }, [surface, width, height]);
+  }, [surface, width, height, scene]);
 
   const dragging = useRef<{ x: number; y: number } | null>(null);
   /** Where a press began, so a click can be told from a rotation. */
@@ -427,6 +465,14 @@ export function paintSurface(
   size: { width: number; height: number },
   /** Index of the facet a person picked, drawn so they can see which. */
   selected: number | null = null,
+  /**
+   * What the three directions measure, or nothing.
+   *
+   * Optional so the paint tests that predate the frame still describe what
+   * they meant to: they read facets off the call list in order, and a wall
+   * drawn before them would be a true statement about a different chart.
+   */
+  axes: Axes3D | null = null,
 ): void {
   if (!canvas) return;
   const context = canvas.getContext("2d");
@@ -434,6 +480,11 @@ export function paintSurface(
 
   const { width, height } = size;
   context.clearRect(0, 0, width, height);
+
+  // Recomputed here, inside the frame, because which walls face away changes
+  // continuously as the scene turns.
+  const frame = framing(context, canvas, axes, camera, size);
+  frame.behind();
 
   /*
    * Back to front by centroid depth. `depth` is larger when nearer, so this
@@ -485,4 +536,7 @@ export function paintSurface(
     }
     context.restore();
   }
+
+  // Over the shell: a closed surface is opaque, and a tick behind it is gone.
+  frame.front();
 }

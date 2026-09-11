@@ -1272,7 +1272,12 @@ def dev(api_port: int, web_port: int, *,
         address = f"http://localhost:{api_port}"
         print(f"\n  Throughline is already running at {address}", flush=True)
         print("  Opening it. Nothing was started or stopped.\n", flush=True)
-        _open_when_ready(address)
+        # `/workspace`, not `/`: `/` is the marketing landing page, meant for
+        # somebody who has not installed Throughline yet. An installed copy
+        # is opened at the door of the product — sign-in, then the workspace
+        # — every time, not just the first. The exported interface serves
+        # this same route as `workspace.html` (see interface.py: resolve()).
+        _open_when_ready(f"{address}/workspace")
         # Give the browser thread its moment; there are no children to supervise.
         time.sleep(3)
         return 0
@@ -1387,7 +1392,9 @@ def dev(api_port: int, web_port: int, *,
                 # `next dev`'s port, not the API's: in development the browser
                 # loads pages from the Next server and its rewrites proxy /api
                 # back, which is what keeps the session cookie same-origin.
-                _open_when_ready(f"http://localhost:{web_port}")
+                # Open the product, not the landing page — see the comment
+                # on the `_open_when_ready` call above.
+                _open_when_ready(f"http://localhost:{web_port}/workspace")
         elif _exported_interface():
             # Since T072 the API serves the exported interface itself, so "no
             # Node" stopped meaning "no interface". This branch used to say the
@@ -1399,7 +1406,9 @@ def dev(api_port: int, web_port: int, *,
             print("  Served by the API itself — no Node process is involved.\n",
                   flush=True)
             if open_browser:
-                _open_when_ready(address)
+                # Open the product, not the landing page — see the comment
+                # on the first `_open_when_ready` call in this function.
+                _open_when_ready(f"{address}/workspace")
         else:
             # §123 — say plainly that the interface is unavailable rather than
             # pretending.
