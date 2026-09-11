@@ -370,11 +370,35 @@ export type Finding = {
   limitations?: string[];
 };
 
+/**
+ * One of the ten strongest connections, as the discovery map sends it.
+ *
+ * A projection, not a `Connection`: `graphs.discovery_map` selects ten columns
+ * for its top ten, and this list was typed as the full fifteen-field record —
+ * so the interface was promised `p_value`, `sample_size`, `analysis_run_id`,
+ * `dataset_version_id` and `effect_size_name`, which the server never sends.
+ * Nothing read them, which is the only reason nothing broke; the nested
+ * contract check found it (D353). Written out rather than as
+ * `Pick<Connection, …>` so that check can read it.
+ */
+export type TopConnection = {
+  id: string;
+  left_variable: string;
+  right_variable: string;
+  method: string;
+  lifecycle_status: string;
+  estimate: number | null;
+  q_value: number | null;
+  effect_size: number | null;
+  evidence_quality: string;
+  rank_score: number;
+};
+
 export type DiscoveryMap = {
   counts: Record<string, number>;
   findings: Record<string, number>;
   connections: Record<string, number>;
-  top_connections: Connection[];
+  top_connections: TopConnection[];
   recommended_next_action: string;
   /**
    * Which loop step the recommendation is about, as an id the interface can

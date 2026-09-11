@@ -296,6 +296,95 @@ def test_every_field_the_interface_requires_is_sent(populated):
                        "back:\n  " + "\n  ".join(drift))
 
 
+# ---------------------------------------------------------------------------
+# One level down
+# ---------------------------------------------------------------------------
+#
+# The check above reads top-level fields only. `KeyFinding.method` — a field of
+# an array element — was sent on every key finding and declared nowhere, and
+# was found by reading the code rather than by this file. Measured before this
+# was written: of 66 typed calls it can resolve, 41 fields hold another named
+# type, and on its first run against the worked example it found one real
+# disagreement — `DiscoveryMap.top_connections` typed as the full `Connection`
+# while the server sends a ten-column projection.
+
+#: A field whose declared type is another named type: `Inner`, `Inner[]` or
+#: `Array<Inner>`, optionally `| null`.
+_NAMED_FIELD = (r"(?m)^\s*{field}\??:\s*(?:Array<\s*([A-Z]\w*)\s*>|([A-Z]\w*)\s*\[\]"
+                r"|([A-Z]\w*))\s*(?:\|\s*null)?\s*;?\s*$")
+
+
+def _nested_drift(name: str, body: str, sample: dict, source: Path,
+                  per_file: dict, shared: dict) -> tuple[list[str], list[str], int]:
+    """
+    Required fields missing one level down, what could not be judged, and how
+    many nested field sets were actually checked.
+
+    A list is judged by its first element, as the top-level check judges a
+    list response. An empty list or an absent object is *unjudged* — reported,
+    never counted as a pass — because a response with nothing in it says
+    nothing about the shape of what it would contain.
+    """
+    drift: list[str] = []
+    unjudged: list[str] = []
+    checked = 0
+    for field, _optional in _fields(body):
+        match = re.search(_NAMED_FIELD.format(field=re.escape(field)), body)
+        if not match:
+            continue
+        inner = next(x for x in match.groups() if x)
+        inner_body = _declaration_for(inner, source, per_file, shared)
+        if inner_body is None:
+            continue
+        value = sample.get(field)
+        element = (value[0] if isinstance(value, list) and value
+                   else value if isinstance(value, dict) else None)
+        if element is None:
+            unjudged.append(f"{name}.{field}")
+            continue
+        checked += 1
+        absent = [f for f in _required(inner_body) if f not in element]
+        if absent:
+            drift.append(f"{name}.{field} ({inner}): the interface requires "
+                         f"{absent}, which the response does not carry")
+    return drift, unjudged, checked
+
+
+def test_every_nested_field_the_interface_requires_is_sent(populated):
+    client, ids = populated
+    _, per_file = _calls()
+    shared = per_file.get(WEB / "lib" / "api.ts", {})
+    drift: list[str] = []
+    checked = 0
+    for name, url, found in _answered(client, ids):
+        more, _unjudged, count = _nested_drift(
+            name, found["body"], found["sample"], WEB / found["declared_in"],
+            per_file, shared)
+        drift += [f"{line} at {url}" for line in more]
+        checked += count
+    # Ten had data to check when this was written; seventeen more were empty
+    # in the worked example and are reported rather than passed.
+    assert checked >= 8, f"only {checked} nested field sets had anything to check"
+    assert not drift, ("one level down, the interface and the API disagree:\n  "
+                       + "\n  ".join(drift))
+
+
+def test_the_nested_check_sees_a_dropped_field_and_does_not_pass_an_empty_list():
+    """Planted, so the check is shown to see the thing it exists for."""
+    source = WEB / "planted.tsx"
+    per_file = {source: {"Inner": "id: string;\n  method: string;\n",
+                         "Other": "a: string;\n"}}
+    body = "items: Inner[];\n  one: Other;\n  none: Inner[];\n"
+    sample = {"items": [{"id": "conn_1"}], "one": {"a": "x"}, "none": []}
+
+    drift, unjudged, checked = _nested_drift("Outer", body, sample, source,
+                                             per_file, {})
+
+    assert checked == 2
+    assert unjudged == ["Outer.none"]
+    assert len(drift) == 1 and "'method'" in drift[0]
+
+
 def _declared(body: str) -> list[str]:
     """
     Every top-level field, optional ones included.

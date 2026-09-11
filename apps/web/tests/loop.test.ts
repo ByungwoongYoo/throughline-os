@@ -112,9 +112,11 @@ describe("the step the project is on, and where taking it lands", () => {
     const steps = loopSteps(m);
     const validate = stepTarget(steps.find((s) => s.id === "validate")!, m);
     expect(validate).toEqual({ section: "connections", item: "con_top", label: "Validate consumption × resistance" });
+    // Recording is from a *validated* result. With only an exploratory one
+    // ranked there is none to open. This used to assert the exploratory
+    // connection here — the button opening what its sentence is not about.
     const record = stepTarget(steps.find((s) => s.id === "record")!, m);
-    expect(record.item).toBe("con_top");
-    expect(record.label).toMatch(/^Record a finding from consumption × resistance$/);
+    expect(record).toEqual({ section: "connections", item: null, label: "Record a finding" });
   });
 
   it("lands on the list, honestly labelled, when nothing is ranked yet", () => {
@@ -134,11 +136,56 @@ describe("the step the project is on, and where taking it lands", () => {
 
 describe("the action label uses the project's approved names", () => {
   it("prefers a display label to a raw column name", () => {
+    // `lifecycle_status` is on every ranked connection the server sends; a
+    // fixture without one described a row that cannot exist.
     const TOP = { id: "con_top", left_variable: "consumption_ddd", right_variable: "resistance_pct",
-      analysis_run_id: "arun_1" } as never;
+      lifecycle_status: "exploratory" } as never;
     const m = { ...map({ sources: 2, datasets: 1, analyses: 6 }, { exploratory: 1 }), top_connections: [TOP] };
     const validate = loopSteps(m).find((s) => s.id === "validate")!;
     expect(stepTarget(validate, m, { consumption_ddd: "Antibiotic consumption" }).label)
       .toBe("Validate Antibiotic consumption × resistance_pct");
+  });
+});
+
+
+describe("the button opens the connection its sentence is about", () => {
+  const ranked = (id: string, left: string, stage: string, rank: number) => ({
+    id, left_variable: left, right_variable: "resistance", method: "pearson_correlation",
+    lifecycle_status: stage, estimate: 0.5, q_value: 0.02, effect_size: 0.5,
+    evidence_quality: "moderate", rank_score: rank,
+  });
+
+  it("opens the connection still waiting, once the strongest has been validated", () => {
+    // The ordinary path: validating a connection does not change its rank.
+    const m = { ...map({ sources: 2, datasets: 1, analyses: 6 },
+                       { exploratory: 1, validated: 1 }),
+                top_connections: [ranked("conn_done", "consumption", "validated", 0.91),
+                                  ranked("conn_waiting", "gdp", "exploratory", 0.44)] };
+    const validate = stepTarget(loopSteps(m).find((s) => s.id === "validate")!, m);
+    expect(validate).toEqual({ section: "connections", item: "conn_waiting",
+                               label: "Validate gdp × resistance" });
+  });
+
+  it("records from the strongest validated result, even when an exploratory one outranks it", () => {
+    const m = { ...map({ sources: 2, datasets: 1, analyses: 6 },
+                       { exploratory: 1, validated: 1 }),
+                top_connections: [ranked("conn_new", "gdp", "exploratory", 0.95),
+                                  ranked("conn_held", "consumption", "validated", 0.61)] };
+    const record = stepTarget(loopSteps(m).find((s) => s.id === "record")!, m);
+    expect(record.item).toBe("conn_held");
+    expect(record.label).toBe("Record a finding from consumption × resistance");
+  });
+
+  it("counts a replicated result as ready to record", () => {
+    const m = { ...map({ sources: 2, datasets: 1, analyses: 6 }, { replicated: 1 }),
+                top_connections: [ranked("conn_twice", "consumption", "replicated", 0.8)] };
+    expect(stepTarget(loopSteps(m).find((s) => s.id === "record")!, m).item).toBe("conn_twice");
+  });
+
+  it("says so generically when nothing at that stage is in the ten", () => {
+    const m = { ...map({ sources: 2, datasets: 1, analyses: 6 }, { validated: 1 }),
+                top_connections: [ranked("conn_done", "consumption", "validated", 0.9)] };
+    expect(stepTarget(loopSteps(m).find((s) => s.id === "validate")!, m))
+      .toEqual({ section: "connections", item: null, label: "Validate a connection" });
   });
 });
