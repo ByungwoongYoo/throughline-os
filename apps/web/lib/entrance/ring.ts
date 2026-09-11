@@ -136,7 +136,25 @@ export const KEYS: readonly Key[] = [
   { az: 1.2, radius: 19.0, height: 2.2, ahead: 14, inward: 11, down: 2.2, roll: -0.44, focal: 1.62 },
   // D · looks BACK along the ring, which throws the band onto the far left
   //     and lower perimeter and leaves the right of the frame for the marks.
-  { az: 1.86, radius: 22.0, height: 1.4, ahead: -16, inward: 15, down: 1.15, roll: -0.1, focal: 1.45 },
+  //
+  //     `inward` is small on purpose. At 15 on a radius of 22 the camera looked
+  //     a third of the way to the axis, so the far limb closed the band into a
+  //     complete ellipse and the disk read as a saucer seen from above — the
+  //     "flying soccer" the owner reported. Looking ALONG the band keeps it a
+  //     river running off both edges, which is what every reference frame is.
+  { az: 1.86, radius: 22.0, height: 1.4, ahead: -24, inward: 6, down: 1.15, roll: -0.1, focal: 1.45 },
+  /*
+   * E · the tour.
+   *
+   * The page does not stop at the fourth chapter and neither does the ring.
+   * Everything below D used to sit on flat black, so the site read as two
+   * sites stapled together — an argument, then a different page of
+   * screenshots. The camera keeps travelling for the whole of the tour, and
+   * because the tour's subject is the product rather than the artwork, this
+   * key pulls back and drops the band low, leaving the middle of the frame
+   * quiet for the screens.
+   */
+  { az: 3.05, radius: 19.5, height: 2.0, ahead: -20, inward: 6, down: 1.9, roll: -0.34, focal: 1.34 },
 ];
 
 /*
@@ -154,6 +172,16 @@ const ease = (t: number) => t * t * (3 - 2 * t);
  * equal, and each is eased, so the viewpoint arrives at a chapter at rest
  * rather than still drifting under the text.
  */
+/**
+ * Where the chapters end on the camera's own timeline.
+ *
+ * The four approved compositions are the first three spans; the tour is the
+ * fourth. A caller that knows its runway progress converts with
+ * `p * CHAPTERS_END`, so the compositions land exactly where they always did
+ * and everything after them is the extra span.
+ */
+export const CHAPTERS_END = 3 / 4;
+
 export function keyAt(p: number): Key {
   const t = clamp01(p) * (KEYS.length - 1);
   const i = Math.min(Math.floor(t), KEYS.length - 2);

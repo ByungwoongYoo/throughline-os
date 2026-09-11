@@ -34,7 +34,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Marks, type MarksHandle } from "@/components/entrance/Marks";
 import { Scene } from "@/components/entrance/Scene";
-import type { RingHandle } from "@/lib/entrance/ring";
+import { CHAPTERS_END, type RingHandle } from "@/lib/entrance/ring";
 
 import "./entrance.css";
 
@@ -127,7 +127,7 @@ export default function Entrance() {
 
   useEffect(() => {
     let raf = 0;
-    let bounds = { top: 0, travel: 1 };
+    let bounds = { top: 0, travel: 1, page: 1 };
     let lastActive = -1;
     /** Last progress actually acted on, so an unmoved reader costs nothing. */
     let lastP = -1;
@@ -149,7 +149,21 @@ export default function Entrance() {
       const el = runway.current;
       if (!el) return;
       const top = el.getBoundingClientRect().top + window.scrollY;
-      bounds = { top, travel: Math.max(1, el.offsetHeight - window.innerHeight) };
+      bounds = {
+        top,
+        travel: Math.max(1, el.offsetHeight - window.innerHeight),
+        /*
+         * How far the whole document scrolls, so the camera can keep
+         * travelling after the chapters end.
+         *
+         * The ring used to be a sticky element inside the runway: it stopped
+         * where the chapters stopped, and everything below sat on flat black,
+         * so the page read as two sites stapled together. It is the ground for
+         * the whole page now, and the tour is one more span of the same
+         * journey rather than a different page.
+         */
+        page: Math.max(1, document.documentElement.scrollHeight - window.innerHeight),
+      };
       const st = stage.current;
       pinned = st ? getComputedStyle(st).position === "sticky" : true;
       // The pin state and the runway length both just changed, so the next
@@ -174,7 +188,25 @@ export default function Entrance() {
       }
       lastP = p;
 
-      ring.current?.setProgress(p);
+      /*
+       * Two progresses, deliberately.
+       *
+       * `p` is the chapters' own: it drives which panel is lit and how the
+       * copy fades, and it is finished when the fourth chapter is. The camera
+       * runs on the document instead, so the ring keeps moving behind the tour.
+       * The chapters occupy the first three of the camera's four spans, which
+       * is what `CHAPTERS_END` says, so the four approved compositions land
+       * exactly where they always did.
+       */
+      const scrolled = clamp01(window.scrollY / bounds.page);
+      const runwayShare = clamp01(bounds.travel / bounds.page);
+      const camera = runwayShare > 0 && scrolled <= runwayShare
+        ? (scrolled / runwayShare) * CHAPTERS_END
+        : CHAPTERS_END
+          + clamp01((scrolled - runwayShare) / Math.max(1e-6, 1 - runwayShare))
+            * (1 - CHAPTERS_END);
+
+      ring.current?.setProgress(camera);
       stage.current?.style.setProperty("--p", p.toFixed(4));
 
       let current = 0;
@@ -252,9 +284,18 @@ export default function Entrance() {
       </header>
 
       <main>
+        {/*
+          * The ring is the ground for the whole page, not a backdrop for the
+          * first four screens. It was sticky inside the runway, so it ended
+          * where the chapters ended and everything below sat on flat black —
+          * the page read as two sites stapled together. Fixed and behind
+          * everything, with the camera still travelling, the tour is one more
+          * stretch of the same journey.
+          */}
+        <Scene onReady={onReady} />
+
         <div className="runway" ref={runway} style={{ height: `${RUNWAY * 100}vh` }}>
           <div className="stage" ref={stage}>
-            <Scene onReady={onReady} />
 
             {/* A · Entrance */}
             <section

@@ -17,7 +17,11 @@ const browser = await chromium.launch({ args: ["--enable-unsafe-swiftshader"] })
 const page = await browser.newPage({ viewport: { width: 1584, height: 993 } });
 await page.goto("http://localhost:3111/", { waitUntil: "load", timeout: 60000 });
 await page.waitForTimeout(3500);
-const height = await page.evaluate(() => document.body.scrollHeight);
+// The chapters live in the runway; the document continues past them now.
+const height = await page.evaluate(() => {
+  const r = document.querySelector(".runway");
+  return r ? r.offsetHeight : document.body.scrollHeight;
+});
 const names = ["1A", "1B", "1C", "1D"];
 const boxes = {};
 for (let i = 0; i < 4; i++) {

@@ -24,7 +24,7 @@ import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { CHAPTERS, chapterOpacity } from "@/app/page";
-import { KEYS, keyAt } from "@/lib/entrance/ring";
+import { CHAPTERS_END, KEYS, keyAt } from "@/lib/entrance/ring";
 import { FORMS, Marks, type MarksHandle } from "@/components/entrance/Marks";
 
 /** Every chapter's legibility at one progress value. */
@@ -85,8 +85,26 @@ describe("the camera travels along the ring", () => {
     expect(keyAt(1)).toEqual(KEYS[KEYS.length - 1]);
   });
 
-  it("has one keyframe per chapter", () => {
-    expect(KEYS.length).toBe(CHAPTERS.length);
+  it("has one keyframe per chapter, and one more for the page below them", () => {
+    /*
+     * The ring is the ground for the whole page, not a backdrop for the first
+     * four screens. It used to stop where the chapters stopped and everything
+     * below sat on flat black, so the site read as two sites stapled together;
+     * the extra key is the tour, and the camera keeps travelling into it.
+     */
+    expect(KEYS.length).toBe(CHAPTERS.length + 1);
+  });
+
+  it("lands the last chapter exactly on its approved composition", () => {
+    /*
+     * The assertion the length check was standing in for, and a stronger one.
+     * The chapters now occupy the first three of the camera's four spans, so
+     * the one number that can silently move all four approved frames is where
+     * the runway ends on the camera's timeline. If `CHAPTERS_END` and the
+     * number of keys ever disagree, chapter D is composed somewhere between
+     * its own keyframe and the tour's, and nothing else would say so.
+     */
+    expect(keyAt(CHAPTERS_END)).toEqual(KEYS[CHAPTERS.length - 1]);
   });
 
   it("clamps overscroll instead of flying past the last frame", () => {
