@@ -16,7 +16,6 @@ import { Empty, Failure, Loading } from "./primitives";
 import { GraphEdge, GraphNode, KnowledgeGraph } from "./KnowledgeGraph";
 import { NodeJournal } from "./NodeJournal";
 import { River } from "./river";
-import { ViewTabs } from "./ViewTabs";
 
 /**
  * The API's shape, which is not the renderer's.
@@ -70,18 +69,41 @@ export function GraphView({ projectId, onSelect, focus = null, view = "graph", o
 }) {
   return (
     <>
-      {onView && (
-        <ViewTabs
-          name="graph-view"
-          label="How to read this project's objects"
-          value={view}
-          onChange={onView}
-          options={[["graph", "Research graph"], ["river", "Project lineage"]] as const}
-        />
+      {/*
+        * A breadcrumb, not a second row of tabs.
+        *
+        * The master shows "Research graph / Project lineage" as one quiet line
+        * above the title, and the way back is the first crumb. A pill strip
+        * here cost a whole row of a 992px screen and read as a third level of
+        * navigation under two that already exist — the exact "second permanent
+        * vertical app navigation" §08 refuses, turned on its side.
+        */}
+      {onView && view === "river" && (
+        <p className="crumbs">
+          <button className="btn-text" type="button" onClick={() => onView("graph")}>
+            Research graph
+          </button>
+          <span aria-hidden> / </span>
+          <span aria-current="page">Project lineage</span>
+        </p>
       )}
       {view === "river"
         ? <River projectId={projectId} focus={focus} onOpenObject={onSelect} />
-        : <GraphCanvas projectId={projectId} focus={focus} onSelect={onSelect} />}
+        : (
+          <>
+            <GraphCanvas projectId={projectId} focus={focus} onSelect={onSelect} />
+            {onView && (
+              /* The contextual entrance §08 asks for, at the foot of the
+                 canvas rather than competing with it. */
+              <p className="note">
+                To follow what was derived from what, in recorded stages,{" "}
+                <button className="btn-text" type="button" onClick={() => onView("river")}>
+                  open the project&rsquo;s lineage
+                </button>.
+              </p>
+            )}
+          </>
+        )}
     </>
   );
 }

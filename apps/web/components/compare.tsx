@@ -61,6 +61,11 @@ const TONE: Record<string, string> = {
   DIRECTLY_COMPARABLE: "positive",
 };
 
+/** The eight things this screen can compare. Named once, so the strip and the
+ *  master's own chooser cannot come to offer different sets. */
+type Verb = "datasets" | "claim" | "papers" | "many" | "manydata" | "images"
+          | "findings" | "scans";
+
 export function Compare({ projectId, sources, onOpenSource }: {
   projectId: string;
   sources: ApiState<Source[]>;
@@ -78,9 +83,7 @@ export function Compare({ projectId, sources, onOpenSource }: {
    * This comment said "two are built" for a long time after six were, which is
    * the ordinary fate of a count kept in prose beside the thing it counts.
    */
-  const [verb, setVerb] =
-    useState<"datasets" | "claim" | "papers" | "many" | "manydata" | "images"
-             | "findings" | "scans">("datasets");
+  const [verb, setVerb] = useState<Verb>("datasets");
   const [left, setLeft] = useState<string | null>(null);
   const [right, setRight] = useState<string | null>(null);
   const [assessment, setAssessment] = useState<Assessment | null>(null);
@@ -158,14 +161,43 @@ export function Compare({ projectId, sources, onOpenSource }: {
   }
 
   if (verb === "claim") {
+    /*
+     * The one verb that wears a master, and it brings its own chrome.
+     *
+     * UI_01 replaces the screen title and the eight-tab strip with a breadcrumb
+     * and a "Comparison type" chooser at the right, because the master's own
+     * title is the question — "Can this claim be tested here?" — and a second
+     * heading above it plus a row of eight tabs pushed that question, the
+     * source pair and the step sequence a third of the way down a 992px screen.
+     * The other seven verbs keep the strip: they are a set of peers, and this
+     * one is a place.
+     */
     return (
       <>
-        <h1>Compare</h1>
-        {tabs}
-        <TabPanel name="compare" value={verb}>
-          <ClaimTest projectId={projectId} sources={sources.data ?? []}
-                     onOpenSource={onOpenSource} />
-        </TabPanel>
+        <div className="cmp-master-head">
+          <p className="crumbs">
+            <button className="btn-text" type="button" onClick={() => setVerb("datasets")}>
+              Compare
+            </button>
+            <span aria-hidden> / </span>
+            <span aria-current="page">Paper ↔ dataset</span>
+          </p>
+          <label className="cmp-type">
+            <span>Comparison type:</span>
+            <select value={verb} onChange={(e) => setVerb(e.target.value as Verb)}>
+              <option value="datasets">Dataset ↔ dataset</option>
+              <option value="claim">Paper ↔ dataset</option>
+              <option value="papers">Paper ↔ paper</option>
+              <option value="many">Several papers</option>
+              <option value="manydata">Several datasets</option>
+              <option value="images">Figures</option>
+              <option value="findings">Finding ↔ finding</option>
+              <option value="scans">Scan ↔ scan</option>
+            </select>
+          </label>
+        </div>
+        <ClaimTest projectId={projectId} sources={sources.data ?? []}
+                   onOpenSource={onOpenSource} />
       </>
     );
   }

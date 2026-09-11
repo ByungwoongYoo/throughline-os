@@ -174,6 +174,116 @@ function useJournal(projectId: string, objectId: string | null) {
   };
 }
 
+/**
+ * The convergence behind the three columns.
+ *
+ * UI_01's defining image: two fields of fine strands, one from the human side
+ * and one from the model's, drawn into a single point behind the working
+ * interpretation. It is the screen's argument made visible — two readings
+ * meeting on one claim — which is why §08 allows this master "delicate static
+ * filaments" and gives the cockpit none.
+ *
+ * Drawn as real curves rather than faked with gradients. A first attempt used
+ * `repeating-conic-gradient`, and it produced two hard starbursts with visible
+ * edges that converged on nothing: the strands have to *arrive* somewhere, and
+ * a gradient has no somewhere. Every path here ends at the same point.
+ *
+ * Static and deterministic. The angles come from arithmetic rather than from
+ * `Math.random`, so the server and the client draw the same field and React
+ * does not report a hydration mismatch — and so the screen looks the same on
+ * every visit, which a background that shuffles does not.
+ */
+function Filaments() {
+  const W = 1000;
+  const H = 620;
+  const cx = W / 2;
+  const cy = H * 0.42;
+  const strands = 130;
+
+  /*
+   * A deterministic wobble.
+   *
+   * Strands at perfectly even spacing read as a printed starburst; the
+   * reference's field is irregular, which is what makes it look like threads
+   * rather than rays. `Math.random` cannot be used — the server and the client
+   * would draw different fields and React would report a hydration mismatch —
+   * so the irregularity comes from a cheap deterministic hash instead.
+   */
+  const jitter = (i: number, salt: number) =>
+    ((Math.sin(i * 12.9898 + salt * 78.233) * 43758.5453) % 1 + 1) % 1;
+
+  const side = (from: "left" | "right") => {
+    const dir = from === "left" ? -1 : 1;
+    return Array.from({ length: strands }, (_, i) => {
+      const t = (i + 0.5) / strands;
+      // Densest through the middle, thinning towards the top and bottom, so
+      // the field has a waist rather than an even wall of lines.
+      // Nearly the full height at the rim: the reference's strands arrive at
+      // the node from a wide range of angles, and a narrow rim produces the
+      // flat bowtie a first attempt drew.
+      const spread = Math.sin(Math.PI * t) ** 0.45;
+      const y = cy + (t - 0.5) * H * 2.1 * spread
+                  + (jitter(i, 1) - 0.5) * 30;
+      const x = cx + dir * W * 0.56;
+      /*
+       * Two control points, both bowed AWAY from the straight line: the strand
+       * leaves the rim almost horizontally, bellies out, and only turns into
+       * the node at the last moment. A single control point gives a straight
+       * ray, which is what the first attempt drew.
+       */
+      const belly = (jitter(i, 2) - 0.5) * 70;
+      // The first control point stays out near the rim, so the strand keeps its
+      // own angle for most of the run and only turns in at the end — which is
+      // what gives the field its depth instead of a flat funnel.
+      const c1x = cx + dir * W * 0.30;
+      const c1y = y + (y - cy) * 0.22 + belly;
+      const c2x = cx + dir * W * 0.06;
+      const c2y = cy + (y - cy) * 0.06;
+      return `M ${x.toFixed(1)} ${y.toFixed(1)} C ${c1x.toFixed(1)} ${c1y.toFixed(1)},`
+           + ` ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${cx} ${cy}`;
+    });
+  };
+
+  /** The motes the reference scatters through the field. */
+  const motes = Array.from({ length: 26 }, (_, i) => {
+    const dir = i % 2 ? 1 : -1;
+    const a = jitter(i, 3);
+    const b = jitter(i, 4);
+    return {
+      cx: cx + dir * (0.1 + a * 0.44) * W,
+      cy: cy + (b - 0.5) * H * 1.1,
+      r: 1.4 + jitter(i, 5) * 2.2,
+      model: dir > 0,
+    };
+  });
+
+  return (
+    <svg
+      className="rsn-field"
+      viewBox={`0 0 ${W} ${H}`}
+      preserveAspectRatio="xMidYMid slice"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <g className="rsn-field-human">
+        {side("left").map((d, i) => <path key={i} d={d} />)}
+      </g>
+      <g className="rsn-field-model">
+        {side("right").map((d, i) => <path key={i} d={d} />)}
+      </g>
+      {motes.map((m, i) => (
+        <circle
+          key={i}
+          className={m.model ? "rsn-mote rsn-mote-model" : "rsn-mote"}
+          cx={m.cx} cy={m.cy} r={m.r}
+        />
+      ))}
+      {/* The node the two readings meet on. */}
+      <circle className="rsn-field-node" cx={cx} cy={cy} r={5} />
+    </svg>
+  );
+}
+
 export function ClaimTest({ projectId, sources, onOpenSource }: {
   projectId: string;
   sources: Source[];
@@ -312,20 +422,38 @@ export function ClaimTest({ projectId, sources, onOpenSource }: {
 
       {/* The source pair, above everything, because both halves qualify every
           word below them. */}
+      {/*
+        * One pill per half, not a labelled box around a full-width control.
+        *
+        * UI_01 puts the kind, the name and the identifying meta on a single
+        * line each, and the two together are one band 44px tall. Drawn as
+        * bordered boxes with the label above and the select below they were
+        * 100px, and the pair is the least interesting thing on a screen whose
+        * subject is the claim.
+        */}
       <div className="rsn-pair">
         <label className="rsn-slot">
+          <span className="rsn-slot-icon" aria-hidden>▤</span>
           <span className="rsn-slot-kind">Paper</span>
-          <select value={paper ?? ""} onChange={(e) => void locate(e.target.value)}>
+          <select className="rsn-slot-pick" value={paper ?? ""}
+                  onChange={(e) => void locate(e.target.value)}>
             <option value="" disabled>Choose a paper…</option>
             {papers.map((source) => (
               <option key={source.id} value={source.id}>{source.title}</option>
             ))}
           </select>
+          {chosenPaper?.paper?.page_count != null && (
+            <span className="rsn-slot-meta mono">
+              {chosenPaper.paper.page_count} pages
+            </span>
+          )}
         </label>
 
         <label className="rsn-slot">
+          <span className="rsn-slot-icon" aria-hidden>▥</span>
           <span className="rsn-slot-kind">Dataset</span>
-          <select value={datasetId ?? ""} onChange={(e) => setDatasetId(e.target.value)}>
+          <select className="rsn-slot-pick" value={datasetId ?? ""}
+                  onChange={(e) => setDatasetId(e.target.value)}>
             <option value="" disabled>Choose a dataset…</option>
             {datasets.map((source) => (
               <option key={source.id} value={source.id}>{source.title}</option>
@@ -367,6 +495,7 @@ export function ClaimTest({ projectId, sources, onOpenSource }: {
       )}
 
       <div className="rsn-columns">
+        <Filaments />
         {/* ---- left: the human half ------------------------------------ */}
         <section className="rsn-judgment" aria-labelledby="rsn-judgment-h">
           <h2 id="rsn-judgment-h" className="rsn-col-title">Your judgment</h2>

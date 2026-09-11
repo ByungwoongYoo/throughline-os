@@ -26,10 +26,30 @@
   --n-800: #2A2A28;
   --n-900: #161615;
 
-  /* Exactly one accent: focus, selection, active nav, primary action. If it
-     appears in more than ~5% of pixels, the design is wrong. */
-  --accent:      #2563EB;
-  --accent-soft: #DBEAFE;
+  /*
+   * Exactly one accent: focus, selection, active nav, primary action. If it
+   * appears in more than ~5% of pixels, the design is wrong.
+   *
+   * **Gold, not blue (D355).** The supplied light workspace is the package's
+   * reference target and §08 divides the two colours by meaning: "Gold marks a
+   * research focus/selected navigation, blue marks data selection and
+   * interaction." The light theme had one blue doing both, so the distinction
+   * the master draws between *where you are* and *what you have selected* did
+   * not exist here — and a side-by-side against the reference made it the
+   * loudest difference on all three internal screens. The dark theme has been
+   * the site's amber since T138; this brings the light theme into the same
+   * family rather than leaving the product with two identities.
+   *
+   * Darker than the dark theme's `#c8a45c`, which is a light-on-dark value and
+   * reaches only 2.0:1 on this page. Ratios against the two grounds text sits
+   * on here, computed rather than judged: `#8A6A1F` is 4.83:1 on the page
+   * (#FAFAF9) and 5.05:1 on a card (#FFFFFF), and white on it is 5.05:1, so
+   * the fill and the text on the fill both clear 4.5:1. The pale fill pairs
+   * with a dark label at 7.62:1 — the "pale gold fill with readable dark
+   * label" §08 asks for, rather than a tint nobody can read.
+   */
+  --accent:      #8A6A1F;
+  --accent-soft: #F3E7CC;
   /*
    * Text drawn *on* the accent.
    *
@@ -47,16 +67,19 @@
   /* And the readable side of the accent *tint*, which is a different question.
    *
    * `--accent` is readable on the page — 4.95:1 on #FAFAF9 — and not on its own
-   * tint: #2563EB on #DBEAFE is 4.24:1, under the 4.5:1 normal text needs. Five
-   * rules make exactly that pairing and every one of them is a selected or
-   * active state, so the failing text is the text saying where you are.
+   * tint: the old blue accent on its old tint was 4.24:1, under the 4.5:1
+   * normal text needs. Five rules make exactly that pairing and every one of
+   * them is a selected or active state, so the failing text is the text saying
+   * where you are.
    *
-   * #1443B8 is 6.82:1 on the tint and is not invented here — it is the accent
-   * this file's own `prefers-contrast: more` block already picks for light.
-   * The dark theme states its own: its tint is the site's amber-tinted dark
-   * and its readable side is the site's *brighter* amber, 8.53:1 on it against
-   * the accent's own 6.67:1 — the same question, answered from that palette. */
-  --on-accent-soft: #1443B8;
+   * With the accent now gold (see above), the readable side of the tint is a
+   * dark gold-brown rather than a dark blue: #5A4310 is 7.62:1 on #F3E7CC,
+   * comfortably clear, and it keeps the selected state inside one hue instead
+   * of pairing a gold fill with a blue label. The dark theme states its own:
+   * its tint is the site's amber-tinted dark and its readable side is the
+   * site's *brighter* amber, 8.53:1 on it — the same question, answered from
+   * that palette. */
+  --on-accent-soft: #5A4310;
 
   /* Semantic — state only, never decoration. */
   --positive: #15803D;
@@ -6317,13 +6340,25 @@ details.fold > *:not(summary) { padding: 8px 2px 10px; }
    dash.
    --------------------------------------------------------------------------- */
 
-.river-tools {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
-  margin: 0 0 12px;
+/* Title left, tools right, one band. The reference spends 90px here and the
+   canvas begins at a third of the viewport; stacked, it began at half. */
+.river-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 24px; margin-bottom: 14px;
 }
-.river-search { flex: 1 1 200px; min-width: 160px; }
+.river-head .lede { margin: 2px 0 0; }
+/* §08: main object title 30-40px serif. */
+.river-title {
+  margin: 0; font-family: var(--serif); font-size: 31px; font-weight: 500;
+  letter-spacing: -0.01em; line-height: 1.15;
+}
+.river-tools {
+  display: flex; flex-wrap: wrap; align-items: center;
+  justify-content: flex-end; gap: 8px; flex: 0 1 auto; padding-top: 4px;
+}
+.river-search { flex: 0 1 180px; min-width: 130px; }
 .river-search input { width: 100%; }
-.river-filter select { min-width: 150px; }
+.river-filter select { min-width: 128px; }
 
 .river-frame {
   border: 1px solid var(--line); border-radius: var(--r-panel);
@@ -6340,39 +6375,97 @@ details.fold > *:not(summary) { padding: 8px 2px 10px; }
 .river-lines {
   position: absolute; inset: 0; pointer-events: none; overflow: visible;
 }
+/*
+   A ribbon, not a hairline.
+ 
+   The reference's flow is wide and soft and carries its colour from the state
+   of the work downstream; drawn as a 1.5px grey line the canvas reads as a
+   diagram of boxes with wires, which is the thing the master is not. Width and
+   opacity together: wide enough to read as flow, faint enough that eight of
+   them crossing do not become a smear. */
 .river-line {
-  fill: none; stroke: var(--line-strong); stroke-width: 1.5;
+  fill: none; stroke: var(--line-strong); stroke-width: 7;
+  stroke-linecap: round; opacity: 0.3;
 }
-.river-line[data-lineage="false"] { stroke-dasharray: 3 4; }
-.river-line[data-lit="true"] { stroke: var(--accent); stroke-width: 2.25; }
+.river-line[data-state="validated"] { stroke: var(--positive); }
+.river-line[data-state="exploratory"] { stroke: var(--accent); }
+.river-line[data-state="rejected"] { stroke: var(--negative); }
+/* Dash is the one thing that must survive a restyle: solid is recorded
+   lineage, dashed is an asserted relationship. Narrower too, because an
+   assertion should not carry the visual weight of a record. */
+.river-line[data-lineage="false"] {
+  stroke-width: 2; stroke-dasharray: 3 5; opacity: 0.55;
+}
+.river-line[data-lit="true"] { opacity: 0.85; }
 
-.river-col { flex: 0 0 232px; display: flex; flex-direction: column; gap: 8px; }
+.river-col { flex: 0 0 226px; display: flex; flex-direction: column; gap: 10px; }
 .river-col-name {
   margin: 0; font-size: 15px; font-weight: 600; color: var(--ink-strong, var(--ink));
 }
 .river-col-blurb {
-  margin: -4px 0 4px; font-size: 12px; color: var(--ink-faint);
+  margin: -6px 0 2px; font-size: 12px; color: var(--ink-faint);
 }
 .river-col-empty { margin: 0; font-size: 12px; color: var(--ink-faint); }
 
+/* A card that sits ON the flow rather than beside it: opaque, lifted a little,
+   so a ribbon passing behind reads as passing behind. */
 .river-card {
   position: relative; z-index: 1;
-  display: flex; flex-direction: column; gap: 3px; width: 100%;
-  padding: 9px 11px; text-align: left; cursor: pointer;
-  border: 1px solid var(--line); border-left: 3px solid var(--ink-faint);
-  border-radius: var(--r-card); background: var(--paper, var(--bg));
-  font: inherit; color: var(--ink);
+  display: flex; flex-direction: column; gap: 5px; width: 100%;
+  padding: 10px 12px; text-align: left; cursor: pointer;
+  border: 1px solid var(--line); border-radius: var(--r-card);
+  background: var(--panel); font: inherit; color: var(--ink);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
 }
 .river-card:hover { border-color: var(--line-strong); }
 .river-card[aria-pressed="true"] {
-  border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent);
+  border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft);
 }
-.river-card[data-state="validated"] { border-left-color: var(--positive); }
-.river-card[data-state="exploratory"] { border-left-color: var(--exploratory); }
-.river-card[data-state="rejected"] { border-left-color: var(--negative); }
-.river-card-id { font-size: 11px; color: var(--ink-faint); }
-.river-card-title { font-size: 13px; line-height: 1.35; }
-.river-card-state { font-size: 11px; color: var(--ink-faint); }
+.river-card-head { display: flex; align-items: flex-start; gap: 7px; }
+/* The state, as a mark rather than as a sentence repeated on every card. */
+.river-dot {
+  flex: 0 0 auto; width: 8px; height: 8px; margin-top: 5px;
+  border-radius: 50%; background: var(--ink-faint);
+}
+.river-card[data-state="validated"] .river-dot { background: var(--positive); }
+.river-card[data-state="exploratory"] .river-dot { background: var(--accent); }
+.river-card[data-state="rejected"] .river-dot { background: var(--negative); }
+.river-card-title { font-size: 13px; line-height: 1.38; font-weight: 500; }
+.river-card-meta {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding-left: 15px;
+}
+.river-card-id { font-size: 10.5px; color: var(--ink-faint); }
+/* A chip, because a status is a value and not prose. Tinted by state so the
+   three can be told apart without reading them. */
+.river-chip {
+  padding: 1px 7px; border-radius: var(--r-chip); font-size: 10.5px;
+  background: var(--hover); color: var(--ink-soft);
+}
+.river-card[data-state="validated"] .river-chip {
+  background: color-mix(in srgb, var(--positive) 14%, transparent);
+  color: var(--positive);
+}
+.river-card[data-state="exploratory"] .river-chip {
+  background: var(--accent-soft); color: var(--on-accent-soft);
+}
+.river-card[data-state="rejected"] .river-chip {
+  background: color-mix(in srgb, var(--negative) 14%, transparent);
+  color: var(--negative);
+}
+/* The detail bar's chip stands alone, with no card to inherit the state from,
+   so it carries `data-state` itself. */
+.river-chip[data-state="validated"] {
+  background: color-mix(in srgb, var(--positive) 14%, transparent);
+  color: var(--positive);
+}
+.river-chip[data-state="exploratory"] {
+  background: var(--accent-soft); color: var(--on-accent-soft);
+}
+.river-chip[data-state="rejected"] {
+  background: color-mix(in srgb, var(--negative) 14%, transparent);
+  color: var(--negative);
+}
 
 .river-legend {
   display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
@@ -6438,28 +6531,47 @@ details.fold > *:not(summary) { padding: 8px 2px 10px; }
    reading generated prose as citable prose.
    --------------------------------------------------------------------------- */
 
-.rsn-title { margin-bottom: 4px; }
+/* The question is the screen's subject, so it is the screen's largest thing.
+   §08: main object title 30-40px serif. */
+.rsn-title {
+  margin: 0 0 4px; font-family: var(--serif); font-size: 38px; font-weight: 400;
+  letter-spacing: -0.015em; line-height: 1.08;
+}
+.rsn-columns, .rsn-pair, .rsn-steps, .rsn-footer { position: relative; z-index: 1; }
 
+/* One pill per half: icon, kind, name, meta, on a line. */
 .rsn-pair {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 14px 0;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 16px 0 18px;
 }
 .rsn-slot {
-  display: flex; flex-direction: column; gap: 4px;
-  padding: 10px 12px; border: 1px solid var(--line);
-  border-radius: var(--r-card); background: var(--panel);
+  display: flex; align-items: center; gap: 10px; min-width: 0;
+  padding: 9px 14px; border: 1px solid var(--line);
+  border-radius: 999px; background: var(--panel);
 }
+.rsn-slot-icon { color: var(--ink-faint); font-size: 13px; }
 .rsn-slot-kind {
-  font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
-  color: var(--ink-faint);
+  font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink-faint); white-space: nowrap;
 }
-.rsn-slot-meta { font-size: 11.5px; color: var(--ink-faint); }
+/* The real control, wearing the pill rather than sitting in a box inside it. */
+.rsn-slot-pick {
+  flex: 1 1 auto; min-width: 0; border: 0; background: none; padding: 0;
+  font: inherit; font-size: 14px; color: var(--ink);
+}
+.rsn-slot-meta { font-size: 11.5px; color: var(--ink-faint); white-space: nowrap; }
 
+/* Centred, with a rule between each step, because the three are a sequence and
+   a rule is what says so. */
 .rsn-steps {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 18px;
-  margin: 0 0 16px; padding: 0; list-style: none;
+  display: flex; align-items: center; justify-content: center;
+  gap: 0; margin: 0 0 22px; padding: 0; list-style: none;
   font-size: 12.5px; color: var(--ink-faint);
 }
-.rsn-steps li { display: inline-flex; align-items: center; gap: 7px; }
+.rsn-steps li { display: inline-flex; align-items: center; gap: 8px; }
+.rsn-steps li + li::before {
+  content: ""; width: 84px; height: 1px; margin: 0 14px;
+  background: var(--line-strong); opacity: 0.6;
+}
 .rsn-step-n {
   display: inline-grid; place-items: center; width: 20px; height: 20px;
   border-radius: 50%; border: 1px solid var(--line-strong);
@@ -6473,10 +6585,55 @@ details.fold > *:not(summary) { padding: 8px 2px 10px; }
   border-color: var(--positive); color: var(--positive);
 }
 
-.rsn-columns {
-  display: grid; grid-template-columns: 1fr 1.35fr 1fr; gap: 16px;
-  align-items: start;
+/*
+   The filaments.
+
+   §08 allows the reasoning and the river "delicate static filaments", and on
+   UI_01 they are not decoration: two fields converge from the human side and
+   the model side into a single point behind the working interpretation, which
+   is the screen's argument drawn rather than stated.
+
+   Faint enough to read as ground, not as content — the columns sit on top at
+   z-index 1 and this never takes the pointer. The two sides are told apart by
+   hue for the same reason the columns are labelled: one is a person's reading
+   and one is a model's.
+*/
+.rsn-field {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none; z-index: 0;
+  /* Clipped to the columns. `slice` scales the field to cover the box and
+     would otherwise paint up over the title and the source pair, which the
+     reference keeps clear. */
+  overflow: hidden;
 }
+.rsn-field path { fill: none; stroke-width: 0.5; vector-effect: non-scaling-stroke; }
+/* Faint per strand, legible in aggregate. At 0.3 a hundred of them stack into
+   a solid wedge; the field has to read as threads even where they bunch. */
+/* The human side reads cooler and the model's warmer, the way the reference
+   tells them apart before either is labelled. */
+.rsn-field-human path { stroke: #6B7A8C; opacity: 0.2; }
+.rsn-field-model path { stroke: var(--accent); opacity: 0.15; }
+.rsn-mote { fill: var(--ink-faint); opacity: 0.3; }
+.rsn-mote-model { fill: var(--accent); opacity: 0.4; }
+.rsn-field-node {
+  fill: var(--panel); stroke: var(--accent); stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+/* A reader who asked for less motion also gets a quieter ground; nothing here
+   moves, but the request is about visual load as much as animation. */
+@media (prefers-reduced-motion: reduce) {
+  .rsn-field-human path, .rsn-field-model path { opacity: 0.07; }
+  .rsn-mote, .rsn-mote-model { opacity: 0.18; }
+}
+
+.rsn-stage { position: relative; }
+
+.rsn-columns {
+  position: relative;
+  display: grid; grid-template-columns: 1fr 1.35fr 1fr; gap: 16px;
+  align-items: start; min-height: 320px;
+}
+.rsn-columns > section { position: relative; z-index: 1; }
 /* At a constrained width the three columns stack rather than shrinking into
    three unreadable strips — §08 refuses "shrinking the whole app to a
    screenshot scale". The centre keeps its place in the middle. */
@@ -6544,10 +6701,29 @@ details.fold > *:not(summary) { padding: 8px 2px 10px; }
    drawn: the run it names is not the analysis *object* the canvas lays out, and
    a line to a node the payload does not identify would assert a derivation
    nobody recorded. */
-.river-card-note { font-size: 10.5px; color: var(--ink-faint); }
+.river-card-note { padding-left: 15px; font-size: 10.5px; color: var(--ink-faint); }
 
 /* The legend has to be on screen at the reference height, or the caveat it
    carries is the caveat nobody reads — which is the thing the caveat is about.
    Tied to the chrome above it rather than to a round fraction of the viewport,
    with a floor so a short window still shows a usable canvas. */
 .river-scroll { max-height: clamp(260px, calc(100vh - 460px), 680px); }
+
+/* The reasoning master's own chrome: a breadcrumb left, the comparison chooser
+   right, on one line. It replaces a screen title and an eight-tab strip for
+   this one verb — see the note in `compare.tsx` for why. */
+.cmp-master-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; margin-bottom: 10px;
+}
+.cmp-master-head .crumbs { margin: 0; }
+.cmp-type {
+  display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto;
+  padding: 5px 12px; border: 1px solid var(--line);
+  border-radius: var(--r-control); background: var(--panel);
+  font-size: 12.5px; color: var(--ink-faint); white-space: nowrap;
+}
+.cmp-type select {
+  border: 0; background: none; padding: 0; font: inherit;
+  font-size: 13px; color: var(--ink);
+}

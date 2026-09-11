@@ -105,6 +105,17 @@ type Connector = {
   id: string;
   d: string;
   lineage: boolean;
+  /**
+   * The state the ribbon is drawn in, taken from the object it flows INTO.
+   *
+   * UI_03's ribbons carry colour — green where the work was validated, amber
+   * where it is still exploratory, red down the branch that was rejected — and
+   * that is what makes the canvas read as a river rather than as a diagram of
+   * boxes. The colour belongs to the downstream end because a line's meaning is
+   * what it produced: a rejected analysis drawn from a perfectly good dataset
+   * is a rejected branch.
+   */
+  state: RiverState;
   /** True when either end is the selected object. */
   lit: boolean;
 };
@@ -237,6 +248,10 @@ export function River({ projectId, onOpenObject, focus = null }: {
     else cards.current.delete(id);
   }, []);
 
+  /** Each object's recorded status by id, so a ribbon can take its colour. */
+  const stateById = useMemo(
+    () => new Map(nodes.map((n) => [n.id, n.status])), [nodes]);
+
   const measure = useCallback(() => {
     const root = content.current;
     if (!root) return;
@@ -258,11 +273,12 @@ export function River({ projectId, onOpenObject, focus = null }: {
         id: edge.id,
         d: `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`,
         lineage: edge.edge_kind === "lineage",
+        state: stateOf(stateById.get(edge.target_object_id)),
         lit: selected === edge.source_object_id || selected === edge.target_object_id,
       });
     }
     setConnectors(next);
-  }, [drawable, selected]);
+  }, [drawable, selected, stateById]);
 
   useLayoutEffect(() => { measure(); }, [measure, zoom, view]);
 
@@ -324,10 +340,18 @@ export function River({ projectId, onOpenObject, focus = null }: {
 
   return (
     <>
-      <h1>Follow the evidence. Keep every branch.</h1>
-      <p className="lede">Recorded derivation and related ideas, shown separately.</p>
-
-      <div className="river-tools">
+      {/*
+        * Title and tools on one band, which is where the master puts them and
+        * is worth 90px of the 992 the reference has to spend. Stacked — title,
+        * lede, then a toolbar row of its own — the canvas started a third of
+        * the way down the screen and the legend fell off the bottom.
+        */}
+      <div className="river-head">
+        <div>
+          <h1 className="river-title">Follow the evidence. Keep every branch.</h1>
+          <p className="lede">Recorded derivation and related ideas, shown separately.</p>
+        </div>
+        <div className="river-tools">
         <ViewTabs
           name="river-view"
           label="How to read the lineage"
@@ -360,14 +384,15 @@ export function River({ projectId, onOpenObject, focus = null }: {
           </select>
         </label>
 
-        <button
-          className="btn"
-          type="button"
-          disabled={!chosen}
-          onClick={() => chosen && onOpenObject(chosen.id)}
-        >
-          Open selected object
-        </button>
+          <button
+            className="btn btn-primary"
+            type="button"
+            disabled={!chosen}
+            onClick={() => chosen && onOpenObject(chosen.id)}
+          >
+            Open selected object →
+          </button>
+        </div>
       </div>
 
       {/*
@@ -402,6 +427,7 @@ export function River({ projectId, onOpenObject, focus = null }: {
                     key={c.id}
                     className="river-line"
                     data-lineage={c.lineage}
+                    data-state={c.state}
                     data-lit={c.lit}
                     d={c.d}
                   />
@@ -430,13 +456,31 @@ export function River({ projectId, onOpenObject, focus = null }: {
                         onClick={() => setSelected(node.id)}
                         onDoubleClick={() => onOpenObject(node.id)}
                       >
-                        <span className="river-card-id mono">{node.id}</span>
-                        <span className="river-card-title">{node.title}</span>
-                        <span className="river-card-state">
-                          {STATE_LABEL[stateOf(node.status)]}
+                        {/*
+                          * Title first, identifier after — the one place this
+                          * departs from the master's card and it is the data's
+                          * fault, not the design's. UI_03 leads with a short
+                          * human identifier (CL-008, AN-014) which reads as a
+                          * name; this product issues `obj_c5f0844660cb4cb5b130`,
+                          * and twenty characters of hex at the top of every
+                          * card outweighs the sentence underneath it. The id is
+                          * still on the card, in the meta line, where it can be
+                          * read off and searched for.
+                          */}
+                        <span className="river-card-head">
+                          <span className="river-dot" aria-hidden />
+                          <span className="river-card-title">{node.title}</span>
+                        </span>
+                        <span className="river-card-meta">
+                          <span className="river-card-id mono">{node.id}</span>
+                          {stateOf(node.status) !== "neutral" && (
+                            <span className="river-chip">
+                              {STATE_LABEL[stateOf(node.status)]}
+                            </span>
+                          )}
                         </span>
                         {node.note && (
-                          <span className="river-card-note mono">{node.note}</span>
+                          <span className="river-card-note">{node.note}</span>
                         )}
                       </button>
                     ))}
@@ -545,7 +589,7 @@ export function River({ projectId, onOpenObject, focus = null }: {
           <div className="river-detail-head">
             <span className="river-card-id mono">{chosen.id}</span>
             <strong>{chosen.title}</strong>
-            <span className="river-card-state" data-state={stateOf(chosen.status)}>
+            <span className="river-chip" data-state={stateOf(chosen.status)}>
               {STATE_LABEL[stateOf(chosen.status)]}
             </span>
             <button className="btn" type="button" onClick={() => setSelected(null)}>
