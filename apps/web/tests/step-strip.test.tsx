@@ -24,12 +24,17 @@ const MAP = {
   connections: { candidate: 5, exploratory: 1 }, findings: {},
   top_connections: [], recommended_next_action: "Validate.",
 };
-const VALIDATE = loopSteps(MAP)[3];
+const STEPS = loopSteps(MAP);
+const VALIDATE = STEPS[3];
+/* The strip carries the whole loop now, not only the step it is on: six ticks
+   on the line it already spent, so a researcher can see the path rather than
+   only their position on it. */
+const SPINE = { steps: STEPS, onGo: vi.fn() };
 
 describe("the step strip", () => {
   it("names the step by its place in the loop and offers its action", () => {
     const onAction = vi.fn();
-    render(<StepStrip step={VALIDATE} index={4} total={6} here={false}
+    render(<StepStrip {...SPINE} step={VALIDATE} index={4} total={6} here={false}
                       actionLabel="Validate consumption × resistance"
                       onAction={onAction} onShowLoop={vi.fn()} working={0} />);
     expect(screen.getByText(/step 4 of 6/i)).toBeInTheDocument();
@@ -41,7 +46,7 @@ describe("the step strip", () => {
   it("offers no button where the researcher already is", () => {
     /** The real control is on the page; a second copy of it is the duplicate
      *  this codebase keeps having to remove. */
-    render(<StepStrip step={VALIDATE} index={4} total={6} here
+    render(<StepStrip {...SPINE} step={VALIDATE} index={4} total={6} here
                       actionLabel="Validate consumption × resistance"
                       onAction={vi.fn()} onShowLoop={vi.fn()} working={0} />);
     expect(screen.getByText(/you are here/i)).toBeInTheDocument();
@@ -49,7 +54,7 @@ describe("the step strip", () => {
   });
 
   it("says the machine is working rather than naming a step mid-pipeline", () => {
-    render(<StepStrip step={VALIDATE} index={4} total={6} here={false}
+    render(<StepStrip {...SPINE} step={VALIDATE} index={4} total={6} here={false}
                       actionLabel="Validate" onAction={vi.fn()} onShowLoop={vi.fn()}
                       working={2} />);
     expect(screen.getByRole("status")).toHaveTextContent(/2 steps are still running/i);
@@ -58,7 +63,7 @@ describe("the step strip", () => {
 
   it("says when the loop is complete, and still leads somewhere", () => {
     const onShowLoop = vi.fn();
-    render(<StepStrip step={null} index={0} total={6} here={false} actionLabel={null}
+    render(<StepStrip {...SPINE} step={null} index={0} total={6} here={false} actionLabel={null}
                       onAction={vi.fn()} onShowLoop={onShowLoop} working={0} />);
     expect(screen.getByText(/every step is done/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /open the overview/i }));
@@ -67,7 +72,7 @@ describe("the step strip", () => {
 
   it("opens the loop card from its left half", () => {
     const onShowLoop = vi.fn();
-    render(<StepStrip step={VALIDATE} index={4} total={6} here={false}
+    render(<StepStrip {...SPINE} step={VALIDATE} index={4} total={6} here={false}
                       actionLabel="Validate" onAction={vi.fn()} onShowLoop={onShowLoop}
                       working={0} />);
     fireEvent.click(screen.getByRole("button", { name: /step 4 of 6/i }));

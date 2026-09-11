@@ -292,7 +292,8 @@ describe("the fill is the step strip's, and a screen does not spend a second one
 
   function strip() {
     return (
-      <StepStrip step={STEP} index={4} total={6} here={false}
+      <StepStrip steps={[STEP]} onGo={() => {}}
+                 step={STEP} index={1} total={6} here={false}
                  actionLabel="Validate consumption × resistance"
                  onAction={() => {}} onShowLoop={() => {}} working={0} />
     );

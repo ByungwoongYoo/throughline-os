@@ -6870,3 +6870,61 @@ details.fold > *:not(summary) { padding: 8px 2px 10px; }
   .set-shell { grid-template-columns: 1fr; gap: 12px; }
   .set-nav { position: static; flex-direction: row; flex-wrap: wrap; padding-top: 0; }
 }
+
+/* ---------------------------------------------------------------------------
+   The loop, as a spine.
+
+   The strip named a position — "Step 4 of 6 · Try to destroy what survived" —
+   which tells a researcher where they are and nothing about where that sits in
+   a path. Twenty-three sections in five groups above it, and the one line that
+   could have shown the journey was spending itself on a sentence.
+
+   Six ticks on the same line. Done, here and ahead are told apart by the mark
+   AND by the label, never by colour alone (§04), and each tick is its step's
+   own screen: the shortest path from anywhere in the product to any part of
+   the work.
+   --------------------------------------------------------------------------- */
+.step-spine {
+  display: flex; align-items: center; gap: 2px;
+  margin: 0; padding: 0; list-style: none; min-width: 0;
+}
+.step-spine li { display: flex; align-items: center; min-width: 0; }
+/* A hairline between ticks, so six marks read as one sequence rather than as
+   six buttons that happen to be adjacent. */
+.step-spine li + li::before {
+  content: ""; width: 14px; height: 1px; flex: none;
+  background: var(--line-strong); opacity: 0.55;
+}
+.step-spine button {
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 7px; border: 0; border-radius: var(--r-chip);
+  background: none; font: inherit; font-size: 12px;
+  color: var(--ink-faint); cursor: pointer; min-width: 0;
+}
+.step-spine button:hover { background: var(--hover); color: var(--ink); }
+.step-spine-tick {
+  display: inline-grid; place-items: center; flex: none;
+  width: 17px; height: 17px; border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  font-size: 10px; font-family: var(--mono); line-height: 1;
+}
+.step-spine-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 0;
+}
+/* Only the current step spells its name out. Six labels on one line would push
+   the band to two rows on every screen in the product; the rest carry the name
+   on their `title` and in the accessible name of the button. */
+.step-spine li[data-state="here"] .step-spine-name { max-width: 22ch; }
+.step-spine li[data-state="here"] button { color: var(--ink); font-weight: 560; }
+.step-spine li[data-state="here"] .step-spine-tick {
+  background: var(--accent); border-color: var(--accent); color: var(--on-accent);
+}
+.step-spine li[data-state="done"] .step-spine-tick {
+  border-color: var(--positive); color: var(--positive);
+}
+
+/* At a narrow width the spine keeps the ticks and drops the name entirely —
+   six positions still legible, in one line, on a laptop. */
+@media (max-width: 1100px) {
+  .step-spine li[data-state="here"] .step-spine-name { max-width: 0; }
+}

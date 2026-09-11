@@ -32,6 +32,8 @@ const GLOBALS = join(__dirname, "..", "app", "globals.css");
 const ALLOWED: ReadonlyArray<{ file: string; count: number; reason: string }> = [
   { file: "NodeJournal.tsx", count: 3,
     reason: "`.nj-lineage li button` (2 lineage openers) and `.nj-ask button` (the Ask field's own submit, sized to the input beside it)." },
+  { file: "StepStrip.tsx", count: 1,
+    reason: "`.step-spine button` — a tick on the loop's spine, sized to the 36px strip it shares with the step's name. Giving six of them `.btn` would put six pieces of chrome on the one line that is supposed to read as a single sequence." },
   { file: "Shell.tsx", count: 1,
     reason: "`.crumb button` — a breadcrumb segment is text, not a control with chrome." },
   { file: "notebook.tsx", count: 4,

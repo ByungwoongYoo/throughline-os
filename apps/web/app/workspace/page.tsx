@@ -497,6 +497,8 @@ function Workspace({ user }: { user: SignedInUser }) {
   };
   const strip = loopMap ? (
     <StepStrip
+      steps={steps}
+      onGo={goSection}
       step={step}
       index={step ? steps.findIndex((s) => s.id === step.id) + 1 : 0}
       total={steps.length}
