@@ -73,7 +73,11 @@ body:has(.entrance-header) {
   text-decoration: none;
   margin-right: auto;
 }
-.brand-mark { width: 74px; height: 50px; flex: none; }
+/* The mark sizes itself from its own aspect; this only keeps it from
+   being squeezed by the flex row. Renamed off `.brand-mark`, which the
+   workspace header also used for a different thing — the collision is why
+   the front page's logo rendered inside a second ellipse. */
+.entrance-mark { flex: none; }
 .brand-word { font: 500 28px/1 Inter, system-ui, sans-serif; letter-spacing: -0.01em; }
 
 .entrance-nav { display: flex; gap: 40px; }
@@ -502,7 +506,7 @@ body:has(.entrance-header) {
 @media (max-width: 620px) {
   .entrance-header { gap: 12px; padding: 0 16px; }
   .entrance-nav { display: none; }
-  .brand-mark { width: 44px; height: 30px; }
+  .entrance-mark { width: 44px; height: 30px; }
   .brand-word { font-size: 19px; }
   .enter { min-width: 0; height: 40px; padding: 0 12px; font-size: 14px; }
   .motion-toggle { right: 10px; bottom: 10px; }

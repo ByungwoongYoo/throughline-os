@@ -42,6 +42,7 @@ import {
   readLayout, writeLayout,
 } from "@/lib/layout";
 import { SignedInUser } from "./AccountMenu";
+import { BrandMark } from "./BrandMark";
 import { THEME_CHOICES, THEME_LABEL, useThemeChoice } from "./Theme";
 import {
   IconAnalyses, IconCompare, IconConnections, IconData, IconDiscover,
@@ -506,7 +507,7 @@ export function Shell({
     >
       <header className="topbar">
         <nav className="crumbs" aria-label="Breadcrumb">
-          <span className="brand-mark" aria-hidden />
+          <BrandMark height={15} className="brand-mark" />
           {projectMenu ?? <span className="crumb-root">{projectName}</span>}
           {crumbs.map((crumb, i) => (
             <span key={i} className="crumb">

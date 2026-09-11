@@ -1545,21 +1545,17 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   font-size: 12.5px;
 }
 
-.brand-mark {
-  width: 15px; height: 15px;
-  border: 1.5px solid var(--ink);
-  border-radius: 50%;
-  position: relative;
-  flex: 0 0 auto;
-  margin-right: 3px;
-}
-.brand-mark::after {
-  content: "";
-  position: absolute;
-  left: -5px; right: -5px; top: 50%;
-  border-top: 1.5px solid var(--ink);
-  transform: translateY(-50%) rotate(-28deg);
-}
+/*
+   The workspace's mark is the brand file's SVG, like the entrance's.
+
+   It used to be drawn here in CSS — a bordered circle with a rotated
+   `::after` for the line — and it shared the class name `.brand-mark` with the
+   entrance's real SVG. So the front page's logo inherited this border and this
+   `border-radius: 50%` and rendered the actual mark inside a second, larger
+   ellipse: a ball with a seam, on the first thing anybody sees. One mark,
+   from `brand/throughline-mark.svg`, in `components/BrandMark.tsx`.
+*/
+.brand-mark { flex: 0 0 auto; margin-right: 3px; color: var(--ink); }
 
 .crumb-root { font-weight: 620; letter-spacing: -0.01em; white-space: nowrap; }
 

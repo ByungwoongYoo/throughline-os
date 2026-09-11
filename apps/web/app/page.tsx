@@ -29,6 +29,7 @@
  */
 
 import Link from "next/link";
+import { BrandMark } from "@/components/BrandMark";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Marks, type MarksHandle } from "@/components/entrance/Marks";
@@ -193,10 +194,7 @@ export default function Entrance() {
 
       <header className="entrance-header">
         <Link className="brand" href="#top" aria-label="Throughline home">
-          <svg viewBox="0 0 220 150" className="brand-mark" aria-hidden="true" fill="none">
-            <circle cx="110" cy="75" r="46" stroke="currentColor" strokeWidth="1.6" />
-            <line x1="20.7" y1="122.5" x2="199.3" y2="27.5" stroke="currentColor" strokeWidth="1.6" />
-          </svg>
+          <BrandMark height={50} className="entrance-mark" />
           <span className="brand-word">Throughline</span>
         </Link>
 
