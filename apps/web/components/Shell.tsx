@@ -38,7 +38,7 @@ import { Group, Panel, Separator } from "react-resizable-panels";
 import { DiscoveryMap, api } from "@/lib/api";
 import {
   INSPECTOR, INSPECTOR_DEFAULT, INSPECTOR_MAX, INSPECTOR_MIN,
-  WORKSPACE,
+  RAIL, RAIL_DEFAULT, RAIL_MAX, RAIL_MIN, WORKSPACE,
   readLayout, writeLayout,
 } from "@/lib/layout";
 import { SignedInUser } from "./AccountMenu";
@@ -385,14 +385,24 @@ function useRoomForInspector(): boolean {
 }
 
 export function Shell({
-  section, onSection, map, children, inspector, onCommand, projectName, crumbs,
-  onDropFiles, projectMenu, account, strip,
+  section, onSection, map, children, inspector, rail, onCommand, projectName,
+  crumbs, onDropFiles, projectMenu, account, strip,
 }: {
   section: Section;
   onSection: (s: Section) => void;
   map: DiscoveryMap | null;
   children: ReactNode;
   inspector: ReactNode;
+  /**
+   * The left column of the dense workbench: the DATA the screen is working
+   * from, not navigation.
+   *
+   * The rail that used to live here was the section list, and it moved into the
+   * header. What §08's workbench family puts on the left is a different thing —
+   * this project's sources, the variables in play, the family of runs — and a
+   * screen that has none of that renders none of it and gets the width back.
+   */
+  rail?: ReactNode;
   onCommand: () => void;
   projectName: string;
   crumbs: Crumb[];
@@ -610,6 +620,16 @@ export function Shell({
         defaultLayout={saved}
         onLayoutChanged={writeLayout}
       >
+      {rail && (
+        <>
+          <Panel id={RAIL} className="rail-panel"
+                 defaultSize={RAIL_DEFAULT} minSize={RAIL_MIN} maxSize={RAIL_MAX}>
+            <aside className="workbench-rail" aria-label="Working data">{rail}</aside>
+          </Panel>
+          <Separator className="shell-divider" aria-label="Resize the working data" />
+        </>
+      )}
+
       <Panel id={WORKSPACE} className="workspace-panel" minSize={320}>
         {strip}
         {/* `key` restarts the enter transition on navigation, so a view change

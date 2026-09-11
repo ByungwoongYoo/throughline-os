@@ -854,6 +854,61 @@ a { color: inherit; }
   font-variant-numeric: tabular-nums;
 }
 
+/* --- the cockpit's left column -------------------------------------------
+ *
+ * §08's dense workbench: what the screen is working FROM, on the left. Cards
+ * rather than rows, because each is an object with an identity and a state, and
+ * a flat row would lose both. Deliberately quieter than the workspace beside
+ * it — this column is reference, not the work.
+ */
+
+.workbench-rail {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 12px 24px;
+  border-right: 1px solid var(--line);
+}
+
+.rail-list { list-style: none; margin: 8px 0 18px; padding: 0; display: grid; gap: 6px; }
+
+.rail-card,
+.rail-run {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+}
+.rail-run { cursor: pointer; }
+.rail-run:hover { border-color: var(--line-strong); }
+/* Data selection is blue and a thin edge, distinct from the gold that marks
+   where you are in the navigation. §08 keeps those two apart on purpose. */
+.rail-run[aria-current="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--on-accent-soft);
+}
+
+.rail-card-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-card-meta { color: var(--ink-faint); font-size: 11px; }
+
+.rail-role { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+.rail-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; align-self: center; }
+/* The role in words as well as colour: §04 forbids colour as the only carrier. */
+.rail-role-name { margin-left: auto; color: var(--ink-faint); font-size: 11px; }
+
+.rail-state { font-size: 11px; color: var(--ink-faint); }
+.rail-state-completed { color: var(--ok, var(--ink-faint)); }
+.rail-state-failed { color: var(--bad, var(--ink-faint)); }
+
 /* The panel is focusable so a keyboard can scroll what it has just opened; it
    must not therefore wear a focus ring as though it were a control. */
 .tab-panel { outline: none; }

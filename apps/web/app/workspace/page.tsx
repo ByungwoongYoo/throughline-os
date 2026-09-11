@@ -18,6 +18,7 @@ import { StepStrip } from "@/components/StepStrip";
 import { Centered, Failure, Fold, Loading } from "@/components/primitives";
 import { Crumb, PAGES, SECTIONS, Section, Shell } from "@/components/Shell";
 import { CommandPalette, buildCommands } from "@/components/CommandPalette";
+import { AnalysisRail } from "@/components/AnalysisRail";
 import {
   AnalysisDetail, ConnectionDetail, ConnectionsTable, Discover, EvidenceGraphView,
   EvidenceGraphSummary, Findings, ObjectHistoryFor, Overview, Search, SourceDetail,
@@ -261,6 +262,8 @@ function Workspace({ user }: { user: SignedInUser }) {
    * fetched again, so both panels describe the same run.
    */
   const [runMethod, setRunMethod] = useState<string | null>(null);
+  /** The open run's recorded roles, for the cockpit's left column. */
+  const [runVariables, setRunVariables] = useState<Record<string, unknown>>({});
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [pendingDiscovery, setPendingDiscovery] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -519,6 +522,22 @@ function Workspace({ user }: { user: SignedInUser }) {
             ? <Inspector selection={selection} capabilities={capabilities.data} />
             : null
         }
+        rail={
+          /*
+            The cockpit's left column, and only the cockpit's.
+            §08's dense workbench puts the working material on the left —
+            sources, variable roles, the run family — and that is a real thing
+            to show in front of a result. Every other screen has no such thing,
+            and a left column that said "nothing here" beside a collection list
+            would be the chrome T139 removed. So it renders where it means
+            something and nowhere else, and the width goes back to the work.
+          */
+          section === "analyses" && selection?.kind === "analysis"
+            ? <AnalysisRail projectId={project.id} runId={selection.id}
+                            variables={runVariables}
+                            onOpenRun={select("analysis")} />
+            : null
+        }
       >
         {section === "board" && (
           /*
@@ -694,6 +713,7 @@ function Workspace({ user }: { user: SignedInUser }) {
             ? <>
                 <AnalysisDetail runId={selection.id} projectId={project.id}
                                 onMethod={setRunMethod}
+                                onVariables={setRunVariables}
                                 onOpenObject={select("object")} />
                 {/*
                   §75. Beside the run, because "how was this computed" is

@@ -33,6 +33,12 @@ import type { Layout } from "react-resizable-panels";
 const KEY = "throughline.shell-layout.v2";
 
 /** Panel ids. Exported so the Shell and this module cannot disagree on them. */
+/**
+ * The left column, back — but carrying the screen's working DATA rather than
+ * the navigation it once held. §08's dense workbench puts sources, variables
+ * and the run family there, and only screens that have such a thing render it.
+ */
+export const RAIL = "rail";
 export const WORKSPACE = "workspace";
 export const INSPECTOR = "inspector";
 
@@ -44,6 +50,8 @@ export const INSPECTOR = "inspector";
  * able to tell that anything changed.
  */
 export const INSPECTOR_DEFAULT = 360;
+/** §08: left rail 260-300 at wide desktop. */
+export const RAIL_DEFAULT = 280;
 
 /**
  * How far the inspector edge may be dragged.
@@ -52,6 +60,8 @@ export const INSPECTOR_DEFAULT = 360;
  * column of truncated words, which is worse than a narrower workspace. The
  * maximum stops it from eating the surface the work actually happens on.
  */
+export const RAIL_MIN = 200;
+export const RAIL_MAX = 380;
 export const INSPECTOR_MIN = 260;
 export const INSPECTOR_MAX = 560;
 

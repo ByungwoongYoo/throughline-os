@@ -1966,7 +1966,7 @@ function ResultWarnings({ run }: { run: AnalysisRun }) {
   );
 }
 
-export function AnalysisDetail({ runId, projectId, onMethod, onOpenObject }: {
+export function AnalysisDetail({ runId, projectId, onMethod, onVariables, onOpenObject }: {
   runId: string;
   /**
    * Which project this run belongs to (D213).
@@ -1985,12 +1985,21 @@ export function AnalysisDetail({ runId, projectId, onMethod, onOpenObject }: {
    * be a second copy of this run that can drift from the one on screen.
    */
   onMethod?: (method: string) => void;
+  /*
+   * The recorded variable roles, reported upward for the same reason the method
+   * is: the cockpit's left column shows them beside the result, and a second
+   * hook on `/api/analyses/{id}` would be a second copy of this run that can
+   * drift from the one on screen.
+   */
+  onVariables?: (variables: Record<string, unknown>) => void;
   /** Follow a lineage link in this run's history. See `SourceDetail`. */
   onOpenObject?: (objectId: string) => void;
 }) {
   const { data, error, loading, reload } = useApi<AnalysisRun>(`/api/analyses/${runId}`);
   const method = data?.method;
+  const variables = data?.variables;
   useEffect(() => { if (method) onMethod?.(method); }, [method, onMethod]);
+  useEffect(() => { if (variables) onVariables?.(variables); }, [variables, onVariables]);
   if (error) return <Failure error={error} retry={reload} />;
   if (loading || !data) return <Loading rows={5} label="Reading the analysis" />;
 
