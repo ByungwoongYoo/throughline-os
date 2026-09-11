@@ -470,6 +470,43 @@ def create_project(payload: ProjectCreate, user: dict = Depends(current_user)) -
 
 
 
+@app.post("/api/projects/{project_id}/advance", status_code=202)
+def advance_project(project_id: str,
+                    user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Take this project's data as far as the machine honestly can, in one act.
+
+    Discovery over the profiled columns, every pair tested and corrected for
+    how many tests ran, and the strongest survivor recorded as a finding that
+    keeps the line back to the analysis behind it.
+
+    **Why this route exists.** The loop was six screens, each with its own
+    button, each able to fail on its own, and nobody walks all six to find out
+    whether their data says anything — the seeded example was the only project
+    in this product that ever arrived with work in it. The work is the
+    machine's; the judging is the researcher's.
+
+    **Why it is a press and not automatic.** Queuing it when ingestion finishes
+    was tried. The project then holds a discovery run nobody asked for, so the
+    researcher's own *Discover connections* either doubles every connection or
+    is refused as a repeat of something they never started — and spending
+    compute on somebody's data unasked is its own objection.
+
+    202 with the run id: this returns as soon as the work is queued. The
+    workspace already knows how to show a project assembling itself, and
+    watching it is a better introduction to the pipeline than a spinner.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        run_id = workflow.enqueue(
+            cur, workflow_name="project.advance", project_id=project_id,
+            payload={"project_id": project_id},
+            # One walk in flight per project. Pressing twice while it runs is
+            # the same request, not a second discovery.
+            idempotency_key=f"advance:{project_id}",
+            max_attempts=3)
+    return {"workflow_run_id": run_id, "project_id": project_id}
+
+
 @app.post("/api/projects/example", status_code=201)
 def create_example_project(user: dict = Depends(current_user)) -> dict[str, Any]:
     """Seed the worked example (Part B6).

@@ -6928,3 +6928,9 @@ details.fold > *:not(summary) { padding: 8px 2px 10px; }
 @media (max-width: 1100px) {
   .step-spine li[data-state="here"] .step-spine-name { max-width: 0; }
 }
+
+/* The one act that replaces six. Above the loop card rather than inside it:
+   the loop card explains the method, and this does it. */
+.ov-advance { margin-bottom: 14px; }
+.ov-advance p { max-width: 62ch; }
+.ov-advance .btn { margin-top: 4px; }

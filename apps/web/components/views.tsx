@@ -41,7 +41,8 @@ import { Term } from "./term";
 // Overview (§70)
 // ---------------------------------------------------------------------------
 
-export function Overview({ project, map, onGo, onOpen, onAddSources, onLineage, labels }: {
+export function Overview({ project, map, onGo, onOpen, onAddSources, onLineage,
+                           onAdvance, advancing = false, labels }: {
   project: { name: string; research_question: string };
   map: DiscoveryMap | null;
   onGo: (section: Section) => void;
@@ -70,6 +71,10 @@ export function Overview({ project, map, onGo, onOpen, onAddSources, onLineage, 
    * has been wired up.
    */
   onLineage?: () => void;
+  /** Run the whole loop on this project's data, in one act. */
+  onAdvance?: () => void;
+  /** Whether that run is in flight, so the control can say so. */
+  advancing?: boolean;
   /** Approved display names by raw column, so the control names a connection
    *  the way the strip above it does (Part C: no raw names outside Variables). */
   labels?: Record<string, string>;
@@ -130,6 +135,46 @@ export function Overview({ project, map, onGo, onOpen, onAddSources, onLineage, 
         [findings, "findings", "finding"],
         [map.counts.contradictions, "contradictions", "contradiction"],
       ]} />
+
+      {/*
+        * One press instead of six screens.
+        *
+        * A project with a profiled dataset and nothing promoted is a project
+        * whose whole loop the machine can run: discovery over the real
+        * columns, every pair corrected for how many tests ran, the strongest
+        * survivor written down with the analysis behind it. Six buttons found
+        * in order, each able to fail alone, is a marathon nobody walks — the
+        * seeded example was the only project in this product that ever arrived
+        * with work in it.
+        *
+        * Offered rather than done on upload. Running it unasked leaves a
+        * discovery the researcher did not start, so their own press either
+        * doubles every connection or is refused as a repeat of something they
+        * never began; and compute spent on somebody's data without asking is
+        * its own objection. It says what it will do before it does it.
+        */}
+      {onAdvance && (map.counts.datasets ?? 0) > 0 && findings === 0 && (
+        <div className="card ov-advance">
+          <h2>Take it from here</h2>
+          <p>
+            {advancing
+              ? "Working. Discovery is running over the profiled columns; this "
+                + "screen updates as each step finishes."
+              : "Your dataset is profiled. Throughline can run the rest of the "
+                + "loop on it: test every pair, correct for how many tests ran, "
+                + "and write down the strongest survivor with the analysis "
+                + "behind it."}
+          </p>
+          <button className="btn btn-primary" type="button"
+                  disabled={advancing} onClick={onAdvance}>
+            {advancing ? "Working…" : "Run the loop →"}
+          </button>
+          <p className="note">
+            Nothing is promoted past candidate and nothing is validated. The
+            machine does the work; the judging stays yours.
+          </p>
+        </div>
+      )}
 
       <div className="ov-grid">
       <div className="card">

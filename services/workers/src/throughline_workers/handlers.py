@@ -250,6 +250,7 @@ def _ingest_dataset(
 
     objects.advance_ingestion(cur, source_id=source_id, to_status=IngestionStatus.ENRICHING,
                               detail="Building data-quality report")
+
     return {
         "kind": "dataset", **stored,
         "rows": profile.row_count, "columns": profile.column_count,
@@ -590,20 +591,29 @@ class ExampleNotReady(RuntimeError):
     """
 
 
-@REGISTRY.register("example.assemble")
-def example_assemble(run: dict[str, Any], cur: Any) -> dict[str, Any]:
-    """Turn the seeded example's sources into a discovery and a finding.
+def _advance_project(cur: Any, *, project_id: str, actor: str) -> dict[str, Any]:
+    """Walk a project's newest profiled dataset through the loop.
 
-    The example's project, its paper and its dataset are created up front; this
-    is everything that cannot happen until ingestion has finished. It runs the
-    real discovery over the real profiled columns, so the connections a
-    researcher sees on their first screen were computed in the sandbox like any
-    other — which is the only reason the example is worth showing at all.
+    Discovery over the real profiled columns, then the strongest surviving
+    relationship promoted to a finding that carries the connection it came
+    from — so the finding has a route back to the analysis, and through that to
+    the dataset.
+
+    **Why this is not the example's private code any more.** It was, and the
+    consequence was the whole product's shape: the seeded example arrived with
+    connections and a finding already in it, and a researcher who uploaded
+    their own dataset got a profile and a dead end. Six steps, each its own
+    button, each able to fail on its own, and nobody — not a researcher, not
+    the person who built it — will click through all six to find out whether
+    their data says anything. The machine can do the work; the researcher's job
+    is to judge it.
+
+    Idempotent at both stages. A retry after a partial run must not produce a
+    second discovery, which would double every connection on the first screen,
+    and must not record a second finding for work already promoted.
     """
     from throughline_domain import discovery, findings
     from throughline_schemas.enums import CausalStatus, FindingType
-
-    project_id = run["input"]["project_id"]
 
     cur.execute(
         """
@@ -618,13 +628,15 @@ def example_assemble(run: dict[str, Any], cur: Any) -> dict[str, Any]:
     )
     row = cur.fetchone()
     if not row:
-        raise ExampleNotReady("the example's dataset has not been profiled yet")
+        return {"project_id": project_id, "discovery_run_id": None,
+                "finding_id": None, "note": "no profiled dataset yet"}
     version_id = row["id"]
 
     cur.execute("SELECT count(*) AS n FROM dataset_columns WHERE dataset_version_id = %s",
                 (version_id,))
     if not cur.fetchone()["n"]:
-        raise ExampleNotReady("the example's dataset has no columns yet")
+        return {"project_id": project_id, "discovery_run_id": None,
+                "finding_id": None, "note": "the dataset has no profiled columns yet"}
 
     # Idempotent: a retry after a partial run must not produce a second
     # discovery, which would double every connection on the first screen.
@@ -657,11 +669,22 @@ def example_assemble(run: dict[str, Any], cur: Any) -> dict[str, Any]:
         cur, project_id=project_id,
         title=f"{best['left_variable']} tracks {best['right_variable']}",
         finding_type=FindingType.STATISTICAL,
-        statement=("The two move together across the panel. This is an "
-                   "association between measured quantities; the design cannot "
-                   "establish direction, and GDP per capita was tested as a "
-                   "confounder rather than assumed away."),
-        summary="Promoted from the discovery run on the example dataset.",
+        # True of this project, not of the example's.
+        #
+        # This sentence was written for the seeded example and named its
+        # confounder — "GDP per capita was tested as a confounder rather than
+        # assumed away" — which was a statement of fact there and a fabrication
+        # everywhere else. The first upload through the general path produced a
+        # finding about crop yield that claimed GDP per capita had been tested.
+        # What is true of every project is what discovery actually did: it
+        # tested every pair and corrected for how many tests it ran.
+        statement=(
+            f"{best['left_variable']} and {best['right_variable']} move "
+            f"together across this dataset. This is an association between "
+            f"measured quantities: the design cannot establish direction, and "
+            f"every pair in the sweep was tested and corrected for how many "
+            f"tests ran. Nothing here has been validated."),
+        summary="Promoted from this project's discovery run.",
         # Assessed, and the assessment is "association". Not NOT_ASSESSED:
         # discovery really did test GDP per capita as a confounder, and saying
         # nothing was looked at would understate what the run did. This is also
@@ -672,7 +695,7 @@ def example_assemble(run: dict[str, Any], cur: Any) -> dict[str, Any]:
         # Without it the finding is an island: `evidence_graph` returns claims
         # only, and a researcher opening it has no route back to the evidence.
         from_connections=[best["id"]],
-        actor="system:example",
+        actor=actor,
     )
     # The evidence, the claim and the finding's own object all come from
     # `create_finding` now, which records the analyses behind `from_connections`
@@ -682,6 +705,55 @@ def example_assemble(run: dict[str, Any], cur: Any) -> dict[str, Any]:
 
     return {"project_id": project_id, "discovery_run_id": discovery_run_id,
             "finding_id": finding_id}
+
+
+@REGISTRY.register("example.assemble")
+def example_assemble(run: dict[str, Any], cur: Any) -> dict[str, Any]:
+    """The seeded example, walked through the loop like any other project.
+
+    It used to carry its own copy of this, which is how the example ended up
+    being the one project in the product that arrived with anything in it. The
+    only thing left that is particular to the example is that its dataset must
+    be there: the example promises a project with work in it, so not being
+    ready is a reason to retry rather than a result.
+    """
+    project_id = run["input"]["project_id"]
+    out = _advance_project(cur, project_id=project_id, actor="system:example")
+    if out.get("discovery_run_id") is None:
+        raise ExampleNotReady(out.get("note") or "the example is not ready yet")
+    return out
+
+
+@REGISTRY.register("project.advance")
+def project_advance(run: dict[str, Any], cur: Any) -> dict[str, Any]:
+    """Take a researcher's own dataset as far as the machine honestly can.
+
+    Queued by one press rather than by ingestion, and that is a decision worth
+    recording. Running it automatically when a dataset finishes profiling is
+    what "it should just work" would mean, and it was tried: the project then
+    has a discovery run the researcher did not ask for, so their own press of
+    *Discover connections* either doubles every connection or is refused as a
+    repeat of something they never started. Compute spent on somebody's data
+    without asking is also a real objection in research software.
+
+    So: one act, not six. Discovery runs, every pair is tested and corrected
+    for how many tests ran, and the strongest survivor is recorded as a finding
+    that keeps the line back to the analysis behind it — all from a single
+    press, instead of six buttons found in order, each able to fail alone.
+
+    What it does not do is decide anything. Nothing here promotes past
+    candidate, nothing validates, and the finding it writes says in its own
+    statement that the design cannot establish direction. The machine does the
+    work; the researcher does the judging, which is the whole argument of the
+    product and the reason this can be automatic at all.
+
+    Not an error when there is nothing to do. A project whose dataset has no
+    profiled columns yet, or one that has already been advanced, returns a note
+    saying so — a retry loop over an empty project would be a worker spinning
+    on a project that is simply finished.
+    """
+    return _advance_project(
+        cur, project_id=run["input"]["project_id"], actor="system:loop")
 
 
 @REGISTRY.register("connection.validate")

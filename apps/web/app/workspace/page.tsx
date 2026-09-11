@@ -359,6 +359,31 @@ function Workspace({ user }: { user: SignedInUser }) {
   const inFlight = map.data?.counts.in_flight ?? 0;
   const wasBusy = useRef(false);
   const { reload: reloadMap } = map;
+
+  /**
+   * Run the whole loop on this project, in one act.
+   *
+   * Queues `project.advance` and leaves the workspace to show the work
+   * arriving — the step strip already says how many jobs are in flight, and
+   * watching a project assemble itself is a better answer than a spinner over
+   * a screen that then changes underneath you.
+   */
+  const [advancing, setAdvancing] = useState(false);
+  const runTheLoop = useCallback(async () => {
+    if (!projectRef.current) return;
+    setAdvancing(true);
+    try {
+      await api.post(`/api/projects/${projectRef.current}/advance`, {});
+      reloadMap();
+    } catch {
+      // The map reload is what surfaces the result; a failure to queue leaves
+      // the control pressable again rather than reporting a second error over
+      // a screen that has not changed.
+    } finally {
+      setAdvancing(false);
+    }
+  }, [reloadMap]);
+
   const { reload: reloadSources } = sources;
   const { reload: reloadAnalyses } = analyses;
   const { reload: reloadConnections } = connections;
@@ -587,6 +612,8 @@ function Workspace({ user }: { user: SignedInUser }) {
                       onOpen={(kind, id) => open(kind, id)} onAddSources={upload}
                       onLineage={() => go({ section: "graph", item: null },
                                           { view: "river" })}
+                      onAdvance={runTheLoop}
+                      advancing={advancing}
                       labels={variables.data?.labels} />
             {/*
               Directly under the meters, because the Contradictions meter is
