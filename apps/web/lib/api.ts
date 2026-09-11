@@ -394,6 +394,25 @@ export type TopConnection = {
   rank_score: number;
 };
 
+/**
+ * What the recommendation is about, chosen on the same rung as its sentence.
+ *
+ * The step says which of six screens; this says which object on it. It used
+ * to be chosen by the client from the ranked connections — a second ladder —
+ * so on three rungs a sentence about findings put a button under it that
+ * opened an unrelated connection. Only `kind`, `id` and `verb` are always
+ * present; the rest describe whichever kind this is.
+ */
+export type RecommendedTarget = {
+  kind: "connection" | "finding";
+  id: string;
+  /** The act the rung asks for; the button's words come from this. */
+  verb: "validate" | "record" | "evidence" | "promote" | "challenge";
+  left_variable?: string;
+  right_variable?: string;
+  title?: string;
+};
+
 export type DiscoveryMap = {
   counts: Record<string, number>;
   findings: Record<string, number>;
@@ -406,6 +425,12 @@ export type DiscoveryMap = {
    * older servers, and null when nothing is left to do or work is in flight.
    */
   recommended_step?: "sources" | "profile" | "discover" | "validate" | "record" | "communicate" | null;
+  /**
+   * The object the recommended step's control opens, from the same rung as
+   * the sentence. Absent from older servers; null where the rung is about a
+   * whole screen rather than one object.
+   */
+  recommended_target?: RecommendedTarget | null;
 };
 
 /**

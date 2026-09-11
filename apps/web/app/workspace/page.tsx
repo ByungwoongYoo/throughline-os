@@ -458,7 +458,9 @@ function Workspace({ user }: { user: SignedInUser }) {
     && (target.item ? place.item === target.item : true);
   const takeStep = () => {
     if (!target) return;
-    if (target.item) open("connection", target.item);
+    // As the kind the target is: a finding the rung is about opens as a
+    // finding. This was hard-coded to "connection" (T153).
+    if (target.item) open(target.kind ?? "connection", target.item);
     else goSection(target.section);
   };
   const strip = loopMap ? (

@@ -14,7 +14,8 @@
  */
 
 import type { Section } from "@/components/Shell";
-import type { DiscoveryMap, TopConnection } from "./api";
+import type { DiscoveryMap, RecommendedTarget, TopConnection } from "./api";
+import { HOME_OF_KIND, type Kind } from "./place";
 
 export type LoopStepId =
   | "sources" | "profile" | "discover" | "validate" | "record" | "communicate";
@@ -141,7 +142,34 @@ export function currentStep(map: DiscoveryMap): LoopStep | null {
 }
 
 /** Where taking a step lands, and what the control that takes it says. */
-export type StepTarget = { section: Section; item: string | null; label: string };
+export type StepTarget = {
+  section: Section;
+  item: string | null;
+  label: string;
+  /** What `item` is, so it opens as that — a finding is not a connection. */
+  kind?: Kind;
+};
+
+/**
+ * The server's object, in the words its verb calls for.
+ *
+ * The connection's names go through the project's approved labels here, since
+ * those live in the interface; the verb, the object and its kind all came from
+ * the rung that wrote the sentence above the control.
+ */
+function fromServer(target: RecommendedTarget, name: (raw: string) => string): StepTarget {
+  const pair = target.left_variable && target.right_variable
+    ? `${name(target.left_variable)} × ${name(target.right_variable)}` : null;
+  const titled = target.title ? `“${target.title}”` : "the finding";
+  const label =
+    target.verb === "validate" ? `Validate ${pair ?? "the connection"}`
+    : target.verb === "record" ? `Record a finding from ${pair ?? "the connection"}`
+    : target.verb === "evidence" ? `Open ${titled}, which needs evidence`
+    : target.verb === "promote" ? `Review ${titled} for promotion`
+    : target.verb === "challenge" ? `Challenge ${titled}`
+    : `Open ${pair ?? titled}`;
+  return { section: HOME_OF_KIND[target.kind], item: target.id, label, kind: target.kind };
+}
 
 /**
  * Steps 4 and 5 act on one connection, so the control opens one and says so by
@@ -173,6 +201,12 @@ export function stepTarget(
   labels: Record<string, string> = {},
 ): StepTarget {
   const name = (raw: string) => labels[raw] ?? raw;
+  // The rung's own object, on the row the server recommended. Everything
+  // below is the fallback for other rows and for a server that does not send
+  // one yet.
+  if (map.recommended_step === step.id && map.recommended_target) {
+    return fromServer(map.recommended_target, name);
+  }
   const pair = (c: TopConnection) => `${name(c.left_variable)} × ${name(c.right_variable)}`;
   const strongest = (stages: readonly string[]) =>
     map.top_connections?.find((c) => stages.includes(c.lifecycle_status));
@@ -180,13 +214,13 @@ export function stepTarget(
     case "validate": {
       const top = strongest(AWAITING_VALIDATION);
       return top
-        ? { section: "connections", item: top.id, label: `Validate ${pair(top)}` }
+        ? { section: "connections", item: top.id, label: `Validate ${pair(top)}`, kind: "connection" }
         : { section: "connections", item: null, label: "Validate a connection" };
     }
     case "record": {
       const top = strongest(READY_TO_RECORD);
       return top
-        ? { section: "connections", item: top.id, label: `Record a finding from ${pair(top)}` }
+        ? { section: "connections", item: top.id, label: `Record a finding from ${pair(top)}`, kind: "connection" }
         : { section: "connections", item: null, label: "Record a finding" };
     }
     case "communicate":

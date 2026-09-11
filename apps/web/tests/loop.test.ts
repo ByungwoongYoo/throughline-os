@@ -111,7 +111,7 @@ describe("the step the project is on, and where taking it lands", () => {
     const m = { ...map({ sources: 2, datasets: 1, analyses: 6 }, { exploratory: 1 }), top_connections: [TOP] };
     const steps = loopSteps(m);
     const validate = stepTarget(steps.find((s) => s.id === "validate")!, m);
-    expect(validate).toEqual({ section: "connections", item: "con_top", label: "Validate consumption × resistance" });
+    expect(validate).toEqual({ section: "connections", item: "con_top", label: "Validate consumption × resistance", kind: "connection" });
     // Recording is from a *validated* result. With only an exploratory one
     // ranked there is none to open. This used to assert the exploratory
     // connection here — the button opening what its sentence is not about.
@@ -163,7 +163,7 @@ describe("the button opens the connection its sentence is about", () => {
                                   ranked("conn_waiting", "gdp", "exploratory", 0.44)] };
     const validate = stepTarget(loopSteps(m).find((s) => s.id === "validate")!, m);
     expect(validate).toEqual({ section: "connections", item: "conn_waiting",
-                               label: "Validate gdp × resistance" });
+                               label: "Validate gdp × resistance", kind: "connection" });
   });
 
   it("records from the strongest validated result, even when an exploratory one outranks it", () => {
@@ -187,5 +187,47 @@ describe("the button opens the connection its sentence is about", () => {
                 top_connections: [ranked("conn_done", "consumption", "validated", 0.9)] };
     expect(stepTarget(loopSteps(m).find((s) => s.id === "validate")!, m))
       .toEqual({ section: "connections", item: null, label: "Validate a connection" });
+  });
+});
+
+
+describe("the server names the object, on the same rung as its sentence", () => {
+  const onRung = (step: string, target: Record<string, unknown>) => ({
+    ...map({ sources: 2, datasets: 1, analyses: 6 }, { validated: 1 }),
+    recommended_step: step as never, recommended_target: target as never,
+  });
+  const row = (m: ReturnType<typeof onRung>, id: string) =>
+    stepTarget(loopSteps(m).find((s) => s.id === id)!, m);
+
+  it("opens the finding that needs evidence, as a finding", () => {
+    const m = onRung("record", { kind: "finding", id: "f_hunch", verb: "evidence", title: "A hunch" });
+    expect(row(m, "record")).toEqual({ section: "findings", item: "f_hunch",
+      label: "Open “A hunch”, which needs evidence", kind: "finding" });
+  });
+
+  it("offers a candidate with its evidence for promotion", () => {
+    const m = onRung("record", { kind: "finding", id: "f_1", verb: "promote", title: "a tracks b" });
+    expect(row(m, "record").label).toBe("Review “a tracks b” for promotion");
+  });
+
+  it("challenges the validated finding the sentence is about", () => {
+    const m = onRung("validate", { kind: "finding", id: "f_2", verb: "challenge", title: "a tracks b" });
+    expect(row(m, "validate")).toEqual({ section: "findings", item: "f_2",
+      label: "Challenge “a tracks b”", kind: "finding" });
+  });
+
+  it("labels a connection the server named with the project's approved names", () => {
+    const m = onRung("validate", { kind: "connection", id: "c_1", verb: "validate",
+      left_variable: "consumption_ddd", right_variable: "resistance_pct" });
+    expect(stepTarget(loopSteps(m).find((s) => s.id === "validate")!, m,
+                      { consumption_ddd: "Antibiotic consumption" }))
+      .toEqual({ section: "connections", item: "c_1", kind: "connection",
+                 label: "Validate Antibiotic consumption × resistance_pct" });
+  });
+
+  it("does not lend the recommended row's object to another row", () => {
+    const m = onRung("record", { kind: "finding", id: "f_hunch", verb: "evidence", title: "A hunch" });
+    expect(row(m, "validate")).toEqual({ section: "connections", item: null,
+                                         label: "Validate a connection" });
   });
 });
