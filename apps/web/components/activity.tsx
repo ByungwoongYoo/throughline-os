@@ -62,8 +62,22 @@ function stamp(entry: Entry, previous: Entry | undefined) {
   return { day: day === before ? null : day, time: at.toLocaleTimeString() };
 }
 
-export function ProjectActivity({ projectId }: { projectId: string }) {
+export function ProjectActivity({ projectId, onOpenObject }: {
+  projectId: string;
+  /**
+   * Open the object a row acted on.
+   *
+   * §09 asks this screen to "filter/open related object" and it did neither:
+   * every row ended in `research_object · obj_637788aad3994f7d9bd1`, which is
+   * the identifier the database uses and not a thing a reader can follow. The
+   * opener is offered only where the id really is a research object, because
+   * the log also records specs and runs, whose ids no section resolves.
+   */
+  onOpenObject?: (objectId: string) => void;
+}) {
   const [before, setBefore] = useState<string | null>(null);
+  /** Narrow by what was done. One select, because the vocabulary is short. */
+  const [action, setAction] = useState<string>("all");
   const query = before ? `?before=${encodeURIComponent(before)}` : "";
   const { data, error } = useApi<Activity>(
     `/api/projects/${projectId}/activity${query}`);
@@ -74,6 +88,11 @@ export function ProjectActivity({ projectId }: { projectId: string }) {
   if (!data) return <p className="note" role="status">Reading the record…</p>;
 
   const { entries, summary } = data;
+  /* The actions this page of the record actually contains. Derived rather than
+     listed, so a new kind of entry appears in the filter the day it appears in
+     the log. */
+  const actions = [...new Set(entries.map((e) => e.action))].sort();
+  const shown = action === "all" ? entries : entries.filter((e) => e.action === action);
 
   return (
     <section>
@@ -104,7 +123,21 @@ export function ProjectActivity({ projectId }: { projectId: string }) {
         </ul>
       )}
 
-      {entries.length > 0 && (
+      {actions.length > 1 && (
+        <label className="act-filter">
+          <span className="sr-only">Show only one kind of action</span>
+          <select value={action} onChange={(e) => setAction(e.target.value)}>
+            <option value="all">Everything ({entries.length})</option>
+            {actions.map((a) => (
+              <option key={a} value={a}>
+                {a.replace(/_/g, " ")} ({entries.filter((e) => e.action === a).length})
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
+      {shown.length > 0 && (
         <table>
           <caption className="note">
             Newest first. A methods section reconstructs backwards from what
@@ -119,19 +152,31 @@ export function ProjectActivity({ projectId }: { projectId: string }) {
             </tr>
           </thead>
           <tbody>
-            {entries.map((e, i) => (
+            {shown.map((e, i) => (
               <tr key={e.id}>
                 <td className="mono" title={when(e.created_at)}>
                   {(() => {
-                    const { day, time } = stamp(e, entries[i - 1]);
+                    const { day, time } = stamp(e, shown[i - 1]);
                     return day ? <>{day}<br />{time}</> : time;
                   })()}
                 </td>
-                <td>{e.actor}</td>
-                <td>{e.action}</td>
-                <td className="mono">
-                  {e.object_type}
-                  {e.object_id ? ` · ${e.object_id}` : ""}
+                <td>{e.actor.replace(/_/g, " ")}</td>
+                <td>{e.action.replace(/_/g, " ")}</td>
+                <td>
+                  {/*
+                    * The kind in words, the identifier after it and small.
+                    * A row that reads "research_object · obj_637788aad399…"
+                    * puts the least useful half first and at full weight.
+                    */}
+                  <span>{e.object_type.replace(/_/g, " ")}</span>
+                  {e.object_id && (
+                    onOpenObject && e.object_type === "research_object" ? (
+                      <button className="btn-text act-open" type="button"
+                              onClick={() => onOpenObject(e.object_id!)}>
+                        {e.object_id}
+                      </button>
+                    ) : <span className="mono act-id">{e.object_id}</span>
+                  )}
                 </td>
               </tr>
             ))}

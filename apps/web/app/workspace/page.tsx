@@ -826,7 +826,10 @@ function Workspace({ user }: { user: SignedInUser }) {
            */
           <Journal projectId={project.id} onOpenObject={select("object")} />
         )}
-        {section === "activity" && <ProjectActivity projectId={project.id} />}
+        {section === "activity" && (
+          <ProjectActivity projectId={project.id}
+                           onOpenObject={select("object")} />
+        )}
         {section === "settings" && <Settings projectId={project.id} />}
         {section === "graph" && (
           /*

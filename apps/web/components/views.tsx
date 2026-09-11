@@ -131,6 +131,7 @@ export function Overview({ project, map, onGo, onOpen, onAddSources, onLineage, 
         [map.counts.contradictions, "contradictions", "contradiction"],
       ]} />
 
+      <div className="ov-grid">
       <div className="card">
         <h2>The loop</h2>
         <ol className="steps">
@@ -240,8 +241,20 @@ export function Overview({ project, map, onGo, onOpen, onAddSources, onLineage, 
         </Fold>
       </div>
 
-      <LifecycleBreakdown title="Connections" counts={map.connections} />
-      <LifecycleBreakdown title="Findings" counts={map.findings} />
+      {/*
+        * The project's actual state, beside the loop rather than under it.
+        *
+        * §09 asks the Overview for "current question, actual project state,
+        * recent work, unresolved items, next supported actions" and warns off
+        * a radial dashboard. Stacked in one column these read as an appendix
+        * to the checklist; beside it they are what the checklist is about, and
+        * the screen stops being 40% content in a 1586px frame.
+        */}
+      <div className="ov-state">
+        <LifecycleBreakdown title="Connections" counts={map.connections} />
+        <LifecycleBreakdown title="Findings" counts={map.findings} />
+      </div>
+      </div>
 
       {/*
         * The way into the lineage, offered where a reader has just been shown
