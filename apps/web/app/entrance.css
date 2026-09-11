@@ -548,3 +548,46 @@ body:has(.entrance-header) {
   }
   .skip { transition: none; }
 }
+
+/*
+ * A ground for the fragments, because the ring is behind them.
+ *
+ * Measured rather than judged: with the type hidden and the band sampled
+ * underneath it, "The study reports an association" sat at 3.78:1 against
+ * white BEFORE the disk was widened, and 2.66:1 after. Both are under the
+ * 4.5:1 normal text needs, and nothing in the suite asks — happy-dom applies
+ * no CSS and renders no WebGL, so the one thing that can fail here is the one
+ * thing no test can see.
+ *
+ * A scrim rather than a smaller ring. The alternative is composing the disk so
+ * it never passes behind this block, and the disk is a live render whose
+ * position moves with the viewport and the scroll — a composition that holds
+ * at 1584x993 and fails at 1280 is not a fix. This is local, it is soft enough
+ * that the band still reads through it, and it scales with the block.
+ *
+ * `radial-gradient` rather than a flat panel: a rectangle of tint over a
+ * luminous band reads as a card sitting on the artwork, which is exactly the
+ * "screenshot used as content" the acceptance list refuses.
+ */
+.fragment {
+  position: relative;
+  isolation: isolate;
+}
+.fragment::before {
+  content: "";
+  position: absolute;
+  /* Generous, because the gradient has to reach zero well INSIDE this box.
+     A first attempt sized it to the text and the falloff was still opaque at
+     the edges, so the scrim read as a rectangle laid on the artwork — the
+     "card sitting on the picture" the acceptance list refuses. */
+  inset: -52px -74px -56px -66px;
+  z-index: -1;
+  background: radial-gradient(64% 66% at 42% 50%,
+    rgb(6 7 10 / 0.95) 0%,
+    rgb(6 7 10 / 0.82) 42%,
+    rgb(6 7 10 / 0.34) 66%,
+    rgb(6 7 10 / 0) 84%);
+  /* And blurred, so no stop of the gradient can show as a ring. */
+  filter: blur(14px);
+  pointer-events: none;
+}
