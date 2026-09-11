@@ -27,7 +27,16 @@ import { Failure, Loading } from "./primitives";
 
 type Report = {
   variables: [string, string];
+  /** The statistical method behind `estimate` — the conversion assumes it. */
+  method: string;
   estimate: number;
+  /**
+   * The number the E-value is computed from. The assumptions below name the
+   * conversion — d = 2r / sqrt(1 - r^2), RR = exp(0.91 d) — and this is its
+   * result. It was sent and not shown, so a reader could see the formula and
+   * the answer but not the step between them, and could not check either.
+   */
+  risk_ratio: number;
   e_value: number;
   e_value_limit: number | null;
   headline: number;
@@ -152,6 +161,19 @@ export function Fragility({ connectionId }: { connectionId: string }) {
       ))}
       <details>
         <summary>What this number rests on</summary>
+        {/* Guarded the way the rest of this screen is: a report missing a
+            field shows less rather than taking the whole panel down with it. */}
+        {typeof report!.risk_ratio === "number"
+          && typeof report!.estimate === "number" && (
+          <p className="note">
+            {report!.method
+              ? `A ${report!.method.replace(/_/g, " ")} estimate of `
+              : "An estimate of "}
+            {report!.estimate.toPrecision(3)}, which is a risk ratio of{" "}
+            {report!.risk_ratio.toPrecision(3)} — the figure the E-value above
+            is computed from.
+          </p>
+        )}
         <ul>
           {(report!.assumptions ?? []).map((assumption) => (
             <li key={assumption}>{assumption}</li>

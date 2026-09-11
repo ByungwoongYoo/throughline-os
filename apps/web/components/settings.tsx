@@ -72,10 +72,21 @@ type Hosted = {
   warning: string;
 };
 
-type Models = {
+export type Models = {
   hosted?: Hosted;
   installed: Installed[];
   selection: { provider: string; model: string | null; source: string };
+  /**
+   * The choice the researcher saved, as stored — null when there is none.
+   *
+   * Startup re-applies it (`apply_model_choice`) precisely so the model does
+   * not "silently revert to the environment default on every restart". But
+   * when that re-apply fails, startup logs a warning and carries on, and
+   * `selection` then honestly reports `source: "environment"` — while the
+   * researcher's choice sits here unread. So the drift that hook exists to
+   * prevent became invisible in exactly the case where it happened.
+   */
+  saved: { provider: string | null; model: string | null } | null;
   active: {
     name: string; model: string; usable: boolean; local: boolean;
     structured: boolean; note: string | null;
@@ -959,6 +970,17 @@ export function Settings() {
               <dd>{models.selection.source}</dd>
             </div>
           </dl>
+        )}
+
+        {/* Only when a saved choice exists and did not take: that is the one
+            state where "Chosen: environment" is true and misleading at once. */}
+        {models?.saved && models.selection.source === "environment" && (
+          <p className="set-note" role="status">
+            You chose {[models.saved.provider, models.saved.model]
+              .filter(Boolean).join(" · ")}, but it could not be applied when
+            Throughline started, so the environment&apos;s default is in use.
+            Choosing it again below re-applies it.
+          </p>
         )}
 
         {models?.active.note && (

@@ -212,6 +212,23 @@ export function PlainReading({ runId }: { runId: string }) {
               + "the effect."}
         </p>
       )}
+
+      {data.what_would_change_it && (
+        <>
+          <h3 className="eyebrow">What would change this</h3>
+          <p>{data.what_would_change_it}</p>
+        </>
+      )}
+
+      {/* Every sentence above was written by a model. Which one, at which
+          prompt, and whether it was kept from an earlier call are what make
+          two differing readings attributable rather than a matter of which
+          one was seen last. */}
+      <p className="note">
+        Written by {data.model} · {data.prompt}
+        {data.cached ? ", kept from an earlier reading of this result" : ""}.
+        {data.operational_summary ? ` ${data.operational_summary}` : ""}
+      </p>
     </section>
   );
 }

@@ -24,18 +24,36 @@ separates a finding from `assumption_checks: Array<{ name }>`.
 from __future__ import annotations
 
 import re
-import uuid
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 from throughline_domain.db import connection
 from throughline_workers.runner import Worker
+from conftest import sign_in
 
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "apps" / "web"
 
-CALL = re.compile(r'useApi<([A-Za-z][A-Za-z0-9]*)(\[\])?>\(\s*[`"\']([^`"\']+)')
+#: Typed GET calls, however they are spelled.
+#:
+#: This read `useApi<T>` alone, which is a little over half the typed calls in
+#: the interface: 60 of 118. `api.get<T>(path)` is the same question — a path,
+#: a declared shape, an answer to compare them against — and skipping it left
+#: 17 endpoints unchecked, among them the notebook, the consistency sweep, the
+#: fragility report and every `/api/system` route.
+#:
+#: `api.post` and `api.put` stay out, and not for want of trying: exercising
+#: them means synthesising a request body per route, and a body guessed wrong
+#: produces a 4xx that this harness would read as "not answered" — a check
+#: reporting agreement because it never asked. `_unexercised` below names them
+#: rather than letting them disappear.
+CALL = re.compile(
+    r'''(?:useApi|api\.get)<([A-Za-z][A-Za-z0-9]*)(\[\])?>\(\s*[`"\']([^`"\']+)''')
+
+#: `import { PlainSummary } from "./ResultCard"` — a type used here, declared
+#: there.
+IMPORT = re.compile(r'import\s*\{([^}]*)\}\s*from\s*["\'](\.[^"\']+)["\']')
 OPENS = re.compile(r"(?:export )?type (\w+) = \{")
 
 
@@ -122,17 +140,62 @@ def _calls() -> tuple[list[tuple[Path, str, bool, str]], dict[Path, dict[str, st
     return calls, per_file
 
 
+def _imports(source: Path) -> dict[str, Path]:
+    """Type name → the file it was imported from, for relative imports."""
+    found: dict[str, Path] = {}
+    for names, target in IMPORT.findall(source.read_text()):
+        for suffix in (".tsx", ".ts"):
+            candidate = (source.parent / target).with_suffix(suffix)
+            if candidate.exists():
+                for name in names.split(","):
+                    name = name.strip().removeprefix("type ").strip()
+                    if name:
+                        found[name] = candidate
+                break
+    return found
+
+
+def _declaration_for(name: str, source: Path,
+                     per_file: dict[Path, dict[str, str]],
+                     shared: dict[str, str]) -> str | None:
+    """
+    The body of `name` as *this* file sees it.
+
+    Looked up in the calling file, then `lib/api.ts`, then whichever file the
+    calling file imported it from. Keying by name across the whole interface
+    would be wrong for the reason `_answered` gives — `lifecycle.tsx` declares
+    its own narrow `FindingRecord`, and several components declare a `Source`
+    with only the fields they show — so resolution follows the import rather
+    than the name.
+
+    Without this step a type declared elsewhere was silently unresolvable and
+    its call was skipped, which looked exactly like a call that had been
+    checked and found fine. `PlainSummary`, declared in `ResultCard.tsx` and
+    used in two other components, was the one that was actually being missed.
+    """
+    body = per_file.get(source, {}).get(name) or shared.get(name)
+    if body is not None:
+        return body
+    origin = _imports(source).get(name)
+    if origin is None:
+        return None
+    return per_file.get(origin, _declarations(origin.read_text())).get(name)
+
+
 @pytest.fixture(scope="module")
 def populated():
     from throughline_api.app import app
 
     with TestClient(app) as client:
-        status = client.get("/api/auth/status").json()
-        endpoint = ("/api/auth/setup" if status["needs_setup"]
-                    else "/api/auth/login")
-        client.post(endpoint, json={
-            "email": f"shape-{uuid.uuid4().hex[:8]}@lab.local",
-            "display_name": "Shape", "password": "correct-horse-battery"})
+        # Signed in through the shared helper, which asserts that it worked.
+        # This branched on `needs_setup` and then logged in with a fresh random
+        # address — so a user row left behind by any earlier file sent it down
+        # the login path as an account that had never existed, the 401 went
+        # unread, and the failure surfaced two lines below as "Sign in to
+        # continue" on project creation. That is the flake this suite carried
+        # as an open defect, and it is the same absence-read-as-evidence this
+        # file exists to catch in the API.
+        sign_in(client, email="shape@lab.local", display_name="Shape")
         made = client.post("/api/projects/example")
         assert made.status_code in (200, 201), made.text
         while Worker(worker_id="shape-check").run_once():
@@ -175,7 +238,7 @@ def _answered(client, ids) -> list[tuple[str, str, dict]]:
     seen = []
     for source, name, is_list, path in sorted(set(calls),
                                               key=lambda c: (c[1], c[3])):
-        body = per_file.get(source, {}).get(name) or shared.get(name)
+        body = _declaration_for(name, source, per_file, shared)
         if body is None or not path.startswith("/api"):
             continue
         parameters = re.findall(r"\$\{(\w+)\}", path)
@@ -207,9 +270,17 @@ def _answered(client, ids) -> list[tuple[str, str, dict]]:
 
 
 def test_enough_endpoints_answer_to_make_this_mean_something(populated):
-    """A scan that checked two endpoints would report agreement for ever."""
+    """
+    A scan that checked two endpoints would report agreement for ever.
+
+    The floor tracks what the scan reaches, so reach cannot quietly fall back.
+    It was 15 while only `useApi<T>` calls were read; reading `api.get<T>` and
+    resolving types through their imports took it to 41. Set below that with
+    headroom for endpoints that answer only once a worker finishes — but far
+    enough above 15 that losing either widening fails here.
+    """
     client, ids = populated
-    assert len(_answered(client, ids)) >= 15
+    assert len(_answered(client, ids)) >= 35
 
 
 def test_every_field_the_interface_requires_is_sent(populated):
@@ -304,6 +375,28 @@ UNREAD: dict[str, set[str]] = {
     # of the `pending` list the panel already renders in full, so the number
     # would only repeat what is on screen.
     "Vocabulary in components/variables.tsx": {"pending_aliases"},
+    # The rest of this block arrived when the check started reading
+    # `api.get<T>` as well as `useApi<T>` — seventeen endpoints it had never
+    # seen. The fields that were substantive are now declared and shown: a
+    # graph that says when it is partial, a result's "what would change this",
+    # who wrote a plain reading, the risk ratio an E-value rests on, and the
+    # method on three sweeps. What remains here is the part that is not.
+    #
+    # `text` is `"\n".join(lines)`: the same section, already joined.
+    "Narrative in components/deviations.tsx": {"lines"},
+    # `notebook.create` writes `author_kind = 'human'` as a literal, so every
+    # note in a notebook was written by a person and saying so on each one
+    # would be noise. If a model is ever allowed to write here, this entry
+    # must go and the note must say which kind of author it had.
+    "Note in components/notebook.tsx": {
+        "author", "author_kind", "created_at", "note_date", "object_id",
+        "project_id",
+    },
+    # The same constant as `Detected.method`, on the same screen. Stated once,
+    # in the footer, rather than twice.
+    "Findings in components/patterns.tsx": {"method"},
+    # The id the screen already asked for, echoed back.
+    "Report in components/fragility.tsx": {"connection_id"},
 }
 
 

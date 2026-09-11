@@ -55,6 +55,13 @@ type Detected = {
   connections_examined: number;
   canonical_coverage: number;
   note: string;
+  /**
+   * Always "deterministic": nothing on this screen consulted a model. Sent
+   * and not shown, which left a researcher unable to tell these patterns from
+   * a model's reading of the same results. `compare.tsx` states its method
+   * "because it is the reason to trust the verdict"; so does this.
+   */
+  method: string;
 };
 
 type KeyFinding = {
@@ -215,7 +222,11 @@ export function Patterns({ projectId, datasetVersionId, columns }: {
             <p className="pat-foot">
               {detected.connections_examined.toLocaleString()} results examined,{" "}
               {detected.canonical_coverage.toLocaleString()} of them in confirmed
-              canonical variables. {detected.note}
+              canonical variables. {detected.note}{" "}
+              <span className="cmp-method">
+                {detected.method} — computed from the recorded results, not
+                inferred
+              </span>
             </p>
           </>
         )}

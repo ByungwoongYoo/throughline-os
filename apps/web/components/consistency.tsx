@@ -48,6 +48,8 @@ type Sweep = {
   reports: Report[];
   multiplicity: { tests_run: number };
   note: string;
+  /** Always "deterministic": every check reads the record, none asks a model. */
+  method: string;
 };
 
 export function Consistency({ projectId }: { projectId: string }) {
@@ -98,7 +100,12 @@ export function Consistency({ projectId }: { projectId: string }) {
         <OneReport key={`${report.left.id}-${report.right.id}`} report={report} />
       ))}
 
-      <p className="pat-foot">{sweep.note}</p>
+      <p className="pat-foot">
+        {sweep.note}{" "}
+        <span className="cmp-method">
+          {sweep.method} — computed from the recorded results, not inferred
+        </span>
+      </p>
     </>
   );
 }

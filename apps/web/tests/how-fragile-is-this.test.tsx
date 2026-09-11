@@ -16,6 +16,12 @@ import { ApiError, api } from "@/lib/api";
 
 const REPORT = {
   variables: ["rainfall", "yield"],
+  // Both sent by the route on every report. The risk ratio is computed by
+  // `risk_ratio_from_correlation(0.4)` rather than written by hand — a fixture
+  // number nobody derived is how a test comes to describe a payload the
+  // product could not produce.
+  method: "pearson_correlation",
+  risk_ratio: 2.21292046485957,
   estimate: 0.4,
   e_value: 2.6,
   e_value_limit: 1.42,
@@ -209,5 +215,34 @@ describe("how fragile is this", () => {
     await waitFor(() =>
       expect(screen.getByText(/no number is shown rather than a confident one/))
         .toBeTruthy());
+  });
+});
+
+
+describe("the step between the formula and the number", () => {
+  it("shows the risk ratio the E-value is computed from", async () => {
+    /*
+     * The assumptions name the conversion — d = 2r / sqrt(1 - r^2), then
+     * RR = exp(0.91 d) — and the headline is its consequence. The ratio in
+     * between was sent and never shown, so a reader could see the formula and
+     * the answer and could check neither.
+     */
+    vi.spyOn(api, "get").mockResolvedValue(REPORT as never);
+    render(<Fragility connectionId="conn_1" />);
+
+    expect(await screen.findByText(/which is a risk ratio of/)).toBeTruthy();
+    expect(screen.getByText(/pearson correlation estimate of 0\.400/))
+      .toBeTruthy();
+  });
+
+  it("shows less, not nothing, when a report lacks the ratio", async () => {
+    // Guarded like the rest of the screen: one missing field must not take
+    // the whole panel down, which is what an unguarded `.toPrecision` did.
+    const { risk_ratio: _omitted, ...without } = REPORT;
+    vi.spyOn(api, "get").mockResolvedValue(without as never);
+    render(<Fragility connectionId="conn_1" />);
+
+    expect(await screen.findByText(/What this number rests on/)).toBeTruthy();
+    expect(screen.queryByText(/which is a risk ratio of/)).toBeNull();
   });
 });
