@@ -17,7 +17,7 @@ import { join } from "node:path";
 import {
   DEFAULT_SECTION, SECTION_IDS, isSection, itemFromSearch, placeFromSearch,
   projectFromSearch, searchForPlace, searchForProject, searchForSection,
-  sectionFromSearch,
+  searchForView, sectionFromSearch, viewFromSearch,
 } from "@/lib/section-url";
 
 describe("a URL names a section", () => {
@@ -172,5 +172,44 @@ describe("a URL names a place: project, section and item (D196)", () => {
     search = searchForProject("prj_8", search);
     expect(placeFromSearch(search)).toEqual({ section: "analyses", item: "arun_2" });
     expect(projectFromSearch(search)).toBe("prj_8");
+  });
+});
+
+/**
+ * The Research graph's two readings.
+ *
+ * The river is a view of a section rather than a section of its own (§08
+ * refuses it a place in the navigation), so it needs its own parameter — and
+ * that parameter has to behave like the others: validated against a
+ * vocabulary, absent when it is the default, and incapable of disturbing
+ * anything already in the address.
+ */
+describe("the view in the address", () => {
+  it("defaults to the graph, including for a value nobody defined", () => {
+    expect(viewFromSearch("")).toBe("graph");
+    expect(viewFromSearch("?view=lagoon")).toBe("graph");
+    // Typed by a stranger and it chooses what renders, so it is checked.
+    expect(viewFromSearch("?view=<script>")).toBe("graph");
+  });
+
+  it("reads the river back", () => {
+    expect(viewFromSearch("?view=river")).toBe("river");
+  });
+
+  it("keeps the default out of the address", () => {
+    expect(searchForView("graph", "")).toBe("");
+    expect(searchForView("river", "")).toBe("?view=river");
+    // And going back to the default removes it rather than writing it.
+    expect(searchForView("graph", "?view=river")).toBe("");
+  });
+
+  it("leaves the section, item and project where it found them", () => {
+    let search = searchForProject("prj_7", "");
+    search = searchForPlace({ section: "graph", item: "obj_1" }, search);
+    search = searchForView("river", search);
+
+    expect(projectFromSearch(search)).toBe("prj_7");
+    expect(placeFromSearch(search)).toEqual({ section: "graph", item: "obj_1" });
+    expect(viewFromSearch(search)).toBe("river");
   });
 });

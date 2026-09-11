@@ -6299,3 +6299,124 @@ details.fold > *:not(summary) { padding: 8px 2px 10px; }
   color: var(--ink-soft); background: var(--panel);
   border: 1px solid var(--line); border-radius: var(--r-card);
 }
+
+/* ---------------------------------------------------------------------------
+   The research river (UI_03)
+
+   Six columns of kinds, with the recorded derivations drawn between them. The
+   geometry follows §08's canvas-plus-inspector family: the canvas owns the
+   width and scrolls sideways as one region, and the selected object's detail
+   sits under it rather than in a floating layer that covers the branch you
+   just clicked.
+
+   The two line treatments are load-bearing and must stay distinguishable
+   without colour: solid is recorded lineage, dashed is an asserted
+   relationship. Anyone restyling these should change the colour, never the
+   dash.
+   --------------------------------------------------------------------------- */
+
+.river-tools {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  margin: 0 0 12px;
+}
+.river-search { flex: 1 1 200px; min-width: 160px; }
+.river-search input { width: 100%; }
+.river-filter select { min-width: 150px; }
+
+.river-frame {
+  border: 1px solid var(--line); border-radius: var(--r-panel);
+  background: var(--panel); overflow: hidden;
+}
+/* The one intentional scroll region, with a clear boundary — §08 asks for
+   exactly that rather than a page that scrolls in two directions at once. */
+.river-scroll { overflow: auto; max-height: 62vh; }
+.river-content {
+  position: relative; display: flex; align-items: flex-start; gap: 16px;
+  padding: 16px; min-width: min-content;
+}
+
+.river-lines {
+  position: absolute; inset: 0; pointer-events: none; overflow: visible;
+}
+.river-line {
+  fill: none; stroke: var(--line-strong); stroke-width: 1.5;
+}
+.river-line[data-lineage="false"] { stroke-dasharray: 3 4; }
+.river-line[data-lit="true"] { stroke: var(--accent); stroke-width: 2.25; }
+
+.river-col { flex: 0 0 232px; display: flex; flex-direction: column; gap: 8px; }
+.river-col-name {
+  margin: 0; font-size: 15px; font-weight: 600; color: var(--ink-strong, var(--ink));
+}
+.river-col-blurb {
+  margin: -4px 0 4px; font-size: 12px; color: var(--ink-faint);
+}
+.river-col-empty { margin: 0; font-size: 12px; color: var(--ink-faint); }
+
+.river-card {
+  position: relative; z-index: 1;
+  display: flex; flex-direction: column; gap: 3px; width: 100%;
+  padding: 9px 11px; text-align: left; cursor: pointer;
+  border: 1px solid var(--line); border-left: 3px solid var(--ink-faint);
+  border-radius: var(--r-card); background: var(--paper, var(--bg));
+  font: inherit; color: var(--ink);
+}
+.river-card:hover { border-color: var(--line-strong); }
+.river-card[aria-pressed="true"] {
+  border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent);
+}
+.river-card[data-state="validated"] { border-left-color: var(--positive); }
+.river-card[data-state="exploratory"] { border-left-color: var(--exploratory); }
+.river-card[data-state="rejected"] { border-left-color: var(--negative); }
+.river-card-id { font-size: 11px; color: var(--ink-faint); }
+.river-card-title { font-size: 13px; line-height: 1.35; }
+.river-card-state { font-size: 11px; color: var(--ink-faint); }
+
+.river-legend {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+  padding: 9px 14px; border-top: 1px solid var(--line);
+  font-size: 11.5px; color: var(--ink-faint);
+}
+.river-key { display: inline-flex; align-items: center; gap: 6px; }
+.river-key::before {
+  content: ""; width: 22px; height: 0;
+  border-top: 1.5px solid var(--line-strong);
+}
+.river-key[data-lineage="false"]::before { border-top-style: dashed; }
+.river-zoom { display: inline-flex; align-items: center; gap: 6px; }
+.river-zoom .btn { padding: 2px 8px; font-size: 11.5px; }
+/* Pushed to the end of the strip, because it qualifies the whole canvas. */
+.river-caveat { margin-left: auto; }
+
+.river-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.river-table th, .river-table td {
+  padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.river-table th { font-size: 12px; color: var(--ink-faint); font-weight: 600; }
+/* Filtered out of the canvas, still listed here, and marked as such. Hiding
+   the row would be the deletion §09 forbids. */
+.river-table tr[data-hidden="true"] { opacity: 0.5; }
+.river-table-id { margin-left: 8px; font-size: 11px; color: var(--ink-faint); }
+
+.river-unplaced { margin-top: 16px; }
+.river-unplaced-list { margin: 8px 0 0; padding-left: 18px; font-size: 13px; }
+
+.river-detail {
+  margin-top: 14px; padding: 12px 14px;
+  border: 1px solid var(--line); border-radius: var(--r-card);
+  background: var(--panel);
+}
+.river-detail-head {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  margin-bottom: 10px;
+}
+.river-detail-head .btn { margin-left: auto; }
+.river-detail-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px; margin: 0 0 12px;
+}
+.river-detail-grid dt {
+  font-size: 11px; color: var(--ink-faint); margin-bottom: 2px;
+}
+.river-detail-grid dd { margin: 0; font-size: 13px; }

@@ -103,10 +103,19 @@ def knowledge_graph(
     # Lineage carries no confidence or evidence: it is recorded fact, not an
     # assertion that could be wrong, so those come back null rather than
     # invented.
+    #
+    # `edge_kind` names which arm a row came from, and it is not decoration.
+    # Two readers already branch on it and neither could: the graph canvas
+    # weights a lineage edge harder than a semantic one, and the river draws
+    # recorded lineage solid and related context dotted. The column was never
+    # selected, so every edge arrived as neither — the canvas fell back to the
+    # semantic weight for all of them and the distinction this UNION exists to
+    # preserve was lost between the query and the screen. `notebook.py` sends
+    # its own `edge_kind`, which is why the note graph was unaffected.
     cur.execute(
         f"""
         SELECT e.id, e.source_object_id, e.target_object_id, e.relationship_type,
-               e.confidence, e.status, e.evidence_id
+               e.confidence, e.status, e.evidence_id, 'semantic' AS edge_kind
         FROM research_edges e
         WHERE {where} AND e.source_object_id = ANY(%s) AND e.target_object_id = ANY(%s)
 
@@ -117,7 +126,8 @@ def knowledge_graph(
                l.lineage_type AS relationship_type,
                NULL::double precision AS confidence,
                'recorded' AS status,
-               NULL::text AS evidence_id
+               NULL::text AS evidence_id,
+               'lineage' AS edge_kind
         FROM artifact_lineage_edges l
         WHERE l.project_id = %s
           AND l.source_artifact_id = ANY(%s) AND l.target_artifact_id = ANY(%s)

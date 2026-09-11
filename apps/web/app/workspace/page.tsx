@@ -7,8 +7,8 @@ import {
 } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import {
-  DEFAULT_SECTION, Place, placeFromSearch, projectFromSearch, searchForPlace,
-  searchForProject,
+  DEFAULT_SECTION, Place, View, placeFromSearch, projectFromSearch,
+  searchForPlace, searchForProject, searchForView, viewFromSearch,
 } from "@/lib/section-url";
 import {
   Kind, lastProject, placeFor, rememberProject, selectionAt,
@@ -139,12 +139,26 @@ function Workspace({ user }: { user: SignedInUser }) {
       ? null
       : projectFromSearch(window.location.search) ?? lastProject(user.id));
 
+  /*
+   * Which of the Research graph's two readings is open.
+   *
+   * In the address rather than in the graph component's own state, so the
+   * river can be linked to, survives a reload, and is what Back leaves — the
+   * same argument `section-url.ts` makes for the section itself. The Overview
+   * relies on it too: its entrance into the lineage is a place, not a message
+   * passed sideways into a component.
+   */
+  const [view, setViewState] = useState<View>(() =>
+    typeof window === "undefined" ? "graph" : viewFromSearch(window.location.search));
+
   // Read by callbacks that must see the current value without being
   // recreated on every navigation.
   const placeRef = useRef(place);
   placeRef.current = place;
   const projectRef = useRef(projectId);
   projectRef.current = projectId;
+  const viewRef = useRef(view);
+  viewRef.current = view;
 
   const project = projects.data?.find((p) => p.id === projectId) ?? null;
   const activeId = project?.id ?? null;
@@ -158,16 +172,32 @@ function Workspace({ user }: { user: SignedInUser }) {
    * The project goes into the address on every navigation, so that anything
    * copied or reloaded from here on comes back to the same project.
    */
-  const go = useCallback((next: Place, options: { project?: string; replace?: boolean } = {}) => {
+  const go = useCallback((next: Place,
+                         options: { project?: string; replace?: boolean; view?: View } = {}) => {
     setPlaceState(next);
+    /*
+     * The view belongs to one section, so it leaves the address with it.
+     * Carrying `view=river` onto Findings would put a parameter in every link
+     * copied from there that means nothing on arrival — and would quietly
+     * reopen the river the next time the graph was visited, which is not where
+     * the researcher left it.
+     */
+    const nextView = options.view
+      ?? (next.section === "graph" ? viewRef.current : "graph");
+    setViewState(nextView);
     if (typeof window === "undefined") return;
     const search = searchForProject(
       options.project ?? projectRef.current,
-      searchForPlace(next, window.location.search));
+      searchForView(nextView, searchForPlace(next, window.location.search)));
     const url = `${window.location.pathname}${search}${window.location.hash}`;
     if (options.replace) window.history.replaceState(null, "", url);
     else window.history.pushState(null, "", url);
   }, []);
+
+  /** Switch between the graph's two readings, leaving a history entry. */
+  const goView = useCallback((next: View) => {
+    go({ section: "graph", item: placeRef.current.item }, { view: next });
+  }, [go]);
 
   /**
    * Open a thing of a kind, in the section that shows it (D195).
@@ -238,6 +268,7 @@ function Workspace({ user }: { user: SignedInUser }) {
   useEffect(() => {
     const onPop = () => {
       setPlaceState(placeFromSearch(window.location.search));
+      setViewState(viewFromSearch(window.location.search));
       const named = projectFromSearch(window.location.search);
       if (named) setProjectIdState(named);
     };
@@ -552,6 +583,8 @@ function Workspace({ user }: { user: SignedInUser }) {
           <>
             <Overview project={project} map={map.data} onGo={goSection}
                       onOpen={(kind, id) => open(kind, id)} onAddSources={upload}
+                      onLineage={() => go({ section: "graph", item: null },
+                                          { view: "river" })}
                       labels={variables.data?.labels} />
             {/*
               Directly under the meters, because the Contradictions meter is
@@ -803,6 +836,8 @@ function Workspace({ user }: { user: SignedInUser }) {
            * it.
            */
           <GraphView projectId={project.id}
+                     view={view}
+                     onView={goView}
                      focus={selection?.kind === "object" ? selection.id : null}
                      onSelect={(id) => open("object", id, { replace: true })} />
         )}

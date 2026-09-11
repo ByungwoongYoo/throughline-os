@@ -174,3 +174,54 @@ export function searchForProject(projectId: string | null, search: string): stri
   const query = params.toString();
   return query ? `?${query}` : "";
 }
+
+/*
+ * A section's sub-view, for the one section that has more than one way of
+ * reading the same objects.
+ *
+ * Research graph shows the project's objects twice: as a force-directed canvas
+ * where proximity means similarity, and as the river, where the same objects
+ * sit in six recorded stages with their derivations drawn. §08 is explicit
+ * that the river is "a proposed lineage view, with a contextual entrance from
+ * Overview and Research graph" and not a sixth primary group — so it is a view
+ * of a section rather than a section of its own, and the secondary navigation
+ * row stays the eight items the master shows.
+ *
+ * It goes in the address for the same four reasons the section did (D196): a
+ * researcher reading the lineage can send that link, a reload comes back to
+ * it, Back leaves it, and the Overview's entrance can name it. Validated
+ * against a vocabulary for the same reason `isSection` is — the value is typed
+ * by a stranger and chooses what renders.
+ */
+export const VIEW_IDS = ["graph", "river"] as const;
+
+export type View = (typeof VIEW_IDS)[number];
+
+/** The view a section shows when the address names none. */
+export const DEFAULT_VIEW: View = "graph";
+
+const VIEW_KEY = "view";
+
+export function isView(value: string | null | undefined): value is View {
+  return !!value && (VIEW_IDS as readonly string[]).includes(value);
+}
+
+/** The view a URL asks for, or the default. */
+export function viewFromSearch(search: string): View {
+  const value = new URLSearchParams(search).get(VIEW_KEY);
+  return isView(value) ? value : DEFAULT_VIEW;
+}
+
+/**
+ * The address for a view, preserving everything else already in the URL.
+ *
+ * The default view is left out, so the ordinary graph address keeps the shape
+ * it has always had and nobody's existing link grows a parameter.
+ */
+export function searchForView(view: View, search: string): string {
+  const params = new URLSearchParams(search);
+  if (view === DEFAULT_VIEW) params.delete(VIEW_KEY);
+  else params.set(VIEW_KEY, view);
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}

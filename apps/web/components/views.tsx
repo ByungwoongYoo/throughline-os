@@ -40,7 +40,7 @@ import { Term } from "./term";
 // Overview (§70)
 // ---------------------------------------------------------------------------
 
-export function Overview({ project, map, onGo, onOpen, onAddSources, labels }: {
+export function Overview({ project, map, onGo, onOpen, onAddSources, onLineage, labels }: {
   project: { name: string; research_question: string };
   map: DiscoveryMap | null;
   onGo: (section: Section) => void;
@@ -59,6 +59,16 @@ export function Overview({ project, map, onGo, onOpen, onAddSources, labels }: {
    * taken from the screen that asks for it rather than after a rail hop.
    */
   onAddSources?: (files: FileList | null) => void;
+  /**
+   * Open the project's lineage — the river — from here.
+   *
+   * §08 gives the river a contextual entrance from Overview and Research
+   * graph and refuses it a place in the navigation, on the grounds that it is
+   * a way of reading the project rather than another room in it. This is that
+   * entrance. Optional, so the Overview still renders wherever no navigator
+   * has been wired up.
+   */
+  onLineage?: () => void;
   /** Approved display names by raw column, so the control names a connection
    *  the way the strip above it does (Part C: no raw names outside Variables). */
   labels?: Record<string, string>;
@@ -231,6 +241,22 @@ export function Overview({ project, map, onGo, onOpen, onAddSources, labels }: {
 
       <LifecycleBreakdown title="Connections" counts={map.connections} />
       <LifecycleBreakdown title="Findings" counts={map.findings} />
+
+      {/*
+        * The way into the lineage, offered where a reader has just been shown
+        * counts and might reasonably ask how any of it was arrived at. One
+        * sentence and one control: this is the Overview §09 asks for, "a
+        * restrained overview, not a radial dashboard".
+        */}
+      {onLineage && (
+        <p className="note">
+          To see what was derived from what, and the branches that were tried and
+          set aside,{" "}
+          <button className="btn-text" type="button" onClick={onLineage}>
+            follow the project&rsquo;s lineage
+          </button>.
+        </p>
+      )}
     </>
   );
 }
