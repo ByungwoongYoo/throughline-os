@@ -1694,8 +1694,24 @@ export function Findings({ projectId, onSelect }: {
 }) {
   const { data, error, reload } = useApi<DiscoveryMap>(`/api/projects/${projectId}/discovery-map`);
   const findings = useApi<Finding[]>(`/api/projects/${projectId}/findings`);
+  /**
+   * Which lifecycle states are on screen.
+   *
+   * §09 asks this screen for "lifecycle filters and finding detail", and it
+   * had neither — every finding the project has ever held, in one list, with
+   * no way to separate what still stands from what was set aside. Derived from
+   * what is actually recorded rather than from the enum, so a state the
+   * project has none of does not offer a filter that empties the screen.
+   */
+  const [standing, setStanding] = useState<string>("all");
 
   if (error) return <Failure error={error} retry={reload} />;
+
+  const all = findings.data ?? [];
+  const states = [...new Set(all.map((f) => f.lifecycle_status))].sort();
+  const shown = standing === "all"
+    ? all : all.filter((f) => f.lifecycle_status === standing);
+
   return (
     <>
       <h1>Findings</h1>
@@ -1710,10 +1726,31 @@ export function Findings({ projectId, onSelect }: {
       </p>
       {findings.loading && <Loading rows={3} label="Reading findings" />}
       {findings.error && <Failure error={findings.error} retry={findings.reload} />}
-      {findings.data?.length === 0 && (
+      {all.length === 0 && !findings.loading && (
         <Empty title="No findings recorded" hint="Validate a connection, then record what it shows as a finding." />
       )}
-      {findings.data?.map((finding) => (
+
+      {states.length > 1 && (
+        <div className="fd-filters" role="group" aria-label="Filter by standing">
+          <button className="btn" type="button" aria-pressed={standing === "all"}
+                  onClick={() => setStanding("all")}>
+            All ({all.length})
+          </button>
+          {states.map((state) => (
+            <button key={state} className="btn" type="button"
+                    aria-pressed={standing === state}
+                    onClick={() => setStanding(state)}>
+              {state.replace(/_/g, " ")}{" "}
+              ({all.filter((f) => f.lifecycle_status === state).length})
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* A grid, so a project with a dozen findings reads as a collection
+          rather than as a column of full-width banners. */}
+      <div className="fd-grid">
+      {shown.map((finding) => (
         <div className="card" key={finding.id} {...activatable(() => onSelect(finding.id))}>
           <div className="row">
             <div style={{ fontWeight: 560 }}>{finding.title}</div>
@@ -1739,6 +1776,7 @@ export function Findings({ projectId, onSelect }: {
           </div>
         </div>
       ))}
+      </div>
       {data && <LifecycleBreakdown title="Findings" counts={data.findings} />}
     </>
   );

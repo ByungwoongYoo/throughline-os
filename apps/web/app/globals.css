@@ -6826,3 +6826,51 @@ details.fold > *:not(summary) { padding: 8px 2px 10px; }
 .act-open, .act-id { margin-left: 7px; font-size: 11px; }
 .act-id { color: var(--ink-faint); }
 .act-filter { display: inline-block; margin-bottom: 10px; }
+
+/* Findings: the standing filters §09 asks for, and a collection rather than a
+   column of full-width banners. The grid is a `div`, so it is outside the
+   980px reading measure `density.css` holds prose containers to — a list of
+   findings is a collection, not prose. */
+.fd-filters { display: flex; flex-wrap: wrap; gap: 7px; margin: 0 0 12px; }
+.fd-filters .btn[aria-pressed="true"] {
+  background: var(--accent-soft); border-color: var(--accent);
+  color: var(--on-accent-soft);
+}
+/* Tracks with a ceiling, not `1fr`. With one finding recorded, `1fr` either
+   strands a 330px card in a 1534px row or stretches it into a banner; a track
+   that grows to 460 and stops reads as a card at any count. */
+.fd-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 460px));
+  gap: 12px; align-items: start; justify-content: start;
+}
+.fd-grid .card { margin: 0; }
+
+/* ---------------------------------------------------------------------------
+   Settings: §08's settings family — local navigation beside grouped sections.
+
+   The page is nearly 4,000px of single column and what somebody came to change
+   is as likely to be at the bottom as the top. The nav is a contents, not a
+   tab strip: every section stays on the page, so find-in-page still works and
+   a link into one survives.
+   --------------------------------------------------------------------------- */
+.set-shell {
+  display: grid; grid-template-columns: 188px minmax(0, 1fr);
+  gap: 28px; align-items: start;
+}
+.set-nav {
+  position: sticky; top: 8px;
+  display: flex; flex-direction: column; gap: 1px;
+  padding-top: 40px;
+}
+.set-nav a {
+  padding: 5px 9px; border-radius: var(--r-chip);
+  font-size: 12.5px; color: var(--ink-soft); text-decoration: none;
+}
+.set-nav a:hover { background: var(--hover); color: var(--ink); }
+.set-body { min-width: 0; max-width: 880px; }
+/* Below the width where a 188px column plus a readable section both fit, the
+   contents goes above the sections rather than squeezing them. */
+@media (max-width: 1000px) {
+  .set-shell { grid-template-columns: 1fr; gap: 12px; }
+  .set-nav { position: static; flex-direction: row; flex-wrap: wrap; padding-top: 0; }
+}
