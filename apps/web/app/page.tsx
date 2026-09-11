@@ -34,9 +34,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Marks, type MarksHandle } from "@/components/entrance/Marks";
 import { Scene } from "@/components/entrance/Scene";
+import { Trace, type TraceHandle } from "@/components/entrance/Trace";
 import { CHAPTERS_END, type RingHandle } from "@/lib/entrance/ring";
 
 import "./entrance.css";
+
+/**
+ * Viewport heights the traced chain is scrubbed over.
+ *
+ * Long enough that each of its four stops gets a comfortable stretch of scroll
+ * rather than flashing past, short enough that a reader who has understood it
+ * by the second stop is not held hostage to the fourth.
+ */
+const TRACE_RUNWAY = 3.4;
 
 /** Viewport heights of runway. §03's desktop figure. */
 const RUNWAY = 6;
@@ -70,50 +80,14 @@ export function chapterOpacity(p: number, from: number, to: number, isFirst: boo
   return Math.min(entering, leaving);
 }
 
-/**
- * The six steps, in `lib/loop.ts`'s own words, with the screen each produces.
- *
- * Not re-written for marketing. The workspace's step strip names these six and
- * walks a researcher through them in this order; a landing page that tells a
- * different story teaches an order the product does not follow, and the person
- * who arrives from it spends their first hour looking for a screen that is not
- * there.
- */
-const TOUR = [
-  { shot: "sources", label: "Add sources",
-    hint: "Drop a dataset and the papers around it. They stay on this machine.",
-    alt: "The Sources screen listing a paper and a dataset, each with its "
-       + "ingestion state and what was extracted from it." },
-  { shot: "profile", label: "Profile a dataset",
-    hint: "Discovery works from the profiled schema, so it reads the columns, "
-        + "their types and what is missing before anything is tested.",
-    alt: "A dataset's profile: 120 rows, 4 columns, one version, and a table of "
-       + "each column's type, missing values and distinct count." },
-  { shot: "discover", label: "Generate and test candidates",
-    hint: "Every pair is tested, then corrected for how many tests ran.",
-    alt: "The Discovery screen: candidate relationships with their estimate, "
-       + "q-value, sample size and whether each has been tested." },
-  { shot: "cockpit", label: "Try to destroy what survived",
-    hint: "Bootstrap, outliers, missingness, confounders. Promotion is earned.",
-    alt: "One analysis in the cockpit: recorded specification, recorded result, "
-       + "interpretation and the assumption checks beside each other." },
-  { shot: "finding", label: "Record a finding",
-    hint: "A finding must carry both the evidence for it and the evidence "
-        + "against it.",
-    alt: "A finding with its claims, the computation behind it, where it "
-       + "stands, and what it does not claim." },
-  { shot: "reports", label: "Communicate it",
-    hint: "A report references its evidence rather than copying it, so the two "
-        + "cannot drift apart.",
-    alt: "The Reports screen: citation integrity, the results table and "
-       + "bibliography, and a report drafted from a connection." },
-] as const;
-
 export default function Entrance() {
   const ring = useRef<RingHandle | null>(null);
   const marks = useRef<MarksHandle | null>(null);
   const stage = useRef<HTMLDivElement | null>(null);
   const runway = useRef<HTMLDivElement | null>(null);
+  /** The traced chain below the chapters, and the scroll that scrubs it. */
+  const traceRunway = useRef<HTMLDivElement | null>(null);
+  const trace = useRef<TraceHandle | null>(null);
   const panels = useRef<(HTMLElement | null)[]>([]);
 
   const [active, setActive] = useState(0);
@@ -128,9 +102,12 @@ export default function Entrance() {
   useEffect(() => {
     let raf = 0;
     let bounds = { top: 0, travel: 1, page: 1 };
+    let traceBounds: { top: number; travel: number } | null = null;
     let lastActive = -1;
     /** Last progress actually acted on, so an unmoved reader costs nothing. */
     let lastP = -1;
+    /** Last scroll position acted on. */
+    let lastScroll = -1;
     /**
      * True while the stage is actually pinned. Reduced motion and small windows
      * both unpin it in CSS and show every chapter in ordinary document flow, and
@@ -166,9 +143,18 @@ export default function Entrance() {
       };
       const st = stage.current;
       pinned = st ? getComputedStyle(st).position === "sticky" : true;
+
+      const tr = traceRunway.current;
+      traceBounds = tr
+        ? {
+            top: tr.getBoundingClientRect().top + window.scrollY,
+            travel: Math.max(1, tr.offsetHeight - window.innerHeight),
+          }
+        : null;
       // The pin state and the runway length both just changed, so the next
       // frame has to redo its work even if the reader has not moved.
       lastP = -1;
+      lastScroll = -1;
     }
 
     function frame() {
@@ -182,10 +168,20 @@ export default function Entrance() {
        * on every frame is work with no output. Skipping it is what makes the
        * pause control mean something, and what keeps an idle tab cheap.
        */
-      if (p === lastP) {
+      /*
+       * Compared on the scroll position, not on the chapters' progress.
+       *
+       * `p` is clamped at 1 once the runway is behind you, so comparing it
+       * froze everything below the chapters: the camera stopped travelling and
+       * the traced chain never advanced, both of which are driven further down
+       * this function. The scroll position is the thing that actually changed.
+       */
+      if (window.scrollY === lastScroll) {
         raf = requestAnimationFrame(frame);
         return;
       }
+      lastScroll = window.scrollY;
+      const chaptersMoved = p !== lastP;
       lastP = p;
 
       /*
@@ -207,6 +203,26 @@ export default function Entrance() {
             * (1 - CHAPTERS_END);
 
       ring.current?.setProgress(camera);
+
+      /*
+       * The chain is scrubbed by its own stretch of scroll rather than by the
+       * page's, so its four stops arrive at a readable pace regardless of how
+       * long the chapters above it are.
+       */
+      if (traceBounds) {
+        trace.current?.setProgress(
+          (window.scrollY - traceBounds.top) / traceBounds.travel);
+      }
+      /*
+       * The chapters' own work is skipped once they have stopped moving. The
+       * camera and the chain above run on every scroll; rewriting the same
+       * opacity onto four panels that are all finished is work with no output.
+       */
+      if (!chaptersMoved) {
+        raf = requestAnimationFrame(frame);
+        return;
+      }
+
       stage.current?.style.setProperty("--p", p.toFixed(4));
 
       let current = 0;
@@ -452,63 +468,42 @@ export default function Entrance() {
         </div>
 
         {/*
-          * What is actually inside.
+          * What is actually inside, shown rather than photographed.
           *
-          * The four chapters above are the argument; this is the product. A
-          * landing page that only makes an argument asks a stranger to take
-          * the whole thing on trust, and nobody reads a paragraph to find out
-          * what software does — they look. Every frame here is the worked
-          * example running, captured from the app rather than drawn, so the
-          * page cannot show a screen the product does not have.
+          * This was a column of screenshots, and a column of screenshots is
+          * what a page does when it has run out of ideas: it asks a stranger
+          * to squint at somebody else's interface and take the claim on trust.
+          * It also proved the wrong thing. What this product sells is not a set
+          * of screens — it is that a finding keeps the line back to what it was
+          * built from, and a line is not something you can photograph.
           *
-          * The six steps are `lib/loop.ts`'s own, in its own words. That is
-          * deliberate: the sequence a visitor reads here is the sequence the
-          * workspace walks them through, and the step strip inside names the
-          * same six. A tour that invents its own story teaches an order the
-          * product does not follow.
+          * So the page draws it, scrubbed by the same scroll that moves the
+          * ring, with the same vocabulary the workspace uses.
           */}
-        <section className="tour" aria-labelledby="tour-h">
-          <div className="tour-head">
-            <p className="eyebrow">Inside Throughline</p>
-            <h2 id="tour-h" className="display">
-              One investigation,
-              <br />
-              <em>from the first file to the last citation.</em>
-            </h2>
-            <p className="lede">
-              Six steps. The product walks you through them, and every one of
-              them keeps what it was built from.
-            </p>
+        <div
+          className="trace-runway"
+          ref={traceRunway}
+          style={{ height: `${TRACE_RUNWAY * 100}vh` }}
+        >
+          <div className="trace-stage">
+            <section className="trace-section" aria-labelledby="trace-h">
+              <div className="trace-head">
+                <p className="eyebrow">Follow the evidence</p>
+                <h2 id="trace-h" className="display">
+                  Every finding keeps
+                  <br />
+                  <em>the line back to its source.</em>
+                </h2>
+                <p className="lede">
+                  Not a citation you have to trust. The chain itself, recorded as
+                  the work happens, and walkable in either direction.
+                </p>
+              </div>
+              <Trace ref={trace} />
+            </section>
           </div>
+        </div>
 
-          <ol className="tour-steps">
-            {TOUR.map((step, i) => (
-              <li key={step.shot} className="tour-step">
-                <div className="tour-copy">
-                  <span className="tour-n" aria-hidden>{String(i + 1).padStart(2, "0")}</span>
-                  <h3>{step.label}</h3>
-                  <p>{step.hint}</p>
-                </div>
-                <figure className="tour-shot">
-                  {/*
-                    * Stored at twice the width it is shown at. Type in a
-                    * screenshot that has been scaled up is the "blurry image
-                    * text" the acceptance list refuses, and it is the first
-                    * thing that gives away a page built from mockups.
-                    */}
-                  <img src={`/tour/${step.shot}.jpg`} alt={step.alt}
-                       width={1760} height={1106} loading="lazy" />
-                </figure>
-              </li>
-            ))}
-          </ol>
-
-          <p className="closing">
-            <Link className="enter" href="/workspace">
-              Open workspace <span aria-hidden>→</span>
-            </Link>
-          </p>
-        </section>
       </main>
 
       <button type="button" className="motion-toggle" onClick={togglePause} aria-pressed={paused}>

@@ -196,6 +196,7 @@ body:has(.entrance-header) {
 .panel-a .display { font-size: clamp(44px, min(5.3vw, 8.5vh), 84px); }
 .panel-b .display,
 .panel-c .display,
+.trace-head .display,
 /* The tour's own heading is a chapter heading too — without it, `.display`
    sets only the family and the colour and the size falls back to the browser's
    h2, which left the section title smaller than the sentence under it. */
@@ -604,87 +605,161 @@ body:has(.entrance-header) {
 }
 
 /* ---------------------------------------------------------------------------
-   The tour: what is actually inside.
+   The traced chain.
 
-   The four chapters above are the argument and this is the product. It sits on
-   the same ground and lets the ring keep running behind it, because the page
-   is one page — a white marketing slab under a black hero is two sites stapled
-   together.
+   One stroke down the page with four stops on it, scrubbed by scroll. The
+   stroke is the product's sentence drawn — "follow every finding back to its
+   source" — so it is grown rather than revealed, and nothing on it fades back
+   out: a reader looking at the analysis should still be able to read the
+   finding it answers.
 
-   Copy left, screen right, alternating, so the eye has a rhythm down the page
-   and each frame gets the width a screenshot of a dense application needs.
+   It sits on the ring like everything else. No panel, no slab, no card the
+   width of the page: the site is one site.
    --------------------------------------------------------------------------- */
-.tour {
+
+.trace-runway { position: relative; }
+.trace-stage {
+  position: sticky;
+  top: 0;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+.trace-section {
   position: relative;
   z-index: 2;
-  background: none;
+  width: 100%;
   max-width: 1180px;
   margin: 0 auto;
-  padding: 120px 40px 140px;
-}
-.tour-head { max-width: 720px; margin-bottom: 88px; }
-.tour-head .display { margin: 14px 0 18px; }
-.tour-head .lede { max-width: 560px; }
-
-.tour-steps { list-style: none; margin: 0; padding: 0; }
-.tour-step {
+  padding: 40px 40px 56px;
   display: grid;
-  grid-template-columns: minmax(0, 300px) minmax(0, 1fr);
-  gap: 48px;
+  grid-template-columns: minmax(0, 420px) minmax(0, 1fr);
+  gap: 72px;
   align-items: center;
-  margin-bottom: 96px;
 }
-/* Alternating, so six rows do not read as one long left-aligned column. */
-.tour-step:nth-child(even) { grid-template-columns: minmax(0, 1fr) minmax(0, 300px); }
-.tour-step:nth-child(even) .tour-copy { order: 2; }
-.tour-step:nth-child(even) .tour-shot { order: 1; }
+.trace-head .display { margin: 14px 0 18px; }
+.trace-head .lede { max-width: 40ch; }
 
-.tour-n {
-  display: block;
+.trace { position: relative; padding-left: 34px; }
+
+/* The stroke. Drawn with a gradient stop rather than a dash offset, because it
+   has to grow from a fixed top edge whatever the chain's height turns out to
+   be — a dash array would need the length measured first. */
+.trace-line {
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  overflow: visible;
+}
+.trace-line line {
+  stroke: url(#none);
+  stroke-width: 2;
+  /* The visible part, set by the controller. */
+  stroke: var(--e-accent, #c8a45c);
+  opacity: 0.55;
+  clip-path: inset(0 0 calc(100% - var(--drawn, 0%)) 0);
+}
+
+.trace-stops { list-style: none; margin: 0; padding: 0; }
+.trace-stop {
+  position: relative;
+  margin-bottom: 26px;
+  /* Arrives, then stays. */
+  opacity: calc(0.12 + 0.88 * var(--in, 0));
+  transform: translateY(calc((1 - var(--in, 0)) * 14px));
+}
+.trace-stop:last-child { margin-bottom: 0; }
+
+.trace-dot {
+  position: absolute;
+  left: -34px;
+  top: 15px;
+  width: 9px;
+  height: 9px;
+  margin-left: -3.5px;
+  border-radius: 50%;
+  background: var(--e-bg, #06070a);
+  border: 1.5px solid var(--e-accent, #c8a45c);
+  opacity: calc(0.3 + 0.7 * var(--in, 0));
+}
+
+.trace-card {
+  padding: 14px 18px;
+  border: 1px solid rgb(244 242 238 / 0.12);
+  border-radius: 10px;
+  /* Barely there: the ring has to keep running behind it, or the section
+     becomes a row of panels laid on the artwork. */
+  background: rgb(6 7 10 / 0.55);
+  backdrop-filter: blur(6px);
+}
+
+.trace-kind {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 8px;
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 12px;
-  letter-spacing: 0.14em;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--e-muted);
+}
+.trace-id { color: var(--e-accent, #c8a45c); }
+.trace-chip {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgb(200 164 92 / 0.14);
   color: var(--e-accent, #c8a45c);
-  margin-bottom: 14px;
+  letter-spacing: 0.06em;
 }
-.tour-copy h3 {
-  margin: 0 0 12px;
-  font-family: "Source Serif 4", Georgia, serif;
-  font-size: 27px;
-  font-weight: 400;
-  line-height: 1.15;
-  color: var(--e-text);
-  /* `globals.css` sets every h3 to a 12px uppercase workspace label, and this
-     page loads it. Without these two the tour's step names came out as
-     "PROFILE A DATASET" in a serif face, which is neither. */
-  text-transform: none;
-  letter-spacing: normal;
-}
-.tour-copy p {
+
+.trace-title {
   margin: 0;
-  font: 400 15px/1.6 Inter, system-ui, sans-serif;
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: 19px;
+  line-height: 1.4;
+  color: var(--e-text);
+}
+
+.trace-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  margin: 12px 0 0;
+}
+.trace-facts div { display: flex; flex-direction: column; gap: 1px; }
+.trace-facts dt {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--e-muted);
+}
+.trace-facts dd {
+  margin: 0;
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+  color: var(--e-text);
+}
+
+.trace-note {
+  margin: 10px 0 0;
+  font: 400 13px/1.5 Inter, system-ui, sans-serif;
   color: var(--e-muted);
 }
 
-.tour-shot { margin: 0; }
-/* A hairline and a soft lift, not a browser chrome frame: the screenshot is
-   evidence, and drawing a fake window around it makes it look like a mockup. */
-.tour-shot img {
-  display: block;
-  width: 100%;
-  height: auto;
-  border: 1px solid rgb(244 242 238 / 0.14);
-  border-radius: 8px;
-  box-shadow: 0 24px 60px rgb(0 0 0 / 0.55);
-}
-
-.tour .closing { margin-top: 24px; }
-
-@media (max-width: 900px) {
-  .tour { padding: 72px 20px 88px; }
-  .tour-step,
-  .tour-step:nth-child(even) { grid-template-columns: 1fr; gap: 22px; margin-bottom: 64px; }
-  .tour-step:nth-child(even) .tour-copy,
-  .tour-step:nth-child(even) .tour-shot { order: initial; }
-  .tour-head { margin-bottom: 48px; }
+@media (max-width: 1000px) {
+  .trace-section {
+    grid-template-columns: 1fr;
+    gap: 32px;
+    padding: 32px 20px 40px;
+  }
+  .trace-stage { position: static; min-height: 0; }
+  .trace-runway { height: auto !important; }
+  /* Unpinned, nothing scrubs, so every stop is simply present. */
+  .trace-stop, .trace-dot { opacity: 1; transform: none; }
 }

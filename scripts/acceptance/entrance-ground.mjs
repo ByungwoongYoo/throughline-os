@@ -22,15 +22,28 @@ const height = await page.evaluate(() => {
   const r = document.querySelector(".runway");
   return r ? r.offsetHeight : document.body.scrollHeight;
 });
-const names = ["1A", "1B", "1C", "1D"];
+// The four chapters, then the traced chain below them: its cards sit on the
+// same ring and carry the same risk.
+const names = ["1A", "1B", "1C", "1D", "trace"];
 const boxes = {};
-for (let i = 0; i < 4; i++) {
-  await page.evaluate((y) => window.scrollTo(0, y), Math.round((height - 993) * (i / 3)));
+for (let i = 0; i < names.length; i++) {
+  const y = i < 4
+    ? Math.round((height - 993) * (i / 3))
+    // Far enough into the chain that every stop has arrived.
+    : await page.evaluate(() => {
+        const el = document.querySelector(".trace-runway");
+        return el ? Math.round(el.getBoundingClientRect().top + window.scrollY
+                               + el.offsetHeight - window.innerHeight - 40) : 0;
+      });
+  await page.evaluate((v) => window.scrollTo(0, v), y);
   await page.waitForTimeout(2000);
   // Where the type is, before it is hidden.
   boxes[names[i]] = await page.evaluate(() => {
     const out = [];
-    document.querySelectorAll(".panel h1, .panel h2, .panel .lede, .panel p, .panel blockquote")
+    document.querySelectorAll(
+      ".panel h1, .panel h2, .panel .lede, .panel p, .panel blockquote,"
+      + " .trace-head .display, .trace-head .lede,"
+      + " .trace-title, .trace-note, .trace-facts dd")
       .forEach((el) => {
         const r = el.getBoundingClientRect();
         if (r.width > 40 && r.height > 10 && r.top > -20 && r.bottom < 1010
@@ -51,7 +64,7 @@ for (let i = 0; i < 4; i++) {
    * scrim exactly where it is, which is the ground the contrast is against.
    */
   await page.addStyleTag({ content:
-    ".panel, .panel * { color: transparent !important;"
+    ".panel, .panel *, .trace-section, .trace-section * { color: transparent !important;"
     + " text-shadow: none !important; -webkit-text-fill-color: transparent !important; }" });
   await page.waitForTimeout(400);
   await page.screenshot({ path: `${OUT}/${names[i]}.png` });
