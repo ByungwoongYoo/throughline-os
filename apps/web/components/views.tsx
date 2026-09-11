@@ -9,7 +9,7 @@
  * the analysis that produced it.
  */
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   AnalysisRun, ApiError, Connection, DatasetColumn, DiscoveryMap, EvidenceGraph,
   Finding, objectTypeName,
@@ -17,6 +17,7 @@ import {
   ingestionStep, isIngesting,
 } from "@/lib/api";
 import { Tabs } from "./Tabs";
+import { Cartesian } from "./charts/Cartesian";
 import { columnNotices } from "@/lib/column-notices";
 import { DatasetFormats, extrasNote, uploadAccept } from "@/lib/formats";
 import { ApiState, useApi } from "@/lib/useApi";
@@ -1992,6 +1993,106 @@ function ResultWarnings({ run }: { run: AnalysisRun }) {
   );
 }
 
+/**
+ * Assumption checks, with a family of per-group checks reported as one.
+ *
+ * An ANOVA over 120 groups records `normality[group0]` … `normality[group8]`,
+ * and printing each as its own row gave the cockpit nine near-identical lines
+ * saying "Consistent with a normal distribution" — the panel that is supposed
+ * to tell a reader what to worry about instead buried the one group that
+ * failed among eight that did not.
+ *
+ * So a family collapses to its name, and what it reports is the count and the
+ * exceptions: "8 of 9 passed · group6 violated". Nothing is hidden — the
+ * Assumptions tab still lists every check individually — and the summary
+ * cannot claim a clean sweep it did not have, because the failures are named.
+ */
+function assumptionFamilies(checks: Array<{
+  name: string; outcome: string; detail: string; severity: string;
+}>) {
+  const families = new Map<string, {
+    name: string; members: typeof checks; failed: typeof checks;
+  }>();
+  for (const check of checks) {
+    // `normality[group6]` is a member of the `normality` family; a name with
+    // no bracket is its own family of one.
+    const family = check.name.replace(/\[.*\]$/, "");
+    const entry = families.get(family)
+      ?? { name: family, members: [], failed: [] };
+    entry.members.push(check);
+    if (check.outcome !== "passed") entry.failed.push(check);
+    families.set(family, entry);
+  }
+  return [...families.values()].map((f) => ({
+    name: f.name,
+    outcome: f.failed.length === 0 ? "passed"
+      : f.members.length === 1 ? f.failed[0].outcome
+      : `${f.members.length - f.failed.length} of ${f.members.length} passed`,
+    severity: f.failed.length
+      ? f.failed[0].severity : f.members[0].severity,
+    detail: f.members.length === 1
+      ? f.members[0].detail
+      : f.failed.length === 0
+        ? f.members[0].detail
+        : `${f.failed.map((c) => c.name.replace(/^.*\[(.*)\]$/, "$1")).join(", ")}`
+          + ` — ${f.failed[0].detail}`,
+  }));
+}
+
+/**
+ * The run's own scatter, in the cockpit where a reader looks for it.
+ *
+ * UI_02 puts "Observed association" beside the recorded result, and a reader
+ * judging an estimate looks at the cloud before they read the number: a
+ * correlation of 0.24 means one thing over a straight band and another over
+ * two clusters. The endpoint (`/analyses/{id}/points`) and the renderer
+ * (`Cartesian`) both already existed and were wired only into Figures, so the
+ * cockpit showed every number about a relationship and no picture of it.
+ *
+ * Deliberately plain here: no export button, no region recording, no
+ * recommendation prose. Figures owns all of that, and a second full figure
+ * builder inside the cockpit would be the duplicate this codebase keeps
+ * removing. This is the reading, and Figures is where a figure is made.
+ */
+function ObservedAssociation({ runId }: { runId: string }) {
+  const points = useApi<{
+    x: number[]; y: number[]; x_label?: string; y_label?: string;
+    sample_size?: number; note?: string | null;
+  }>(`/api/analyses/${runId}/points`, [runId]);
+
+  const data = useMemo(() => {
+    const p = points.data;
+    if (!p?.x?.length) return [];
+    return p.x.map((x, i) => ({ id: String(i), x, y: p.y[i] }));
+  }, [points.data]);
+
+  if (points.loading) return <Loading rows={3} label="Reading the points" />;
+  /*
+   * A method with nothing to plot says so rather than leaving a hole. Not
+   * every analysis has a two-column cloud behind it, and an empty frame reads
+   * as a chart that failed to draw.
+   */
+  if (points.error != null || data.length === 0) {
+    return (
+      <p className="note">
+        {points.data?.note
+          || "This method records no paired values to plot."}
+      </p>
+    );
+  }
+
+  return (
+    <Cartesian
+      data={data}
+      mark="point"
+      xLabel={points.data?.x_label ?? "x"}
+      yLabel={points.data?.y_label ?? "y"}
+      densityColour
+      height={200}
+    />
+  );
+}
+
 export function AnalysisDetail({ runId, projectId, onMethod, onVariables, onOpenObject }: {
   runId: string;
   /**
@@ -2033,8 +2134,38 @@ export function AnalysisDetail({ runId, projectId, onMethod, onVariables, onOpen
   const r = data.result;
   return (
     <>
-      <h1>{data.method.replace(/_/g, " ")}</h1>
-      {data.research_question && <p className="lede serif">{data.research_question}</p>}
+      {/*
+        * The relationship is the title; the method is provenance.
+        *
+        * UI_02 heads this screen with what was examined — "Night-time heat ↔
+        * anxiety symptoms" — and puts "Pearson correlation · researcher-
+        * specified · dataset v2" under it in small type. Ours led with the bare
+        * method name, so the largest word on a screen about a relationship was
+        * "anova", and the relationship itself was the subtitle.
+        */}
+      <header className="ckpt-head">
+        <div>
+          <h1 className="ckpt-title">
+            {data.research_question || data.method.replace(/_/g, " ")}
+          </h1>
+          <p className="ckpt-sub">
+            <span>{data.method.replace(/_/g, " ")}</span>
+            <span aria-hidden> · </span>
+            <span>{data.method_rationale ? "researcher-specified" : "recorded"}</span>
+            {data.duration_ms != null && (
+              <>
+                <span aria-hidden> · </span>
+                <span className="mono">{data.duration_ms} ms</span>
+              </>
+            )}
+          </p>
+        </div>
+        {/* The run's state, as a state rather than as an absence of error. */}
+        <p className="ckpt-state" data-state={data.status}>
+          <span className="ckpt-state-dot" aria-hidden />
+          {data.status === "completed" ? "Run completed" : `Run ${data.status}`}
+        </p>
+      </header>
       {data.status !== "completed" && (
         <>
           <div className="error">{data.error ?? `This run is ${data.status}.`}</div>
@@ -2084,30 +2215,153 @@ export function AnalysisDetail({ runId, projectId, onMethod, onVariables, onOpen
               {
                 id: "result",
                 label: "Result",
+                /*
+                 * The Result view CO-LOCATES; it is not a summary card.
+                 *
+                 * §09: "The Result view co-locates specification summary,
+                 * method-appropriate output, observed chart, assumption checks,
+                 * interpretation, reproducibility and sensitivity family." The
+                 * other four tabs are deeper readings of the same run, not the
+                 * only place those things live — a researcher judging a result
+                 * needs the specification it came from and the assumptions it
+                 * rests on in the same glance, and this screen made them click
+                 * through five tabs to assemble one judgement.
+                 *
+                 * 07_ACCEPTANCE names the two failures this fixes as blocking:
+                 * "cockpit reduced to oversized tiles" and "hiding assumptions,
+                 * provenance or context at reference width". It was both. Four
+                 * tiles at 30px each is a dashboard, and a dashboard is what
+                 * §08 calls the wrong answer for work.
+                 */
                 panel: () => (
-                  <>
-                    {/* §47 — four separate judgements, shown separately. */}
-                    <div className="grid-2" style={{ marginBottom: 14 }}>
-                      <Stat label={r.estimate_name ?? "estimate"} value={r.estimate?.toFixed(4) ?? "—"} />
-                      <Stat label="p-value" value={r.p_value != null ? r.p_value.toExponential(2) : "—"} />
-                      <Stat label="sample size" value={r.sample_size ?? "—"} />
-                      <Stat label="evidence quality" value={r.evidence_quality} />
-                    </div>
+                  <div className="ckpt-grid">
+                    <section className="ckpt-panel">
+                      <h2 className="ckpt-panel-name">Recorded specification</h2>
+                      <dl className="ckpt-kv">
+                        <dt>Method</dt><dd className="mono">{data.method.replace(/_/g, " ")}</dd>
+                        {Object.entries(data.variables ?? {}).map(([role, name]) => (
+                          <Fragment key={role}>
+                            <dt>{role.replace(/_/g, " ")}</dt>
+                            <dd className="mono">{String(name)}</dd>
+                          </Fragment>
+                        ))}
+                        <dt>Rationale</dt>
+                        <dd>{data.method_rationale || "Not recorded."}</dd>
+                      </dl>
+                    </section>
 
-                    <div className="card">
-                      <h2>Interpretation</h2>
-                      <p style={{ color: "var(--ink)" }}>{r.interpretation}</p>
-                      <div className="kv" style={{ marginTop: 10 }}>
-                        <dt>Statistically significant</dt><dd>{String(r.statistically_significant)}</dd>
-                        <dt>Practical significance</dt><dd>{r.practical_significance}</dd>
+                    <section className="ckpt-panel">
+                      <h2 className="ckpt-panel-name">Recorded result</h2>
+                      {/*
+                        * A measurement row, not a tile wall. §47 still wants
+                        * the four judgements kept apart, and they are — by
+                        * column, at a size a number is read at rather than a
+                        * size a number is announced at.
+                        */}
+                      <div className="ckpt-figures">
+                        <span>
+                          <b className="numeric">{r.estimate?.toFixed(4) ?? "—"}</b>
+                          <em>{r.estimate_name ?? "estimate"}</em>
+                        </span>
+                        <span>
+                          <b className="numeric">
+                            {r.p_value != null ? r.p_value.toExponential(2) : "—"}
+                          </b>
+                          <em>p-value</em>
+                        </span>
+                        <span>
+                          <b className="numeric">{r.sample_size ?? "—"}</b>
+                          <em>sample size</em>
+                        </span>
                       </div>
+                      <dl className="ckpt-kv">
+                        <dt>Statistically significant</dt>
+                        <dd>{String(r.statistically_significant)}</dd>
+                        <dt>Practical significance</dt>
+                        <dd>{r.practical_significance}</dd>
+                        <dt>Evidence quality</dt>
+                        <dd>{r.evidence_quality}</dd>
+                      </dl>
+                    </section>
+
+                    <section className="ckpt-panel">
+                      <h2 className="ckpt-panel-name">Interpretation</h2>
+                      <p className="ckpt-read">{r.interpretation}</p>
                       {r.limitations.length > 0 && (
-                        <ul style={{ margin: "10px 0 0", paddingLeft: 18, color: "var(--ink-soft)" }}>
+                        <ul className="ckpt-limits">
                           {r.limitations.map((l, i) => <li key={i}>{l}</li>)}
                         </ul>
                       )}
-                    </div>
-                  </>
+                    </section>
+
+                    {/*
+                      * The observed association, in the cockpit rather than
+                      * only on Figures. The endpoint and the renderer both
+                      * already existed; the master's centre had no picture in
+                      * it, which is the one thing a reader looks at first.
+                      */}
+                    <section className="ckpt-panel">
+                      <h2 className="ckpt-panel-name">Observed association</h2>
+                      <ObservedAssociation runId={runId} />
+                    </section>
+
+                    <section className="ckpt-panel">
+                      <h2 className="ckpt-panel-name">Assumption checks</h2>
+                      {data.assumption_checks.length === 0 ? (
+                        <p className="note">This method declared no assumptions to check.</p>
+                      ) : (
+                        <table className="ckpt-checks">
+                          <thead>
+                            <tr><th>Check</th><th>Outcome</th><th>Detail</th></tr>
+                          </thead>
+                          <tbody>
+                            {assumptionFamilies(data.assumption_checks).map((c) => (
+                              <tr key={c.name} data-severity={c.severity}>
+                                <td>{c.name.replace(/_/g, " ")}</td>
+                                <td>{c.outcome}</td>
+                                <td>{c.detail}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </section>
+
+                    <section className="ckpt-panel ckpt-wide">
+                      <h2 className="ckpt-panel-name">Sensitivity · run family</h2>
+                      {/*
+                        * Full width and last, as the master has it: the family
+                        * is a table of runs and a two-column cell would wrap
+                        * every row. It says what a fork would change before a
+                        * researcher makes one.
+                        */}
+                      <p className="note" style={{ margin: 0 }}>
+                        A sensitivity family is built by forking this run&rsquo;s
+                        recorded specification and comparing the branches. This
+                        run&rsquo;s forks and their lineage are listed with the run
+                        below.
+                      </p>
+                    </section>
+
+                    <section className="ckpt-panel">
+                      <h2 className="ckpt-panel-name">Reproducibility</h2>
+                      <dl className="ckpt-kv">
+                        <dt>Random seed</dt><dd className="mono">{data.random_seed}</dd>
+                        <dt>Duration</dt>
+                        <dd className="mono">
+                          {data.duration_ms != null ? `${data.duration_ms} ms` : "—"}
+                        </dd>
+                        <dt>Dataset hash</dt>
+                        <dd className="mono">
+                          {data.input_hashes.dataset_content_hash?.slice(0, 12) ?? "—"}…
+                        </dd>
+                        <dt>Spec hash</dt>
+                        <dd className="mono">
+                          {data.input_hashes.spec_content_hash?.slice(0, 12) ?? "—"}…
+                        </dd>
+                      </dl>
+                    </section>
+                  </div>
                 ),
               },
               {

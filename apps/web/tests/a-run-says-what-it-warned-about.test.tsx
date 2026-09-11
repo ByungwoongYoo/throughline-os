@@ -71,8 +71,18 @@ describe("a run that warned about its own method", () => {
     show(RUN({ result: { ...RESULT, warnings: [NORMALITY] } }));
     await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
     const text = document.body.textContent ?? "";
-    expect(text.indexOf("Normality is violated"))
-      .toBeLessThan(text.indexOf("evidence quality"));
+    /*
+     * Against the recorded-result panel's own label. This read lowercase
+     * "evidence quality", which was a stat tile's caption; the cockpit's
+     * Result view now co-locates the specification and the result (§09) and
+     * the grade is a labelled row in the recorded-result panel. The claim is
+     * unchanged — the warning stands above the estimate it qualifies — and it
+     * is now anchored to text that is on screen.
+     */
+    const grade = text.indexOf("Evidence quality");
+    expect(grade, "the recorded result no longer names the grade")
+      .toBeGreaterThan(-1);
+    expect(text.indexOf("Normality is violated")).toBeLessThan(grade);
   });
 
   it("keeps a warning distinct from a limitation", async () => {

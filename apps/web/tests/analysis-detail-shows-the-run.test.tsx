@@ -50,15 +50,25 @@ function view(over: Record<string, unknown> = {}) {
 
 describe("reading one analysis", () => {
   it("names the method in words", async () => {
+    /*
+     * More than once now, and deliberately: the cockpit's header names the
+     * method as provenance under the relationship, and the Result view's
+     * recorded-specification panel names it again as the thing that was run.
+     * §09 asks the Result view to co-locate the specification with the result,
+     * so both are the method appearing where a reader needs it — what this
+     * test guards is that it is never the raw `pearson_correlation` enum.
+     */
     view();
-    expect(await screen.findByText(/pearson correlation/i)).toBeTruthy();
+    const named = await screen.findAllByText(/pearson correlation/i);
+    expect(named.length).toBeGreaterThan(0);
+    expect(screen.queryByText(/pearson_correlation/)).toBeNull();
   });
 
   it("keeps the four judgements apart", async () => {
     /** §47: an estimate is not a p-value is not a sample size is not a grade,
      *  and collapsing any two of them is how a result gets overstated. */
     view();
-    await screen.findByText(/pearson correlation/i);
+    await screen.findAllByText(/pearson correlation/i);
     expect(screen.getByText("0.6234")).toBeTruthy();
     expect(screen.getByText(/1\.20e-3/)).toBeTruthy();
     expect(screen.getByText("120")).toBeTruthy();
