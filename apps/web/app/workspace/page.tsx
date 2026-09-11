@@ -776,7 +776,9 @@ function Workspace({ user }: { user: SignedInUser }) {
                 <AnalysisDetail runId={selection.id} projectId={project.id}
                                 onMethod={setRunMethod}
                                 onVariables={setRunVariables}
-                                onOpenObject={select("object")} />
+                                onOpenObject={select("object")}
+                                onOpenFigures={() =>
+                                  go({ section: "figures", item: selection.id })} />
                 {/*
                   §75. Beside the run, because "how was this computed" is
                   asked while looking at the number.

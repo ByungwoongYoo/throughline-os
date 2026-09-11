@@ -6934,3 +6934,16 @@ details.fold > *:not(summary) { padding: 8px 2px 10px; }
 .ov-advance { margin-bottom: 14px; }
 .ov-advance p { max-width: 62ch; }
 .ov-advance .btn { margin-top: 4px; }
+
+/* The figure's forms, beside the figure. The cockpit draws the run's own
+   picture and can change how it is drawn; Figures still owns building one. */
+.ckpt-forms {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 10px; margin-top: 9px;
+}
+.ckpt-form-set { display: flex; flex-wrap: wrap; gap: 5px; }
+.ckpt-form-set .btn { padding: 2px 9px; font-size: 11.5px; }
+.ckpt-form-set .btn[aria-pressed="true"] {
+  background: var(--accent-soft); border-color: var(--accent);
+  color: var(--on-accent-soft);
+}

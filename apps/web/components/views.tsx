@@ -17,7 +17,7 @@ import {
   ingestionStep, isIngesting,
 } from "@/lib/api";
 import { Tabs } from "./Tabs";
-import { Cartesian } from "./charts/Cartesian";
+import { Cartesian, type CartesianMark } from "./charts/Cartesian";
 import { columnNotices } from "@/lib/column-notices";
 import { DatasetFormats, extrasNote, uploadAccept } from "@/lib/formats";
 import { ApiState, useApi } from "@/lib/useApi";
@@ -2150,7 +2150,33 @@ function assumptionFamilies(checks: Array<{
  * builder inside the cockpit would be the duplicate this codebase keeps
  * removing. This is the reading, and Figures is where a figure is made.
  */
-function ObservedAssociation({ runId }: { runId: string }) {
+/**
+ * The forms this panel can draw the same values in.
+ *
+ * Not every form the product has — Figures owns the builder and the catalogue,
+ * and a second full one here would be the duplicate this codebase keeps
+ * removing. These are the four a paired x and y can honestly take: the cloud,
+ * the trend, the filled trend, and the binned version. Choosing one changes
+ * how the same numbers are drawn and nothing about the numbers.
+ */
+const FORMS: ReadonlyArray<[CartesianMark, string]> = [
+  ["point", "Points"],
+  ["line", "Line"],
+  ["area", "Area"],
+  ["rect", "Bars"],
+];
+
+function ObservedAssociation({ runId, onOpenFigures }: {
+  runId: string;
+  /** The full builder, where a figure is made rather than read. */
+  onOpenFigures?: () => void;
+}) {
+  /*
+   * The form is the reader's, and it is remembered for as long as they are on
+   * the run. A researcher who switches to the line to see the trend and then
+   * opens a tab should not have to switch back.
+   */
+  const [mark, setMark] = useState<CartesianMark>("point");
   const points = useApi<{
     x: number[]; y: number[]; x_label?: string; y_label?: string;
     sample_size?: number; note?: string | null;
@@ -2178,18 +2204,50 @@ function ObservedAssociation({ runId }: { runId: string }) {
   }
 
   return (
-    <Cartesian
-      data={data}
-      mark="point"
-      xLabel={points.data?.x_label ?? "x"}
-      yLabel={points.data?.y_label ?? "y"}
-      densityColour
-      height={200}
-    />
+    <>
+      <Cartesian
+        data={data}
+        mark={mark}
+        xLabel={points.data?.x_label ?? "x"}
+        yLabel={points.data?.y_label ?? "y"}
+        /*
+          Density colour belongs to the cloud. On a line or a filled area it
+          would colour a shape by a crowding that shape has already hidden.
+        */
+        densityColour={mark === "point"}
+        height={200}
+      />
+      {/*
+        * The figure's own controls, beside the figure.
+        *
+        * This panel used to draw one form and stop, and changing how a result
+        * was drawn meant leaving the analysis for the Figures section — which
+        * is the shape of the whole product's problem: twenty-three sections,
+        * and the thing you want is always in another one. The forms are here;
+        * the builder is still Figures, and the way there is a sentence rather
+        * than a second builder.
+        */}
+      <div className="ckpt-forms">
+        <div className="ckpt-form-set" role="group" aria-label="How to draw this">
+          {FORMS.map(([id, label]) => (
+            <button key={id} className="btn" type="button"
+                    aria-pressed={mark === id} onClick={() => setMark(id)}>
+              {label}
+            </button>
+          ))}
+        </div>
+        {onOpenFigures && (
+          <button className="btn-text" type="button" onClick={onOpenFigures}>
+            Build a figure from this run →
+          </button>
+        )}
+      </div>
+    </>
   );
 }
 
-export function AnalysisDetail({ runId, projectId, onMethod, onVariables, onOpenObject }: {
+export function AnalysisDetail({ runId, projectId, onMethod, onVariables,
+                                onOpenObject, onOpenFigures }: {
   runId: string;
   /**
    * Which project this run belongs to (D213).
@@ -2217,6 +2275,15 @@ export function AnalysisDetail({ runId, projectId, onMethod, onVariables, onOpen
   onVariables?: (variables: Record<string, unknown>) => void;
   /** Follow a lineage link in this run's history. See `SourceDetail`. */
   onOpenObject?: (objectId: string) => void;
+  /**
+   * Open the figure builder on this run.
+   *
+   * The cockpit draws the run's own figure and offers the forms it can take;
+   * Figures is where a figure is configured, captioned and published. Handing
+   * the way there rather than growing a second builder is what keeps the two
+   * from becoming the same screen twice.
+   */
+  onOpenFigures?: () => void;
 }) {
   const { data, error, loading, reload } = useApi<AnalysisRun>(`/api/analyses/${runId}`);
   const method = data?.method;
@@ -2398,7 +2465,7 @@ export function AnalysisDetail({ runId, projectId, onMethod, onVariables, onOpen
                       */}
                     <section className="ckpt-panel">
                       <h2 className="ckpt-panel-name">Observed association</h2>
-                      <ObservedAssociation runId={runId} />
+                      <ObservedAssociation runId={runId} onOpenFigures={onOpenFigures} />
                     </section>
 
                     <section className="ckpt-panel">
