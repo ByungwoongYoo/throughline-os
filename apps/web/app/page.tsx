@@ -70,6 +70,45 @@ export function chapterOpacity(p: number, from: number, to: number, isFirst: boo
   return Math.min(entering, leaving);
 }
 
+/**
+ * The six steps, in `lib/loop.ts`'s own words, with the screen each produces.
+ *
+ * Not re-written for marketing. The workspace's step strip names these six and
+ * walks a researcher through them in this order; a landing page that tells a
+ * different story teaches an order the product does not follow, and the person
+ * who arrives from it spends their first hour looking for a screen that is not
+ * there.
+ */
+const TOUR = [
+  { shot: "sources", label: "Add sources",
+    hint: "Drop a dataset and the papers around it. They stay on this machine.",
+    alt: "The Sources screen listing a paper and a dataset, each with its "
+       + "ingestion state and what was extracted from it." },
+  { shot: "profile", label: "Profile a dataset",
+    hint: "Discovery works from the profiled schema, so it reads the columns, "
+        + "their types and what is missing before anything is tested.",
+    alt: "A dataset's profile: 120 rows, 4 columns, one version, and a table of "
+       + "each column's type, missing values and distinct count." },
+  { shot: "discover", label: "Generate and test candidates",
+    hint: "Every pair is tested, then corrected for how many tests ran.",
+    alt: "The Discovery screen: candidate relationships with their estimate, "
+       + "q-value, sample size and whether each has been tested." },
+  { shot: "cockpit", label: "Try to destroy what survived",
+    hint: "Bootstrap, outliers, missingness, confounders. Promotion is earned.",
+    alt: "One analysis in the cockpit: recorded specification, recorded result, "
+       + "interpretation and the assumption checks beside each other." },
+  { shot: "finding", label: "Record a finding",
+    hint: "A finding must carry both the evidence for it and the evidence "
+        + "against it.",
+    alt: "A finding with its claims, the computation behind it, where it "
+       + "stands, and what it does not claim." },
+  { shot: "reports", label: "Communicate it",
+    hint: "A report references its evidence rather than copying it, so the two "
+        + "cannot drift apart.",
+    alt: "The Reports screen: citation integrity, the results table and "
+       + "bibliography, and a report drafted from a connection." },
+] as const;
+
 export default function Entrance() {
   const ring = useRef<RingHandle | null>(null);
   const marks = useRef<MarksHandle | null>(null);
@@ -370,6 +409,65 @@ export default function Entrance() {
             </section>
           </div>
         </div>
+
+        {/*
+          * What is actually inside.
+          *
+          * The four chapters above are the argument; this is the product. A
+          * landing page that only makes an argument asks a stranger to take
+          * the whole thing on trust, and nobody reads a paragraph to find out
+          * what software does — they look. Every frame here is the worked
+          * example running, captured from the app rather than drawn, so the
+          * page cannot show a screen the product does not have.
+          *
+          * The six steps are `lib/loop.ts`'s own, in its own words. That is
+          * deliberate: the sequence a visitor reads here is the sequence the
+          * workspace walks them through, and the step strip inside names the
+          * same six. A tour that invents its own story teaches an order the
+          * product does not follow.
+          */}
+        <section className="tour" aria-labelledby="tour-h">
+          <div className="tour-head">
+            <p className="eyebrow">Inside Throughline</p>
+            <h2 id="tour-h" className="display">
+              One investigation,
+              <br />
+              <em>from the first file to the last citation.</em>
+            </h2>
+            <p className="lede">
+              Six steps. The product walks you through them, and every one of
+              them keeps what it was built from.
+            </p>
+          </div>
+
+          <ol className="tour-steps">
+            {TOUR.map((step, i) => (
+              <li key={step.shot} className="tour-step">
+                <div className="tour-copy">
+                  <span className="tour-n" aria-hidden>{String(i + 1).padStart(2, "0")}</span>
+                  <h3>{step.label}</h3>
+                  <p>{step.hint}</p>
+                </div>
+                <figure className="tour-shot">
+                  {/*
+                    * Stored at twice the width it is shown at. Type in a
+                    * screenshot that has been scaled up is the "blurry image
+                    * text" the acceptance list refuses, and it is the first
+                    * thing that gives away a page built from mockups.
+                    */}
+                  <img src={`/tour/${step.shot}.jpg`} alt={step.alt}
+                       width={1760} height={1106} loading="lazy" />
+                </figure>
+              </li>
+            ))}
+          </ol>
+
+          <p className="closing">
+            <Link className="enter" href="/workspace">
+              Open workspace <span aria-hidden>→</span>
+            </Link>
+          </p>
+        </section>
       </main>
 
       <button type="button" className="motion-toggle" onClick={togglePause} aria-pressed={paused}>

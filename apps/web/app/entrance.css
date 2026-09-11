@@ -193,6 +193,10 @@ body:has(.entrance-header) {
 .panel-a .display { font-size: clamp(44px, min(5.3vw, 8.5vh), 84px); }
 .panel-b .display,
 .panel-c .display,
+/* The tour's own heading is a chapter heading too — without it, `.display`
+   sets only the family and the colour and the size falls back to the browser's
+   h2, which left the section title smaller than the sentence under it. */
+.tour-head .display,
 .panel-d .display { font-size: clamp(34px, 4.4vw, 68px); }
 /* The italic continuation is the design's central typographic device. It is a
    real face, not a synthesised slant — see fonts.css. */
@@ -594,4 +598,89 @@ body:has(.entrance-header) {
   /* And blurred, so no stop of the gradient can show as a ring. */
   filter: blur(14px);
   pointer-events: none;
+}
+
+/* ---------------------------------------------------------------------------
+   The tour: what is actually inside.
+
+   The four chapters above are the argument and this is the product. It sits on
+   the same ground and lets the ring keep running behind it, because the page
+   is one page — a white marketing slab under a black hero is two sites stapled
+   together.
+
+   Copy left, screen right, alternating, so the eye has a rhythm down the page
+   and each frame gets the width a screenshot of a dense application needs.
+   --------------------------------------------------------------------------- */
+.tour {
+  position: relative;
+  z-index: 2;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 120px 40px 140px;
+}
+.tour-head { max-width: 720px; margin-bottom: 88px; }
+.tour-head .display { margin: 14px 0 18px; }
+.tour-head .lede { max-width: 560px; }
+
+.tour-steps { list-style: none; margin: 0; padding: 0; }
+.tour-step {
+  display: grid;
+  grid-template-columns: minmax(0, 300px) minmax(0, 1fr);
+  gap: 48px;
+  align-items: center;
+  margin-bottom: 96px;
+}
+/* Alternating, so six rows do not read as one long left-aligned column. */
+.tour-step:nth-child(even) { grid-template-columns: minmax(0, 1fr) minmax(0, 300px); }
+.tour-step:nth-child(even) .tour-copy { order: 2; }
+.tour-step:nth-child(even) .tour-shot { order: 1; }
+
+.tour-n {
+  display: block;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  color: var(--e-accent, #c8a45c);
+  margin-bottom: 14px;
+}
+.tour-copy h3 {
+  margin: 0 0 12px;
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: 27px;
+  font-weight: 400;
+  line-height: 1.15;
+  color: var(--e-text);
+  /* `globals.css` sets every h3 to a 12px uppercase workspace label, and this
+     page loads it. Without these two the tour's step names came out as
+     "PROFILE A DATASET" in a serif face, which is neither. */
+  text-transform: none;
+  letter-spacing: normal;
+}
+.tour-copy p {
+  margin: 0;
+  font: 400 15px/1.6 Inter, system-ui, sans-serif;
+  color: var(--e-muted);
+}
+
+.tour-shot { margin: 0; }
+/* A hairline and a soft lift, not a browser chrome frame: the screenshot is
+   evidence, and drawing a fake window around it makes it look like a mockup. */
+.tour-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid rgb(244 242 238 / 0.14);
+  border-radius: 8px;
+  box-shadow: 0 24px 60px rgb(0 0 0 / 0.55);
+}
+
+.tour .closing { margin-top: 24px; }
+
+@media (max-width: 900px) {
+  .tour { padding: 72px 20px 88px; }
+  .tour-step,
+  .tour-step:nth-child(even) { grid-template-columns: 1fr; gap: 22px; margin-bottom: 64px; }
+  .tour-step:nth-child(even) .tour-copy,
+  .tour-step:nth-child(even) .tour-shot { order: initial; }
+  .tour-head { margin-bottom: 48px; }
 }
