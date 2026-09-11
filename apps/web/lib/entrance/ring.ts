@@ -66,7 +66,7 @@ const RENDER_SCALE = 1;
  * soft shoulders. Fewer strands, much wider, and a bloom pass to carry the glow
  * is what makes it photographic instead of drawn.
  */
-const STRANDS = 520;
+const STRANDS = 820;
 const SEGMENTS = 384;
 
 /*
@@ -87,7 +87,7 @@ const SEGMENTS = 384;
  * a hard edge that the reference does not have.
  */
 /** Raised to pay for the flow term, whose mean is below one. */
-const EXPOSURE = 0.3;
+const EXPOSURE = 0.38;
 /** Radial breathing amplitude. 0 gives concentric hoops; this gives a braid. */
 const WEAVE = 0.6;
 const BLOOM = 0.6;
@@ -95,8 +95,8 @@ const BLOOM_THRESHOLD = 0.5;
 /** Ribbon width in CSS pixels before defocus widens it. */
 const RIBBON_PX = 3.0;
 
-const R_IN = 11;
-const R_OUT = 14;
+const R_IN = 9.0;
+const R_OUT = 15.0;
 /** Half-thickness per unit radius. Real disks flare; a flat sheet reads as paper. */
 const FLARE = 0.05;
 
@@ -127,7 +127,7 @@ export const KEYS: readonly Key[] = [
   // A · the band enters low-left and arcs away to the upper right, leaving the
   //     whole upper-left void for the title and the right flank quiet for the
   //     three editorial words.
-  { az: 0.0, radius: 16.0, height: 1.5, ahead: 15, inward: 10, down: 1.75, roll: -0.3, focal: 1.7 },
+  { az: 0.0, radius: 17.5, height: 1.5, ahead: 15, inward: 8.5, down: 1.6, roll: -0.36, focal: 1.28 },
   // B · flattened and dropped, so the heading sits on black above it and the
   //     working question reads under the bend.
   { az: 0.58, radius: 21.0, height: 1.1, ahead: 15, inward: 13, down: 0.55, roll: 0.05, focal: 1.55 },
