@@ -295,6 +295,20 @@ UNREAD: dict[str, set[str]] = {
     # four provenance fields are read on the Sources list (D211) and have
     # nowhere to sit here: this screen is about a dataset's columns, not about
     # where the dataset came from.
+    # The river declares a deliberately narrow view of a connection: an id, the
+    # two variables it links, its lifecycle and the run that produced it. That
+    # is a card on a lineage canvas, not the connection's detail screen —
+    # `Connection in lib/api.ts` is where the estimate, the effect size and the
+    # ranking are read. Placing connections there at all is D360; carrying the
+    # whole row onto the canvas would invite the column to render whatever
+    # happened to be in it.
+    "ConnectionRow in components/river.tsx": {
+        "analysis_object_id", "created_at", "dataset_name", "dataset_version",
+        "dataset_version_id", "discovery_run_id", "effect_size",
+        "effect_size_name", "estimate", "evidence_quality", "method",
+        "object_id", "p_value", "project_id", "q_value", "rank_components",
+        "rank_score", "relationship_type", "sample_size", "updated_at",
+    },
     # `object_id` joined them under D358: it is the handle every provenance
     # route takes, read by the screens that open a journal or a version
     # history, and this one maps columns to roles.

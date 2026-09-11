@@ -4194,7 +4194,6 @@ def stored_claims(source_id: str, project_id: str = Query(...),
 
 @app.post("/api/sources/{source_id}/claims", status_code=201)
 def locate_claims(source_id: str, project_id: str = Query(...),
-                  force: bool = Query(False),
                   user: dict = Depends(current_user)) -> dict[str, Any]:
     """
     Read a paper and record the empirical claims a dataset could test.
@@ -4203,12 +4202,19 @@ def locate_claims(source_id: str, project_id: str = Query(...),
     only location — quoting what the paper asserts and naming its constructs.
     Whether those constructs exist in any dataset, and whether the design can
     carry them, are decided afterwards without a model.
+
+    **There is no `force`.** This route took one and handed it to
+    `claim_test.locate_claims`, which has never accepted it — so every call
+    raised `TypeError` and the researcher got a 500 where the paper's claims
+    should have been. It was also redundant by construction: reading the record
+    and re-reading the paper are different acts on different routes, and a POST
+    here *is* the re-read. Nothing in the interface or the tests ever passed it.
     """
     scoped_project(project_id, user)
     with transaction() as cur:
         try:
             return claim_test.locate_claims(
-                cur, project_id=project_id, source_id=source_id, force=force)
+                cur, project_id=project_id, source_id=source_id)
         except claim_test.ClaimTestError as exc:
             raise HTTPException(400, str(exc)) from exc
 

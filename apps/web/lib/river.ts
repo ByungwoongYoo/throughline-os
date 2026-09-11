@@ -20,7 +20,17 @@ export const STAGES = [
   { id: "claims", label: "Claims", blurb: "Stated hypotheses and observations" },
   { id: "connections", label: "Connections", blurb: "Links between variables" },
   { id: "analyses", label: "Analyses", blurb: "Methods and results" },
-  { id: "validation", label: "Validation", blurb: "Robustness and sensitivity checks" },
+  {
+    id: "validation", label: "Validation", blurb: "Robustness and sensitivity checks",
+    /*
+     * Said instead of "nothing recorded", because the two are different facts.
+     * A validation report is recorded against the connection it checked
+     * (`/api/connections/{id}/validations`) and has no object of its own, so an
+     * empty column here means the canvas cannot reach them — not that the
+     * project has never validated anything.
+     */
+    empty: "Validation reports are recorded against the connection they checked, and open with it.",
+  },
   { id: "findings", label: "Findings", blurb: "Synthesised insights" },
 ] as const;
 
@@ -45,10 +55,23 @@ const STAGE_OF_TYPE: Record<string, StageId> = {
   notebook: "sources",
   excerpt: "sources",
   figure: "sources",
+  // A citation is a reference to something read, which is an input like any
+  // other source. It was missing, so the worked example's two citations landed
+  // under "Recorded, not placed" — honest, and still the wrong answer.
+  citation: "sources",
 
   claim: "claims",
   hypothesis: "claims",
   concept: "claims",
+
+  /*
+   * A connection is not an `ObjectType` — it is a row in `connections` with a
+   * lifecycle of its own, and only sometimes a research object beside it. It
+   * is listed here because the river shows it in a column and needs one place
+   * that says which, and because the state vocabulary below is a connection's
+   * lifecycle rather than an object's status.
+   */
+  connection: "connections",
 
   analysis: "analyses",
   method: "analyses",

@@ -47,6 +47,16 @@ type RiverNode = {
   object_type: string;
   status: string | null;
   created_at?: string;
+  /**
+   * What recorded this, in the object's own words.
+   *
+   * Only a connection has one today: `connections.analysis_run_id` is a
+   * recorded fact about what produced it, and it is printed rather than drawn
+   * because the run it names is not the analysis *object* the canvas lays out.
+   * Drawing a line to a node this payload does not identify would be the
+   * inferred edge §09 forbids.
+   */
+  note?: string;
 };
 
 /**
@@ -65,6 +75,21 @@ type RiverEdge = {
   confidence: number | null;
   status: string | null;
   edge_kind?: "semantic" | "lineage";
+};
+
+/**
+ * A connection as its own route sends it.
+ *
+ * It carries no title: a connection *is* the pair, so its name is built from
+ * the two variables rather than stored. `analysis_run_id` is what produced it,
+ * which is the "Produced by" line the master puts on these cards.
+ */
+type ConnectionRow = {
+  id: string;
+  left_variable: string;
+  right_variable: string;
+  lifecycle_status: string;
+  analysis_run_id: string | null;
 };
 
 type Payload = {
@@ -104,6 +129,23 @@ export function River({ projectId, onOpenObject, focus = null }: {
   const [limit, setLimit] = useState(200);
   const graph = useApi<Payload>(
     `/api/projects/${projectId}/knowledge-graph?limit=${limit}`, [limit]);
+  /*
+   * The project's connections, which are not in the graph payload.
+   *
+   * Found by looking at the running app rather than at the code: the canvas
+   * said "Nothing recorded in this stage" under Connections while the
+   * navigation beside it counted six. Both were reading truthfully from
+   * different places — `knowledge_graph` returns `research_objects`, and a
+   * connection only sometimes has one — and a column that reports a project as
+   * empty of the thing it holds six of is the quiet kind of lie this codebase
+   * keeps removing.
+   *
+   * The state vocabulary in `lib/river.ts` is the proof this was always meant:
+   * validated, exploratory, rejected and candidate are a connection's
+   * lifecycle, not a research object's.
+   */
+  const links = useApi<ConnectionRow[]>(
+    `/api/projects/${projectId}/connections`);
 
   const [view, setView] = useState<"river" | "table">("river");
   const [stateFilter, setStateFilter] = useState<"all" | RiverState>("all");
@@ -119,7 +161,25 @@ export function River({ projectId, onOpenObject, focus = null }: {
   // this view is already mounted.
   useEffect(() => { if (focus) setSelected(focus); }, [focus]);
 
-  const nodes = useMemo(() => graph.data?.nodes ?? [], [graph.data]);
+  /**
+   * Everything the river places: the graph's objects, and the project's
+   * connections normalised into the same shape.
+   *
+   * A connection carries no title because a connection *is* the pair, so its
+   * name is built here from the two variables it links. Its `lifecycle_status`
+   * becomes the status the state filter and the card colour read, which is
+   * exactly what `stateOf` was written for.
+   */
+  const nodes = useMemo<RiverNode[]>(() => [
+    ...(graph.data?.nodes ?? []),
+    ...(links.data ?? []).map((link) => ({
+      id: link.id,
+      title: `${link.left_variable} ↔ ${link.right_variable}`,
+      object_type: "connection",
+      status: link.lifecycle_status,
+      note: link.analysis_run_id ? `Produced by ${link.analysis_run_id}` : undefined,
+    })),
+  ], [graph.data, links.data]);
   const edges = useMemo(() => graph.data?.edges ?? [], [graph.data]);
 
   /** Does this object survive the current filter and search? */
@@ -355,7 +415,10 @@ export function River({ projectId, onOpenObject, focus = null }: {
                     <h2 className="river-col-name">{stage.label}</h2>
                     <p className="river-col-blurb">{stage.blurb}</p>
                     {inStage.length === 0 ? (
-                      <p className="river-col-empty">Nothing recorded in this stage.</p>
+                      <p className="river-col-empty">
+                        {("empty" in stage && stage.empty)
+                          || "Nothing recorded in this stage."}
+                      </p>
                     ) : inStage.map((node) => (
                       <button
                         key={node.id}
@@ -372,6 +435,9 @@ export function River({ projectId, onOpenObject, focus = null }: {
                         <span className="river-card-state">
                           {STATE_LABEL[stateOf(node.status)]}
                         </span>
+                        {node.note && (
+                          <span className="river-card-note mono">{node.note}</span>
+                        )}
                       </button>
                     ))}
                   </section>

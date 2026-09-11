@@ -6120,6 +6120,8 @@ details.fold > *:not(summary) { padding: 8px 2px 10px; }
   background: var(--accent-soft);
   color: var(--on-accent-soft);
   font-weight: 560;
+}
+
 /* Stating what a file did not record — see `components/imaging/Declare.tsx`.
    Matched to `.case-open` and `.case-privacy`, because it is the same kind of
    thing: a panel the researcher fills in, not a result they read. */
@@ -6537,3 +6539,15 @@ details.fold > *:not(summary) { padding: 8px 2px 10px; }
   margin: 16px 0 0; padding-top: 10px; border-top: 1px solid var(--line);
   font-size: 11.5px; color: var(--ink-faint);
 }
+
+/* What produced a river card, in the object's own words. Printed rather than
+   drawn: the run it names is not the analysis *object* the canvas lays out, and
+   a line to a node the payload does not identify would assert a derivation
+   nobody recorded. */
+.river-card-note { font-size: 10.5px; color: var(--ink-faint); }
+
+/* The legend has to be on screen at the reference height, or the caveat it
+   carries is the caveat nobody reads — which is the thing the caveat is about.
+   Tied to the chrome above it rather than to a round fraction of the viewport,
+   with a floor so a short window still shows a usable canvas. */
+.river-scroll { max-height: clamp(260px, calc(100vh - 460px), 680px); }

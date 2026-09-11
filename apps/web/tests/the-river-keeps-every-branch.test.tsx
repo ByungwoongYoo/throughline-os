@@ -51,11 +51,35 @@ const PAYLOAD = {
   nodes: NODES, edges: EDGES, total_objects: NODES.length, truncated: false,
 };
 
+/**
+ * A connection, which the graph payload does not carry.
+ *
+ * The screenshots of the running app showed the Connections column reporting
+ * "nothing recorded" beside a navigation badge counting six of them. Both were
+ * reading truthfully from different places; the column was the one that read
+ * as a fact about the project.
+ */
+const CONNECTIONS = [{
+  id: "cnx_1", left_variable: "night_heat_z", right_variable: "anxiety_z",
+  lifecycle_status: "validated", analysis_run_id: "arun_7",
+}];
+
 afterEach(cleanup);
 beforeEach(() => { vi.restoreAllMocks(); });
 
-function river(payload: unknown = PAYLOAD, onOpen: (id: string) => void = () => {}) {
-  vi.spyOn(api, "get").mockResolvedValue(payload as never);
+/**
+ * The two things the river reads.
+ *
+ * The graph payload holds research objects; connections come from their own
+ * route, because a connection is a row with a lifecycle rather than an
+ * `ObjectType` and only sometimes has an object beside it. Answering by path
+ * rather than with one blanket value is what keeps a test from passing while
+ * handing the component a graph where it expected a list.
+ */
+function river(payload: unknown = PAYLOAD, onOpen: (id: string) => void = () => {},
+               connections: unknown[] = CONNECTIONS) {
+  vi.spyOn(api, "get").mockImplementation((path: string) =>
+    Promise.resolve((path.includes("/connections") ? connections : payload) as never));
   render(<River projectId="prj_1" onOpenObject={onOpen} />);
 }
 
@@ -166,6 +190,34 @@ describe("the research river", () => {
       document.querySelectorAll(".river-line")).toHaveLength(0));
   });
 
+  it("places a connection in its column, with what produced it", async () => {
+    /*
+     * The defect the screenshots found: the canvas said "Nothing recorded in
+     * this stage" under Connections while the navigation counted six. A
+     * connection is not an `ObjectType`, so it never reached the graph payload
+     * the column was reading.
+     */
+    river();
+    await settle();
+
+    const card = screen.getByRole("button", { name: /night_heat_z/ });
+    expect(card).toBeTruthy();
+    expect(card.textContent).toContain("Validated");
+    // The run that produced it, printed rather than drawn — the canvas lays
+    // out objects and this names a run.
+    expect(card.textContent).toContain("Produced by arun_7");
+  });
+
+  it("says why the Validation column is empty, rather than that nothing happened", async () => {
+    /* A validation report is recorded against the connection it checked and
+       has no object of its own, so "nothing recorded" would be a claim about
+       the project that this view cannot support. */
+    river();
+    await settle();
+    expect(screen.getByText(/recorded against the connection they checked/))
+      .toBeTruthy();
+  });
+
   it("says on its face that the columns are not a chronology", async () => {
     /* The master puts this sentence on the canvas, not in a tooltip: a caveat
        nobody opens is a caveat nobody reads. */
@@ -201,7 +253,10 @@ describe("the research river", () => {
   });
 
   it("says a project with nothing in it has nothing, and does not draw six empty columns", async () => {
-    river({ nodes: [], edges: [], total_objects: 0, truncated: false });
+    /* Empty means empty on both routes: a project with no objects but a
+       connection is not a project with nothing in it. */
+    river({ nodes: [], edges: [], total_objects: 0, truncated: false },
+          () => {}, []);
     await waitFor(() =>
       expect(screen.getByText("No recorded objects yet")).toBeTruthy());
     expect(screen.queryByRole("tab", { name: "River" })).toBeNull();
