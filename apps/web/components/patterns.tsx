@@ -71,6 +71,14 @@ type KeyFinding = {
   lifecycle_status: string;
   evidence_quality: string;
   sample_size: number | null;
+  /**
+   * The test behind the result — `pearson_correlation`, `mann_whitney`, and
+   * so on. Sent on every key finding and not declared, so a card headed
+   * "the strongest surviving result in the project" could not say whether it
+   * came from a rank test or a regression. The contract check reads only
+   * top-level fields, which is how a nested one went unseen.
+   */
+  method: string;
   canonical: boolean;
   supporting_patterns: Pattern[];
   contradicting_patterns: Pattern[];
@@ -281,6 +289,7 @@ function KeyFindingCard({ finding }: { finding: KeyFinding }) {
         <p className="pat-meta">
           {finding.lifecycle_status.replace(/_/g, " ")} ·{" "}
           {finding.evidence_quality?.replace(/_/g, " ")}
+          {finding.method ? ` · ${finding.method.replace(/_/g, " ")}` : ""}
           {finding.sample_size ? ` · n = ${finding.sample_size.toLocaleString()}` : ""}
           {!finding.canonical && (
             <span className="pat-warn">
