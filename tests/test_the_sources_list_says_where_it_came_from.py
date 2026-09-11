@@ -231,3 +231,103 @@ def test_a_repository_that_stated_no_licence_reports_none_rather_than_empty(
     assert row["licence"] is None
     assert row["repository"] == "zenodo", (
         "a null licence must not take the repository down with it")
+
+
+class TestTheListHandsOverTheNodeThatHoldsTheProvenance:
+    """
+    The Sources list carries each source's research-object id (D213's class).
+
+    The journal, a note and a version history are all addressed by
+    research-object id. A screen holding only a source id can reach none of
+    them, which is exactly the dead end D213 records: "those screens hold a
+    finding id, a source id and a run id, and the journal and versions routes
+    take research-object ids". The reasoning master needs it to hang the
+    researcher's own notes on the paper they are reading.
+
+    **A source reaches its node by two different roads, and that is the whole
+    reason this has three tests.** A paper's object points back at the source
+    (`research_objects.source_id`); a dataset's is named by the dataset row
+    (`datasets.object_id`) — the same split `claim_test` navigates when it
+    looks up the two halves of a pair. A lookup down one road only looks
+    finished: it answers correctly for papers and returns null for every
+    dataset, which reads as "not ingested yet" and is wrong.
+
+    The third case is the honest null. `store_dataset` makes both objects, and
+    it runs during profiling, so a source that has only just arrived has no
+    node at all. A caller must be able to tell that from "this endpoint does
+    not report the field", and only an explicit null does.
+    """
+
+    @staticmethod
+    def _source(cur, project_id: str, title: str, kind: str = "dataset") -> str:
+        source_id = f"src_{uuid.uuid4().hex[:16]}"
+        cur.execute(
+            "INSERT INTO sources(id, project_id, title, source_type, "
+            "ingestion_status, trust_level) "
+            "VALUES (%s, %s, %s, %s, 'ready', 'unknown')",
+            (source_id, project_id, title, kind))
+        return source_id
+
+    @staticmethod
+    def _object(cur, project_id: str, *, source_id: str | None, kind: str) -> str:
+        object_id = f"obj_{uuid.uuid4().hex[:16]}"
+        cur.execute(
+            "INSERT INTO research_objects(id, project_id, object_type, title, "
+            "source_id, created_by) VALUES (%s, %s, %s, %s, %s, 'test')",
+            (object_id, project_id, kind, "a node", source_id))
+        return object_id
+
+    def test_a_paper_names_the_node_that_points_back_at_it(self, client, serving):
+        _account(client)
+        project_id = _project(client)
+
+        with connection() as conn, conn.cursor() as cur:
+            source_id = self._source(cur, project_id, "trial.pdf", kind="paper")
+            object_id = self._object(cur, project_id, source_id=source_id,
+                                     kind="paper")
+            conn.commit()
+
+        listed = _listed(client, project_id, source_id)
+        assert listed["object_id"] == object_id
+
+    def test_a_dataset_names_the_node_its_dataset_row_holds(self, client, serving):
+        """The road a one-sided lookup misses.
+
+        Nothing points from this object back at the source, so a query over
+        `research_objects.source_id` alone finds nothing and the list reports a
+        profiled dataset as having no node.
+        """
+        _account(client)
+        project_id = _project(client)
+
+        with connection() as conn, conn.cursor() as cur:
+            source_id = self._source(cur, project_id, "panel.csv")
+            object_id = self._object(cur, project_id, source_id=None,
+                                     kind="dataset")
+            cur.execute(
+                "INSERT INTO datasets(id, project_id, source_id, object_id, "
+                "name, format) VALUES (%s, %s, %s, %s, %s, 'csv')",
+                (f"dst_{uuid.uuid4().hex[:16]}", project_id, source_id,
+                 object_id, "panel.csv"))
+            conn.commit()
+
+        listed = _listed(client, project_id, source_id)
+        assert listed["object_id"] == object_id
+
+    def test_the_key_is_present_even_when_there_is_no_node_yet(
+            self, client, serving):
+        """Absent is null, never missing.
+
+        A source exists before profiling has recorded a node for it, and that
+        is an ordinary state rather than an error.
+        """
+        _account(client)
+        project_id = _project(client)
+
+        with connection() as conn, conn.cursor() as cur:
+            source_id = self._source(cur, project_id, "still_arriving.csv")
+            conn.commit()
+
+        listed = _listed(client, project_id, source_id)
+        assert "object_id" in listed, "the key was dropped rather than nulled"
+        assert listed["object_id"] is None

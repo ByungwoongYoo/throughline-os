@@ -171,7 +171,6 @@ export function River({ projectId, onOpenObject, focus = null }: {
   const content = useRef<HTMLDivElement>(null);
   const cards = useRef(new Map<string, HTMLElement>());
   const [connectors, setConnectors] = useState<Connector[]>([]);
-  const [canvasSize, setCanvasSize] = useState({ w: 0, h: 0 });
 
   const setCard = useCallback((id: string, el: HTMLElement | null) => {
     if (el) cards.current.set(id, el);
@@ -181,7 +180,6 @@ export function River({ projectId, onOpenObject, focus = null }: {
   const measure = useCallback(() => {
     const root = content.current;
     if (!root) return;
-    setCanvasSize({ w: root.scrollWidth, h: root.scrollHeight });
 
     const next: Connector[] = [];
     for (const edge of drawable) {
@@ -336,13 +334,9 @@ export function River({ projectId, onOpenObject, focus = null }: {
                 * The connectors, behind the cards and ignoring the pointer, so
                 * a line never eats a click meant for an object.
                 */}
-              <svg
-                className="river-lines"
-                width={canvasSize.w || undefined}
-                height={canvasSize.h || undefined}
-                aria-hidden="true"
-                focusable="false"
-              >
+              {/* Sized by the stylesheet to the whole scroll content, so its
+                  user units are the same pixels `offsetLeft` reports. */}
+              <svg className="river-lines" aria-hidden="true" focusable="false">
                 {connectors.map((c) => (
                   <path
                     key={c.id}

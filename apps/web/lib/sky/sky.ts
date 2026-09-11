@@ -288,12 +288,12 @@ export function createSky(container: HTMLElement, options: SkyOptions = {}): Sky
     // `uStarOff` takes page pixels; the site passes the pointer through at 8
     // and 4, and the scroll term is 0 here because there is no scroll.
     renderGL(clock, driftX * 8, driftY * 4);
-    // `TLLayers.draw` accepts seconds or milliseconds and decides by whether
-    // the number is over 600 — which means a clock in seconds silently becomes
-    // a clock in milliseconds after ten minutes, and every mote and twinkle
-    // jumps. Crossing over at 0.6s is the one handover where the two readings
-    // agree exactly, so a gate left open does not pop.
-    if (layers) layers.draw(clock > 0.6 ? clock * 1000 : clock, 0, 0, driftX, driftY);
+    // Seconds, straight through. `TLLayers.draw` used to read the unit off the
+    // magnitude, and this handed it milliseconds past 0.6s to stay on the right
+    // side of that guess; the guess is gone (D215), so the compensation goes
+    // with it. Two halves of one workaround, and leaving either behind would be
+    // worse than having neither.
+    if (layers) layers.draw(clock, 0, 0, driftX, driftY);
 
     raf = win.requestAnimationFrame(frame);
   }

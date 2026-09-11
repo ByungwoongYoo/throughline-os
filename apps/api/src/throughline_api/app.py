@@ -701,7 +701,48 @@ def list_sources(project_id: str, user: dict = Depends(current_user)) -> list[di
         # Both are always present as keys, null when absent, so a caller
         # never has to distinguish "no dataset" from "this endpoint does
         # not report datasets".
+        # The research object each source has in the graph, in two queries
+        # rather than two per source.
+        #
+        # This is the handle every provenance route actually takes. The journal,
+        # the note and the version history are all addressed by research-object
+        # id, and a screen holding only a source id cannot reach any of them —
+        # D213 records exactly that dead end for the finding, source and
+        # analysis details. Sending it with the source ends the class of
+        # problem for every screen that lists sources.
+        #
+        # Two queries because a source reaches its node by two different roads,
+        # and taking only the first road is what made this look finished while
+        # returning null for every dataset. A paper's object points back at the
+        # source (`research_objects.source_id`), and a dataset's is named by
+        # the dataset row (`datasets.object_id`) — the same split `claim_test`
+        # navigates when it looks up the two halves of a pair.
+        #
+        # Null when the source has no object yet, which is an ordinary state
+        # while ingestion is still running. A caller must be able to tell "not
+        # yet" from "this endpoint does not report it", so the key is always
+        # present.
+        source_ids = [s["id"] for s in sources]
+        cur.execute(
+            "SELECT source_id, id FROM research_objects "
+            "WHERE project_id = %s AND source_id = ANY(%s) "
+            # Oldest first, so a source that has grown several objects resolves
+            # to the same one on every request rather than to whichever row the
+            # planner happened to return.
+            "ORDER BY created_at",
+            (project_id, source_ids))
+        object_of = {row["source_id"]: row["id"] for row in cur.fetchall()}
+
+        cur.execute(
+            "SELECT source_id, object_id FROM datasets "
+            "WHERE project_id = %s AND source_id = ANY(%s) "
+            "  AND object_id IS NOT NULL",
+            (project_id, source_ids))
+        for row in cur.fetchall():
+            object_of.setdefault(row["source_id"], row["object_id"])
+
         for source in sources:
+            source["object_id"] = object_of.get(source["id"])
             source["paper"] = None
             source["dataset"] = None
 

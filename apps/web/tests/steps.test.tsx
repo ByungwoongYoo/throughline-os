@@ -9,7 +9,7 @@
  * These tests pin the third state to the DOM so that flattening fails loudly.
  */
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/api", () => ({ api: { get: vi.fn(), post: vi.fn() } }));
@@ -51,15 +51,32 @@ function verdict(outcome: string, extra: Record<string, unknown> = {}) {
   };
 }
 
+/*
+ * Drive the reasoning master to a verdict.
+ *
+ * The master made the pair a pair: the paper and the dataset are chosen above
+ * everything, and the check is one deliberate act rather than a click on a
+ * dataset's name. Four steps here, and each is a real one a researcher takes —
+ * choose the paper, choose the data, take up a claim, ask whether it can be
+ * tested. The selects are addressed by role and position because the visible
+ * labels are one word each and the browser gives them no other name.
+ */
 async function runTest(result: Record<string, unknown>) {
   vi.mocked(api.post)
     .mockResolvedValueOnce(located as never)
     .mockResolvedValueOnce(result as never);
 
   render(<ClaimTest projectId="prj" sources={[paper, dataset]} />);
-  screen.getByText("paper.md").click();
-  (await screen.findByText("data.csv")).click();
-  await screen.findByRole("heading", { level: 2 });
+  const [paperPicker, dataPicker] = screen.getAllByRole("combobox");
+  fireEvent.change(paperPicker, { target: { value: "src_paper" } });
+  fireEvent.change(dataPicker, { target: { value: "src_data" } });
+
+  fireEvent.click(await screen.findByRole("button", { name: "Work with this claim" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Check testability" }));
+  // The verdict card's step list is what these tests read, so waiting for it
+  // is waiting for the thing under test rather than for prose beside it.
+  await waitFor(() =>
+    expect(document.querySelector(".ct-steps")).toBeTruthy());
 }
 
 function stepStates() {

@@ -295,9 +295,12 @@ UNREAD: dict[str, set[str]] = {
     # four provenance fields are read on the Sources list (D211) and have
     # nowhere to sit here: this screen is about a dataset's columns, not about
     # where the dataset came from.
+    # `object_id` joined them under D358: it is the handle every provenance
+    # route takes, read by the screens that open a journal or a version
+    # history, and this one maps columns to roles.
     "Source in components/variables.tsx": {
         "connector_id", "content_hash", "created_at", "ingestion_detail",
-        "ingestion_status", "licence", "original_uri", "paper",
+        "ingestion_status", "licence", "object_id", "original_uri", "paper",
         "passage_count", "repository", "source_type", "trust_level",
     },
     # `connector_id` and `original_uri` left this set under D211: the Sources

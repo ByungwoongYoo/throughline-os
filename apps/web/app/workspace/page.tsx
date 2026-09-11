@@ -791,7 +791,8 @@ function Workspace({ user }: { user: SignedInUser }) {
               </>
         )}
         {section === "compare" && (
-          <Compare projectId={project.id} sources={sources} />
+          <Compare projectId={project.id} sources={sources}
+                   onOpenSource={(id) => open("source", id)} />
         )}
         {section === "patterns" && (
           <Patterns

@@ -6420,3 +6420,120 @@ details.fold > *:not(summary) { padding: 8px 2px 10px; }
   font-size: 11px; color: var(--ink-faint); margin-bottom: 2px;
 }
 .river-detail-grid dd { margin: 0; font-size: 13px; }
+
+/* ---------------------------------------------------------------------------
+   The reasoning master (UI_01)
+
+   §08's Reasoning layout family: "Human and model columns around a central
+   working interpretation; full-width source pair above". The centre is the
+   widest column because it carries the claim and the one action; the two
+   sides are equal because neither the human's reading nor the model's
+   outranks the other.
+
+   The attribution treatments are load-bearing. `.rsn-quote` is the paper's
+   own words and `.rsn-note[data-model]` is a model's; they must never
+   converge on one look, because a reader who cannot tell them apart is
+   reading generated prose as citable prose.
+   --------------------------------------------------------------------------- */
+
+.rsn-title { margin-bottom: 4px; }
+
+.rsn-pair {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 14px 0;
+}
+.rsn-slot {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 10px 12px; border: 1px solid var(--line);
+  border-radius: var(--r-card); background: var(--panel);
+}
+.rsn-slot-kind {
+  font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.rsn-slot-meta { font-size: 11.5px; color: var(--ink-faint); }
+
+.rsn-steps {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 18px;
+  margin: 0 0 16px; padding: 0; list-style: none;
+  font-size: 12.5px; color: var(--ink-faint);
+}
+.rsn-steps li { display: inline-flex; align-items: center; gap: 7px; }
+.rsn-step-n {
+  display: inline-grid; place-items: center; width: 20px; height: 20px;
+  border-radius: 50%; border: 1px solid var(--line-strong);
+  font-size: 11px; font-family: var(--mono);
+}
+.rsn-steps li[data-state="here"] { color: var(--ink); font-weight: 560; }
+.rsn-steps li[data-state="here"] .rsn-step-n {
+  background: var(--accent); border-color: var(--accent); color: var(--on-accent);
+}
+.rsn-steps li[data-state="done"] .rsn-step-n {
+  border-color: var(--positive); color: var(--positive);
+}
+
+.rsn-columns {
+  display: grid; grid-template-columns: 1fr 1.35fr 1fr; gap: 16px;
+  align-items: start;
+}
+/* At a constrained width the three columns stack rather than shrinking into
+   three unreadable strips — §08 refuses "shrinking the whole app to a
+   screenshot scale". The centre keeps its place in the middle. */
+@media (max-width: 1100px) {
+  .rsn-columns { grid-template-columns: 1fr; }
+  .rsn-pair { grid-template-columns: 1fr; }
+}
+
+.rsn-judgment, .rsn-working, .rsn-reading {
+  display: flex; flex-direction: column; gap: 10px;
+}
+.rsn-col-title { margin: 0; font-family: var(--serif); font-size: 21px; font-weight: 500; }
+.rsn-col-kind { margin: -8px 0 0; font-size: 11.5px; color: var(--ink-faint); }
+
+.rsn-claim {
+  padding: 12px 14px; border: 1px solid var(--line);
+  border-radius: var(--r-card); background: var(--panel);
+}
+.rsn-claim[data-chosen="true"] { border-color: var(--accent); }
+.rsn-claim blockquote {
+  margin: 8px 0; padding-left: 11px; border-left: 2px solid var(--line-strong);
+  font-family: var(--serif); font-size: 17px; line-height: 1.45; color: var(--ink);
+}
+.rsn-constructs {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px;
+  margin: 10px 0; font-size: 12.5px;
+}
+.rsn-role { font-size: 11px; color: var(--ink-faint); }
+.rsn-verbs { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* The paper's words. Labelled, because the column they sit in is the model's
+   and an unlabelled quote there would read as the model's sentence. */
+.rsn-quote-label {
+  margin: 0; font-size: 11px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--ink-faint);
+}
+.rsn-quote {
+  margin: 0; padding: 10px 12px; border: 1px solid var(--line);
+  border-radius: var(--r-card); background: var(--panel);
+  font-family: var(--serif); font-size: 16px; line-height: 1.45;
+}
+.rsn-anchor { margin: 0; font-size: 11.5px; color: var(--ink-faint); }
+.rsn-provenance { margin: 0; font-size: 11.5px; color: var(--ink-faint); }
+
+.rsn-note {
+  padding: 9px 11px; border: 1px solid var(--line);
+  border-radius: var(--r-card); background: var(--panel); font-size: 13px;
+}
+.rsn-note p { margin: 0; }
+/* A model's note never looks like a person's. Different edge, and the question
+   it answered shown above the answer. */
+.rsn-note[data-model] { border-left: 3px solid var(--info); }
+.rsn-note-q { font-size: 11.5px; color: var(--ink-faint); margin-bottom: 4px !important; }
+.rsn-note-by { display: block; margin-top: 5px; font-size: 11px; color: var(--ink-faint); }
+
+.rsn-append { display: flex; flex-direction: column; gap: 7px; }
+.rsn-append textarea { width: 100%; resize: vertical; }
+
+.rsn-footer {
+  margin: 16px 0 0; padding-top: 10px; border-top: 1px solid var(--line);
+  font-size: 11.5px; color: var(--ink-faint);
+}

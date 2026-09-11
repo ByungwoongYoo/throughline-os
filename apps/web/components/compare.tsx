@@ -61,9 +61,11 @@ const TONE: Record<string, string> = {
   DIRECTLY_COMPARABLE: "positive",
 };
 
-export function Compare({ projectId, sources }: {
+export function Compare({ projectId, sources, onOpenSource }: {
   projectId: string;
   sources: ApiState<Source[]>;
+  /** Open one of the compared sources, keeping the browser's way back. */
+  onOpenSource?: (sourceId: string) => void;
 }) {
   /*
    * Part I's six verbs, all of them wired, plus two this product added:
@@ -161,7 +163,8 @@ export function Compare({ projectId, sources }: {
         <h1>Compare</h1>
         {tabs}
         <TabPanel name="compare" value={verb}>
-          <ClaimTest projectId={projectId} sources={sources.data ?? []} />
+          <ClaimTest projectId={projectId} sources={sources.data ?? []}
+                     onOpenSource={onOpenSource} />
         </TabPanel>
       </>
     );

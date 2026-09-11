@@ -57,6 +57,31 @@ const dataset = {
   dataset: { dataset_version_id: "dsv_1", row_count: 160, column_count: 4 },
 } as never;
 
+/*
+ * Choosing the pair, the way the reasoning master asks for it.
+ *
+ * UI_01 puts the paper and the dataset above everything as a pair, because
+ * both halves qualify every word below them — so a title is an option in a
+ * select now rather than a button to click. The selects carry one visible word
+ * each and the browser gives them no other accessible name, so they are
+ * addressed by role and position.
+ */
+function choosePaper(id = "src_paper") {
+  const [papers] = screen.getAllByRole("combobox");
+  fireEvent.change(papers, { target: { value: id } });
+}
+
+function chooseDataset(id = "src_data") {
+  const [, datasets] = screen.getAllByRole("combobox");
+  fireEvent.change(datasets, { target: { value: id } });
+}
+
+/** Take up the located claim and ask whether the chosen data can test it. */
+async function checkTestability() {
+  fireEvent.click(await screen.findByRole("button", { name: "Work with this claim" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Check testability" }));
+}
+
 describe("choosing a paper", () => {
   it("asks for both a paper and a dataset before offering anything", () => {
     render(<ClaimTest projectId="prj" sources={[paper]} />);
@@ -73,8 +98,14 @@ describe("choosing a paper", () => {
   it("lists only papers as papers", () => {
     render(<ClaimTest projectId="prj" sources={[paper, dataset]} />);
 
-    expect(screen.getByText("consumption_resistance.md")).toBeVisible();
-    expect(screen.queryByText("amr_surveillance.csv")).toBeNull();
+    const [papers, datasets] = screen.getAllByRole("combobox");
+    const offered = (el: HTMLElement) =>
+      [...el.querySelectorAll("option")].map((o) => o.textContent);
+
+    expect(offered(papers)).toContain("consumption_resistance.md");
+    expect(offered(papers)).not.toContain("amr_surveillance.csv");
+    // And the dataset is offered as a dataset, not lost.
+    expect(offered(datasets)).toContain("amr_surveillance.csv");
   });
 });
 
@@ -102,7 +133,7 @@ describe("located claims", () => {
     vi.mocked(api.post).mockResolvedValueOnce(located as never);
     render(<ClaimTest projectId="prj" sources={[paper, dataset]} />);
 
-    screen.getByText("consumption_resistance.md").click();
+    choosePaper();
 
     const quote = await screen.findByText(new RegExp("r = 0\\.72"));
     expect(quote.tagName.toLowerCase()).toBe("blockquote");
@@ -112,7 +143,7 @@ describe("located claims", () => {
     vi.mocked(api.post).mockResolvedValueOnce(located as never);
     render(<ClaimTest projectId="prj" sources={[paper, dataset]} />);
 
-    screen.getByText("consumption_resistance.md").click();
+    choosePaper();
 
     expect(await screen.findByText(/qwen2\.5:7b-instruct/)).toBeVisible();
     expect(screen.getByText(/they are not findings/)).toBeVisible();
@@ -125,7 +156,7 @@ describe("located claims", () => {
     } as never);
     render(<ClaimTest projectId="prj" sources={[paper, dataset]} />);
 
-    screen.getByText("consumption_resistance.md").click();
+    choosePaper();
 
     expect(await screen.findByText(/No testable claim found/)).toBeVisible();
   });
@@ -156,8 +187,7 @@ const STORED_CLAIM = {
 
 async function pick() {
   render(<ClaimTest projectId="prj" sources={[paper, dataset]} />);
-  const choice = await screen.findByText("consumption_resistance.md");
-  fireEvent.click(choice);
+  choosePaper();
 }
 
 describe("what the paper already says", () => {
@@ -236,7 +266,10 @@ describe("what the paper already says", () => {
     await pick();
 
     await waitFor(() => expect(api.post).toHaveBeenCalled());
-    expect(screen.queryByText(/could not/i)).toBeNull();
+    // Nothing is *reported* as a failure. Asserted on the error region rather
+    // than on the word "could not", which the screen's own prose may use while
+    // describing what the check does.
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
 
@@ -289,9 +322,9 @@ describe("recording what the dataset observes", () => {
       { source_id: "src_paper", claims: [claim] } as never);
     vi.mocked(api.post).mockResolvedValue(result as never);
     render(<ClaimTest projectId="prj" sources={[paper, dataset]} />);
-    fireEvent.click(await screen.findByText("consumption_resistance.md"));
-    fireEvent.click(await screen.findByRole("button",
-      { name: "amr_surveillance.csv" }));
+    choosePaper();
+    chooseDataset();
+    await checkTestability();
     await screen.findByText(/study design is not recorded/);
   }
 

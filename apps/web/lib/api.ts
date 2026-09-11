@@ -266,6 +266,16 @@ export type Source = {
    */
   withdrawn_at?: string | null;
   withdrawn_reason?: string | null;
+  /**
+   * This source's node in the research graph, when ingestion has made one.
+   *
+   * The handle every provenance route takes. A note, a journal and a version
+   * history are all addressed by research-object id, so a screen holding a
+   * source id alone can reach none of them — D213 records that dead end. Null
+   * while ingestion is still running, which is why it is optional rather than
+   * assumed: a caller must be able to tell "not yet" from "never".
+   */
+  object_id?: string | null;
   paper?: {
     id: string;
     title: string;

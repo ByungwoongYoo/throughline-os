@@ -54,7 +54,7 @@ const PAYLOAD = {
 afterEach(cleanup);
 beforeEach(() => { vi.restoreAllMocks(); });
 
-function river(payload: unknown = PAYLOAD, onOpen = () => {}) {
+function river(payload: unknown = PAYLOAD, onOpen: (id: string) => void = () => {}) {
   vi.spyOn(api, "get").mockResolvedValue(payload as never);
   render(<River projectId="prj_1" onOpenObject={onOpen} />);
 }
@@ -131,6 +131,41 @@ describe("the research river", () => {
     expect(related.textContent).toContain("Heat exposure is associated");
   });
 
+  it("draws a recorded derivation and an asserted link as different lines", async () => {
+    /*
+     * The distinction at the drawing layer, not only in the detail panel.
+     *
+     * The stylesheet dashes a line by `data-lineage="false"` and leaves a
+     * recorded one solid, which is the whole visual argument of the view: a
+     * dotted line that renders solid tells a researcher that an inferred
+     * association is provenance. The geometry cannot be asserted here — this
+     * environment applies no CSS, so every measured offset is zero — but which
+     * flag each edge carries can be, and that is the part a refactor loses.
+     */
+    river();
+    await settle();
+
+    await waitFor(() => expect(
+      document.querySelectorAll(".river-line")).toHaveLength(2));
+    const kinds = [...document.querySelectorAll(".river-line")]
+      .map((p) => p.getAttribute("data-lineage"))
+      .sort();
+    expect(kinds).toEqual(["false", "true"]);
+  });
+
+  it("draws no line to an object the filter is withholding", async () => {
+    /* An edge with one end off the canvas has nowhere honest to land. */
+    river();
+    await settle();
+    await waitFor(() => expect(
+      document.querySelectorAll(".river-line")).toHaveLength(2));
+
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "validated" } });
+
+    await waitFor(() => expect(
+      document.querySelectorAll(".river-line")).toHaveLength(0));
+  });
+
   it("says on its face that the columns are not a chronology", async () => {
     /* The master puts this sentence on the canvas, not in a tooltip: a caveat
        nobody opens is a caveat nobody reads. */
@@ -156,7 +191,7 @@ describe("the research river", () => {
 
   it("opens the object the researcher chose", async () => {
     const opened: string[] = [];
-    river(PAYLOAD, (id: string) => opened.push(id));
+    river(PAYLOAD, (id) => { opened.push(id); });
     await settle();
 
     fireEvent.click(screen.getByRole("button", { name: /Pearson correlation/ }));
