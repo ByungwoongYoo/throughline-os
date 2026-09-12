@@ -973,7 +973,8 @@ function Workspace({ user }: { user: SignedInUser }) {
                  * which reads run ids, and to leave the section on Journal — so
                  * the link changed the breadcrumb and nothing else (D195).
                  */
-                <Journal projectId={project.id} onOpenObject={select("object")} />
+                <Journal projectId={project.id} onOpenObject={select("object")}
+                         onWrite={() => goSection("notebook")} />
               )
               : (
                 <ProjectActivity projectId={project.id}

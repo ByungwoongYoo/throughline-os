@@ -60,10 +60,21 @@ export function byDay(entries: JournalEntry[]): Array<[string, JournalEntry[]]> 
   return days;
 }
 
-export function Journal({ projectId, onOpenObject }: {
+export function Journal({ projectId, onOpenObject, onWrite }: {
   projectId: string;
   /** Where to send a reader who wants the thing a note is about. */
   onOpenObject?: (objectId: string) => void;
+  /**
+   * Where writing happens.
+   *
+   * This screen reads; the Notebook writes. Both are the same `notes` table —
+   * `recent()` filters on the project and not on `note_kind`, so a notebook
+   * page, a daily page and a note left beside an analysis all arrive here.
+   * One capability, two doors, the same argument `AnalysisContext` makes about
+   * validation: a second composer here would be a second implementation of
+   * writing, and the two would drift over links, titles and daily pages.
+   */
+  onWrite?: () => void;
 }) {
   const { data, error, loading, reload } = useApi<JournalEntry[]>(
     `/api/projects/${projectId}/journal?limit=200`);
@@ -79,10 +90,25 @@ export function Journal({ projectId, onOpenObject }: {
         <h1>Record</h1>
         <Empty
           title="Nothing written yet"
-          // Says where notes come from, because this screen only ever reads
-          // them: they are written beside the thing they are about.
+          /*
+           * An empty state that only explains is a dead end.
+           *
+           * This said where notes come from and stopped, so a researcher who
+           * had not yet written one read a screen that described a feature
+           * they had no way to reach from it. It now says both things a person
+           * needs: notes arrive here from beside the thing they are about, and
+           * a thought that belongs to no one object is written in the
+           * Notebook — which is a door, not an explanation.
+           */
           hint="Notes written beside an analysis, a figure or a finding appear
-                here in the order they were written."
+                here in the order they were written. A thought that belongs to
+                the project rather than to one thing in it is written in the
+                Notebook, and appears here too."
+          action={onWrite && (
+            <button className="btn" type="button" onClick={onWrite}>
+              Open the Notebook &rarr;
+            </button>
+          )}
         />
       </>
     );
@@ -96,6 +122,15 @@ export function Journal({ projectId, onOpenObject }: {
         model is marked as one — it is a reading, not a record of what you
         thought.
       </p>
+      {/* The same door the empty state offers, kept once there is something to
+          read: "where do I write" is not a question that stops being asked. */}
+      {onWrite && (
+        <p className="note one-line">
+          <button className="btn-text" type="button" onClick={onWrite}>
+            Write in the Notebook &rarr;
+          </button>
+        </p>
+      )}
 
       {byDay(data).map(([day, entries]) => (
         <section key={day} aria-labelledby={`day-${day}`}>
