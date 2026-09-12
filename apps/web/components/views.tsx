@@ -1776,7 +1776,11 @@ export function Findings({ projectId, onSelect }: {
       )}
 
       {states.length > 1 && (
-        <div className="fd-filters" role="group" aria-label="Filter by standing">
+        <div className="fd-filters" role="group" aria-labelledby="fd-standing">
+          {/* Named in the open, for the reason the chart's forms are: the
+              label was `aria-label` and nothing else, so the only reader told
+              what these buttons do was the one who could not see them. */}
+          <span className="ckpt-form-label" id="fd-standing">Show</span>
           <button className="btn" type="button" aria-pressed={standing === "all"}
                   onClick={() => setStanding("all")}>
             All ({all.length})
@@ -2228,7 +2232,17 @@ function ObservedAssociation({ runId, onOpenFigures }: {
         * than a second builder.
         */}
       <div className="ckpt-forms">
-        <div className="ckpt-form-set" role="group" aria-label="How to draw this">
+        {/*
+          * The label was `aria-label` and nothing else, so a screen reader was
+          * told what these four buttons are for and a sighted reader was not —
+          * the wrong way round, and the shape of the worry that "someone will
+          * never know what is being done". Four bare words under a chart are
+          * only obviously a chart control once you already know. It is said in
+          * the open now, and the accessible name comes from the same words
+          * rather than from a second string that can drift from them.
+          */}
+        <span className="ckpt-form-label" id="ckpt-draw-as">Draw as</span>
+        <div className="ckpt-form-set" role="group" aria-labelledby="ckpt-draw-as">
           {FORMS.map(([id, label]) => (
             <button key={id} className="btn" type="button"
                     aria-pressed={mark === id} onClick={() => setMark(id)}>

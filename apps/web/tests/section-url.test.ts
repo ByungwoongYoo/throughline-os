@@ -247,6 +247,34 @@ describe("the view in the address", () => {
     expect(viewFromSearch("?view=papers", "sources")).toBe("papers");
   });
 
+  /*
+   * The figure builder's five questions.
+   *
+   * They lived in `useState`, which is D196's argument one level down: "How it
+   * all relates" could not be linked to and did not survive a reload. What
+   * forced the change is that it could not be *arrived at* — the chart
+   * catalogue lists fourteen primitives and could not offer "draw my data this
+   * way", because the lens that would draw it had no address.
+   */
+  it("carries the figure builder's lens", () => {
+    expect(viewFromSearch("?view=matrix", "figures")).toBe("matrix");
+    expect(viewFromSearch("?view=one", "figures")).toBe("one");
+    expect(viewFromSearch("?view=map", "figures")).toBe("map");
+    // The catalogue is a peer of the lenses, not one of them.
+    expect(viewFromSearch("?view=primitives", "figures")).toBe("primitives");
+  });
+
+  it("keeps `saved` as the builder's front door", () => {
+    // Renaming it would break every link already copied, and `saved` is what
+    // the builder opens on: its own default lens, everything the project
+    // tested. So it stays first, which is what makes it the default.
+    expect(defaultView("figures")).toBe("saved");
+    expect(viewFromSearch("", "figures")).toBe("saved");
+    expect(searchForView("saved", "figures", "")).toBe("");
+    // A lens the section does not own still falls back to its front door.
+    expect(viewFromSearch("?view=river", "figures")).toBe("saved");
+  });
+
   it("answers null for a section that has no views", () => {
     /** Most sections are one screen. Asking them for a view should say so
      *  rather than inventing a default nothing renders. */

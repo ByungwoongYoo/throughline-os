@@ -6991,3 +6991,35 @@ details.fold > *:not(summary) { padding: 8px 2px 10px; }
   border-left: 2px solid var(--warn);
 }
 .vr-latest[data-passed="true"] { border-left-color: var(--positive); }
+
+/*
+ * "Draw as", beside the forms it names.
+ *
+ * The label existed only as an `aria-label`, so the one reader who could not
+ * see the buttons was the only one told what they do. Set at the secondary
+ * size and baseline-aligned with the buttons, so it reads as their name rather
+ * than as another control.
+ */
+.ckpt-form-label {
+  font-size: 12px;
+  color: var(--ink-soft);
+  align-self: center;
+  margin-right: 2px;
+  white-space: nowrap;
+}
+
+/*
+ * The catalogue's own door: from "I want that one" to having it.
+ *
+ * A row rather than a block, because the button and the sentence that says
+ * where it goes are one statement — the sentence alone would be a promise with
+ * no control, and the button alone would be a control with no destination.
+ */
+.gal-draw {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 10px 0 0;
+}
+.gal-draw .note { margin: 0; }

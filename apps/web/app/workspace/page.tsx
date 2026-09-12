@@ -33,7 +33,7 @@ import { GraphStats } from "@/components/graphstats";
 import { Preregister } from "@/components/preregister";
 import { ReportDetail, Reports } from "@/components/reports";
 import { GraphView } from "@/components/graphview";
-import { Figures } from "@/components/figures";
+import { Figures, type FigureLens } from "@/components/figures";
 import { Gallery } from "@/components/gallery";
 import { EmbeddingSpace } from "@/components/embeddingspace";
 import { ProjectMenu } from "@/components/ProjectMenu";
@@ -1016,10 +1016,32 @@ function Workspace({ user }: { user: SignedInUser }) {
               options={[["saved", "This project"],
                         ["primitives", "Chart primitives"]] as const}
             />
-            {(view ?? "saved") === "saved"
-              ? <Figures projectId={project.id} runs={analyses}
-                         focusId={place.item} />
-              : <Gallery />}
+            {view === "primitives"
+              ? (
+                /*
+                 * The catalogue hands the lens it would be drawn with. It used
+                 * to be fourteen charts a researcher could look at and not
+                 * use: "if they click on that graph, they can change what
+                 * graph they need" is the whole point of having a catalogue
+                 * inside the product rather than in the documentation.
+                 */
+                <Gallery
+                  onDraw={(lens) => goView(lens as View)}
+                  onGo={(target) => go({ section: target.section as Section,
+                                         item: null },
+                                       { view: target.view as View })}
+                />
+              )
+              : (
+                <Figures projectId={project.id} runs={analyses}
+                         focusId={place.item}
+                         /* `saved` is the builder on its default lens, kept by
+                            that name so every link already copied still lands. */
+                         lens={(view === null || view === "saved")
+                               ? "all" : (view as FigureLens)}
+                         onLens={(next) =>
+                           goView((next === "all" ? "saved" : next) as View)} />
+              )}
           </>
         )}
       </Shell>

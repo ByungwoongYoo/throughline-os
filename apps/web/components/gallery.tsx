@@ -18,6 +18,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FeatureCollection, Geometry } from "geojson";
 import { PRIMITIVES } from "@/lib/primitives";
+import type { FigureLens } from "./figures";
 import { Binned, Cell } from "./charts/Binned";
 import { Cartesian, Datum } from "./charts/Cartesian";
 import { Density, DensityCurve } from "./charts/Density";
@@ -269,8 +270,44 @@ const GRAPH_EDGES: GraphEdge[] = [
   { source: "p3", target: "p1" }, { source: "p2", target: "d1" },
 ];
 
-function Section({ code, children }: { code: string; children: React.ReactNode }) {
+/**
+ * Where each primitive draws *this project's* data, if anywhere.
+ *
+ * A catalogue that can only be read is documentation with charts in it. The
+ * question a researcher actually arrives with is "can I have my data like
+ * that", and before this the answer was fourteen pictures and no route — they
+ * had to work out for themselves that "Matrices" is the thing the figure
+ * builder calls *How it all relates*.
+ *
+ * A `lens` is one of the builder's own five questions, reached by changing the
+ * view of this same screen. A `go` leaves for the section that draws it: the
+ * research graph, the river, the embedding space.
+ *
+ * **A primitive missing from this map gets no button**, and says so in a
+ * sentence instead. Six of the fourteen have no route into a project figure
+ * today — a door that leads nowhere reads as a broken feature rather than an
+ * absent one, which is the rule the Record's own door follows.
+ */
+const DRAWS_WITH: Record<string,
+  { lens?: FigureLens; go?: { section: string; view?: string }; as: string }> = {
+  P1: { lens: "one", as: "One relationship" },
+  P2: { lens: "all", as: "Everything tested" },
+  P4: { lens: "matrix", as: "How it all relates" },
+  P5: { lens: "spread", as: "How one variable is spread" },
+  P12: { lens: "map", as: "Where it was measured" },
+  P6: { go: { section: "graph" }, as: "the research graph" },
+  P9: { go: { section: "graph", view: "river" }, as: "the river" },
+  P11: { go: { section: "analyses", view: "embedding" }, as: "the embedding space" },
+};
+
+function Section({ code, children, onDraw, onGo }: {
+  code: string;
+  children: React.ReactNode;
+  onDraw?: (lens: FigureLens) => void;
+  onGo?: (target: { section: string; view?: string }) => void;
+}) {
   const meta = PRIMITIVES.find((p) => p.code === code);
+  const route = DRAWS_WITH[code];
   return (
     <section className="gal-item">
       <header className="gal-head">
@@ -281,6 +318,36 @@ function Section({ code, children }: { code: string; children: React.ReactNode }
         <p className="gal-covers">
           Also: {meta?.covers.join(" · ")}
         </p>
+        {/* The way from "I want that one" to having it, which is what makes
+            this a catalogue rather than a page about charts. */}
+        {route?.lens && onDraw && (
+          <p className="gal-draw">
+            <button className="btn" type="button"
+                    onClick={() => onDraw(route.lens!)}>
+              Draw my data this way &rarr;
+            </button>
+            <span className="note one-line">
+              Opens <b>{route.as}</b> on this project.
+            </span>
+          </p>
+        )}
+        {route?.go && onGo && (
+          <p className="gal-draw">
+            <button className="btn" type="button"
+                    onClick={() => onGo(route.go!)}>
+              Show this project&rsquo;s own &rarr;
+            </button>
+            <span className="note one-line">
+              This project draws it in {route.as}.
+            </span>
+          </p>
+        )}
+        {!route && (
+          <p className="note one-line gal-draw">
+            Nothing in this project is drawn with it yet, so there is nowhere
+            to send you.
+          </p>
+        )}
       </header>
       {children}
     </section>
@@ -318,7 +385,12 @@ const SURFACE_RUNS = Array.from({ length: 18 }, (_, i) => {
   };
 });
 
-export function Gallery() {
+export function Gallery({ onDraw, onGo }: {
+  /** Draw this project's data with the builder's lens for this primitive. */
+  onDraw?: (lens: FigureLens) => void;
+  /** Leave for the section that draws this primitive on real objects. */
+  onGo?: (target: { section: string; view?: string }) => void;
+} = {}) {
   const [world, setWorld] = useState<
     FeatureCollection<Geometry, { name?: string }> | null>(null);
   const [worldFailed, setWorldFailed] = useState(false);
@@ -378,75 +450,75 @@ export function Gallery() {
         misdescribe them.
       </p>
 
-      <Section code="P1">
+      <Section code="P1" onDraw={onDraw} onGo={onGo}>
         <Cartesian data={SCATTER} mark="point"
                    xLabel="consumption" yLabel="resistance"
                    xUnit="DDD/1000/day" yUnit="%"
                    title="Resistance against consumption — 60 countries" />
       </Section>
 
-      <Section code="P2">
+      <Section code="P2" onDraw={onDraw} onGo={onGo}>
         <Interval estimates={ESTIMATES}
                   xLabel="standardised coefficient"
                   title="Adjusted associations with resistance" />
       </Section>
 
-      <Section code="P3">
+      <Section code="P3" onDraw={onDraw} onGo={onGo}>
         <Density curves={CURVES} xLabel="resistant isolates" xUnit="%"
                  bandwidthNote="Gaussian kernel, bandwidth 6 percentage points"
                  title="Distribution of resistance by region" />
       </Section>
 
-      <Section code="P4">
+      <Section code="P4" onDraw={onDraw} onGo={onGo}>
         <Matrix cells={MATRIX} rows={MATRIX_VARIABLES}
                 columns={MATRIX_VARIABLES}
                 title="Correlation between every pair" />
       </Section>
 
-      <Section code="P5">
+      <Section code="P5" onDraw={onDraw} onGo={onGo}>
         <Binned cells={DENSITY} xLabel="consumption" yLabel="resistance"
                 xUnit="DDD/1000/day" yUnit="%" binCount={18} sampleSize={40_000}
                 fit={{ slope: 0.82, intercept: 2.1 }}
                 title="Resistance against consumption — 40,000 observations" />
       </Section>
 
-      <Section code="P6">
+      <Section code="P6" onDraw={onDraw} onGo={onGo}>
         {/* The one primitive that is a surface rather than a figure, so it is
             drawn by KnowledgeGraph rather than by anything under charts/. */}
         <KnowledgeGraph nodes={GRAPH_NODES} edges={GRAPH_EDGES} height={340} />
       </Section>
 
-      <Section code="P7">
+      <Section code="P7" onDraw={onDraw} onGo={onGo}>
         <Hierarchy root={CORPUS} layout="treemap" valueLabel="passages"
                    title="Corpus by topic and region" />
         <Hierarchy root={NET_CHANGE} layout="treemap" valueLabel="cases"
                    title="Net change in reported cases — refused" />
       </Section>
 
-      <Section code="P8">
+      <Section code="P8" onDraw={onDraw} onGo={onGo}>
         <Radial spokes={HOURS} valueLabel="prescriptions" cycleLabel="hour of day"
                 title="Prescriptions by hour" />
       </Section>
 
-      <Section code="P9">
+      <Section code="P9" onDraw={onDraw} onGo={onGo}>
         <Ribbon nodes={FLOW_NODES} links={FLOW_LINKS} unitLabel="participants"
                 attritionIsExpected title="Participant flow" />
         <Ribbon nodes={CYCLE_NODES} links={CYCLE_LINKS} unitLabel="manuscripts"
                 title="Manuscript states — refused" />
       </Section>
 
-      <Section code="P10">
+      <Section code="P10" onDraw={onDraw} onGo={onGo}>
         <SetRegions sets={SETS} members={PAPERS} itemLabel="papers"
                     title="What each paper reports" />
       </Section>
 
-      <Section code="P11">
+      <Section code="P11" onDraw={onDraw} onGo={onGo}>
         <Projection points={EMBEDDED} method="umap"
                     parameters={{ "n_neighbors": 15, "min_dist": 0.1, seed: 42 }}
                     title="Passages by semantic similarity" />
       </Section>
 
-      <Section code="P12">
+      <Section code="P12" onDraw={onDraw} onGo={onGo}>
         {world ? (
           <Geographic places={RESISTANCE} world={world} measure="rate"
                       valueLabel="resistant isolates"
@@ -461,7 +533,7 @@ export function Gallery() {
         )}
       </Section>
 
-      <Section code="P13">
+      <Section code="P13" onDraw={onDraw} onGo={onGo}>
         <Volume points={CLOUD} controllerRef={volumeRef}
                 onDetent={(moment) => deviceFeedback.emit(moment)}
                 xLabel="component 1" yLabel="component 2"
@@ -477,7 +549,7 @@ export function Gallery() {
         <SpatialControl controllerRef={volumeRef} label="this 3D scatter" />
       </Section>
 
-      <Section code="P15">
+      <Section code="P15" onDraw={onDraw} onGo={onGo}>
         {/*
           * The other place three dimensions are honest. A response over two
           * predictors is a surface *in the data*; the third axis is not decoration
@@ -493,7 +565,7 @@ export function Gallery() {
         <SpatialControl controllerRef={surfaceRef} label="this surface" />
       </Section>
 
-      <Section code="P14">
+      <Section code="P14" onDraw={onDraw} onGo={onGo}>
         <Temporal events={FOLLOW_UP} unitLabel="months"
                   originLabel="first prescription"
                   outcomeLabel="resistant isolate detected"

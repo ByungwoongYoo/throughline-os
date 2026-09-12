@@ -248,8 +248,9 @@ export const VIEW_IDS = [
   "graph", "river",
   // Sources: the library, and the four ways of getting something into it.
   "library", "search", "papers", "data", "figure",
-  // Figures: the project's own, and the catalogue of what can be drawn.
-  "saved", "primitives",
+  // Figures: the project's own — one lens per question a figure answers — and
+  // the catalogue of what can be drawn at all.
+  "saved", "matrix", "spread", "one", "map", "primitives",
   // Analyses: one run, and the two readings of all of them.
   "runs", "patterns", "embedding",
   // The project's record, written and done.
@@ -271,7 +272,19 @@ export type View = (typeof VIEW_IDS)[number];
 export const VIEWS_OF: Partial<Record<Section, readonly View[]>> = {
   graph: ["graph", "river"],
   sources: ["library", "search", "papers", "data", "figure"],
-  figures: ["saved", "primitives"],
+  /*
+   * The five lenses of the figure builder, plus the catalogue.
+   *
+   * The builder held its lens in `useState`, so "How it all relates" could not
+   * be linked to, did not survive a reload, and — the reason this changed —
+   * could not be *arrived at*: the chart catalogue shows fourteen primitives
+   * and had no way to say "draw my data this way", because there was no
+   * address for the lens that would draw it.
+   *
+   * `saved` stays first and keeps its name so every existing link still lands:
+   * it is the builder on its own default lens, everything the project tested.
+   */
+  figures: ["saved", "matrix", "spread", "one", "map", "primitives"],
   analyses: ["runs", "patterns", "embedding"],
   journal: ["written", "done"],
 };
