@@ -117,6 +117,71 @@ describe("the step the project is on, and where taking it lands", () => {
     expect(record.label).toMatch(/^Record a finding from consumption × resistance$/);
   });
 
+  /*
+   * D354, measured again on a live project.
+   *
+   * Rank is fixed at discovery and lifecycle is not, so once the strongest
+   * connection had been validated the button went on reading "Validate
+   * yield_t_ha × fertiliser_kg" over something that had already survived its
+   * checks — and the researcher following the loop had no way forward. This
+   * file used to claim the server sends "only those a validation could act
+   * on"; it does not.
+   */
+  it("does not offer to validate something already validated", () => {
+    const done = { ...(TOP as object), id: "con_done",
+                   lifecycle_status: "validated" } as never;
+    const next = { ...(TOP as object), id: "con_next", rank_score: 0.4,
+                   left_variable: "rainfall", right_variable: "yield",
+                   lifecycle_status: "exploratory" } as never;
+    const m = { ...map({ sources: 2, datasets: 1, analyses: 6 }, { exploratory: 1 }),
+                top_connections: [done, next] };
+    const steps = loopSteps(m);
+    const validate = stepTarget(steps.find((s) => s.id === "validate")!, m);
+    expect(validate.item).toBe("con_next");
+    expect(validate.label).toBe("Validate rainfall × yield");
+  });
+
+  it("records a finding from something that survived, not from a candidate", () => {
+    // A finding rests on a result that was put through the checks. Offering
+    // the strongest *untested* connection would invite recording the thing the
+    // previous step exists to challenge.
+    const raw = { ...(TOP as object), id: "con_raw",
+                  lifecycle_status: "exploratory" } as never;
+    const survived = { ...(TOP as object), id: "con_survived", rank_score: 0.4,
+                       left_variable: "rainfall", right_variable: "yield",
+                       lifecycle_status: "validated" } as never;
+    const m = { ...map({ sources: 2, datasets: 1, analyses: 6 }, { validated: 1 }),
+                top_connections: [raw, survived] };
+    const steps = loopSteps(m);
+    expect(stepTarget(steps.find((s) => s.id === "record")!, m).item)
+      .toBe("con_survived");
+  });
+
+  it("still names the strongest when none of them fits the step", () => {
+    // The fallback matters: a project where everything is validated still has
+    // to give *Validate* somewhere to go, and a button that goes nowhere is
+    // worse than one that goes somewhere arguable.
+    const done = { ...(TOP as object), id: "con_done",
+                   lifecycle_status: "validated" } as never;
+    const m = { ...map({ sources: 2, datasets: 1, analyses: 6 }, { validated: 1 }),
+                top_connections: [done] };
+    const steps = loopSteps(m);
+    expect(stepTarget(steps.find((s) => s.id === "validate")!, m).item)
+      .toBe("con_done");
+  });
+
+  it("takes the head when the server records no lifecycle at all", () => {
+    // An older server that omits the field must not be excluded by a rule
+    // about the field.
+    const bare = { id: "con_bare", left_variable: "a", right_variable: "b",
+                   rank_score: 1 } as never;
+    const m = { ...map({ sources: 2, datasets: 1, analyses: 6 }, { exploratory: 1 }),
+                top_connections: [bare] };
+    const steps = loopSteps(m);
+    expect(stepTarget(steps.find((s) => s.id === "validate")!, m).item)
+      .toBe("con_bare");
+  });
+
   it("lands on the list, honestly labelled, when nothing is ranked yet", () => {
     const steps = loopSteps(map());
     expect(stepTarget(steps.find((s) => s.id === "validate")!, map()))

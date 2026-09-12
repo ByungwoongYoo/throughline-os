@@ -14,7 +14,7 @@
  */
 
 import type { Section } from "@/components/Shell";
-import type { DiscoveryMap } from "./api";
+import type { Connection, DiscoveryMap } from "./api";
 
 export type LoopStepId =
   | "sources" | "profile" | "discover" | "validate" | "record" | "communicate";
@@ -144,19 +144,45 @@ export function currentStep(map: DiscoveryMap): LoopStep | null {
 export type StepTarget = { section: Section; item: string | null; label: string };
 
 /**
- * Steps 4 and 5 act on one connection, and the server already ranks them
- * (`top_connections`, strongest first, only those a validation could act on).
- * So the control opens that connection and says so by name, rather than
- * landing the researcher on a six-row table with nothing saying which row the
- * recommendation meant. Every other step lands on its section.
+ * Steps 4 and 5 act on one connection, and the server ranks them
+ * (`top_connections`, strongest first). So the control opens that connection
+ * and says so by name, rather than landing the researcher on a six-row table
+ * with nothing saying which row the recommendation meant. Every other step
+ * lands on its section.
+ *
+ * **Rank is fixed at discovery and lifecycle is not**, which is the whole of
+ * D354: this file used to claim the server sends "only those a validation
+ * could act on", and it does not. Once the strongest connection was validated,
+ * *Validate* kept opening it — measured on a live project, where the button
+ * read "Validate yield_t_ha × fertiliser_kg" over a connection that had
+ * already survived its checks.
+ *
+ * So the step chooses among the ranked list rather than taking its head. It is
+ * not a second ladder — it does not decide *which step*, which is the server's
+ * call and arrives as `recommended_step`. It only refuses to name an object
+ * that its own sentence contradicts.
  */
+const forStep = (step: string, ranked: Connection[]): Connection | undefined => {
+  // A connection with no lifecycle recorded is not excluded by a rule about
+  // lifecycle: an older server that omits the field should still get a target.
+  const at = (c: Connection, states: string[]) =>
+    !c.lifecycle_status || states.includes(c.lifecycle_status);
+  const wanted = step === "validate"
+    // Something that has not yet been put through the checks.
+    ? ["candidate", "exploratory"]
+    // Something that survived them, because that is what a finding rests on.
+    : ["validated", "replicated"];
+  return ranked.find((c) => at(c, wanted)) ?? ranked[0];
+};
+
 export function stepTarget(
   step: LoopStep, map: DiscoveryMap,
   /** Approved display names by raw column name, so the label never shows
    *  `resistance_pct` where the project has decided on a better name (Part C). */
   labels: Record<string, string> = {},
 ): StepTarget {
-  const top = map.top_connections?.[0];
+  const ranked = map.top_connections ?? [];
+  const top = forStep(step.id, ranked);
   const name = (raw: string) => labels[raw] ?? raw;
   const pair = top ? `${name(top.left_variable)} × ${name(top.right_variable)}` : null;
   switch (step.id) {

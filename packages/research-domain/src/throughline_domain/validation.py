@@ -209,6 +209,11 @@ def validate_connection(
 
     # --- confounder adjustment ----------------------------------------------
     adjust_run_id = None
+    # Whether a model was actually fitted. "The association did not survive
+    # adjustment" and "no model could be fitted" are different facts, and the
+    # second was being reported as the first — the same conflation D354 found
+    # between a report's status and its verdict.
+    fitted = True
     if confounders and method in {"pearson_correlation", "spearman_correlation"}:
         adjust_run_id = _queue(cur, project_id=project_id, spec={
             "method": "linear_regression", "dataset_version_ids": version_ids,
@@ -228,7 +233,13 @@ def validate_connection(
                       f"(p = {p_adjusted:.4g}). The association "
                       f"{'survives' if passed else 'does not survive'} adjustment.")
         else:
-            passed, detail = False, f"The adjusted model failed: {adjusted['error']}"
+            passed, fitted = False, False
+            detail = (
+                f"The adjusted model could not be fitted, so the association "
+                f"has not been adjusted for "
+                f"{', '.join(confounders)}: {adjusted['error']} This is "
+                f"untested, not a failure to survive adjustment."
+            )
     else:
         # Not knowing the confounders is a real limitation, not a pass.
         passed = False
@@ -236,7 +247,9 @@ def validate_connection(
                   "been adjusted for anything. This is untested, not clean.")
     checks["confounder_adjustment"] = passed
     record_check(cur, report_id=report_id, name="confounder_adjustment",
-                 outcome="passed" if passed else "not_tested" if not confounders else "violated",
+                 outcome=("passed" if passed
+                          else "violated" if fitted and confounders
+                          else "not_tested"),
                  detail=detail, analysis_run_id=adjust_run_id)
 
     all_passed = all(checks.values())

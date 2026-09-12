@@ -3052,9 +3052,29 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding,
 
   // Adjusting a variable for itself is not a confounder test; it is a mistake
   // the interface should make impossible rather than report afterwards.
-  const candidates = (columns.data ?? []).filter(
+  const others = (columns.data ?? []).filter(
     (c) => c.name !== connection.left_variable && c.name !== connection.right_variable,
   );
+  /*
+   * Only the columns the adjusted model can actually use.
+   *
+   * Adjustment fits a linear regression with the confounders as predictors,
+   * and a text column coerces to nothing — every row is dropped and the fit
+   * raises "0 complete rows cannot fit 2 predictors". Measured, not reasoned
+   * about: on a real dataset the picker offered the site column, a researcher
+   * chose the most natural confounder there is, and the run came back
+   * *violated* — which reads as "the association did not survive" when nothing
+   * had been fitted at all. It was the step that gates the rest of the loop.
+   *
+   * Offered by what the model needs rather than hidden, because a column that
+   * silently vanishes from a list is indistinguishable from a column the
+   * dataset does not have.
+   */
+  const numeric = (c: DatasetColumn) =>
+    c.physical_type === "number" || c.physical_type === "integer"
+    || c.physical_type === "float" || c.semantic_type === "continuous";
+  const candidates = others.filter(numeric);
+  const notAdjustable = others.filter((c) => !numeric(c));
 
   function toggle(name: string) {
     setChosen((current) =>
@@ -3241,6 +3261,27 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding,
           <p className="note">
             This connection is not linked to a discovery run, so its dataset schema
             cannot be resolved. Validation can still run without adjustment.
+          </p>
+        )}
+
+        {/*
+          * The columns that exist and cannot be used, named.
+          *
+          * Silently dropping them would leave a researcher looking for the
+          * site column and concluding the profile had missed it. Adjusting for
+          * a categorical variable is a real thing to want — it needs the model
+          * to code it as indicator columns, which it does not do yet — so this
+          * says what is missing rather than implying the column is unsuitable.
+          */}
+        {notAdjustable.length > 0 && (
+          <p className="note">
+            {notAdjustable.length === 1 ? "One column is" : `${notAdjustable.length} columns are`}
+            {" "}not offered here
+            {" ("}{notAdjustable.map((c) =>
+              (variables.data?.labels ?? {})[c.name] ?? c.name).join(", ")}
+            {"): "}
+            adjustment fits a regression, and a categorical column would have to
+            be coded as indicators first, which this model does not do yet.
           </p>
         )}
 
