@@ -46,24 +46,28 @@ const HEADING_IN: Record<string, { file: string; expect?: string; why?: string }
   overview: { file: "", why: "Titled with the project's name, which is the more useful heading." },
   sources: { file: "components/views.tsx" },
   variables: { file: "components/variables.tsx" },
-  search: { file: "components/views.tsx" },
-  literature: { file: "components/literature.tsx" },
-  datasearch: { file: "components/datasearch.tsx" },
-  readfigure: { file: "components/readfigure.tsx" },
+  /*
+   * Searching the library, finding papers, finding data and digitising a figure
+   * are no longer rail entries: each one ends in a source landing in the
+   * library, so they are views of Sources rather than peers of it. A view is
+   * named by its tab, not by an <h1>, so there is nothing here to match.
+   */
   discover: { file: "components/views.tsx" },
   compare: { file: "components/compare.tsx" },
-  patterns: { file: "components/patterns.tsx" },
+  /* The pattern sweep and the embedding space are two more readings of this
+     project's analyses, reached by tab rather than by rail entry, so neither
+     needs a heading to match one. */
   connections: { file: "app/workspace/page.tsx" },
   findings: { file: "components/views.tsx" },
   analyses: { file: "components/analyses.tsx" },
   graph: { file: "components/graphview.tsx" },
-  embedding: { file: "components/embeddingspace.tsx" },
   reports: { file: "components/reports.tsx" },
   figures: { file: "components/figures.tsx" },
   notebook: { file: "components/notebook.tsx" },
+  /* The activity log is the Record's second reading and the chart catalogue is
+     a view of Figures; neither is a rail entry, so neither needs a heading to
+     match one. */
   journal: { file: "components/journal.tsx" },
-  activity: { file: "components/activity.tsx" },
-  gallery: { file: "components/gallery.tsx" },
   settings: { file: "components/settings.tsx" },
 };
 

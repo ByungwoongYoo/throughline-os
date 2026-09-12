@@ -76,7 +76,7 @@ export function Journal({ projectId, onOpenObject }: {
   if (data.length === 0) {
     return (
       <>
-        <h1>Journal</h1>
+        <h1>Record</h1>
         <Empty
           title="Nothing written yet"
           // Says where notes come from, because this screen only ever reads
@@ -90,7 +90,7 @@ export function Journal({ projectId, onOpenObject }: {
 
   return (
     <>
-      <h1>Journal</h1>
+      <h1>Record</h1>
       <p className="lede">
         Everything written in this project, newest first. A note written by a
         model is marked as one — it is a reading, not a record of what you

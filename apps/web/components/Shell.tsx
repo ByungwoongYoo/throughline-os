@@ -91,148 +91,99 @@ const GROUPS: Array<{ label: string; items: RailItem[] }> = [
   {
     label: "The project",
     items: [
+      { id: "overview", label: "Overview" },
       /*
-       * First, because §4 calls the workboard "the central operating surface
-       * of the product" and §109 puts it at Phase 0. It was never built, so
-       * every object a project accumulated lived in a list and never in a
-       * place.
+       * §4 calls the workboard "the central operating surface of the product"
+       * and §109 puts it at Phase 0. It was never built, so every object a
+       * project accumulated lived in a list and never in a place.
        */
       { id: "board", label: "Workboard" },
-      { id: "overview", label: "Overview" },
     ],
   },
   {
-    label: "Gather",
+    /*
+     * The evidence surface — UI_01's family: what this project has read and
+     * holds, and the claim-testing that happens against it.
+     *
+     * The four ways of getting something into the library — searching it,
+     * finding papers, finding data, digitising a figure — were four entries
+     * beside it, as though each were a peer of the library. Every one of them
+     * ends in a source landing there, so they are views of Sources now and the
+     * rail is four shorter.
+     */
+    label: "Evidence",
     items: [
       { id: "sources", label: "Sources", count: "sources" },
-      /*
-       * Beside Sources, because that is what it is about: what the columns of
-       * the data mean. Approving a label is also the only way any chart in
-       * this system stops being titled `resistance_pct`, and until this screen
-       * existed nothing could approve one.
-       */
       { id: "variables", label: "Variables" },
       /*
-       * "Search sources", not "Search", because of the two entries directly
-       * below it. Three consecutive search-shaped labels — Search, Find papers,
-       * Find data — and only one of them said what it searched, so the bare one
-       * read as the general case and the other two as special cases of it. They
-       * are not: this one searches the passages already in the project, and the
-       * other two go outside it to find things the project does not have. The
-       * distinction is have-it versus get-it, and the label now carries it.
+       * Compare is UI_01 itself, reached through its "Paper ↔ dataset"
+       * comparison. It belongs with what it compares rather than under a verb
+       * of its own.
        */
-      { id: "search", label: "Search sources" },
-      { id: "literature", label: "Find papers" },
-      { id: "datasearch", label: "Find data" },
-      /*
-       * Beside "Find data" for the same have-it/get-it reason the comment
-       * above gives: this is how a project gets numbers it does not have, out
-       * of a paper that printed them as a picture instead of publishing them.
-       * It is not under Communicate with "Figures" — that screen *makes* a
-       * figure from data, and this one does the opposite.
-       */
-      { id: "readfigure", label: "Read a figure" },
+      { id: "compare", label: "Compare" },
     ],
   },
   {
-    label: "Discover and test",
+    /*
+     * The analysis surface — UI_02's family: how runs are made and read.
+     *
+     * Discovery is here rather than with the relationships it eventually
+     * produces, because what it produces first is runs: a sweep proposes
+     * candidates and an analysis tests one. The rail's order is the work's
+     * order, and `rail-follows-the-work` holds it to that.
+     */
+    label: "Analysis",
     items: [
-      /*
-       * "Discovery", matching the screen. The rail said "Discovery map",
-       * which promises a picture; the screen is where a sweep is started and
-       * where its candidates are read.
-       */
       { id: "discover", label: "Discovery" },
-      { id: "compare", label: "Compare" },
-      { id: "patterns", label: "Patterns" },
       /*
-       * Analyses, then connections, then findings — the order the work
-       * actually happens in, and the only group in this rail whose order had
-       * no reason attached to it.
-       *
-       * It read Connections, Findings, Analyses, which puts the producer last:
-       * a finding is assembled `from_connections`, and every connection joins
-       * to an `analysis_run`. So a researcher scanning the rail met the two
-       * things a run produces before the run itself, and the list implied a
-       * sequence that runs backwards through its own data model.
-       *
-       * The three counts make that legible from the rail alone: six analyses
-       * behind six connections behind two findings is the shape of honest
-       * work, and the same three numbers in the old order said nothing.
+       * One entry, three readings. The pattern sweep and the embedding space
+       * were sections beside this one, and both answer a question *about this
+       * project's analyses* — which pairs the sweep proposed, and how the runs
+       * sit relative to each other. A researcher wanting either had to already
+       * know that "Patterns" did not mean "the patterns in my data" and that
+       * "Embedding space" was not a setting. They are views of Analyses.
        */
       { id: "analyses", label: "Analyses", count: "analyses" },
-      { id: "connections", label: "Connections", count: "connections" },
-      { id: "findings", label: "Findings", count: "findings" },
-      /*
-       * "Research graph", which is what the screen has always been titled and
-       * what it shows: every object in the project and how they relate.
-       *
-       * It was labelled "Evidence graph", which collided with a different
-       * screen that genuinely is one — the per-finding "why do we believe
-       * this", reached by opening a finding. Two surfaces answering different
-       * questions under one name, and the one in the rail was not the one the
-       * name described.
-       */
-      { id: "graph", label: "Research graph" },
-      { id: "embedding", label: "Embedding space" },
     ],
   },
   {
+    /*
+     * The lineage surface — UI_03's family: what relates to what, and what it
+     * rests on. Analyses, then connections, then findings is the data model's
+     * own order — a finding is assembled `from_connections`, and every
+     * connection joins to an analysis run.
+     */
+    label: "Lineage",
+    items: [
+      { id: "connections", label: "Connections", count: "connections" },
+      { id: "findings", label: "Findings", count: "findings" },
+      { id: "graph", label: "Research graph" },
+    ],
+  },
+  {
+    /*
+     * Writing, after the work it writes about.
+     *
+     * "Chart primitives" is a view of Figures now rather than an entry under
+     * *This machine*: a catalogue of chart kinds is the answer to "what could
+     * I draw this as", which is a question you have while making a figure, not
+     * a property of the installation. And the journal and the activity log are
+     * one Record with two readings — what was written, and what was done —
+     * because they were two entries answering one question about the same
+     * project.
+     */
     label: "Communicate",
     items: [
       { id: "reports", label: "Reports", count: "reports" },
       { id: "figures", label: "Figures", count: "figures" },
       { id: "notebook", label: "Notebook", note: "your pages, and what they link to" },
-      /*
-       * Beside the notebook, because both are writing — but they are not the
-       * same view of it. The notebook is pages and links; the journal is
-       * everything written in the project in the order it was written,
-       * including what a model wrote, which is the only place that can be
-       * read across objects rather than one object at a time.
-       */
-      { id: "journal", label: "Journal", note: "everything written, in order" },
-      /*
-       * Beside the journal for the same reason the journal sits beside the
-       * notebook, and the distinction is the same one: the journal is
-       * everything *written* in the project in the order it was written,
-       * this is everything *done* in it in the order it was done.
-       *
-       * It exists because `audit_log` had nine writers and no readers — a
-       * record kept by one part of the system and read by none, which is
-       * this repository's named recurring defect at table scale. A route
-       * without a screen would have recreated it one layer up.
-       */
-      { id: "activity", label: "Activity", note: "everything done, in order" },
+      { id: "journal", label: "Record", note: "everything written and done, in order" },
     ],
   },
   {
-    /*
-     * Rendered as the rail's pinned footer rather than as its last scrolling
-     * group. At 1440×900 the rail has 848 px for about 1,020 px of entries,
-     * and what fell off the bottom was this group — Settings, model choice,
-     * feature packs, the version, and the three pages that were URL-only
-     * until they were filed here. A group that exists to rescue entries from
-     * being unreachable must itself stay on screen.
-     */
+    /* One item now: the chart catalogue was never a property of this machine. */
     label: "This machine",
     items: [
-      /*
-       * Moved out of Communicate, where it sat between Figures and Notebook.
-       *
-       * It is the one entry in this navigation that is not a step in research:
-       * it renders every primitive against illustrative data — no project is
-       * involved — so that "it renders" is checkable rather than asserted. That
-       * is a real thing to be able to do, and it is the same kind of thing as
-       * the two pages already filed here: does the camera see my hands, can I
-       * draw in the air, do the charts draw.
-       *
-       * There is also a smaller argument. The Figures screen chooses a chart
-       * from the shape of the data and says why; a gallery invites browsing
-       * charts detached from any data, which is the habit §10 warns against.
-       * Keeping it away from the figure-making surface keeps the two from
-       * reading as alternatives.
-       */
-      { id: "gallery", label: "Chart primitives", note: "every chart, drawn against illustrative data" },
       { id: "settings", label: "Settings" },
     ],
   },

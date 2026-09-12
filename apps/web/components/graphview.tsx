@@ -64,7 +64,7 @@ export function GraphView({ projectId, onSelect, focus = null, view = "graph", o
   onSelect: (id: string) => void;
   focus?: string | null;
   /** Which reading is open. Carried in the address by the workspace. */
-  view?: View;
+  view?: View | null;
   onView?: (next: View) => void;
 }) {
   return (

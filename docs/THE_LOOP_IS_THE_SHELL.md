@@ -4,6 +4,14 @@ implements in three slices; TASKS.md says which slice is where. -->
 
 # The loop is the shell — the plan the team implements
 
+> **Superseded in part (T155).** The five verb groups this plan proposes, and the
+> twenty-three-section rail the table below maps, were replaced by the recovered
+> UI/UX package's six groups and fifteen sections: eight of the entries named here
+> are now views of the screen that owns them. The *argument* still holds and is
+> what T155 built on — the rail's order is the work's order, and a step belongs to
+> the strip rather than to the rail. Read the table as the reasoning behind each
+> entry, not as where it currently lives; `apps/web/components/Shell.tsx` is.
+
 **Task row:** T135. **Discoveries this plan closes:** D200–D208, plus D209 (recorded
 below, fix already in the working tree). **Author:** design lead, from three audits,
 three proposals, three judges, two skeptics.

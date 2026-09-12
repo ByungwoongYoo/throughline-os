@@ -115,17 +115,22 @@ describe("the shell carries the strip above the workspace", () => {
     const sections = container.querySelector("nav.sectionbar")!;
     expect(sections.getAttribute("aria-label")).toBe("This machine");
     expect(sections.textContent).toContain("Settings");
-    expect(sections.textContent).toContain("Chart primitives");
+    /* Chart primitives left this group for Figures: a catalogue of chart kinds
+       answers "what could I draw this as", which is a question you have while
+       making a figure rather than a property of the installation. */
+    expect(sections.textContent).not.toContain("Chart primitives");
     for (const step of ["Findings", "Analyses", "Sources", "Reports"]) {
       expect(sections.textContent).not.toContain(step);
     }
-    // Five groups, named and never numbered: only four sections are step
-    // destinations, so a numbered heading would claim a sequence. The name is
-    // the tab's first span; the second is the entry count (T139).
+    // Named and never numbered: only some sections are step destinations, so a
+    // numbered heading would claim a sequence. The name is the tab's first
+    // span; the second is the entry count (T139). Six groups now, around the
+    // three master surfaces rather than around verbs.
     const names = [...container.querySelectorAll(".groupbar-tab")]
       .map((h) => h.querySelector("span")?.textContent?.trim());
     expect(names).toEqual(
-      ["The project", "Gather", "Discover and test", "Communicate", "This machine"]);
+      ["The project", "Evidence", "Analysis", "Lineage", "Communicate",
+       "This machine"]);
     for (const label of names) expect(label).not.toMatch(/^\d/);
   });
 });
