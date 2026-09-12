@@ -164,6 +164,12 @@ class FindingTransition(BaseModel):
     checks: dict[str, bool] = Field(default_factory=dict)
 
 
+class FindingLimitations(BaseModel):
+    """What a finding does not establish, in the researcher's own words."""
+
+    limitations: list[str] = Field(default_factory=list, max_length=40)
+
+
 # ---------------------------------------------------------------------------
 # Auth plumbing
 # ---------------------------------------------------------------------------
@@ -448,7 +454,12 @@ def _set_session_cookie(response: Response, token: str) -> None:
 def list_projects(user: dict = Depends(current_user)) -> list[dict[str, Any]]:
     with transaction() as cur:
         cur.execute(
-            "SELECT id, name, research_question, description, status, created_at, updated_at "
+            # No `status`: the column exists with a DEFAULT and nothing ever
+            # writes it, so every project was sent the word "active" whatever
+            # its real state. Archiving is `archived_at`, which the filter
+            # below already reads, and the client never displayed the constant
+            # it was being sent (T154).
+            "SELECT id, name, research_question, description, created_at, updated_at "
             "FROM projects WHERE owner_user_id = %s AND archived_at IS NULL "
             "ORDER BY created_at DESC",
             (user["id"],),
@@ -5204,6 +5215,36 @@ def transition_finding(finding_id: str, payload: FindingTransition,
             # researcher needs to be told which of the two happened.
             raise HTTPException(409, str(exc)) from exc
         except (findings.IllegalTransition, findings.ValidationIncomplete) as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+
+@app.put("/api/findings/{finding_id}/limitations")
+def record_finding_limitations(
+    finding_id: str, payload: FindingLimitations,
+    user: dict = Depends(current_user),
+) -> dict[str, Any]:
+    """
+    Record the caveats on a finding.
+
+    The column was read on the finding page, in the library note and in the
+    evidence graph, and written by nothing — so every finding displayed no
+    limitations whether or not it had any, which is the same screen a
+    researcher sees for a finding with nothing left to caveat. PUT rather than
+    POST: the list is the whole statement of what this finding does not
+    establish, and sending it entire is what lets a caveat be withdrawn (T154).
+    """
+    with transaction() as cur:
+        cur.execute("SELECT project_id FROM findings WHERE id = %s", (finding_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Finding not found.")
+        scoped_project(row["project_id"], user)
+        try:
+            return findings.record_limitations(
+                cur, finding_id=finding_id, limitations=payload.limitations,
+                actor=user["id"])
+        except findings.LimitationsRefused as exc:
+            # 422: the request is well formed and its content is not usable.
             raise HTTPException(422, str(exc)) from exc
 
 

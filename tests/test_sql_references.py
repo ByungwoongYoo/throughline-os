@@ -29,6 +29,7 @@ from __future__ import annotations
 import ast
 import pathlib
 import re
+import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MIGRATIONS = ROOT / "packages/research-domain/src/throughline_domain/migrations"
@@ -129,8 +130,14 @@ _COLUMN_LINE = re.compile(r"([a-z_]\w*)\s+[A-Za-z]")
 
 _INSERT_COLUMNS = re.compile(
     r"INSERT\s+INTO\s+([a-z_]\w*)\s*\(([^)]*)\)", re.I | re.S)
+#: The optional word between the table and SET is an alias (`UPDATE
+#: workflow_runs r SET ...`, which `workflow.claim_next` writes). Without it
+#: the match failed and every column that statement sets counted as written by
+#: nothing — `workflow_runs.attempts` was flagged for exactly that reason.
+#: `(?!SET\b)` keeps the unaliased form from swallowing its own SET.
 _UPDATE_SET = re.compile(
-    r"UPDATE\s+([a-z_]\w*)\s+SET\s+(.*?)(?:\s+WHERE|\s+RETURNING|$)", re.I | re.S)
+    r"UPDATE\s+([a-z_]\w*)(?:\s+(?:AS\s+)?(?!SET\b)[a-z_]\w*)?\s+SET\s+"
+    r"(.*?)(?:\s+WHERE|\s+RETURNING|$)", re.I | re.S)
 _ASSIGNED = re.compile(r"([a-z_]\w*)\s*=")
 
 
@@ -529,9 +536,9 @@ def test_no_column_is_written_where_nothing_reads_it():
 READ_ONLY: set[tuple[str, str]] = set()
 
 
-def _read_pairs() -> tuple[set[tuple[str, str]], set[str]]:
+def _read_pairs() -> set[tuple[str, str]]:
     """
-    (table, column) pairs read somewhere, and tables read with `*`.
+    The (table, column) pairs that some query actually reads.
 
     A read is attributed to the tables *its own query* names, rather than to
     the schema at large. The check above can afford a bag of words because
@@ -540,30 +547,59 @@ def _read_pairs() -> tuple[set[tuple[str, str]], set[str]]:
     than fixed. `paper_attributes.value` is the case that proved it: flagged
     only because some other table's query selects a column called `value`.
 
-    Within one query the attribution is still loose — a column is credited to
-    every table the query mentions, not to the one it belongs to. That is the
-    alias problem this module's docstring declines to solve, and erring that
-    way is safe: it makes columns look read, so the check under-reports.
+    Within a query, a qualified read belongs to the table its alias is bound
+    to: `r.object_id` in a query joining `analysis_specs s` to `analysis_runs
+    r` is the run's column and not the spec's. Crediting it to both is what
+    made `analysis_specs.object_id` — which has no reader at all — look read.
+    Only unqualified columns fall back to every table the query names, and
+    that direction is the safe one: it makes columns look read, so the check
+    under-reports rather than accuses.
+
+    There is deliberately no exemption for tables read with `SELECT *`. The
+    write-side check needs one, because a star really might be the reader of
+    any column it covers. This check asks the opposite question, and a star
+    names no column, so it is no evidence that a column is written. The
+    exemption was here anyway, and it excused nineteen tables — `connections`
+    among them, which is how `connections.object_id` was read by the evidence
+    graph and written by nothing for as long as both existed (T154).
     """
     pairs: set[tuple[str, str]] = set()
-    starred: set[str] = set()
     for path in source_files():
         for literal in string_literals(path):
             if not SQL_START.search(literal):
                 continue
             query = _SQL_COMMENT.sub(" ", literal)
+            bindings = {alias.lower(): table.lower()
+                        for table, alias in _QUERY_BINDINGS.findall(query)
+                        if alias}
             named = {t.lower() for t in _QUERY_TABLES.findall(query)}
             if not named:
                 continue
-            for selected in _SELECT_LIST.findall(query):
-                if selected.strip() == "*" or selected.strip().endswith(".*"):
-                    starred |= named
-            words: set[str] = set()
+            bindings.update({t: t for t in named})
             for chunk in _READ_CONTEXT.findall(query):
-                words |= {w.lower() for w in re.findall(r"[a-z_]\w*", chunk)}
-            for table in named:
-                pairs |= {(table, word) for word in words}
-    return pairs, starred
+                for prefix, column in _QUALIFIED.findall(chunk):
+                    owner = bindings.get(prefix.lower())
+                    if owner:
+                        pairs.add((owner, column.lower()))
+                    else:
+                        # An unknown prefix (a CTE, a subquery) — fall back to
+                        # the loose reading rather than dropping the read.
+                        pairs |= {(table, column.lower()) for table in named}
+                plain = _QUALIFIED.sub(" ", chunk)
+                words = {w.lower() for w in re.findall(r"[a-z_]\w*", plain)}
+                pairs |= {(table, word) for table in named for word in words}
+    return pairs
+
+
+#: `alias.column`, the form that says which table a read belongs to.
+_QUALIFIED = re.compile(r"\b([a-z_]\w*)\.([a-z_]\w*)")
+#: A table and the alias it is bound to, if any. The negative lookahead keeps
+#: the next keyword of the statement from being read as an alias.
+_QUERY_BINDINGS = re.compile(
+    r"(?is)(?:FROM|JOIN|UPDATE|INTO)\s+([a-z_]\w*)"
+    r"(?:\s+(?:AS\s+)?(?!ON\b|SET\b|WHERE\b|USING\b|VALUES\b|LEFT\b|RIGHT\b"
+    r"|INNER\b|OUTER\b|FULL\b|CROSS\b|JOIN\b|GROUP\b|ORDER\b|LIMIT\b"
+    r"|RETURNING\b|ON\b|SELECT\b|WITH\b)([a-z_]\w*))?")
 
 
 _QUERY_TABLES = re.compile(r"(?is)(?:FROM|JOIN|UPDATE|INTO)\s+([a-z_]\w*)")
@@ -595,13 +631,12 @@ def read_but_unwritten() -> list[tuple[str, str]]:
     defined = defined_columns()
     tables = set(defined)
     written = {(table, column) for _, _, table, column in written_columns()}
-    pairs, starred = _read_pairs()
+    pairs = _read_pairs()
     return sorted(
         (table, column)
         for table, columns in defined.items() for column in columns
         if (table, column) not in written
         and (table, column.lower()) in pairs
-        and table not in starred
         and not _is_structural(column, tables)
         and (table, column) not in READ_ONLY)
 
@@ -625,7 +660,7 @@ def test_the_read_check_inspects_a_meaningful_number_of_reads():
     A scan that reads nothing finds nothing and passes. This check's whole
     value is the absence of a result, so the absence has to be earned.
     """
-    pairs, _ = _read_pairs()
+    pairs = _read_pairs()
     assert len(pairs) > 1000, len(pairs)
     assert sum(len(c) for c in defined_columns().values()) > 500
 
@@ -636,9 +671,8 @@ def test_the_read_check_notices_a_column_nothing_writes():
     with the writers removed from the surface it has to come back.
     """
     defined = defined_columns()
-    pairs, starred = _read_pairs()
+    pairs = _read_pairs()
     assert ("dataset_versions", "study_design") in pairs
-    assert "dataset_versions" not in starred
     assert "study_design" in defined["dataset_versions"]
     assert not _is_structural("study_design", set(defined))
 
@@ -646,7 +680,7 @@ def test_the_read_check_notices_a_column_nothing_writes():
     flagged = [
         (t, c) for t, cols in defined.items() for c in cols
         if (t, c) not in without_writers and (t, c.lower()) in pairs
-        and t not in starred and not _is_structural(c, set(defined))]
+        and not _is_structural(c, set(defined))]
     assert ("dataset_versions", "study_design") in flagged
 
 
@@ -679,3 +713,53 @@ def test_the_allowlist_does_not_outlive_its_entries():
     assert not stale, (
         "These are allowlisted as write-only but nothing writes them any more:\n"
         + "\n".join(f"  {t}.{c}" for t, c in stale))
+
+
+def test_a_qualified_read_belongs_to_the_table_its_alias_names():
+    """
+    `evidence_graph` joins `analysis_specs s` to `analysis_runs r` and selects
+    `r.object_id`. Crediting that read to both tables made
+    `analysis_specs.object_id` — a column with no reader anywhere — look read,
+    and an accusation against an innocent column is how a check like this gets
+    suppressed instead of fixed.
+    """
+    pairs = _read_pairs()
+    assert ("analysis_runs", "object_id") in pairs
+    assert ("analysis_specs", "object_id") not in pairs
+
+
+def test_the_read_check_still_judges_a_table_read_with_a_star(monkeypatch):
+    """
+    `SELECT *` is evidence about readers, not about writers, so it earns no
+    exemption here — the write-side check above is where it belongs. While it
+    was honoured on this side it excused nineteen tables, `connections` among
+    them, and `connections.object_id` was read by the evidence graph and
+    written by nothing for as long as both existed (T154).
+
+    Planted through the real check rather than a copy of its filter: one
+    writer of a starred table's column is removed, and the column has to come
+    back. A test that re-implemented the filter would keep passing after the
+    exemption returned, which is how the first version of this test was
+    wrong.
+    """
+    assert "connections" in _read_surface()[1], "the premise of this test has moved"
+
+    real = written_columns()
+    hidden = ("connections", "left_variable")
+    assert hidden in {(t, c) for _, _, t, c in real}
+    monkeypatch.setattr(
+        sys.modules[__name__], "written_columns",
+        lambda: [row for row in real if (row[2], row[3]) != hidden])
+
+    assert hidden in read_but_unwritten()
+
+
+def test_an_aliased_update_counts_as_a_writer():
+    """
+    `workflow.claim_next` writes `UPDATE workflow_runs r SET attempts = ...`.
+    The alias defeated the write parser, so every column that statement sets
+    counted as written by nothing — which would have accused `attempts` the
+    moment the star exemption came off.
+    """
+    written = {(t, c) for _, _, t, c in written_columns()}
+    assert ("workflow_runs", "attempts") in written

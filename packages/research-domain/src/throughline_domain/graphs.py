@@ -194,13 +194,35 @@ def evidence_graph(cur, *, finding_id: str) -> dict[str, Any]:
         )
         analyses = list(cur.fetchall())
 
+        # A connection is reached through the run that tested it, not through
+        # an object of its own: `connections.object_id` exists but no writer
+        # sets it, so joining lineage to it matched nothing and this list was
+        # empty for every finding ever recorded — including one recorded *from*
+        # a tested connection, which then read "No tested connection to write a
+        # report from" on its own page. The walk below is the one
+        # `findings.validation_checks` already uses.
+        #
+        # The row shape is the one `discovery.list_connections` returns — the
+        # whole row plus the dataset it came from and the run's object —
+        # because the client types this list as `Connection[]` and a second,
+        # narrower shape under the same name is the drift that guard exists to
+        # catch. It also carries `analysis_run_id`, which is exactly the
+        # client's rule for offering a report (`canDraftReport`); sending the
+        # list without it would move the dead branch rather than remove it.
         cur.execute(
             """
-            SELECT c.id, c.left_variable, c.right_variable, c.method, c.lifecycle_status,
-                   c.estimate, c.p_value, c.q_value, c.effect_size, c.evidence_quality
+            SELECT DISTINCT c.*, dr.dataset_version_id,
+                   r.object_id AS analysis_object_id,
+                   ds.name AS dataset_name, dv.version AS dataset_version
             FROM artifact_lineage_edges e
-            JOIN connections c ON c.object_id = e.source_artifact_id
+            JOIN research_objects o ON o.id = e.source_artifact_id
+            JOIN analysis_runs r ON r.object_id = o.id
+            JOIN connections c ON c.analysis_run_id = r.id
+            LEFT JOIN discovery_runs dr ON dr.id = c.discovery_run_id
+            LEFT JOIN dataset_versions dv ON dv.id = dr.dataset_version_id
+            LEFT JOIN datasets ds ON ds.id = dv.dataset_id
             WHERE e.target_artifact_id = %s
+            ORDER BY c.rank_score DESC, c.created_at DESC
             """,
             (finding["object_id"],),
         )

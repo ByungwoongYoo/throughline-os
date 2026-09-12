@@ -74,11 +74,19 @@ def challenge_finding(
     })
 
     # --- Re-run the robustness suite on the connections behind it ------------
+    #
+    # Through the run that tested the connection, not through
+    # `connections.object_id`: nothing writes that column, so this join matched
+    # nothing and this probe never ran for any finding — a verdict reporting
+    # three probes where it was built to report four, which reads as a cleaner
+    # bill of health than was actually earned. Same walk as
+    # `graphs.evidence_graph` and `findings.validation_checks` (T154).
     cur.execute(
         """
         SELECT DISTINCT c.id, c.lifecycle_status, c.left_variable, c.right_variable
         FROM connections c
-        JOIN research_objects o ON o.id = c.object_id
+        JOIN analysis_runs r ON r.id = c.analysis_run_id
+        JOIN research_objects o ON o.id = r.object_id
         JOIN artifact_lineage_edges e ON e.source_artifact_id = o.id
         WHERE e.target_artifact_id = %s
         """,

@@ -217,7 +217,6 @@ export type Project = {
   name: string;
   research_question: string;
   description: string;
-  status: string;
   created_at: string;
 };
 

@@ -13,10 +13,10 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { EvidenceGraphView, Findings } from "@/components/views";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 
 const GRAPH = (over: Record<string, unknown> = {}) => ({
   finding: {
@@ -86,13 +86,39 @@ describe("a finding that states its own limits", () => {
 });
 
 describe("a finding with no stated limits", () => {
-  it("says nothing rather than showing an empty heading", async () => {
-    // An empty "what this does not establish" would read as a claim that there
-    // are no limits, which is the opposite of the point.
+  /*
+   * This section used to disappear when the list was empty, and the reason
+   * given was sound at the time: an empty "what this does not establish"
+   * reads as a claim that there are no limits, which is the opposite of the
+   * point. What made it sound was that nothing in the product could write the
+   * field — a heading with nothing under it and no way to act was strictly
+   * worse than silence.
+   *
+   * `findings.record_limitations` is that way to act (T154), so the heading
+   * stays and the empty state says which kind of empty it is. Silence now
+   * would hide the control, and leave "nobody has written any" looking
+   * identical to "there are none" — the absence-read-as-evidence failure this
+   * file exists to prevent.
+   */
+  it("says none are recorded, rather than implying there are none", async () => {
     show(GRAPH());
     await waitFor(() =>
       expect(screen.getByText("Sleep predicts recall")).toBeTruthy());
-    expect(screen.queryByText(/does not establish/i)).toBeNull();
+    expect(screen.getByRole("heading", { name: /does not establish/i })).toBeTruthy();
+    expect(screen.getByText(/Nobody has written down/i)).toBeTruthy();
+    // Its own words, not a second copy of the evidence note's tail: two
+    // sentences ending the same way read as boilerplate.
+    expect(screen.getByText(/not a clean bill of health/i)).toBeTruthy();
+  });
+
+  it("offers somewhere to record them", async () => {
+    // The half of the fix the guard's own message demands: "'a person is
+    // meant to fill it in' is not a reason — the fix is somewhere for them to
+    // do it."
+    show(GRAPH());
+    await waitFor(() =>
+      expect(screen.getByText("Sleep predicts recall")).toBeTruthy());
+    expect(screen.getByRole("button", { name: /record limitations/i })).toBeTruthy();
   });
 
   it("survives a response that omits the field", async () => {
@@ -101,7 +127,62 @@ describe("a finding with no stated limits", () => {
     show(graph);
     await waitFor(() =>
       expect(screen.getByText("Sleep predicts recall")).toBeTruthy());
-    expect(screen.queryByText(/does not establish/i)).toBeNull();
+    expect(screen.getByText(/Nobody has written down/i)).toBeTruthy();
+  });
+});
+
+describe("recording a finding's limits", () => {
+  it("sends the whole list, so a caveat can be withdrawn", async () => {
+    vi.spyOn(api, "get").mockResolvedValue(
+      GRAPH({ limitations: ["One region only.", "Small n."] }));
+    const put = vi.spyOn(api, "put").mockResolvedValue(
+      { limitations: ["One region only."] });
+    render(<EvidenceGraphView findingId="f1" />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /edit limitations/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /edit limitations/i }));
+
+    const box = screen.getByRole("textbox");
+    expect((box as HTMLTextAreaElement).value)
+      .toBe("One region only.\nSmall n.");
+    fireEvent.change(box, { target: { value: "One region only." } });
+    fireEvent.click(screen.getByRole("button", { name: /^record limitations$/i }));
+
+    await waitFor(() => expect(put).toHaveBeenCalledWith(
+      "/api/findings/f1/limitations", { limitations: ["One region only."] }));
+  });
+
+  it("drops blank lines rather than sending a bullet that says nothing", async () => {
+    vi.spyOn(api, "get").mockResolvedValue(GRAPH());
+    const put = vi.spyOn(api, "put").mockResolvedValue({ limitations: ["Small n."] });
+    render(<EvidenceGraphView findingId="f1" />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /record limitations/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /record limitations/i }));
+    fireEvent.change(screen.getByRole("textbox"),
+                     { target: { value: "Small n.\n\n   \n" } });
+    fireEvent.click(screen.getByRole("button", { name: /^record limitations$/i }));
+
+    await waitFor(() => expect(put).toHaveBeenCalledWith(
+      "/api/findings/f1/limitations", { limitations: ["Small n."] }));
+  });
+
+  it("shows the server's own words when it refuses", async () => {
+    vi.spyOn(api, "get").mockResolvedValue(GRAPH());
+    vi.spyOn(api, "put").mockRejectedValue(
+      new ApiError(422, "A limitation cannot be blank."));
+    render(<EvidenceGraphView findingId="f1" />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /record limitations/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /record limitations/i }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Small n." } });
+    fireEvent.click(screen.getByRole("button", { name: /^record limitations$/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/A limitation cannot be blank/)).toBeTruthy());
   });
 });
 
