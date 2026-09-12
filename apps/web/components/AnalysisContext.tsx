@@ -23,6 +23,9 @@ import { useApi } from "@/lib/useApi";
 import type { Connection } from "@/lib/api";
 import { Fold, Loading } from "./primitives";
 import { Status } from "./primitives";
+import {
+  IconChevronRight, IconConnections, IconDataset, IconLink, IconNote,
+} from "./icons";
 
 type Note = {
   id: string;
@@ -74,23 +77,51 @@ export function AnalysisContext({ projectId, runId, onOpenConnection,
       {link && (
         <section className="ax-block">
           <h4 className="ax-name">Linked objects</h4>
-          <ul className="ax-links">
+          {/*
+            * Rows, not a bulleted list of links.
+            *
+            * UI_02 draws each linked object as a bordered row: a mark for what
+            * kind of thing it is, its name, what it is, and a chevron where it
+            * opens. Ours was a link and a grey line under it, so the column
+            * that is supposed to say "here is everything this run touches"
+            * read as two sentences — and nothing about it said which of them
+            * you could press.
+            */}
+          <ul className="ax-objects">
             <li>
-              <button className="btn-text" type="button"
+              <button className="ax-object" type="button"
                       onClick={() => onOpenConnection?.(link.id)}>
-                {link.left_variable} ↔ {link.right_variable}
+                <span className="ax-object-icon" aria-hidden>
+                  <IconConnections size={15} />
+                </span>
+                <span className="ax-object-body">
+                  <span className="ax-object-name">
+                    {link.left_variable} ↔ {link.right_variable}
+                  </span>
+                  <span className="ax-meta">
+                    Connection · <Status value={link.lifecycle_status} />
+                  </span>
+                </span>
+                <span className="ax-object-go" aria-hidden>
+                  <IconChevronRight size={14} />
+                </span>
               </button>
-              <span className="ax-meta">
-                Connection · <Status value={link.lifecycle_status} />
-              </span>
             </li>
             {link.dataset_name && (
-              <li>
-                <span className="ax-flat">{link.dataset_name}</span>
-                {/* The version is on the connection as an id, not a number:
-                    saying "exact input" is what is true without inventing a
-                    version label the payload does not carry. */}
-                <span className="ax-meta">Dataset · exact input</span>
+              /* No chevron and no button: this row names the input and there
+                 is nowhere for it to go from here. A chevron on a row that
+                 does not open is the dead-end door again. */
+              <li className="ax-object ax-object-flat">
+                <span className="ax-object-icon" aria-hidden>
+                  <IconDataset size={15} />
+                </span>
+                <span className="ax-object-body">
+                  <span className="ax-object-name">{link.dataset_name}</span>
+                  {/* The version is on the connection as an id, not a number:
+                      saying "exact input" is what is true without inventing a
+                      version label the payload does not carry. */}
+                  <span className="ax-meta">Dataset · exact input</span>
+                </span>
               </li>
             )}
           </ul>
@@ -134,11 +165,14 @@ export function AnalysisContext({ projectId, runId, onOpenConnection,
         <section className="ax-block">
           <h4 className="ax-name">Provenance</h4>
           <p className="ax-chain mono">
-            {link.dataset_name ?? "dataset"}
-            <span aria-hidden> → </span>
-            this run
-            <span aria-hidden> → </span>
-            {link.left_variable} ↔ {link.right_variable}
+            <span className="ax-object-icon" aria-hidden><IconLink size={14} /></span>
+            <span>
+              {link.dataset_name ?? "dataset"}
+              <span aria-hidden> → </span>
+              this run
+              <span aria-hidden> → </span>
+              {link.left_variable} ↔ {link.right_variable}
+            </span>
           </p>
           {link.analysis_object_id && onOpenLineage && (
             <button className="btn-text" type="button"
@@ -162,6 +196,7 @@ export function AnalysisContext({ projectId, runId, onOpenConnection,
         <Fold summary="Notes" count={journal.data!.notes.length}>
           {journal.data!.notes.map((note) => (
             <p key={note.id} className="ax-note">
+              <span className="ax-object-icon" aria-hidden><IconNote size={14} /></span>
               {note.body}
               <span className="ax-meta">
                 {note.author_kind === "model"

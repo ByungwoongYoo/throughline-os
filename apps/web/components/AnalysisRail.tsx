@@ -20,6 +20,7 @@ import type { AnalysisRunRow, Source } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { Tabs } from "./Tabs";
 import { StateMark } from "./primitives";
+import { IconAnalyses, IconDataset, IconLiterature } from "./icons";
 
 /** The colour a variable's role is drawn in, matching the workspace palette. */
 function roleTone(role: string): string {
@@ -68,6 +69,15 @@ export function AnalysisRail({ projectId, runId, variables, onOpenRun }: {
               <ul className="rail-list">
                 {sources.data?.map((source: Source) => (
                   <li key={source.id} className="rail-card">
+                    {/* A paper and a dataset are marked differently, as UI_02
+                        marks them: a column of identical rows is one a reader
+                        has to read word by word, because nothing in it can be
+                        scanned. The type is still written out beside it —
+                        §04 forbids colour or shape as the sole carrier. */}
+                    <span className="rail-icon" aria-hidden>
+                      {source.source_type === "dataset"
+                        ? <IconDataset size={14} /> : <IconLiterature size={14} />}
+                    </span>
                     <span className="rail-card-name">{source.title || source.id}</span>
                     <span className="rail-card-meta mono">{source.source_type}</span>
                   </li>
@@ -95,8 +105,13 @@ export function AnalysisRail({ projectId, runId, variables, onOpenRun }: {
                       <span className="rail-dot" style={{ background: roleTone(role) }} aria-hidden />
                       <span className="mono">{String(name)}</span>
                       {/* The role is a word, not only a colour: §04 forbids
-                          colour as the sole carrier of meaning. */}
-                      <span className="rail-role-name">{role.replace(/_/g, " ")}</span>
+                          colour as the sole carrier of meaning. A pill rather
+                          than loose text, as UI_02 sets it — the role is a
+                          property of the variable, and running it on as plain
+                          words made the pair read as two variables. */}
+                      <span className="rail-role-name" data-role={role}>
+                        {role.replace(/_/g, " ")}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -133,6 +148,7 @@ export function AnalysisRail({ projectId, runId, variables, onOpenRun }: {
               aria-current={run.id === runId}
               onClick={() => onOpenRun?.(run.id)}
             >
+              <span className="rail-icon" aria-hidden><IconAnalyses size={14} /></span>
               <span className="rail-card-name">{run.method.replace(/_/g, " ")}</span>
               <span className="rail-card-meta">
                 <StateMark value={run.status} />

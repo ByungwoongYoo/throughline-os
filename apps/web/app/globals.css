@@ -81,6 +81,24 @@
    * that palette. */
   --on-accent-soft: #5A4310;
 
+  /*
+   * Data selection, which is not the same thing as navigation.
+   *
+   * §08: "Gold marks a research focus/selected navigation, blue marks data
+   * selection and interaction." One accent served both, so a selected run and
+   * the current section were the same colour and a reader could not tell
+   * *where I am* from *what I picked* — [[D355]], the half that stayed open
+   * after the light palette went gold.
+   *
+   * #1D4ED8 on the near-white panel is 7.4:1, and its tint is the ground a
+   * selected row sits on. The tint is deliberately weak: a chosen row is
+   * marked, not highlighted, and a list of twenty with one picked should read
+   * as a list and not as a warning.
+   */
+  --select:      #1D4ED8;
+  --select-soft: #E8EEFC;
+  --on-select-soft: #17337A;
+
   /* Semantic — state only, never decoration. */
   --positive: #15803D;
   --caution:  #B45309;
@@ -350,6 +368,21 @@
     --positive: #34D399;
     --negative: #F87171;
     --info:     #7fa8d4;
+    /*
+     * Data selection on the dark ground.
+     *
+     * #1D4ED8 is 1.6:1 here and unusable, which is the same pairing defect the
+     * note above describes three times: a colour chosen against near-white and
+     * inherited by a near-black theme. The site's own cool `--glow` #7fa8d4 is
+     * the only cool hue this palette has, and `--info` already takes it — so
+     * selection takes a lighter step of the same hue rather than a fourth blue
+     * nobody measured: #a8c6e6 is 11.3:1 on the panel. Its tint is a low-alpha
+     * wash of itself, so it darkens the ground rather than lightening it,
+     * which is how a marked row reads as marked in a dark theme.
+     */
+    --select:      #a8c6e6;
+    --select-soft: rgba(122, 162, 204, 0.17);
+    --on-select-soft: #cfe0f2;
 
     /* `--danger` is `--negative` under the name the buttons and dialogs use, so
      * it moves with it — but it is also the only state colour used as a
@@ -521,6 +554,21 @@
     --positive: #34D399;
     --negative: #F87171;
     --info:     #7fa8d4;
+    /*
+     * Data selection on the dark ground.
+     *
+     * #1D4ED8 is 1.6:1 here and unusable, which is the same pairing defect the
+     * note above describes three times: a colour chosen against near-white and
+     * inherited by a near-black theme. The site's own cool `--glow` #7fa8d4 is
+     * the only cool hue this palette has, and `--info` already takes it — so
+     * selection takes a lighter step of the same hue rather than a fourth blue
+     * nobody measured: #a8c6e6 is 11.3:1 on the panel. Its tint is a low-alpha
+     * wash of itself, so it darkens the ground rather than lightening it,
+     * which is how a marked row reads as marked in a dark theme.
+     */
+    --select:      #a8c6e6;
+    --select-soft: rgba(122, 162, 204, 0.17);
+    --on-select-soft: #cfe0f2;
 
     /* `--danger` is `--negative` under the name the buttons and dialogs use, so
      * it moves with it — but it is also the only state colour used as a
@@ -898,8 +946,11 @@ a { color: inherit; }
 .rail-card,
 .rail-run {
   display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: baseline;
+  /* Icon, name, meta. UI_02 marks a paper and a dataset differently in this
+     list, and a column of identical rows is the thing a reader has to read
+     word by word because nothing about it can be scanned. */
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
   gap: 8px;
   width: 100%;
   padding: 8px 10px;
@@ -909,16 +960,32 @@ a { color: inherit; }
   font: inherit;
   font-size: 12px;
   text-align: left;
+  /* The selected edge lives here at zero width, so selecting a row does not
+     move the text inside it. */
+  border-left-width: 3px;
+  border-left-color: transparent;
 }
+.rail-icon { color: var(--ink-faint); display: flex; align-self: center; }
 .rail-run { cursor: pointer; }
-.rail-run:hover { border-color: var(--line-strong); }
-/* Data selection is blue and a thin edge, distinct from the gold that marks
-   where you are in the navigation. §08 keeps those two apart on purpose. */
+.rail-run:hover { border-color: var(--line-strong); border-left-color: var(--line-strong); }
+/*
+ * Data selection is blue; navigation is gold. §08 keeps the two apart so a
+ * reader can tell *what I picked* from *where I am*, and this rule had the
+ * argument written above it and `--accent` underneath — the comment was right
+ * and the colour was [[D355]].
+ *
+ * A leading edge rather than a filled row: the run family is a list of
+ * twenty-odd and one of them being current should read as a mark, not as a
+ * warning across the column.
+ */
 .rail-run[aria-current="true"] {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--on-accent-soft);
+  border-color: var(--select);
+  border-left-color: var(--select);
+  background: var(--select-soft);
+  color: var(--on-select-soft);
 }
+.rail-run[aria-current="true"] .rail-icon { color: var(--select); }
+.rail-run[aria-current="true"] .rail-card-meta { color: inherit; opacity: 0.85; }
 
 .rail-card-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-card-meta { color: var(--ink-faint); font-size: 11px; }
@@ -926,7 +993,39 @@ a { color: inherit; }
 .rail-role { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
 .rail-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; align-self: center; }
 /* The role in words as well as colour: §04 forbids colour as the only carrier. */
-.rail-role-name { margin-left: auto; color: var(--ink-faint); font-size: 11px; }
+/*
+ * A variable's role, as a pill.
+ *
+ * UI_02 sets Exposure and Outcome as small pills against the variable they
+ * belong to. Loose grey text at the end of the row made the pair read as two
+ * variables rather than as one variable and its part in the analysis.
+ *
+ * Exposure and outcome are the two the analysis turns on, so they carry the
+ * palette's two meaning-bearing accents — gold for the one under study, blue
+ * for the measured response. Every other role stays neutral, because a screen
+ * where five things are emphasised has emphasised nothing.
+ */
+.rail-role-name {
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--hover);
+  color: var(--ink-faint);
+  font-size: 10.5px;
+  letter-spacing: 0.03em;
+  text-transform: lowercase;
+  white-space: nowrap;
+}
+.rail-role-name[data-role="exposure"],
+.rail-role-name[data-role="predictor"],
+.rail-role-name[data-role="x"] {
+  background: var(--accent-soft); color: var(--on-accent-soft);
+}
+.rail-role-name[data-role="outcome"],
+.rail-role-name[data-role="response"],
+.rail-role-name[data-role="y"] {
+  background: var(--select-soft); color: var(--on-select-soft);
+}
 
 .rail-state { font-size: 11px; color: var(--ink-faint); }
 .rail-state-completed { color: var(--ok, var(--ink-faint)); }
@@ -7176,3 +7275,61 @@ details.fold > *:not(summary) { padding: 8px 2px 10px; }
 }
 /* The card's own padding is the panel's, so the two halves agree. */
 .workspace .card { padding: var(--panel-pad-y) var(--panel-pad-x); }
+
+/*
+ * The inspector's linked objects, as UI_02 draws them.
+ *
+ * Each is a bordered row: a mark for what kind of thing it is, its name, what
+ * it is, and a chevron where it opens. Ours was a text link with a grey line
+ * under it, so the column that says "here is everything this run touches" read
+ * as two sentences, and nothing about it said which of them you could press.
+ */
+.ax-objects { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+
+.ax-object {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  font: inherit;
+  text-align: left;
+  color: var(--ink);
+}
+button.ax-object { cursor: pointer; }
+button.ax-object:hover { border-color: var(--select); background: var(--select-soft); }
+button.ax-object:hover .ax-object-go { color: var(--select); }
+/* A row with nowhere to go is quieter and keeps no chevron. */
+.ax-object-flat { background: transparent; }
+
+.ax-object-icon { color: var(--ink-faint); display: flex; align-self: center; }
+/*
+ * `min-width: 0` on the body is not enough on its own.
+ *
+ * A grid child's default `min-width: auto` refuses to shrink below its
+ * content, and the lifecycle pill inside this row is a whole sentence —
+ * "Checked — survived the robustness checks" — so the row ran off the right
+ * edge of its own card. The body may shrink, the meta line may wrap, and the
+ * pill keeps its words rather than being truncated into a different claim.
+ */
+.ax-object-body { min-width: 0; display: grid; gap: 3px; }
+.ax-object-body .ax-meta {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px;
+  min-width: 0; font-size: 11px; line-height: 1.45;
+}
+.ax-object-body .status { white-space: normal; }
+.ax-object-name {
+  font-size: 12.5px; font-weight: 560;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ax-object-go { color: var(--line-strong); display: flex; }
+
+/* The provenance chain and a note both lead with their mark, so the column
+   reads as one kind of thing throughout rather than as rows and then prose. */
+.ax-chain { display: flex; align-items: baseline; gap: 8px; }
+.ax-note { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: baseline; }
+.ax-note .ax-meta { grid-column: 2; }
