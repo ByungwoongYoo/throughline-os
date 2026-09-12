@@ -15,6 +15,7 @@ import {
 } from "@/lib/place";
 import { currentStep, loopSteps, stepTarget } from "@/lib/loop";
 import { StepStrip } from "@/components/StepStrip";
+import { AnalysisContext } from "@/components/AnalysisContext";
 import { Centered, Failure, Fold, Loading } from "@/components/primitives";
 import { Crumb, PAGES, SECTIONS, Section, Shell } from "@/components/Shell";
 import { CommandPalette, buildCommands } from "@/components/CommandPalette";
@@ -576,9 +577,24 @@ function Workspace({ user }: { user: SignedInUser }) {
           // No selection, no panel: a column saying "Nothing is selected" beside
           // every list is chrome, not context (T139). The installation readout
           // it carried stays one press away wherever an object is open.
-          selection
-            ? <Inspector selection={selection} capabilities={capabilities.data} />
-            : null
+          /*
+            The cockpit gets the column §09 asks it for; everything else keeps
+            the generic one. A run is the only object in this product that is
+            joined to a connection, a dataset and a validation state at once,
+            and those three were in three other sections.
+          */
+          section === "analyses" && selection?.kind === "analysis"
+            ? <AnalysisContext
+                projectId={project.id}
+                runId={selection.id}
+                onOpenConnection={(id) => open("connection", id)}
+                onOpenSource={(id) => open("source", id)}
+                onOpenLineage={(objectId) =>
+                  go({ section: "graph", item: objectId }, { view: "river" })}
+              />
+            : selection
+              ? <Inspector selection={selection} capabilities={capabilities.data} />
+              : null
         }
         rail={
           /*
