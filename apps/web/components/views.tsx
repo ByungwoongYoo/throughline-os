@@ -2947,6 +2947,23 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding,
   const recordCard = useRef<HTMLDivElement | null>(null);
   /** The path panel, so the band can move to it rather than repeat it. */
   const pathCard = useRef<HTMLDivElement | null>(null);
+  /** The report history, so the outcome line can move a reader to the evidence. */
+  const reportsCard = useRef<HTMLDivElement | null>(null);
+
+  /*
+   * The newest validation, which is the one the Validate button just produced.
+   * Newest-first from the server (`list_validations` orders by `created_at`
+   * descending), so this is the head and not a scan.
+   */
+  const latestReport = (reports.data ?? [])[0] ?? null;
+
+  /** Move to the evidence already on this page rather than repeating it. */
+  function onSeeReport() {
+    const card = reportsCard.current;
+    if (!card) return;
+    card.scrollIntoView({ behavior: "smooth", block: "start" });
+    card.focus({ preventScroll: true });
+  }
 
   /** The report drafted from this connection, if one has been drafted here. */
   const [drafted, setDrafted] = useState<string | null>(null);
@@ -3181,9 +3198,15 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding,
       <div className="card" id="connection-validate" tabIndex={-1} ref={validateCard}>
         <h2>Try to destroy it</h2>
         <Fold summary="What the robustness suite runs" count={4}>
+          {/* "Naming no confounders is recorded as not tested — not as
+              clean" used to close this paragraph. It is now the line beside
+              the button, said out loud instead of folded away, because it is
+              what decides the outcome of the press a reader is about to make.
+              Kept in one place: this screen is at its word cap, and the cap is
+              what noticed the duplication. */}
           <p style={{ marginTop: 0 }}>
-            Bootstrap stability, sensitivity to outliers, missingness, and adjustment for
-            confounders. Naming no confounders is recorded as <b>not tested</b> — not as clean.
+            Bootstrap stability, sensitivity to outliers, missingness, and
+            adjustment for confounders.
           </p>
         </Fold>
 
@@ -3235,8 +3258,20 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding,
 
         <div className="row" style={{ marginTop: 14 }}>
           <span className="note one-line" style={{ margin: 0 }}>
+            {/*
+              * What the press will do, not a hint that it might matter.
+              *
+              * This read "No adjustment — the report will say so", which is
+              * true and understates it to the point of being misleading. The
+              * suite's fourth check is `confounder_adjustment`, and naming no
+              * columns records it as **not tested**, which is a fail: the run
+              * cannot pass, and the researcher who pressed the product's own
+              * recommended control learns that only from a summary line a
+              * screen further down. The outcome of the default press is
+              * knowable before the press, so it is said before the press.
+              */}
             {chosen.length === 0
-              ? "No adjustment — the report will say so."
+              ? "No adjustment is untested, so this cannot pass."
               : `Adjusting for ${chosen.join(", ")}.`}
           </span>
           <button className="btn btn-primary" onClick={validate} disabled={validating}
@@ -3250,6 +3285,46 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding,
           <div style={{ marginTop: 12 }}>
             <Loading rows={2} label="Running robustness checks in the sandbox" />
           </div>
+        )}
+
+        {/*
+          * The outcome, beside the control that produced it.
+          *
+          * The full report is rendered at the bottom of this screen, which is
+          * about a thousand pixels below this button — so pressing Validate
+          * changed nothing a reader could see, and the card immediately under
+          * it went on saying "this connection has not survived a validation
+          * run yet" with no sign that one had been run at all. A control whose
+          * result appears off-screen is indistinguishable from one that does
+          * nothing, which is the specific way a person decides a product is
+          * broken and stops.
+          *
+          * One line, not a second copy of the report: the verdict, the check
+          * that decided it, and a way down to the evidence that is already on
+          * the page. `reports` is newest-first from the server.
+          */}
+        {!validating && latestReport && (
+          <p className="note vr-latest" data-passed={latestReport.passed === true}
+             style={{ marginTop: 12 }}>
+            {/* The same two words the report card below uses, and not
+                "validated": a validation report that passed is not the same
+                fact as the connection being validated, and this file already
+                calls the space beside this button the easiest place in the
+                product to overclaim. `passed` is null while a run is still
+                going, which is the report's own status, not a verdict. */}
+            <Status value={latestReport.passed === null ? latestReport.status
+                           : latestReport.passed ? "passed" : "violated"} />
+            {" "}
+            {/* The pill already says the verdict; the server's summary opens
+                by repeating it ("Did not pass: confounder_adjustment"). What
+                the reader does not have is which check decided it, so that is
+                what is left after the prefix the pill has already covered. */}
+            {latestReport.summary.replace(/^Did not pass:\s*/, "")}
+            {" "}
+            <button className="btn-text" type="button" onClick={onSeeReport}>
+              What each check found &darr;
+            </button>
+          </p>
         )}
       </div>
 
@@ -3309,7 +3384,11 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding,
         take for none of it to matter.
       */}
       <Fragility connectionId={connectionId} />
-      <ValidationReports reports={reports} />
+      {/* `tabIndex={-1}` so the outcome line above can put the keyboard here,
+          the same way the actions band reaches the Validate control. */}
+      <div id="connection-reports" tabIndex={-1} ref={reportsCard}>
+        <ValidationReports reports={reports} />
+      </div>
     </>
   );
 }
