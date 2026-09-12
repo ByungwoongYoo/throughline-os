@@ -7023,3 +7023,156 @@ details.fold > *:not(summary) { padding: 8px 2px 10px; }
   margin: 10px 0 0;
 }
 .gal-draw .note { margin: 0; }
+
+/* ==========================================================================
+   Panel chrome — the titled header bar
+   ==========================================================================
+
+   The masters give every panel a header: a tinted strip carrying the panel's
+   name, a rule beneath it, and the content below. We had the name as bold text
+   floating inside the padding, so eight panels on the cockpit read as eight
+   paragraphs in eight boxes rather than as eight instruments. The owner's word
+   was "coherent", and this is most of what was missing — the same chrome on
+   every panel is what makes a screen of them look like one machine.
+
+   Done by negative margin rather than by restructuring the markup, so the
+   header spans the panel's full width without every call site growing a
+   wrapper. `--panel-pad` keeps the two halves in agreement: change the padding
+   and the header's inset follows it.
+
+   §08: "1px separators; restrained 6–8px corner radii. Avoid shadows on every
+   cell or card." No shadow here; a shadow belongs to elevated menus only.
+*/
+:root { --panel-pad-x: 13px; --panel-pad-y: 11px; }
+
+.panel-name,
+.ckpt-panel-name {
+  margin: calc(var(--panel-pad-y) * -1) calc(var(--panel-pad-x) * -1) var(--panel-pad-y);
+  padding: 7px var(--panel-pad-x);
+  background: var(--hover);
+  border-bottom: 1px solid var(--line);
+  border-radius: calc(var(--r-card) - 1px) calc(var(--r-card) - 1px) 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  /* The header is a bar, so it keeps its own line whatever is beside it. */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+/* A panel whose header carries a control (a count, a toggle) keeps the control
+   at the secondary size — the header names the panel, it is not a toolbar. */
+.panel-name .note,
+.ckpt-panel-name .note { margin: 0; font-size: 11.5px; font-weight: 400; }
+
+.ckpt-panel { padding: var(--panel-pad-y) var(--panel-pad-x); overflow: hidden; }
+
+/* ==========================================================================
+   Dense tables — a header row that reads as one
+   ==========================================================================
+
+   §08 asks for aligned table baselines and 32–36px dense rows. The header cells
+   were bare uppercase text on the panel ground, so a table's first row looked
+   like its first result. A tint and a rule separate what the columns are called
+   from what they contain.
+*/
+.workspace table thead th,
+.panel table thead th {
+  background: var(--hover);
+  border-bottom: 1px solid var(--line);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 600;
+  padding: 6px 10px;
+  text-align: left;
+}
+.workspace table tbody td,
+.panel table tbody td { padding: 7px 10px; }
+/* Comparable numbers line up digit for digit, per §08. */
+.workspace table td.num,
+.workspace table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/*
+ * A state said twice — the mark and the word.
+ *
+ * §08: "Gold marks a research focus/selected navigation, blue marks data
+ * selection and interaction, green marks actual successful states, amber
+ * review, red/rust failure or rejected path. Add a label/icon for every
+ * meaningful state." The internal panels had the word alone, in the same grey
+ * as the prose beside it, so a table of checks read as a table of sentences
+ * and nothing on the screen said which line to worry about.
+ *
+ * The dot is small on purpose. It marks the word; it is not a status light.
+ */
+.statemark {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  white-space: nowrap;
+}
+.statemark-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--ink-faint);
+  /* Aligned to the word's own baseline rather than the line box, so a mark in
+     a dense table row does not ride above the text it belongs to. */
+  transform: translateY(-1px);
+  flex: none;
+}
+.statemark[data-tone="ok"] .statemark-dot     { background: var(--positive); }
+.statemark[data-tone="bad"] .statemark-dot    { background: var(--negative); }
+.statemark[data-tone="review"] .statemark-dot { background: var(--warn); }
+/* An unknown state is hollow, not grey: "nothing was recorded" and "recorded
+   as unremarkable" must not look the same. */
+.statemark[data-tone="unknown"] .statemark-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--ink-faint);
+}
+
+/*
+ * A section of the cockpit's left rail, below the tabs rather than inside them.
+ *
+ * §08 keeps "sources, active computation and evidence context together", and
+ * UI_02 draws the run family as its own block under the Data/Variables tabs.
+ * A rule above it rather than a box around it: the rail is one column, and
+ * three nested cards in a 280px gutter is how a rail starts looking like a
+ * second page.
+ */
+.rail-section {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+/*
+ * The same header bar on an ordinary card.
+ *
+ * The cockpit's panels got it first and the rest of the workspace did not, so
+ * the product had two kinds of panel on adjacent screens — which is the exact
+ * shape of "it does not look coherent". A card whose first child is its title
+ * is a panel; that is what the markup already means, so no call site changes.
+ *
+ * `:first-child` deliberately. A card that opens with something else — a row
+ * of controls, a figure — is not titled, and giving its second-placed heading
+ * a full-width bar would put a header in the middle of a panel.
+ */
+.workspace .card > h2:first-child,
+.workspace .card > h3:first-child {
+  margin: calc(var(--panel-pad-y) * -1 - 1px) calc(var(--panel-pad-x) * -1 - 1px) var(--panel-pad-y);
+  padding: 7px var(--panel-pad-x);
+  background: var(--hover);
+  border-bottom: 1px solid var(--line);
+  border-radius: calc(var(--r-card) - 1px) calc(var(--r-card) - 1px) 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+/* The card's own padding is the panel's, so the two halves agree. */
+.workspace .card { padding: var(--panel-pad-y) var(--panel-pad-x); }

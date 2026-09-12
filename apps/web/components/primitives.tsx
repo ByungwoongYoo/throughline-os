@@ -124,6 +124,48 @@ export function Failure({ error, retry }: { error: unknown; retry?: () => void }
  * happen to share this pill (`globals.css` says so at `.status-passed`), and
  * they are printed as they arrive.
  */
+/**
+ * A state said twice: a coloured mark and the word for it.
+ *
+ * §08 gives the colours their meanings — "gold marks a research focus, blue
+ * marks data selection, green marks actual successful states, amber review,
+ * red/rust failure or rejected path" — and then the rule that matters most:
+ * **add a label/icon for every meaningful state**. Colour alone fails anybody
+ * who cannot separate the hues, and a bare word is what the internal screens
+ * had: "passed", "violated" and "noted" set in the same grey as the sentence
+ * beside them, so a table of checks read as a table of prose.
+ *
+ * The mark is decorative in the accessibility tree because the word is right
+ * there; two announcements of one state is noise, not redundancy.
+ *
+ * Deliberately not `Status`. That renders a *lifecycle* pill and knows the
+ * vocabulary of findings and connections. This is for the smaller judgements
+ * that appear inside a panel — a check's outcome, whether a result reached
+ * significance — where a pill would shout and a lifecycle label would lie.
+ */
+const MARK: Record<string, string> = {
+  passed: "ok", yes: "ok", true: "ok", completed: "ok", survived: "ok",
+  violated: "bad", failed: "bad", no: "bad", false: "bad", refused: "bad",
+  noted: "review", review: "review", queued: "review", running: "review",
+  not_tested: "unknown", unknown: "unknown", null: "unknown",
+};
+
+export function StateMark({ value, label }: {
+  /** The state itself, in whatever vocabulary the caller speaks. */
+  value: string | boolean | null | undefined;
+  /** What to print, when the state's own spelling is not what a reader wants. */
+  label?: string;
+}) {
+  const raw = value === null || value === undefined ? "null" : String(value);
+  const tone = MARK[raw.toLowerCase()] ?? "unknown";
+  return (
+    <span className="statemark" data-tone={tone}>
+      <span className="statemark-dot" aria-hidden />
+      {label ?? raw.replace(/_/g, " ")}
+    </span>
+  );
+}
+
 export function Status({ value, raw = false }: {
   value: string;
   /**

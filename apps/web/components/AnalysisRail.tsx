@@ -19,6 +19,7 @@
 import type { AnalysisRunRow, Source } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { Tabs } from "./Tabs";
+import { StateMark } from "./primitives";
 
 /** The colour a variable's role is drawn in, matching the workspace palette. */
 function roleTone(role: string): string {
@@ -43,6 +44,7 @@ export function AnalysisRail({ projectId, runId, variables, onOpenRun }: {
   const family = runs.data ?? [];
 
   return (
+    <>
     <Tabs
       label="Working data"
       tabs={[
@@ -102,38 +104,44 @@ export function AnalysisRail({ projectId, runId, variables, onOpenRun }: {
             </>
           ),
         },
-        {
-          id: "family",
-          label: "Runs",
-          note: family.length ? String(family.length) : undefined,
-          panel: () => (
-            <>
-              <h2 className="eyebrow">Analysis runs</h2>
-              {runs.loading && <p className="note">Reading this project’s runs…</p>}
-              {family.length === 0 && !runs.loading && (
-                <p className="note">This project has no other runs.</p>
-              )}
-              <ul className="rail-list">
-                {family.map((run: AnalysisRunRow) => (
-                  <li key={run.id}>
-                    <button
-                      type="button"
-                      className="rail-run"
-                      aria-current={run.id === runId}
-                      onClick={() => onOpenRun?.(run.id)}
-                    >
-                      <span className="rail-card-name">{run.method.replace(/_/g, " ")}</span>
-                      <span className="rail-card-meta">
-                        <span className={`rail-state rail-state-${run.status}`}>{run.status}</span>
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </>
-          ),
-        },
       ]}
     />
+
+    {/*
+      * The run family, beside the run rather than behind a tab.
+      *
+      * §08 asks the cockpit to keep "sources, active computation and evidence
+      * context together", and UI_02 draws exactly that: Data and Variables are
+      * tabs over the source list, and *Analysis runs* is its own section under
+      * them, always there. Filed as a third tab it was never on screen at the
+      * same time as the run it belongs to — so the column a reader glances at
+      * to see what else has been tried showed one source and nothing else, and
+      * the densest part of the master was the emptiest part of ours.
+      */}
+    <section className="rail-section">
+      <h2 className="eyebrow">Analysis runs</h2>
+      {runs.loading && <p className="note">Reading this project’s runs…</p>}
+      {family.length === 0 && !runs.loading && (
+        <p className="note">This project has no other runs.</p>
+      )}
+      <ul className="rail-list">
+        {family.map((run: AnalysisRunRow) => (
+          <li key={run.id}>
+            <button
+              type="button"
+              className="rail-run"
+              aria-current={run.id === runId}
+              onClick={() => onOpenRun?.(run.id)}
+            >
+              <span className="rail-card-name">{run.method.replace(/_/g, " ")}</span>
+              <span className="rail-card-meta">
+                <StateMark value={run.status} />
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+    </>
   );
 }

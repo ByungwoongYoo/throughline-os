@@ -25,7 +25,7 @@ import { ObjectKind, useObjectId } from "@/lib/useObjectId";
 import { ObjectHistory } from "./objecthistory";
 import { SECTIONS, Section } from "./Shell";
 import { PlainSummary, ResultCard } from "./ResultCard";
-import { Empty, Failure, Fold, Loading, Num, Stat, Status, Totals } from "./primitives";
+import { Empty, Failure, Fold, Loading, Num, Stat, StateMark, Status, Totals } from "./primitives";
 import { Fragility } from "./fragility";
 import { DatabaseTables } from "./databasetables";
 import { CohortTree } from "./cohorts";
@@ -2453,11 +2453,25 @@ export function AnalysisDetail({ runId, projectId, onMethod, onVariables,
                       </div>
                       <dl className="ckpt-kv">
                         <dt>Statistically significant</dt>
-                        <dd>{String(r.statistically_significant)}</dd>
+                        {/*
+                          * `String(null)` is "null", and that is what this
+                          * printed — the literal word, on the cockpit, beside
+                          * a real result. §08 asks for an absent value shown
+                          * honestly, which is a sentence and not a JavaScript
+                          * primitive leaking onto the screen.
+                          */}
+                        <dd>
+                          <StateMark
+                            value={r.statistically_significant}
+                            label={r.statistically_significant == null
+                              ? "not recorded"
+                              : r.statistically_significant ? "yes" : "no"}
+                          />
+                        </dd>
                         <dt>Practical significance</dt>
-                        <dd>{r.practical_significance}</dd>
+                        <dd>{r.practical_significance ?? <span className="note">not recorded</span>}</dd>
                         <dt>Evidence quality</dt>
-                        <dd>{r.evidence_quality}</dd>
+                        <dd>{r.evidence_quality ?? <span className="note">not recorded</span>}</dd>
                       </dl>
                     </section>
 
@@ -2495,7 +2509,7 @@ export function AnalysisDetail({ runId, projectId, onMethod, onVariables,
                             {assumptionFamilies(data.assumption_checks).map((c) => (
                               <tr key={c.name} data-severity={c.severity}>
                                 <td>{c.name.replace(/_/g, " ")}</td>
-                                <td>{c.outcome}</td>
+                                <td><StateMark value={c.outcome} /></td>
                                 <td>{c.detail}</td>
                               </tr>
                             ))}
