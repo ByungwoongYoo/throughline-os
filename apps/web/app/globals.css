@@ -6493,6 +6493,29 @@ details.fold > *:not(summary) { padding: 8px 2px 10px; }
 }
 .river-line[data-lit="true"] { opacity: 0.85; }
 
+/*
+ * The ribbons need more of themselves on the dark ground.
+ *
+ * Measured rather than nudged. Contrast *ratio* says the two themes are level,
+ * because ratio is built for text legibility and compresses at the dark end.
+ * Perceptual lightness says what the eye does: the light ribbon sits 9.0 L*
+ * from its ground and the dark one sat at 4.9, barely half — which is why the
+ * dark river read as cards floating on nothing while the light one read as
+ * flow. At 0.48 the dark ribbon is 8.9 L* from its ground, level with light.
+ *
+ * The dashed assertion line is scaled by the same factor, because the point of
+ * the pair is that a record and an assertion stay distinguishable from each
+ * other, not that either hits a fixed number.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .river-line { opacity: 0.48; }
+  :root:not([data-theme="light"]) .river-line[data-lineage="false"] { opacity: 0.82; }
+  :root:not([data-theme="light"]) .river-line[data-lit="true"] { opacity: 1; }
+}
+:root[data-theme="dark"] .river-line { opacity: 0.48; }
+:root[data-theme="dark"] .river-line[data-lineage="false"] { opacity: 0.82; }
+:root[data-theme="dark"] .river-line[data-lit="true"] { opacity: 1; }
+
 .river-col { flex: 0 0 226px; display: flex; flex-direction: column; gap: 10px; }
 .river-col-name {
   margin: 0; font-size: 15px; font-weight: 600; color: var(--ink-strong, var(--ink));
@@ -7333,3 +7356,45 @@ button.ax-object:hover .ax-object-go { color: var(--select); }
 .ax-chain { display: flex; align-items: baseline; gap: 8px; }
 .ax-note { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: baseline; }
 .ax-note .ax-meta { grid-column: 2; }
+
+/*
+ * What a project has found, on the screen that opens it.
+ *
+ * A row per connection: the pair, its lifecycle, its effect. Restrained on
+ * purpose — §09 asks for "a restrained overview, not a radial dashboard", so
+ * this is a list of the work and not a wall of meters.
+ */
+.ov-found { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.ov-found-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  color: var(--ink);
+  cursor: pointer;
+}
+.ov-found-row:hover { border-color: var(--select); background: var(--select-soft); }
+.ov-found-pair {
+  font-size: 12.5px; font-weight: 560; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ov-found-meta {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; color: var(--ink-faint); white-space: nowrap;
+}
+
+/* A lifecycle pill with no lifecycle. Hollow rather than grey, for the reason
+   `StateMark` is: "nothing was recorded" and "recorded as unremarkable" must
+   not look the same. */
+.status-unknown {
+  color: var(--ink-faint);
+  box-shadow: inset 0 0 0 1px var(--line);
+  background: transparent;
+}

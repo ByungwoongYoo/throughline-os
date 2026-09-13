@@ -148,6 +148,17 @@ const MARK: Record<string, string> = {
   violated: "bad", failed: "bad", no: "bad", false: "bad", refused: "bad",
   noted: "review", review: "review", queued: "review", running: "review",
   not_tested: "unknown", unknown: "unknown", null: "unknown",
+  /*
+   * The lifecycle vocabulary too, for the compact case.
+   *
+   * `Status` renders the phrase a reader needs when the state *is* the
+   * subject — "Checked — survived the robustness checks". In a four-row
+   * summary that phrase is longer than the thing it describes, and it pushed
+   * the variable pair it belongs to into an ellipsis. Same meanings, one word.
+   */
+  validated: "ok", replicated: "ok",
+  exploratory: "review", candidate: "review",
+  conflicted: "bad", deprecated: "bad",
 };
 
 export function StateMark({ value, label }: {
@@ -167,7 +178,15 @@ export function StateMark({ value, label }: {
 }
 
 export function Status({ value, raw = false }: {
-  value: string;
+  /**
+   * The state. Optional because a payload can omit it — an older server, a
+   * ranked list that carries identity and effect and not lifecycle — and a
+   * pill is a *display* of a state, so the one thing it must never do is take
+   * the screen down when the state is absent. It crashed on `undefined`
+   * (`value.replace` on nothing), which turned a missing field into a blank
+   * page for everything beside it.
+   */
+  value: string | null | undefined;
   /**
    * Print `value` verbatim even if it collides with a lifecycle state.
    *
@@ -178,6 +197,10 @@ export function Status({ value, raw = false }: {
    */
   raw?: boolean;
 }) {
+  // Absent is a state a reader can act on; blank is not.
+  if (value == null || value === "") {
+    return <span className="status status-unknown">not recorded</span>;
+  }
   const known = raw ? undefined : LIFECYCLE[value];
   const word = value.replace(/_/g, " ");
   return (

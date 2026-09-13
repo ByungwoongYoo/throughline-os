@@ -296,6 +296,69 @@ export function Overview({ project, map, onGo, onOpen, onAddSources, onLineage,
         * the screen stops being 40% content in a 1586px frame.
         */}
       <div className="ov-state">
+        {/*
+          * What the project has actually found, on the screen that opens it.
+          *
+          * §09 asks the Overview for "current question, actual project state,
+          * **recent work**, unresolved items, next supported actions", and
+          * recent work was the one of those five that was missing entirely.
+          * The column held two collapsed folds of counts, so two thirds of the
+          * product's front door was empty and a researcher coming back after a
+          * week was told how many connections there were and not one of them.
+          *
+          * Ranked by the server, strongest first, which is the same order
+          * `stepTarget` reads — so the thing the loop is about to act on is
+          * visible here rather than only discoverable by pressing.
+          *
+          * Four, not ten. §09 warns off a radial dashboard, and a front door
+          * that lists everything is a list screen wearing a summary's name;
+          * the rest are one press away in Connections.
+          */}
+        {(map.top_connections?.length ?? 0) > 0 && (
+          <section className="card">
+            <h2>
+              What this project has found
+              <span className="note">
+                strongest first · {map.top_connections.length} ranked
+              </span>
+            </h2>
+            <ul className="ov-found">
+              {map.top_connections.slice(0, 4).map((c) => (
+                <li key={c.id}>
+                  <button type="button" className="ov-found-row"
+                          onClick={() => onOpen?.("connection", c.id)}>
+                    <span className="ov-found-pair">
+                      {(labels?.[c.left_variable] ?? c.left_variable)}
+                      <span aria-hidden> ↔ </span>
+                      {(labels?.[c.right_variable] ?? c.right_variable)}
+                    </span>
+                    <span className="ov-found-meta">
+                      {/* The mark, not the pill: `Status` says "Checked —
+                          survived the robustness checks", which in a four-row
+                          summary is longer than the pair it describes and
+                          pushed that pair into an ellipsis. */}
+                      <StateMark value={c.lifecycle_status} />
+                      {/* The effect, because a list of pairs with no size is a
+                          list of names. Absent rather than zero where the
+                          method records none. */}
+                      {c.effect_size != null && (
+                        <span className="mono">
+                          {c.effect_size_name ?? "effect"} {c.effect_size.toFixed(2)}
+                        </span>
+                      )}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {map.top_connections.length > 4 && (
+              <button className="btn-text" type="button"
+                      onClick={() => onGo("connections")}>
+                All {map.top_connections.length} connections &rarr;
+              </button>
+            )}
+          </section>
+        )}
         <LifecycleBreakdown title="Connections" counts={map.connections} />
         <LifecycleBreakdown title="Findings" counts={map.findings} />
       </div>
