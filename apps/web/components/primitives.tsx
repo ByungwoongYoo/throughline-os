@@ -177,7 +177,7 @@ export function StateMark({ value, label }: {
   );
 }
 
-export function Status({ value, raw = false }: {
+export function Status({ value, raw = false, compact = false }: {
   /**
    * The state. Optional because a payload can omit it — an older server, a
    * ranked list that carries identity and effect and not lifecycle — and a
@@ -196,6 +196,18 @@ export function Status({ value, raw = false }: {
    * check "has been replicated".
    */
   raw?: boolean;
+  /**
+   * The row form: a mark and the phrase, with the machine word on hover.
+   *
+   * The machine word beside the phrase is kept on purpose — it is the word the
+   * API, the ledger and a support thread use for the same state. Repeated in
+   * every row of a ten-row table it was most of what the State column said:
+   * "Checked — survived the robustness checks validated", ten times, beside
+   * the numbers the table exists to compare. A table asks for the phrase; the
+   * word is one hover away, and the full pill stays wherever one object is
+   * the subject.
+   */
+  compact?: boolean;
 }) {
   // Absent is a state a reader can act on; blank is not.
   if (value == null || value === "") {
@@ -203,6 +215,14 @@ export function Status({ value, raw = false }: {
   }
   const known = raw ? undefined : LIFECYCLE[value];
   const word = value.replace(/_/g, " ");
+  if (compact) {
+    return (
+      <span className={`status-row status-${value}`} title={word}>
+        <span className="status-row-dot" aria-hidden />
+        {known ? known.label : word}
+      </span>
+    );
+  }
   return (
     <span className={`status status-${value}`}>
       {/* The pill's own rule is upper-case single words; a phrase set in caps

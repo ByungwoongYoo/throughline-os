@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectionsTable } from "@/components/views";
 import { DataSearch } from "@/components/datasearch";
 import { api } from "@/lib/api";
+import { statePhrase } from "@/components/lifecycle";
 
 afterEach(cleanup);
 beforeEach(() => { vi.restoreAllMocks(); });
@@ -75,12 +76,14 @@ describe("the connections table", () => {
     expect(cells.length).toBe(headers.length);
     const under = (label: string) => cells[headers.indexOf(label)];
     expect(under("Dataset")).toBe("national-surveillance.csv");
-    expect(under("Method")).toBe("pearson correlation");
+    // Each value under its own heading — the property — in the words a reader
+    // meets: a method as a name, a grade as a word, a state as its phrase.
+    expect(under("Method")).toBe("Pearson correlation");
     expect(under("Estimate")).toMatch(/0\.62/);
     expect(under("q-value")).toMatch(/0\.012/);
     expect(under("n")).toBe("120");
-    expect(under("Evidence")).toBe("moderate");
-    expect(under("State")).toMatch(/exploratory/i);
+    expect(under("Evidence")).toBe("Moderate");
+    expect(under("State")).toBe(statePhrase("exploratory"));
   });
 
   it("says nothing rather than breaking when there is no dataset", () => {
@@ -98,8 +101,14 @@ describe("the connections table", () => {
   });
 
   it("says the lifecycle state rather than implying one", () => {
+    /*
+     * Said as its phrase in the row, with the machine word — the one the API
+     * and a support thread use — kept on the element rather than repeated in
+     * every row beside the numbers the table is for.
+     */
     table([connection({ lifecycle_status: "candidate" })]);
-    expect(screen.getByText(/candidate/i)).toBeTruthy();
+    const state = screen.getByText(statePhrase("candidate"));
+    expect(state.closest("[title]")?.getAttribute("title")).toBe("candidate");
   });
 
   it("tells an empty project what would fill it", () => {

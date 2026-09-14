@@ -945,7 +945,9 @@ function Workspace({ user }: { user: SignedInUser }) {
         )}
         {section === "compare" && (
           <Compare projectId={project.id} sources={sources}
-                   onOpenSource={(id) => open("source", id)} />
+                   onOpenSource={(id) => open("source", id)}
+                   onFindPapers={() => go({ section: "sources", item: null }, { view: "papers" })}
+                   onAddData={() => go({ section: "sources", item: null }, { view: "library" })} />
         )}
         {section === "notebook" && <Notebook projectId={project.id} />}
         {section === "journal" && (

@@ -101,7 +101,7 @@ export function Reports({ projectId, connections, onSelect }: {
         <span style={{ fontWeight: 530 }}>
           {connection.left_variable} × {connection.right_variable}
         </span>{" "}
-        <Status value={connection.lifecycle_status} />
+        <Status value={connection.lifecycle_status} compact />
       </div>
       <button className="btn" disabled={drafting}
               onClick={() => draft(connection.id)}>

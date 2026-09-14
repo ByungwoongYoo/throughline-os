@@ -7851,3 +7851,70 @@ button.ax-object:hover .ax-object-go { color: var(--select); }
 }
 .river-thumb circle { fill: var(--density-dense); opacity: 0.55; }
 .river-card[data-state="validated"] .river-thumb circle { fill: var(--positive); }
+
+/* The status pill's row form: a mark and the phrase. The colours are the
+   lifecycle tokens the full pill already uses, so the two forms cannot drift. */
+.status-row {
+  display: inline-flex; align-items: baseline; gap: 7px;
+  font-size: 13px; color: var(--ink-soft); white-space: nowrap;
+}
+.status-row-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex: none;
+  background: var(--ink-faint); transform: translateY(-1px);
+}
+.status-row.status-validated .status-row-dot,
+.status-row.status-replicated .status-row-dot { background: var(--positive); }
+.status-row.status-exploratory .status-row-dot,
+.status-row.status-candidate .status-row-dot { background: var(--caution); }
+.status-row.status-conflicted .status-row-dot,
+.status-row.status-deprecated .status-row-dot,
+.status-row.status-rejected .status-row-dot { background: var(--negative); }
+.status-row.status-validated, .status-row.status-replicated { color: var(--positive); }
+
+/* The reasoning master, waiting for its missing half. */
+.rsn-slot[data-missing] { border-style: dashed; background: transparent; }
+.rsn-slot-missing { color: var(--ink-faint); font-size: 14px; }
+.rsn-slot-name { font-size: 15px; color: var(--ink); }
+.rsn-slot-act { margin-left: auto; font-size: 13.5px; }
+.rsn-waiting { padding: 18px 22px; text-align: left; }
+.rsn-waiting-eyebrow {
+  font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-faint); font-weight: 560; margin: 0 0 8px;
+}
+.rsn-waiting-line {
+  font-family: var(--serif); font-size: 21px; line-height: 1.35;
+  color: var(--ink); margin: 0 0 16px;
+}
+.rsn-waiting-note { margin: 12px 0 0; font-size: 12.5px; color: var(--ink-faint); }
+
+/* ==========================================================================
+   The reasoning master's field, as UI_01 composes it
+   ==========================================================================
+
+   The master's two families of strands meet on a node that sits in open space,
+   and the working card hangs below it. Ours put the card at the top of the
+   columns, directly over the point the whole field converges on, so the one
+   focal element of the composition was hidden behind the thing it was meant to
+   introduce. The card now starts below the node.
+
+   The strands were also tuned against the old gold (#8A6A1F at 0.15); the
+   package's gold is deeper and quieter, so the model side takes more opacity to
+   read as warm at all, and the node becomes the master's gold point in a ring.
+*/
+.rsn-title { font-size: 50px; line-height: 1.05; letter-spacing: -0.02em; margin-bottom: 8px; }
+.rsn-columns { min-height: 520px; }
+.rsn-working { margin-top: 196px; }
+@media (max-width: 1100px) { .rsn-working { margin-top: 0; } }
+.rsn-field-human path { stroke: #7D8896; opacity: 0.26; }
+.rsn-field-model path { stroke: #9A7A3A; opacity: 0.3; }
+.rsn-mote-model { fill: #9A7A3A; opacity: 0.55; }
+.rsn-field-node { fill: var(--accent); stroke: var(--panel); stroke-width: 4; }
+.rsn-col-title { font-family: var(--serif); font-size: 30px; font-weight: 400; letter-spacing: -0.01em; margin: 0; }
+.rsn-col-kind { font-size: 14px; color: var(--ink-faint); margin: 2px 0 14px; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .rsn-field-human path { stroke: #8A96A8; opacity: 0.3; }
+  :root:not([data-theme="light"]) .rsn-field-model path { stroke: #E8B76A; opacity: 0.28; }
+}
+:root[data-theme="dark"] .rsn-field-human path { stroke: #8A96A8; opacity: 0.3; }
+:root[data-theme="dark"] .rsn-field-model path { stroke: #E8B76A; opacity: 0.28; }

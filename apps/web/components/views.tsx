@@ -1747,12 +1747,12 @@ export function ConnectionsTable({ connections, error, loading, reload, onSelect
               <td style={{ color: "var(--ink-soft)" }}>
                 {c.dataset_name ?? "—"}
               </td>
-              <td className="mono">{c.method.replace(/_/g, " ")}</td>
+              <td>{humanMethod(c.method)}</td>
               <td className="numeric" style={{ textAlign: "right" }}><Num value={c.estimate} /></td>
               <td className="numeric" style={{ textAlign: "right" }}><Num value={c.q_value} digits={3} /></td>
               <td className="numeric" style={{ textAlign: "right" }}>{c.sample_size ?? "—"}</td>
-              <td style={{ color: "var(--ink-soft)" }}>{c.evidence_quality}</td>
-              <td><Status value={c.lifecycle_status} /></td>
+              <td style={{ color: "var(--ink-soft)" }}>{c.evidence_quality ? sentenceCase(c.evidence_quality) : "—"}</td>
+              <td><Status value={c.lifecycle_status} compact /></td>
             </tr>
           ))}
         </tbody>

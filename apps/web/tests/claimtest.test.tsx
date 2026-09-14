@@ -86,7 +86,15 @@ describe("choosing a paper", () => {
   it("asks for both a paper and a dataset before offering anything", () => {
     render(<ClaimTest projectId="prj" sources={[paper]} />);
 
-    expect(screen.getByText(/A paper and a dataset are needed/)).toBeVisible();
+    /*
+     * The master waits rather than collapsing to one sentence: the missing half
+     * is named, and nothing that acts on a claim is offered — no paper or
+     * dataset picker, and no claim to work with.
+     */
+    expect(screen.getByText(/No dataset in this project yet/)).toBeVisible();
+    expect(screen.getByText(/Waiting for a dataset/)).toBeVisible();
+    expect(screen.queryAllByRole("combobox")).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: /Work with this claim/ })).toBeNull();
   });
 
   it("says plainly that a refusal is the point", () => {
@@ -401,5 +409,30 @@ describe("recording what the dataset observes", () => {
     fireEvent.click(await screen.findByRole("button", { name: /^Record / }));
 
     expect(await screen.findByText(/never that they passed/)).toBeVisible();
+  });
+});
+
+/**
+ * An empty reasoning master offers the way in.
+ *
+ * It was one dashed box with a sentence and nothing to press — the shape §08's
+ * empty-state contract rules out ("scope-specific explanation and one available
+ * next action"). A project with a dataset and no paper is the ordinary case,
+ * so the missing half is where it gets added.
+ */
+describe("when the project has no paper yet", () => {
+  it("offers to find one, and names the dataset it would be checked against", async () => {
+    const onFindPapers = vi.fn();
+    render(<ClaimTest projectId="prj" sources={[dataset]} onFindPapers={onFindPapers} />);
+
+    expect(screen.getByText(/No paper in this project yet/)).toBeVisible();
+    expect(screen.getByText("amr_surveillance.csv")).toBeVisible();
+    fireEvent.click(screen.getAllByRole("button", { name: /Find a paper/ })[0]);
+    expect(onFindPapers).toHaveBeenCalled();
+  });
+
+  it("offers nothing to press when there is nowhere to send the researcher", () => {
+    render(<ClaimTest projectId="prj" sources={[dataset]} />);
+    expect(screen.queryByRole("button", { name: /Find a paper/ })).toBeNull();
   });
 });

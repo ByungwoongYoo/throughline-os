@@ -284,9 +284,13 @@ function Filaments() {
   );
 }
 
-export function ClaimTest({ projectId, sources, onOpenSource }: {
+export function ClaimTest({ projectId, sources, onOpenSource, onFindPapers, onAddData }: {
   projectId: string;
   sources: Source[];
+  /** Where a paper comes from, when the project has none: Sources → Find papers. */
+  onFindPapers?: () => void;
+  /** Where a dataset comes from, when the project has none: the library. */
+  onAddData?: () => void;
   /**
    * Open a source in the section that shows sources, keeping the way back.
    *
@@ -389,11 +393,119 @@ export function ClaimTest({ projectId, sources, onOpenSource }: {
   }
 
   if (papers.length === 0 || datasets.length === 0) {
+    /*
+     * The master, waiting — not a dashed box on an empty page.
+     *
+     * This returned one `Empty` with a sentence and nothing to press, which
+     * breaks §08's contract for an empty state ("scope-specific explanation
+     * and one available next action") and threw away the layout that says
+     * what the screen is for. A project with a dataset and no paper is the
+     * ordinary case — the worked example is one — so the pair is drawn with
+     * the half that exists filled in, the missing half is where it gets
+     * added, and the steps and the centre say what happens once it is.
+     */
+    const dataset = datasets[0];
+    const paperMissing = papers.length === 0;
     return (
-      <Empty
-        title="A paper and a dataset are needed"
-        hint="The claim test reads what a paper asserts, then works out whether your data could test them — and says plainly when it could not."
-      />
+      <>
+        <h1 className="rsn-title">Can this claim be tested here?</h1>
+        <p className="lede">
+          A claim test reads what a paper asserts, then works out whether your
+          data could test it — and says plainly when it could not. It quotes
+          the paper and computes nothing.
+        </p>
+
+        <div className="rsn-pair">
+          <div className="rsn-slot" data-missing={paperMissing || undefined}>
+            <span className="rsn-slot-icon" aria-hidden>▤</span>
+            <span className="rsn-slot-kind">Paper</span>
+            {paperMissing ? (
+              <>
+                <span className="rsn-slot-missing">No paper in this project yet</span>
+                {onFindPapers && (
+                  <button type="button" className="btn-text rsn-slot-act" onClick={onFindPapers}>
+                    Find a paper &rarr;
+                  </button>
+                )}
+              </>
+            ) : (
+              <span className="rsn-slot-name">{papers[0].title}</span>
+            )}
+          </div>
+          <div className="rsn-slot" data-missing={!dataset || undefined}>
+            <span className="rsn-slot-icon" aria-hidden>▥</span>
+            <span className="rsn-slot-kind">Dataset</span>
+            {dataset ? (
+              <>
+                <span className="rsn-slot-name mono">{dataset.title}</span>
+                {dataset.dataset && (
+                  <span className="rsn-slot-meta">
+                    v{dataset.dataset.version} · {dataset.dataset.row_count.toLocaleString()} rows
+                  </span>
+                )}
+              </>
+            ) : (
+              <>
+                <span className="rsn-slot-missing">No dataset in this project yet</span>
+                {onAddData && (
+                  <button type="button" className="btn-text rsn-slot-act" onClick={onAddData}>
+                    Add a dataset &rarr;
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+
+        <ol className="rsn-steps">
+          {["Choose claim", "Match dataset", "Review testability"].map((label, i) => (
+            <li key={label} data-state={i === 0 ? "here" : "ahead"}>
+              <span className="rsn-step-n" aria-hidden>{i + 1}</span>
+              <span>{label}</span>
+              <span className="sr-only">{i === 0 ? " — waiting for a paper" : " — not yet"}</span>
+            </li>
+          ))}
+        </ol>
+
+        <div className="rsn-columns">
+          <Filaments />
+          <section className="rsn-judgment" aria-labelledby="rsn-wait-judgment">
+            <h2 id="rsn-wait-judgment" className="rsn-col-title">Your judgment</h2>
+            <p className="rsn-col-kind">Human · appended notes</p>
+            <p className="note">Notes on a paper are written here once there is one to read.</p>
+          </section>
+          <section className="rsn-working">
+            <article className="rsn-claim rsn-waiting">
+              <p className="eyebrow rsn-waiting-eyebrow">
+                {paperMissing ? "Waiting for a paper" : "Waiting for a dataset"}
+              </p>
+              <p className="rsn-waiting-line">
+                {paperMissing
+                  ? "Add a paper and its claims are quoted here, one at a time, for you to choose from."
+                  : "Add a dataset and each claim can be checked against what it actually measured."}
+              </p>
+              <div className="rsn-verbs">
+                {paperMissing && onFindPapers && (
+                  <button type="button" className="btn" onClick={onFindPapers}>
+                    Find a paper
+                  </button>
+                )}
+                {!paperMissing && onAddData && (
+                  <button type="button" className="btn" onClick={onAddData}>
+                    Add a dataset
+                  </button>
+                )}
+              </div>
+              <p className="rsn-waiting-note">Nothing is analysed until you choose a claim.</p>
+            </article>
+          </section>
+          <section className="rsn-reading" aria-labelledby="rsn-wait-reading">
+            <h2 id="rsn-wait-reading" className="rsn-col-title">Throughline&rsquo;s reading</h2>
+            <p className="rsn-col-kind">Model-generated · stored reading</p>
+            <p className="note">The paper&rsquo;s own sentences appear here, quoted and anchored to their page.</p>
+          </section>
+        </div>
+      </>
     );
   }
 

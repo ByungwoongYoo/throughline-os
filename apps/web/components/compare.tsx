@@ -66,9 +66,13 @@ const TONE: Record<string, string> = {
 type Verb = "datasets" | "claim" | "papers" | "many" | "manydata" | "images"
           | "findings" | "scans";
 
-export function Compare({ projectId, sources, onOpenSource }: {
+export function Compare({ projectId, sources, onOpenSource, onFindPapers, onAddData }: {
   projectId: string;
   sources: ApiState<Source[]>;
+  /** Where the reasoning master sends a project that has no paper yet. */
+  onFindPapers?: () => void;
+  /** Where it sends a project that has no dataset yet. */
+  onAddData?: () => void;
   /** Open one of the compared sources, keeping the browser's way back. */
   onOpenSource?: (sourceId: string) => void;
 }) {
@@ -83,7 +87,22 @@ export function Compare({ projectId, sources, onOpenSource }: {
    * This comment said "two are built" for a long time after six were, which is
    * the ordinary fate of a count kept in prose beside the thing it counts.
    */
-  const [verb, setVerb] = useState<Verb>("datasets");
+  /*
+   * Opens on the reasoning master unless the project can only use the other.
+   *
+   * This opened on Dataset ↔ dataset for every project, and most projects have
+   * one dataset — so the first thing Compare showed was "Two datasets are
+   * needed" in an otherwise empty page. Paper ↔ dataset is UI_01, the screen
+   * this section exists to be, and it waits well without a paper. A project
+   * holding two or more datasets and no paper opens where it can act.
+   */
+  const initialVerb: Verb = (() => {
+    const all = sources.data ?? [];
+    const datasetCount = all.filter((s) => s.dataset).length;
+    const paperCount = all.filter((s) => !s.dataset).length;
+    return datasetCount >= 2 && paperCount === 0 ? "datasets" : "claim";
+  })();
+  const [verb, setVerb] = useState<Verb>(initialVerb);
   const [left, setLeft] = useState<string | null>(null);
   const [right, setRight] = useState<string | null>(null);
   const [assessment, setAssessment] = useState<Assessment | null>(null);
@@ -197,7 +216,8 @@ export function Compare({ projectId, sources, onOpenSource }: {
           </label>
         </div>
         <ClaimTest projectId={projectId} sources={sources.data ?? []}
-                   onOpenSource={onOpenSource} />
+                   onOpenSource={onOpenSource}
+                   onFindPapers={onFindPapers} onAddData={onAddData} />
       </>
     );
   }
