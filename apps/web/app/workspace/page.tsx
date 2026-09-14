@@ -860,6 +860,7 @@ function Workspace({ user }: { user: SignedInUser }) {
           selection?.kind === "analysis"
             ? <>
                 <AnalysisDetail runId={selection.id} projectId={project.id}
+                                onOpenRun={select("analysis")}
                                 onMethod={setRunMethod}
                                 onVariables={setRunVariables}
                                 onOpenObject={select("object")}

@@ -11,7 +11,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
-  AnalysisRun, ApiError, Connection, DatasetColumn, DiscoveryMap, EvidenceGraph,
+  AnalysisRun, AnalysisRunRow, ApiError, Connection, DatasetColumn, DiscoveryMap, EvidenceGraph,
   Finding, objectTypeName,
   INGESTION_STAGES, Provenance, SearchResult, Source, ValidationReport, api,
   ingestionStep, isIngesting,
@@ -2413,9 +2413,13 @@ export function estimateSymbol(name: string | null | undefined): string {
   if (n.startsWith("kendall")) return "τ";
   if (n === "r_squared" || n === "r2") return "R²";
   if (n.includes("cohen")) return "Cohen’s d";
-  if (n.includes("eta")) return "η²";
+  // Before η²: "beta" contains "eta", which labelled every regression
+  // coefficient as an effect size it is not.
+  const coefficient = /^beta\[(.+)\]$/.exec(n);
+  if (coefficient) return `β(${coefficient[1]})`;
+  if (n.startsWith("beta") || n.includes("slope") || n.includes("coefficient")) return "β";
+  if (/^eta(_squared|2|²)?$|^partial_eta/.test(n)) return "η²";
   if (n.includes("odds")) return "Odds ratio";
-  if (n.includes("slope") || n.includes("coefficient")) return "β";
   return n ? sentenceCase(n.replace(/_/g, " ")) : "Estimate";
 }
 
@@ -2455,8 +2459,136 @@ export function roleLabel(role: string): string {
   return sentenceCase(role.replace(/_/g, " "));
 }
 
+/**
+ * The same question asked other ways: the run family, as UI_02's table.
+ *
+ * This panel was one sentence explaining what a sensitivity family would be.
+ * The project already holds one for any pair that has been validated — the
+ * robustness suite re-runs the pair as a bootstrap and as a regression with the
+ * other measured columns — and those runs sat in the list with nothing saying
+ * they were the same question. The family is the runs whose variables are this
+ * run's pair: a correlation of the same two columns in either order, or a
+ * regression of one on the other with anything else beside it.
+ *
+ * **The estimates are not made comparable, because they are not.** A
+ * correlation is r and a regression coefficient is in the outcome's units, so
+ * each is printed with its own name and no column pretends they line up.
+ */
+export function RunFamily({ projectId, run, onOpenRun }: {
+  /** Optional because the detail can be rendered without a project, in which
+   *  case there is no list of runs to find a family in. */
+  projectId?: string;
+  run: AnalysisRun;
+  onOpenRun?: (runId: string) => void;
+}) {
+  const runs = useApi<AnalysisRunRow[]>(
+    projectId ? `/api/projects/${projectId}/analyses` : null, [projectId]);
+  const pair = pairOf(run.variables);
+  if (!pair) {
+    return (
+      <p className="note" style={{ margin: 0 }}>
+        This method does not name a pair of variables, so there is no family of
+        runs asking the same question.
+      </p>
+    );
+  }
+  const family = (Array.isArray(runs.data) ? runs.data : [])
+    .map((r) => ({ r, change: changeFrom(r, pair, run.id) }))
+    .filter((x): x is { r: AnalysisRunRow; change: string } => x.change !== null)
+    // The run on screen leads, as the master's table does; the rest follow.
+    .sort((x, y) => Number(y.r.id === run.id) - Number(x.r.id === run.id));
+
+  if (runs.loading && !runs.data) return <Loading rows={2} label="Reading the run family" />;
+  if (family.length <= 1) {
+    return (
+      <p className="note" style={{ margin: 0 }}>
+        Only this run asks this question so far. Validating the connection it
+        produced re-runs it resampled and adjusted, and those runs appear here.
+      </p>
+    );
+  }
+  return (
+    <table className="ckpt-family">
+      <thead>
+        <tr><th>Run</th><th>Change</th><th>Status</th><th className="num">Estimate</th></tr>
+      </thead>
+      <tbody>
+        {family.map(({ r, change }) => (
+          <tr key={r.id} data-current={r.id === run.id || undefined}>
+            <td>
+              {r.id === run.id || !onOpenRun
+                ? <span className="mono">{runHandle(r.id)}</span>
+                : <button type="button" className="btn-text mono" onClick={() => onOpenRun(r.id)}>
+                    {runHandle(r.id)}
+                  </button>}
+            </td>
+            <td>{change}</td>
+            <td><StateMark value={r.status} label={sentenceCase(r.status)} /></td>
+            <td className="num">
+              {r.estimate != null
+                ? <>{r.estimate.toFixed(2)} <span className="ckpt-family-name">{estimateSymbol(r.estimate_name)}</span></>
+                : "—"}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** A run's short handle, the way the river names it. */
+function runHandle(id: string): string {
+  return `AN-${id.replace(/^[a-z]+_/, "").slice(0, 4)}`;
+}
+
+/** The two variables a run is about, if it names exactly a pair. */
+function pairOf(variables: Record<string, unknown>): [string, string] | null {
+  const x = variables?.x, y = variables?.y;
+  if (typeof x === "string" && typeof y === "string") return [x, y];
+  return null;
+}
+
+/**
+ * How a run differs from the question, or null when it is not the same question.
+ *
+ * A regression belongs to the family only when the coefficient it reports is
+ * the other variable of the pair. The robustness suite regresses the outcome on
+ * the focal variable *and* the confounders, so the same regression names every
+ * column as a predictor — and matching on "is it among the predictors" filed a
+ * rainfall regression in the fertiliser family, where its rainfall coefficient
+ * of 0.00 read as "fertiliser has no effect once adjusted". The estimate's own
+ * name (`beta[rainfall_mm]`) says which coefficient it is, so that decides.
+ */
+function changeFrom(r: AnalysisRunRow, [a, b]: [string, string], currentId: string): string | null {
+  const v = r.variables ?? {};
+  const sameCorrelation = typeof v.x === "string" && typeof v.y === "string"
+    && new Set([v.x, v.y, a, b]).size === 2;
+  if (sameCorrelation) {
+    if (r.id === currentId) return "This run";
+    if (r.method.startsWith("bootstrap")) return "Resampled (bootstrap)";
+    if (r.method.startsWith("spearman")) return "Rank-based (Spearman)";
+    if (r.method.startsWith("kendall")) return "Rank-based (Kendall)";
+    // Nothing recorded why it was run; saying so beats inventing a reason.
+    return r.fork_reason ? sentenceCase(r.fork_reason)
+      : `${humanMethod(r.method)} · no reason recorded`;
+  }
+  const outcome = v.outcome;
+  const predictors = Array.isArray(v.predictors) ? v.predictors.map(String) : [];
+  const focal = /^beta\[(.+)\]$/.exec(r.estimate_name ?? "")?.[1];
+  if (typeof outcome === "string" && [a, b].includes(outcome) && focal) {
+    const other = outcome === a ? b : a;
+    if (focal === other) {
+      const rest = predictors.filter((p) => p !== other);
+      return rest.length ? `Adjusted for ${rest.join(", ")}` : "Regression";
+    }
+  }
+  return null;
+}
+
 export function AnalysisDetail({ runId, projectId, onMethod, onVariables,
-                                onOpenObject, onOpenFigures }: {
+                                onOpenObject, onOpenFigures, onOpenRun }: {
+  /** Open another run of the family, from the sensitivity table. */
+  onOpenRun?: (runId: string) => void;
   runId: string;
   /**
    * Which project this run belongs to (D213).
@@ -2789,15 +2921,9 @@ export function AnalysisDetail({ runId, projectId, onMethod, onVariables,
                       {/*
                         * Full width and last, as the master has it: the family
                         * is a table of runs and a two-column cell would wrap
-                        * every row. It says what a fork would change before a
-                        * researcher makes one.
+                        * every row.
                         */}
-                      <p className="note" style={{ margin: 0 }}>
-                        A sensitivity family is built by forking this run&rsquo;s
-                        recorded specification and comparing the branches. This
-                        run&rsquo;s forks and their lineage are listed with the run
-                        below.
-                      </p>
+                      <RunFamily projectId={projectId} run={data} onOpenRun={onOpenRun} />
                     </section>
                   </div>
                 ),
