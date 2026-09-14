@@ -2188,6 +2188,10 @@ function assumptionFamilies(checks: Array<{
   }
   return [...families.values()].map((f) => ({
     name: f.name,
+    /* The state the mark is coloured by. `outcome` can be a sentence — "0 of 2
+       passed" — and a sentence has no tone, so the family rendered hollow, the
+       mark for *nothing recorded*, on exactly the row that failed. */
+    tone: f.failed.length === 0 ? "passed" : f.failed[0].outcome,
     outcome: f.failed.length === 0 ? "passed"
       : f.members.length === 1 ? f.failed[0].outcome
       : `${f.members.length - f.failed.length} of ${f.members.length} passed`,
@@ -2233,11 +2237,51 @@ const FORMS: ReadonlyArray<[CartesianMark, string]> = [
   ["rect", "Bars"],
 ];
 
-function ObservedAssociation({ runId, onOpenFigures }: {
+function ObservedAssociation({ runId, onOpenFigures, estimate = null,
+                               estimateName = null, variables = {} }: {
   runId: string;
   /** The full builder, where a figure is made rather than read. */
   onOpenFigures?: () => void;
+  /** The run's own estimate, set on the plot the way the master sets it. */
+  estimate?: number | null;
+  estimateName?: string | null;
+  /**
+   * The run's recorded variables, which is where the axes get their names.
+   *
+   * The points endpoint carries the values and not the column names, so the
+   * axes were titled "x" and "y" — a scatter of two unnamed quantities, on the
+   * screen whose whole job is saying what was measured against what.
+   */
+  variables?: Record<string, unknown>;
 }) {
+  /*
+   * The plot is drawn at the width of its panel, measured.
+   *
+   * The renderer draws into a viewBox, and at its default 620 units in a
+   * panel some 430px wide every tick label was scaled down to about eight
+   * pixels — below anything §08 allows. Measuring the panel lets text render
+   * at the size the stylesheet gives it.
+   */
+  const frame = useRef<HTMLDivElement | null>(null);
+  const [frameWidth, setFrameWidth] = useState(460);
+  useEffect(() => {
+    const el = frame.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      const w = Math.round(entry.contentRect.width);
+      if (w > 200) setFrameWidth(w);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const named = (keys: string[], fallback: number): string | null => {
+    for (const k of keys) if (variables[k] != null) return String(variables[k]);
+    const values = Object.values(variables);
+    return values[fallback] != null ? String(values[fallback]) : null;
+  };
+  const xName = named(["x", "exposure", "predictor", "factor", "group"], 0);
+  const yName = named(["y", "outcome", "response", "measure"], 1);
   /*
    * The form is the reader's, and it is remembered for as long as they are on
    * the run. A researcher who switches to the line to see the trend and then
@@ -2270,20 +2314,35 @@ function ObservedAssociation({ runId, onOpenFigures }: {
     );
   }
 
+  const symbol = estimateName ? estimateSymbol(estimateName) : null;
+
   return (
     <>
-      <Cartesian
-        data={data}
-        mark={mark}
-        xLabel={points.data?.x_label ?? "x"}
-        yLabel={points.data?.y_label ?? "y"}
-        /*
-          Density colour belongs to the cloud. On a line or a filled area it
-          would colour a shape by a crowding that shape has already hidden.
-        */
-        densityColour={mark === "point"}
-        height={200}
-      />
+      <div className="ckpt-plot" ref={frame}>
+        {estimate != null && symbol && (
+          /* The estimate on the plot, where the eye already is. Not a fitted
+             line: a correlation fits no model, and this renderer draws a line
+             only when one was fitted (Law 2) — the master's trend line on a
+             Pearson correlation is the one thing here not copied from it. */
+          <span className="ckpt-plot-estimate numeric">
+            {symbol} = {estimate.toFixed(2)}
+          </span>
+        )}
+        <Cartesian
+          data={data}
+          mark={mark}
+          xLabel={points.data?.x_label ?? xName ?? "x"}
+          yLabel={points.data?.y_label ?? yName ?? "y"}
+          /*
+            Density colour belongs to the cloud. On a line or a filled area it
+            would colour a shape by a crowding that shape has already hidden.
+          */
+          densityColour={mark === "point"}
+          densityRamp="ink"
+          width={frameWidth}
+          height={250}
+        />
+      </div>
       {/*
         * The figure's own controls, beside the figure.
         *
@@ -2321,6 +2380,75 @@ function ObservedAssociation({ runId, onOpenFigures }: {
       </div>
     </>
   );
+}
+
+/**
+ * A p-value as a reader reports it.
+ *
+ * Below a thousandth the convention is `<0.001`, and the cockpit printed
+ * `4.46e-19` — exact, and unreadable at a glance. Above it, three decimals.
+ * The exact value is kept on the element's title, so nothing is rounded away.
+ */
+export function formatP(p: number | null | undefined): string {
+  if (p == null || Number.isNaN(p)) return "—";
+  if (p < 0.001) return "<0.001";
+  return p.toFixed(3);
+}
+
+/**
+ * An estimate's conventional symbol: `pearson_r` is r, `spearman_rho` is ρ.
+ *
+ * Stripping everything after the underscore turned `pearson_r` into "pearson",
+ * which names the method and not the quantity — the one word in the
+ * measurement row that is not a measurement.
+ */
+export function estimateSymbol(name: string | null | undefined): string {
+  const n = (name ?? "").toLowerCase();
+  if (n.startsWith("pearson")) return "r";
+  if (n.startsWith("spearman")) return "ρ";
+  if (n.startsWith("kendall")) return "τ";
+  if (n === "r_squared" || n === "r2") return "R²";
+  if (n.includes("cohen")) return "Cohen’s d";
+  if (n.includes("eta")) return "η²";
+  if (n.includes("odds")) return "Odds ratio";
+  if (n.includes("slope") || n.includes("coefficient")) return "β";
+  return n ? sentenceCase(n.replace(/_/g, " ")) : "Estimate";
+}
+
+/** `pearson_correlation` → "Pearson correlation". Names, not identifiers. */
+export function humanMethod(method: string): string {
+  const words = method.replace(/_/g, " ").trim();
+  // The methods that are named by their initials are written that way.
+  const acronyms: Record<string, string> = {
+    anova: "ANOVA", ancova: "ANCOVA", manova: "MANOVA", ols: "OLS", glm: "GLM",
+    pca: "PCA", "t test": "t-test", "chi square": "Chi-square",
+  };
+  const lowered = words.toLowerCase();
+  for (const [key, value] of Object.entries(acronyms)) {
+    if (lowered === key) return value;
+    if (lowered.startsWith(key + " ")) return value + words.slice(key.length);
+  }
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** The first letter up, the rest untouched — "large" → "Large", "p-value" stays. */
+export function sentenceCase(text: string): string {
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+}
+
+/**
+ * A recorded variable role, named for a reader.
+ *
+ * Only relabelled where the run's own vocabulary is a symbol: a correlation
+ * records `x` and `y`, which are positions and not roles, so they read as the
+ * first and second variable. Every other role — factor, measure, exposure,
+ * outcome — is already a word and is printed as the run recorded it, because
+ * relabelling a factor "exposure" would be a small lie about what was run.
+ */
+export function roleLabel(role: string): string {
+  if (role === "x") return "First variable";
+  if (role === "y") return "Second variable";
+  return sentenceCase(role.replace(/_/g, " "));
 }
 
 export function AnalysisDetail({ runId, projectId, onMethod, onVariables,
@@ -2389,22 +2517,28 @@ export function AnalysisDetail({ runId, projectId, onMethod, onVariables,
             {data.research_question || data.method.replace(/_/g, " ")}
           </h1>
           <p className="ckpt-sub">
-            <span>{data.method.replace(/_/g, " ")}</span>
+            <span>{humanMethod(data.method)}</span>
             <span aria-hidden> · </span>
-            <span>{data.method_rationale ? "researcher-specified" : "recorded"}</span>
+            <span>{data.method_rationale ? "Researcher-specified" : "Recorded"}</span>
             {data.duration_ms != null && (
               <>
                 <span aria-hidden> · </span>
-                <span className="mono">{data.duration_ms} ms</span>
+                <span className="numeric">{data.duration_ms} ms</span>
               </>
             )}
           </p>
         </div>
-        {/* The run's state, as a state rather than as an absence of error. */}
-        <p className="ckpt-state" data-state={data.status}>
-          <span className="ckpt-state-dot" aria-hidden />
-          {data.status === "completed" ? "Run completed" : `Run ${data.status}`}
-        </p>
+        <div className="ckpt-head-side">
+          {/* The run's state, as a state rather than as an absence of error.
+              A mark with a tick in it, as the master sets it, so "completed"
+              is a thing the eye finds and not a word it reads. */}
+          <p className="ckpt-state" data-state={data.status}>
+            <span className="ckpt-state-dot" aria-hidden>
+              {data.status === "completed" ? "✓" : data.status === "failed" ? "!" : ""}
+            </span>
+            {data.status === "completed" ? "Run completed" : `Run ${data.status}`}
+          </p>
+        </div>
       </header>
       {data.status !== "completed" && (
         <>
@@ -2475,14 +2609,23 @@ export function AnalysisDetail({ runId, projectId, onMethod, onVariables,
                  */
                 panel: () => (
                   <div className="ckpt-grid">
+                    {/*
+                      * Paired as UI_02 pairs them, row by row: what was asked
+                      * beside what came back; the picture beside the checks
+                      * that qualify it; the reading beside what it would take
+                      * to reproduce it. The previous order put Interpretation
+                      * beside the chart and left Assumption checks alone on a
+                      * row, so the two things a reader compares — the scatter
+                      * and whether its assumptions held — were a screen apart.
+                      */}
                     <section className="ckpt-panel">
                       <h2 className="ckpt-panel-name">Recorded specification</h2>
                       <dl className="ckpt-kv">
-                        <dt>Method</dt><dd className="mono">{data.method.replace(/_/g, " ")}</dd>
+                        <dt>Method</dt><dd>{humanMethod(data.method)}</dd>
                         {Object.entries(data.variables ?? {}).map(([role, name]) => (
                           <Fragment key={role}>
-                            <dt>{role.replace(/_/g, " ")}</dt>
-                            <dd className="mono">{String(name)}</dd>
+                            <dt>{roleLabel(role)}</dt>
+                            <dd>{String(name)}</dd>
                           </Fragment>
                         ))}
                         <dt>Rationale</dt>
@@ -2493,29 +2636,44 @@ export function AnalysisDetail({ runId, projectId, onMethod, onVariables,
                     <section className="ckpt-panel">
                       <h2 className="ckpt-panel-name">Recorded result</h2>
                       {/*
-                        * A measurement row, not a tile wall. §47 still wants
-                        * the four judgements kept apart, and they are — by
-                        * column, at a size a number is read at rather than a
-                        * size a number is announced at.
+                        * A measurement row, as the master sets it: the name
+                        * above, the number below, a rule between each. The
+                        * previous row put a 10px uppercase caption under each
+                        * figure and printed p as `4.46e-19` — correct, and
+                        * unreadable at a glance; reporting convention is `<0.001`
+                        * below a thousandth, with the exact value one hover away.
                         */}
-                      <div className="ckpt-figures">
+                      <div className="ckpt-measures">
                         <span>
-                          <b className="numeric">{r.estimate?.toFixed(4) ?? "—"}</b>
-                          <em>{r.estimate_name ?? "estimate"}</em>
-                        </span>
-                        <span>
-                          <b className="numeric">
-                            {r.p_value != null ? r.p_value.toExponential(2) : "—"}
+                          <em>{estimateSymbol(r.effect_size?.name ?? r.estimate_name)}</em>
+                          {/* Two decimals to read, as reporting convention has it;
+                              the full value on the element, so nothing is lost. */}
+                          <b className="numeric"
+                             title={r.estimate != null ? String(r.estimate) : undefined}
+                             data-exact={r.estimate != null ? r.estimate.toFixed(4) : undefined}>
+                            {r.estimate != null ? r.estimate.toFixed(2) : "—"}
                           </b>
+                        </span>
+                        {r.ci_low != null && r.ci_high != null && (
+                          <span>
+                            <em>{Math.round((r.confidence_level ?? 0.95) * 100)}% CI</em>
+                            <b className="numeric">[{r.ci_low.toFixed(2)}, {r.ci_high.toFixed(2)}]</b>
+                          </span>
+                        )}
+                        <span title={r.p_value != null ? `p = ${r.p_value.toExponential(3)}` : undefined}>
                           <em>p-value</em>
+                          <b className="numeric">{formatP(r.p_value)}</b>
                         </span>
                         <span>
-                          <b className="numeric">{r.sample_size ?? "—"}</b>
-                          <em>sample size</em>
+                          {/* n, the conventional name, rather than "Observations":
+                              the label was wider than every number in the row and
+                              pushed the sample size onto a line of its own. */}
+                          <em>n</em>
+                          <b className="numeric">{r.sample_size != null ? r.sample_size.toLocaleString() : "—"}</b>
                         </span>
                       </div>
                       <dl className="ckpt-kv">
-                        <dt>Statistically significant</dt>
+                        <dt>Statistical significance</dt>
                         {/*
                           * `String(null)` is "null", and that is what this
                           * printed — the literal word, on the cockpit, beside
@@ -2528,14 +2686,67 @@ export function AnalysisDetail({ runId, projectId, onMethod, onVariables,
                             value={r.statistically_significant}
                             label={r.statistically_significant == null
                               ? "not recorded"
-                              : r.statistically_significant ? "yes" : "no"}
+                              : r.statistically_significant ? "Yes" : "No"}
                           />
                         </dd>
                         <dt>Practical significance</dt>
-                        <dd>{r.practical_significance ?? <span className="note">not recorded</span>}</dd>
+                        <dd>{r.practical_significance ? sentenceCase(r.practical_significance) : <span className="note">not recorded</span>}</dd>
                         <dt>Evidence quality</dt>
-                        <dd>{r.evidence_quality ?? <span className="note">not recorded</span>}</dd>
+                        <dd>{r.evidence_quality ? sentenceCase(r.evidence_quality) : <span className="note">not recorded</span>}</dd>
                       </dl>
+                    </section>
+
+                    {/*
+                      * The observed association, in the cockpit rather than
+                      * only on Figures. The endpoint and the renderer both
+                      * already existed; the master's centre had no picture in
+                      * it, which is the one thing a reader looks at first.
+                      */}
+                    <section className="ckpt-panel">
+                      <h2 className="ckpt-panel-name">Observed association</h2>
+                      <ObservedAssociation runId={runId} onOpenFigures={onOpenFigures}
+                                           estimate={r.estimate}
+                                           estimateName={r.effect_size?.name ?? r.estimate_name}
+                                           variables={data.variables ?? {}} />
+                    </section>
+
+                    <section className="ckpt-panel">
+                      <h2 className="ckpt-panel-name">Assumption checks</h2>
+                      {data.assumption_checks.length === 0 ? (
+                        <p className="note">This method declared no assumptions to check.</p>
+                      ) : (
+                        <>
+                          <table className="ckpt-checks">
+                            <thead>
+                              <tr><th>Check</th><th>Outcome</th><th>Detail</th></tr>
+                            </thead>
+                            <tbody>
+                              {assumptionFamilies(data.assumption_checks).map((c) => (
+                                <tr key={c.name} data-severity={c.severity}>
+                                  <td>{sentenceCase(c.name.replace(/_/g, " "))}</td>
+                                  <td><StateMark value={c.tone} label={sentenceCase(c.outcome)} /></td>
+                                  <td>{c.detail}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          {/*
+                            * The consequence, stated where the failure is.
+                            * UI_02 closes this panel with "Review assumptions
+                            * before promoting this result" when a check needs
+                            * review, and a table of outcomes with no sentence
+                            * after it leaves the reader to decide whether a
+                            * violated check matters. Said only when one did
+                            * not pass — a warning on every run is wallpaper.
+                            */}
+                          {data.assumption_checks.some((c) => c.outcome !== "passed") && (
+                            <p className="ckpt-caution" role="note">
+                              <span className="ckpt-caution-mark" aria-hidden>!</span>
+                              Review these assumptions before promoting this result.
+                            </p>
+                          )}
+                        </>
+                      )}
                     </section>
 
                     <section className="ckpt-panel">
@@ -2548,37 +2759,25 @@ export function AnalysisDetail({ runId, projectId, onMethod, onVariables,
                       )}
                     </section>
 
-                    {/*
-                      * The observed association, in the cockpit rather than
-                      * only on Figures. The endpoint and the renderer both
-                      * already existed; the master's centre had no picture in
-                      * it, which is the one thing a reader looks at first.
-                      */}
                     <section className="ckpt-panel">
-                      <h2 className="ckpt-panel-name">Observed association</h2>
-                      <ObservedAssociation runId={runId} onOpenFigures={onOpenFigures} />
-                    </section>
-
-                    <section className="ckpt-panel">
-                      <h2 className="ckpt-panel-name">Assumption checks</h2>
-                      {data.assumption_checks.length === 0 ? (
-                        <p className="note">This method declared no assumptions to check.</p>
-                      ) : (
-                        <table className="ckpt-checks">
-                          <thead>
-                            <tr><th>Check</th><th>Outcome</th><th>Detail</th></tr>
-                          </thead>
-                          <tbody>
-                            {assumptionFamilies(data.assumption_checks).map((c) => (
-                              <tr key={c.name} data-severity={c.severity}>
-                                <td>{c.name.replace(/_/g, " ")}</td>
-                                <td><StateMark value={c.outcome} /></td>
-                                <td>{c.detail}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      )}
+                      <h2 className="ckpt-panel-name">Reproducibility</h2>
+                      <dl className="ckpt-kv">
+                        <dt>Random seed</dt><dd className="numeric">{data.random_seed}</dd>
+                        <dt>Duration</dt>
+                        <dd className="numeric">
+                          {data.duration_ms != null ? `${data.duration_ms} ms` : "—"}
+                        </dd>
+                        {/* Hashes are identifiers, so these two keep the
+                            monospace face every other value gave up. */}
+                        <dt>Dataset hash</dt>
+                        <dd className="mono ckpt-hash">
+                          {data.input_hashes.dataset_content_hash?.slice(0, 10) ?? "—"}…
+                        </dd>
+                        <dt>Spec hash</dt>
+                        <dd className="mono ckpt-hash">
+                          {data.input_hashes.spec_content_hash?.slice(0, 10) ?? "—"}…
+                        </dd>
+                      </dl>
                     </section>
 
                     <section className="ckpt-panel ckpt-wide">
@@ -2595,25 +2794,6 @@ export function AnalysisDetail({ runId, projectId, onMethod, onVariables,
                         run&rsquo;s forks and their lineage are listed with the run
                         below.
                       </p>
-                    </section>
-
-                    <section className="ckpt-panel">
-                      <h2 className="ckpt-panel-name">Reproducibility</h2>
-                      <dl className="ckpt-kv">
-                        <dt>Random seed</dt><dd className="mono">{data.random_seed}</dd>
-                        <dt>Duration</dt>
-                        <dd className="mono">
-                          {data.duration_ms != null ? `${data.duration_ms} ms` : "—"}
-                        </dd>
-                        <dt>Dataset hash</dt>
-                        <dd className="mono">
-                          {data.input_hashes.dataset_content_hash?.slice(0, 12) ?? "—"}…
-                        </dd>
-                        <dt>Spec hash</dt>
-                        <dd className="mono">
-                          {data.input_hashes.spec_content_hash?.slice(0, 12) ?? "—"}…
-                        </dd>
-                      </dl>
                     </section>
                   </div>
                 ),

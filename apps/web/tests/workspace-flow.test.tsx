@@ -207,7 +207,9 @@ describe("a related object opens in the section that shows it (D195)", () => {
       .not.toBeInTheDocument();
     // The breadcrumb names the run by its method, not by its id.
     const crumbs = screen.getByRole("navigation", { name: "Breadcrumb" });
-    expect(within(crumbs).getByText("pearson correlation")).toBeInTheDocument();
+    // Named as a method is named — "Pearson correlation" — not as its
+    // identifier; the property is that the crumb names the run, not its id.
+    expect(within(crumbs).getByText("Pearson correlation")).toBeInTheDocument();
   });
 
   it("goes back to the finding when the browser goes Back", async () => {

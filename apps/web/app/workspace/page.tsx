@@ -22,7 +22,7 @@ import { Centered, Failure, Fold, Loading } from "@/components/primitives";
 import { Crumb, PAGES, SECTIONS, Section, Shell } from "@/components/Shell";
 import { CommandPalette, buildCommands } from "@/components/CommandPalette";
 import { AnalysisRail } from "@/components/AnalysisRail";
-import {
+import { humanMethod,
   AnalysisDetail, ConnectionDetail, ConnectionsTable, Discover, EvidenceGraphView,
   EvidenceGraphSummary, Findings, ObjectHistoryFor, Overview, Search, SourceDetail,
   Sources,
@@ -513,8 +513,10 @@ function Workspace({ user }: { user: SignedInUser }) {
                 // The method, as the detail's own heading spells it; a run id
                 // in a breadcrumb tells the researcher nothing about where
                 // they are.
-                ? analyses.data?.find((a) => a.id === selection.id)?.method
-                    .replace(/_/g, " ")
+                ? (() => {
+                    const method = analyses.data?.find((a) => a.id === selection.id)?.method;
+                    return method ? humanMethod(method) : undefined;
+                  })()
                 : undefined;
     crumbs.push({ label: named ?? selection.id });
   }

@@ -48,8 +48,8 @@
    * with a dark label at 7.62:1 — the "pale gold fill with readable dark
    * label" §08 asks for, rather than a tint nobody can read.
    */
-  --accent:      #8A6A1F;
-  --accent-soft: #F3E7CC;
+  --accent:      #78602B;
+  --accent-soft: #EEE8D9;
   /*
    * Text drawn *on* the accent.
    *
@@ -79,7 +79,7 @@
    * its tint is the site's amber-tinted dark and its readable side is the
    * site's *brighter* amber, 8.53:1 on it — the same question, answered from
    * that palette. */
-  --on-accent-soft: #5A4310;
+  --on-accent-soft: #5C4A20;
 
   /*
    * Data selection, which is not the same thing as navigation.
@@ -95,15 +95,15 @@
    * marked, not highlighted, and a list of twenty with one picked should read
    * as a list and not as a warning.
    */
-  --select:      #1D4ED8;
-  --select-soft: #E8EEFC;
-  --on-select-soft: #17337A;
+  --select:      #355F9D;
+  --select-soft: #E6EEF9;
+  --on-select-soft: #284A7C;
 
   /* Semantic — state only, never decoration. */
-  --positive: #15803D;
-  --caution:  #B45309;
-  --negative: #B91C1C;
-  --info:     #0369A1;
+  --positive: #466548;
+  --caution:  #79591D;
+  --negative: #994D3C;
+  --info:     #355F9D;
 
   /* Semantic aliases for the finding lifecycle, so a component names the state
      rather than the colour. */
@@ -129,17 +129,17 @@
   color-scheme: light;
 
   /* Roles, so components never reach into the ramp directly. */
-  --paper: var(--n-25);
+  --paper: #F5F4F0;
   /* `--bg` was referenced in three places and defined in none, so those
      rules resolved to nothing. Aliased to the page surface, which is what
      each of them meant. */
-  --bg: var(--n-25);
+  --bg: #F5F4F0;
   /* Caution. Semantic, and the one warm hue chrome is allowed. */
-  --warn: #B45309;
-  --panel: var(--n-0);
-  --hover: var(--n-50);
-  --line:  var(--n-200);
-  --line-strong: var(--n-300);
+  --warn: #79591D;
+  --panel: #FDFDFC;
+  --hover: #F0EFEB;
+  --line:  #D8DADD;
+  --line-strong: #8C949E;
   /*
    * The lit face of a sphere.
    *
@@ -157,10 +157,10 @@
      3.29:1 on a card and 3.15:1 on the page; n-500 is 5.36:1 and 5.13:1.
      The dark theme needs a further step and takes it below, because the same
      name resolves to a different colour there. */
-  --ink-faint: var(--n-500);
-  --ink-soft:  var(--n-600);
-  --ink:       var(--n-800);
-  --ink-strong: var(--n-900);
+  --ink-faint: #5F6670;
+  --ink-soft:  #3F4650;
+  --ink:       #181B20;
+  --ink-strong: #0E1115;
 
   /* Motion (Part D1). Nothing exceeds 900ms; longer needs staging. */
   --instant:   80ms;
@@ -174,8 +174,8 @@
      these names; mapping them here keeps one set of durations rather than two. */
   --fast: var(--micro);
   --surface-2: var(--hover);
-  --danger: #B91C1C;
-  --danger-soft: #FEE2E2;
+  --danger: #994D3C;
+  --danger-soft: #F6E5DF;
   /* The readable side of `--danger`, for the same reason `--on-accent` exists:
      `.btn-danger` paints text *on* it, and in dark `--danger` is a light red,
      so a literal `#fff` there is a guess that survives only until the token
@@ -228,6 +228,44 @@
   --gate-ink-14: color-mix(in oklab, var(--gate-ink) 14%, transparent);
   --gate-ink-06: color-mix(in oklab, var(--gate-ink) 6%, transparent);
   --gate-ink-03: color-mix(in oklab, var(--gate-ink) 3%, transparent);
+
+  /*
+   * The package's workspace palette, adopted rather than approximated.
+   *
+   * UI_01–03 were measured pixel by pixel and match
+   * `tokens/throughline.tokens.css` to within a unit per channel, so the
+   * difference between those images and this product was never layout: it was
+   * that this file used Tailwind's defaults for every state — #15803D green,
+   * #B91C1C red, #B45309 amber, #1D4ED8 blue — which read as a generic web
+   * app, where the package's sage, rust, ochre and slate read as a journal.
+   * Warm canvas, cool ink, one step of surface between them.
+   *
+   * Every value was measured before it went in: each state colour clears 4.5:1
+   * on the panel, on the canvas, on the header strip and on its own fill; the
+   * lowest is gold on its fill at 4.90:1.
+   */
+  --positive-soft: #E8F0E6;
+  --caution-soft:  #F8EED7;
+
+  /*
+   * The primary act is near-black, as the package specifies (`--tl-action`).
+   *
+   * Gold marks where you are and what the research is focused on; it was also
+   * painting every primary button, so the product's single loudest control and
+   * its navigation state were the same colour. §08 separates focus from
+   * action, and so does every one of the three masters.
+   */
+  --action:    #14181D;
+  --on-action: #FFFFFF;
+
+  /* Keyboard focus is blue in the package, not gold: focus is an interaction,
+     and §08 gives interaction to blue. #255FC4 is 5.87:1 on the panel. */
+  --focus: #255FC4;
+  /* One-hue density, from the package's slate: sparse is a pale wash, dense is
+     near-navy, so the crowded part of a cloud carries the most ink on paper. */
+  --density-sparse: #A9BEDC;
+  --density-dense:  #1C355C;
+
 }
 
 /* An explicit choice outranks the operating system — in both directions.
@@ -383,6 +421,20 @@
     --select:      #a8c6e6;
     --select-soft: rgba(122, 162, 204, 0.17);
     --on-select-soft: #cfe0f2;
+    /*
+     * Action and focus on the dark ground, from the package's own dark
+     * surface tokens (`--tl-action`, `--tl-focus` on the homepage surface):
+     * the primary act inverts to the pale mist with near-black text, 16.9:1,
+     * and focus takes the pale blue, 11.1:1 on the panel.
+     */
+    --action:    #F4F2EE;
+    --on-action: #101216;
+    --focus:     #AFC8FF;
+    /* Reversed on the dark ground: sparse sinks toward it, dense rises. */
+    --density-sparse: #32465F;
+    --density-dense:  #CFE0F2;
+    --positive-soft: rgba(110, 170, 120, 0.16);
+    --caution-soft:  rgba(214, 170, 90, 0.16);
 
     /* `--danger` is `--negative` under the name the buttons and dialogs use, so
      * it moves with it — but it is also the only state colour used as a
@@ -569,6 +621,20 @@
     --select:      #a8c6e6;
     --select-soft: rgba(122, 162, 204, 0.17);
     --on-select-soft: #cfe0f2;
+    /*
+     * Action and focus on the dark ground, from the package's own dark
+     * surface tokens (`--tl-action`, `--tl-focus` on the homepage surface):
+     * the primary act inverts to the pale mist with near-black text, 16.9:1,
+     * and focus takes the pale blue, 11.1:1 on the panel.
+     */
+    --action:    #F4F2EE;
+    --on-action: #101216;
+    --focus:     #AFC8FF;
+    /* Reversed on the dark ground: sparse sinks toward it, dense rises. */
+    --density-sparse: #32465F;
+    --density-dense:  #CFE0F2;
+    --positive-soft: rgba(110, 170, 120, 0.16);
+    --caution-soft:  rgba(214, 170, 90, 0.16);
 
     /* `--danger` is `--negative` under the name the buttons and dialogs use, so
      * it moves with it — but it is also the only state colour used as a
@@ -627,7 +693,7 @@ a { color: inherit; }
 
 /* §118 — focus must always be visible. */
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
   border-radius: 2px;
 }
@@ -737,7 +803,7 @@ a { color: inherit; }
    control half the users cannot operate, and the library gives it arrow-key
    resizing — so it needs a focus ring like everything else. */
 .shell-divider:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus);
   outline-offset: -2px;
 }
 
@@ -1035,7 +1101,7 @@ a { color: inherit; }
    must not therefore wear a focus ring as though it were a control. */
 .tab-panel { outline: none; }
 .tab-panel:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus);
   outline-offset: 3px;
   border-radius: 4px;
 }
@@ -1338,8 +1404,10 @@ tbody tr:hover { background: var(--hover); }
    the underline, which is why four same-rank controls on the finding detail
    had four appearances — one of them underlined (§4.6.4). */
 a.btn { text-decoration: none; }
-.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-.btn-primary:hover:not(:disabled) { filter: brightness(1.1); background: var(--accent); }
+/* The primary act is `--action`, near-black in light and mist in dark, as the
+   package's three masters draw it. Gold is kept for focus and navigation. */
+.btn-primary { background: var(--action); border-color: var(--action); color: var(--on-action); }
+.btn-primary:hover:not(:disabled) { filter: brightness(1.25); background: var(--action); }
 
 input[type="text"], input[type="email"], input[type="password"], textarea, select {
   width: 100%;
@@ -1943,7 +2011,7 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 /* --- focus is always visible (§118) -------------------------------------- */
 
 :where(a, button, input, textarea, select, label.pick-option, [tabindex]):focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
   border-radius: 4px;
 }
@@ -2388,7 +2456,7 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 }
 
 .chart-control:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 
@@ -2551,7 +2619,7 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 /* The graph is focusable, so it needs the same visible focus as everything
    else — a canvas with no focus ring is invisible to a keyboard user. */
 .kg-canvas:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus);
   outline-offset: -2px;
 }
 
@@ -5421,7 +5489,7 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 /* Visible focus, or the whole exercise is pointless — a keyboard user who
    cannot see where they are has gained a tab stop and nothing else. */
 .pick:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
   border-radius: 4px;
 }
@@ -5981,11 +6049,11 @@ button.step-strip-where:hover b { color: var(--accent); }
   font-weight: 540;
 }
 .step-action .btn-primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
+  background: var(--action);
+  border-color: var(--action);
+  color: var(--on-action);
 }
-.step-action .btn-primary:hover { filter: brightness(1.1); background: var(--accent); }
+.step-action .btn-primary:hover { filter: brightness(1.25); background: var(--action); }
 .step-action input[type="file"] { display: none; }
 .steps-note { margin: 0 0 8px; }
 
@@ -7398,3 +7466,388 @@ button.ax-object:hover .ax-object-go { color: var(--select); }
   box-shadow: inset 0 0 0 1px var(--line);
   background: transparent;
 }
+
+/* ==========================================================================
+   The shell, as the three masters draw it
+   ==========================================================================
+
+   Measured off UI_01–03 at 1586×992 and against the package's layout tokens:
+   a 64px identity row, a 48px group row and a 48px section row
+   (`--tl-workspace-identity-row`, `-group-row`, `-section-row`), both nav rows
+   centred, and a status line closing the frame. Ours was 52/48/auto, every row
+   left-aligned, and ended at the edge of the panels — which is most of why a
+   screenshot of it read as an admin tool beside the package's journal.
+*/
+.shell { grid-template-rows: 64px 48px 48px minmax(0, 1fr) 30px; }
+
+.topbar {
+  gap: 20px;
+  padding: 0 28px 0 32px;
+  background: var(--paper);
+}
+.brand-lockup {
+  display: inline-flex; align-items: center; gap: 10px;
+  flex: 0 0 auto; color: var(--ink-strong);
+}
+.brand-lockup .brand-mark { margin: 0; }
+.brand-word {
+  font-size: 23px; font-weight: 500; letter-spacing: -0.025em; line-height: 1;
+}
+.topbar .crumbs {
+  font-size: 13.5px; padding-left: 18px; margin-left: 2px;
+  border-left: 1px solid var(--line);
+}
+
+.command {
+  flex: 0 0 auto;
+  width: 250px;
+  height: 38px;
+  margin-left: auto;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink-faint);
+  font-size: 13.5px;
+}
+.command:hover { border-color: var(--line-strong); color: var(--ink-soft); }
+.command-icon { display: flex; color: var(--ink-faint); }
+.command kbd { border-color: var(--line); background: var(--paper); }
+
+/* Both nav rows centred, on the canvas rather than on white, as in every master. */
+.groupbar, .sectionbar {
+  justify-content: center;
+  background: var(--paper);
+}
+.groupbar { gap: 20px; }
+.groupbar-tab { padding: 0 14px; font-size: 15px; color: var(--ink-soft); }
+.groupbar-tab::after { inset: auto 10px 0 10px; }
+/* The count stays — a collapsed group says how many entries it holds — but as
+   a quiet figure beside the name rather than as a second pill in the row. */
+.groupbar-count {
+  min-width: 0; padding: 0; background: none;
+  color: var(--ink-faint); font-size: 12px; font-weight: 400;
+}
+
+.sectionbar { gap: 10px; padding-top: 7px; padding-bottom: 7px; }
+.sectionbar-item { height: 34px; padding: 0 16px; font-size: 14.5px; border-radius: 8px; }
+.sectionbar-item[aria-current="true"] {
+  background: var(--accent-soft); color: var(--on-accent-soft); font-weight: 500;
+}
+.sectionbar-count { background: none; padding: 0; font-size: 12px; }
+
+.statusbar {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 32px;
+  border-top: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink-soft);
+  font-size: 12.5px;
+}
+.statusbar-item { display: inline-flex; align-items: center; gap: 8px; }
+.statusbar-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--positive); }
+.statusbar-note { color: var(--ink-faint); }
+
+/* ==========================================================================
+   Type, as §08 sets it and the masters draw it
+   ==========================================================================
+
+   §08: "Body 14–16px, metadata 12–13px, dense table rows 32–36px, panel
+   headings 14–16px semibold … Never reduce everything to 11px to fit more."
+   This file had settled on 12–12.5px for panel content and 10.5–11px for
+   labels, and headed every column with a 12px uppercase eyebrow. None of the
+   three masters uses an uppercase eyebrow for a heading; they use sentence
+   case at 15px. The small caps were the single most "admin panel" thing on
+   the screen.
+*/
+.eyebrow {
+  font-size: 14.5px;
+  letter-spacing: -0.005em;
+  text-transform: none;
+  color: var(--ink);
+  font-weight: 560;
+}
+
+/* Panel headers: white with a rule, as the masters have them — not tinted.
+   The warm canvas around each panel is what separates it; a grey strip on top
+   of that is a second separation doing the first one's job, and it made eight
+   panels read heavy. */
+.panel-name,
+.ckpt-panel-name,
+.workspace .card > h2:first-child,
+.workspace .card > h3:first-child {
+  background: transparent;
+  font-size: 14.5px;
+  font-weight: 560;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+.workspace table thead th,
+.panel table thead th {
+  background: transparent;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-faint);
+}
+
+/* Key–value: labels muted, values in the reading face. Mono is for things
+   that are identifiers — a hash, a seed — and a method name or a variable is
+   not one; set in mono it read as a log file. */
+.ckpt-kv { font-size: 13.5px; gap: 6px 18px; }
+.ckpt-kv dd { font-family: var(--sans); }
+.ckpt-read { font-size: 14px; line-height: 1.55; }
+.workspace .note { font-size: 13px; }
+.rail-card, .rail-run { font-size: 13.5px; }
+.rail-card-meta { font-size: 12px; }
+.ax-object-name { font-size: 13.5px; }
+.ax-meta, .ax-object-body .ax-meta { font-size: 12px; }
+
+/* ==========================================================================
+   Tabs as the masters draw them — a segmented control
+   ==========================================================================
+
+   UI_01–03 set every set of readings (Result / Specification / …, Context /
+   Notes, Data / Variables, River / Object table) as one bordered control with
+   cells, the chosen cell filled in the interaction blue. Ours were underlines
+   in one place and loose pills in another, so the same interaction had two
+   looks on adjacent screens. One look now, for both components.
+*/
+.tabs, .cmp-verbs {
+  display: inline-flex;
+  gap: 0;
+  width: auto;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0 0 14px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.tab, .cmp-verb {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 36px;
+  margin: 0;
+  padding: 0 18px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 13.5px;
+  font-weight: 450;
+  white-space: nowrap;
+}
+.tab:last-child, .cmp-verb:last-child { border-right: 0; }
+.tab:hover, .cmp-verb:hover { background: var(--hover); color: var(--ink); }
+.tab[aria-selected="true"], .cmp-verb[aria-selected="true"] {
+  background: var(--select-soft);
+  color: var(--on-select-soft);
+  border-bottom-color: transparent;
+  font-weight: 560;
+}
+.tab-note { font-size: 12px; color: inherit; opacity: 0.75; }
+
+/* ==========================================================================
+   The cockpit's result grid
+   ========================================================================== */
+
+/* Rows share a height, so the pairs line up edge to edge as they do in UI_02
+   rather than stepping down the page. */
+.ckpt-grid { align-items: stretch; gap: 10px; }
+
+/* The measurement row: name above, number below, a rule between. */
+.ckpt-measures {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, auto);
+  justify-content: start;
+  margin: 2px 0 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.ckpt-measures > span {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 0 20px;
+  border-left: 1px solid var(--line);
+}
+.ckpt-measures > span:first-child { padding-left: 0; border-left: 0; }
+.ckpt-measures em {
+  font-style: normal; font-size: 12.5px; color: var(--ink-faint);
+}
+.ckpt-measures b {
+  font-size: 23px; font-weight: 500; letter-spacing: -0.01em;
+  color: var(--ink-strong); white-space: nowrap;
+}
+.ckpt-hash { font-size: 12.5px; color: var(--ink-soft); }
+
+/* The plot, and the estimate set on it. */
+.ckpt-plot { position: relative; }
+.ckpt-plot-estimate {
+  position: absolute; top: 4px; right: 18px; z-index: 1;
+  font-size: 13px; color: var(--ink-soft);
+}
+.ckpt-plot .chart-tick { font-size: 11.5px; }
+.ckpt-plot .chart-axis-label { font-size: 12.5px; fill: var(--ink-soft); }
+.ckpt-plot .chart-caption { font-size: 12px; }
+
+/* The consequence of a failed check, as UI_02 closes that panel. */
+.ckpt-caution {
+  display: flex; align-items: center; gap: 10px;
+  margin: 12px 0 0; padding: 9px 12px;
+  border-radius: 6px;
+  background: var(--caution-soft);
+  color: var(--caution);
+  font-size: 13px;
+}
+.ckpt-caution-mark {
+  display: inline-grid; place-items: center; flex: none;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--caution); color: var(--panel);
+  font-weight: 700; font-size: 12px;
+}
+
+/* The figure's controls, one quiet row. */
+.ckpt-forms {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
+  margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line);
+}
+.ckpt-form-set {
+  display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden;
+}
+.ckpt-form-set .btn {
+  height: 30px; padding: 0 12px; border: 0; border-right: 1px solid var(--line);
+  border-radius: 0; background: var(--panel); font-size: 12.5px;
+}
+.ckpt-form-set .btn:last-child { border-right: 0; }
+.ckpt-form-set .btn[aria-pressed="true"] {
+  background: var(--select-soft); color: var(--on-select-soft); font-weight: 560;
+}
+.ckpt-forms .btn-text { margin-left: auto; font-size: 13px; }
+
+/* The cockpit's object header, as UI_02 sets it: a large serif question, the
+   method and origin beneath in the reading face, the run's state on the right
+   as a filled mark with a tick. */
+.ckpt-head { align-items: flex-start; gap: 24px; margin-bottom: 18px; }
+.ckpt-title { font-size: 31px; line-height: 1.18; letter-spacing: -0.012em; margin: 0; }
+.ckpt-sub { font-size: 15px; color: var(--ink-faint); margin-top: 6px; }
+.ckpt-head-side { display: flex; align-items: center; gap: 14px; flex: none; padding-top: 4px; }
+.ckpt-state { display: inline-flex; align-items: center; gap: 10px; margin: 0; font-size: 14px; color: var(--ink); }
+.ckpt-state-dot {
+  display: inline-grid; place-items: center;
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--ink-faint); color: var(--panel);
+  font-size: 14px; font-weight: 700; line-height: 1;
+}
+.ckpt-state[data-state="completed"] .ckpt-state-dot { background: var(--positive); }
+.ckpt-state[data-state="failed"] .ckpt-state-dot { background: var(--negative); }
+
+/* The measurement row wraps rather than overlapping: at 1586 a CI in brackets
+   is wider than a column the grid would give it, and the p-value was being
+   drawn on top of it. */
+.ckpt-measures { display: flex; flex-wrap: wrap; row-gap: 10px; }
+.ckpt-measures > span { flex: 0 0 auto; }
+.ckpt-measures b { font-size: 22px; }
+
+/* The inspector's section names, in the same sentence case as every other
+   heading now; they were the last uppercase labels on the cockpit. */
+.ax-name {
+  margin: 0 0 8px; font-size: 14.5px; letter-spacing: 0;
+  text-transform: none; color: var(--ink); font-weight: 560;
+}
+.ax-block { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+.ax-chain { font-family: var(--sans); font-size: 13px; color: var(--ink-soft); }
+
+/* The rail's rows, borderless as UI_02 draws them: a list, with the selected
+   row the only one given an edge and a fill. Twenty bordered cards in a 280px
+   column was a stack of tiles, not a list. */
+.rail-list { gap: 2px; margin: 6px 0 10px; }
+.rail-card, .rail-run {
+  border-color: transparent; border-left-width: 3px; border-left-color: transparent;
+  background: transparent; padding: 7px 9px;
+}
+.rail-run:hover { background: var(--hover); border-color: transparent; border-left-color: var(--line-strong); }
+.rail-more { font-size: 13px; margin: 0 0 8px 12px; }
+.rail-section { margin-top: 12px; padding-top: 12px; }
+
+.ckpt-measures > span { padding: 0 16px; }
+.ckpt-measures { flex-wrap: nowrap; overflow-x: auto; }
+
+/* A run in the rail is two lines, as UI_02 sets it: the method on the first,
+   its state beneath. On one line the state word took the width the method
+   name needed, and every name ended in an ellipsis. */
+.rail-run {
+  grid-template-columns: auto 1fr;
+  grid-template-areas: "icon name" ". meta";
+  row-gap: 1px;
+  align-items: center;
+}
+.rail-run .rail-icon { grid-area: icon; }
+.rail-run .rail-card-name { grid-area: name; }
+.rail-run .rail-card-meta { grid-area: meta; }
+
+/* ==========================================================================
+   The river, as UI_03 draws it
+   ========================================================================== */
+
+/* Columns separated by a hairline, as in the master, so six stages read as six
+   stages and not as one wide grid of cards. */
+.river-col { flex: 0 0 236px; gap: 10px; }
+.river-col + .river-col { padding-left: 16px; border-left: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+.river-col-name { font-size: 17px; font-weight: 500; letter-spacing: -0.01em; }
+.river-col-blurb { font-size: 12.5px; }
+
+/* Cards: a little more room, a type size a title is read at, and the handle
+   and kind on one quiet line. */
+.river-card { padding: 11px 13px; gap: 6px; border-radius: 8px; }
+.river-card-title { font-size: 13.5px; line-height: 1.38; }
+.river-card-id { font-size: 11.5px; color: var(--ink-faint); }
+.river-card-id .mono { font-size: 11px; color: var(--ink-soft); }
+.river-card-note { font-size: 12px; color: var(--ink-faint); padding-left: 15px; }
+.river-chip { font-size: 11.5px; padding: 1px 8px; border-radius: 999px; }
+.river-card[data-state="validated"] .river-chip {
+  background: var(--positive-soft); color: var(--positive);
+}
+/* Selection is data selection: blue, per §08, not the navigation gold. */
+.river-card[aria-pressed="true"] {
+  border-color: var(--select); box-shadow: 0 0 0 3px var(--select-soft);
+}
+
+/* An absence, drawn as one: dashed, transparent, muted — the master's
+   "Validation not run" card. It is still a card, because what has not
+   happened to a line of work is part of that line. */
+.river-card[data-ghost="true"] {
+  background: transparent;
+  border-style: dashed;
+  border-color: var(--line-strong);
+  box-shadow: none;
+  color: var(--ink-soft);
+}
+.river-card[data-ghost="true"] .river-dot {
+  background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink-faint);
+}
+
+/* A fan of many lines from one card is drawn fine, so it reads as one flow. */
+.river-line[data-bundle="true"] { stroke-width: 1.5; opacity: 0.4; }
+
+/* The state key: the colours on the canvas, named. */
+.river-state-key { display: inline-flex; align-items: center; gap: 6px; }
+.river-state-key::before {
+  content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--ink-faint);
+}
+.river-state-key[data-state="validated"]::before { background: var(--positive); }
+.river-state-key[data-state="exploratory"]::before { background: var(--accent); }
+.river-state-key[data-state="rejected"]::before { background: var(--negative); }
+.river-legend-rule { width: 1px; height: 14px; background: var(--line); }
+.river-legend { gap: 16px; font-size: 12.5px; }
+
+/* An analysis card's own points, as UI_03 carries them. */
+.river-thumb {
+  display: block; width: 100%; height: 52px; margin-top: 2px;
+  border: 1px solid var(--line); border-radius: 5px; background: var(--paper);
+}
+.river-thumb circle { fill: var(--density-dense); opacity: 0.55; }
+.river-card[data-state="validated"] .river-thumb circle { fill: var(--positive); }

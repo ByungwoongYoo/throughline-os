@@ -457,8 +457,20 @@ export function Shell({
       onDrop={onDrop}
     >
       <header className="topbar">
+        {/*
+          * The product's name, set as the package sets it.
+          *
+          * All three masters open with the mark and the wordmark at the size of
+          * a title, and ours opened with a fifteen-pixel mark tucked into the
+          * breadcrumb — the identity row of the product named the project and
+          * never the product. It is a lockup, not a crumb: a logo is not a
+          * place in the hierarchy, so it sits outside the breadcrumb's nav.
+          */}
+        <span className="brand-lockup">
+          <BrandMark height={28} strokePx={1.9} className="brand-mark" />
+          <span className="brand-word">Throughline</span>
+        </span>
         <nav className="crumbs" aria-label="Breadcrumb">
-          <BrandMark height={15} className="brand-mark" />
           {projectMenu ?? <span className="crumb-root">{projectName}</span>}
           {crumbs.map((crumb, i) => (
             <span key={i} className="crumb">
@@ -469,8 +481,13 @@ export function Shell({
             </span>
           ))}
         </nav>
+        {/* A search field's shape, at a search field's width. It was a 620px
+            bar across the middle of the identity row, which is the size of a
+            thing you are meant to use constantly; the masters give it a
+            quarter of that, on the right, beside the account. */}
         <button className="command" onClick={onCommand} aria-label="Open the command bar">
-          <span>Jump to anything</span>
+          <span className="command-icon" aria-hidden><IconSearch size={15} /></span>
+          <span>Search project…</span>
           <kbd>⌘K</kbd>
         </button>
         {/*
@@ -610,6 +627,23 @@ export function Shell({
         </>
       )}
       </Group>
+
+      {/*
+        * The status line the masters end on.
+        *
+        * One fact, and it is the product's central promise rather than
+        * decoration: the work stays on this machine unless the researcher
+        * links an account. The package's right-hand "Illustrative project" is
+        * a property of a mockup and is not copied — there is nothing
+        * illustrative about a researcher's own data.
+        */}
+      <footer className="statusbar" aria-label="Status">
+        <span className="statusbar-item">
+          <span className="statusbar-dot" aria-hidden />
+          Local-first
+        </span>
+        <span className="statusbar-note">{projectName}</span>
+      </footer>
 
       {depth > 0 && (
         <div className="dropzone" aria-hidden>

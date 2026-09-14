@@ -16,10 +16,12 @@
  * that an unavailable field is shown honestly rather than filled in.
  */
 
+import { useState } from "react";
 import type { AnalysisRunRow, Source } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { Tabs } from "./Tabs";
 import { StateMark } from "./primitives";
+import { humanMethod } from "./views";
 import { IconAnalyses, IconDataset, IconLiterature } from "./icons";
 
 /** The colour a variable's role is drawn in, matching the workspace palette. */
@@ -29,6 +31,9 @@ function roleTone(role: string): string {
   if (r.includes("outcome") || r.includes("response") || r.includes("measure")) return "var(--info, var(--accent))";
   return "var(--ink-faint)";
 }
+
+const sentenceCaseWord = (word: string) =>
+  word ? word.charAt(0).toUpperCase() + word.slice(1).replace(/_/g, " ") : word;
 
 export function AnalysisRail({ projectId, runId, variables, onOpenRun }: {
   projectId: string;
@@ -43,6 +48,24 @@ export function AnalysisRail({ projectId, runId, variables, onOpenRun }: {
 
   const roles = Object.entries(variables ?? {});
   const family = runs.data ?? [];
+
+  /*
+   * Eight runs, and always the one on screen.
+   *
+   * UI_02's rail lists the run family in three rows; a project with two dozen
+   * runs filled this column with two dozen bordered cards, truncated every
+   * method name, and pushed the current run below the fold of the column
+   * meant to show it in context. The rest are one press away, and the current
+   * run is never among the ones folded, because it is the reason the column
+   * exists.
+   */
+  const [allRuns, setAllRuns] = useState(false);
+  const LIMIT = 8;
+  const shownRuns = allRuns || family.length <= LIMIT ? family : (() => {
+    const head = family.slice(0, LIMIT);
+    const current = family.find((run) => run.id === runId);
+    return current && !head.includes(current) ? [...head.slice(0, LIMIT - 1), current] : head;
+  })();
 
   return (
     <>
@@ -79,7 +102,14 @@ export function AnalysisRail({ projectId, runId, variables, onOpenRun }: {
                         ? <IconDataset size={14} /> : <IconLiterature size={14} />}
                     </span>
                     <span className="rail-card-name">{source.title || source.id}</span>
-                    <span className="rail-card-meta mono">{source.source_type}</span>
+                    {/* What the source holds, as UI_02 says it — "v2 · 1,248
+                        rows" — rather than how it arrived: "upload" named the
+                        route a file took and said nothing about the file. */}
+                    <span className="rail-card-meta">
+                      {source.dataset
+                        ? `v${source.dataset.version} · ${source.dataset.row_count.toLocaleString()} rows`
+                        : sentenceCaseWord(source.source_type)}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -140,7 +170,7 @@ export function AnalysisRail({ projectId, runId, variables, onOpenRun }: {
         <p className="note">This project has no other runs.</p>
       )}
       <ul className="rail-list">
-        {family.map((run: AnalysisRunRow) => (
+        {shownRuns.map((run: AnalysisRunRow) => (
           <li key={run.id}>
             <button
               type="button"
@@ -149,7 +179,7 @@ export function AnalysisRail({ projectId, runId, variables, onOpenRun }: {
               onClick={() => onOpenRun?.(run.id)}
             >
               <span className="rail-icon" aria-hidden><IconAnalyses size={14} /></span>
-              <span className="rail-card-name">{run.method.replace(/_/g, " ")}</span>
+              <span className="rail-card-name">{humanMethod(run.method)}</span>
               <span className="rail-card-meta">
                 <StateMark value={run.status} />
               </span>
@@ -157,6 +187,12 @@ export function AnalysisRail({ projectId, runId, variables, onOpenRun }: {
           </li>
         ))}
       </ul>
+      {family.length > shownRuns.length && (
+        <button type="button" className="btn-text rail-more"
+                onClick={() => setAllRuns(true)}>
+          All {family.length} runs
+        </button>
+      )}
     </section>
     </>
   );

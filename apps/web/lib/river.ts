@@ -78,6 +78,10 @@ const STAGE_OF_TYPE: Record<string, StageId> = {
   model: "analyses",
   experiment: "analyses",
 
+  /* A validation card is derived from a connection's lifecycle in the river
+     itself, since validation reports are not research objects. */
+  validation: "validation",
+
   finding: "findings",
   contradiction: "findings",
   research_gap: "findings",

@@ -69,11 +69,18 @@ describe("reading one analysis", () => {
      *  and collapsing any two of them is how a result gets overstated. */
     view();
     await screen.findAllByText(/pearson correlation/i);
-    expect(screen.getByText("0.6234")).toBeTruthy();
-    expect(screen.getByText(/1\.20e-3/)).toBeTruthy();
+    /*
+     * The formats are reporting convention — two decimals for an estimate, a
+     * p-value to three places — and the exact estimate stays on the element,
+     * so a reader who needs 0.6234 still has it. What this test holds is the
+     * property in its name: four separate figures, none folded into another.
+     */
+    const estimate = screen.getByText("0.62");
+    expect(estimate.getAttribute("data-exact")).toBe("0.6234");
+    expect(screen.getByText("0.001")).toBeTruthy();        // p = 0.0012
     expect(screen.getByText("120")).toBeTruthy();
-    expect(screen.getByText("moderate")).toBeTruthy();   // evidence quality
-    expect(screen.getByText("small")).toBeTruthy();      // practical, not the same
+    expect(screen.getByText("Moderate")).toBeTruthy();     // evidence quality
+    expect(screen.getByText("Small")).toBeTruthy();        // practical, not the same
   });
 
   it("shows the limitations the run recorded", async () => {
@@ -99,7 +106,8 @@ describe("reading one analysis", () => {
      async () => {
     /** Whatever else moved, what the run FOUND is what a reader meets first. */
     view();
-    expect(await screen.findByText(/0\.6234/)).toBeTruthy();
+    const estimate = await screen.findByText("0.62");
+    expect(estimate.getAttribute("data-exact")).toBe("0.6234");
   });
 
   it("says a failed run failed instead of showing a blank result", async () => {

@@ -169,12 +169,18 @@ describe("the research river", () => {
     river();
     await settle();
 
-    await waitFor(() => expect(
-      document.querySelectorAll(".river-line")).toHaveLength(2));
-    const kinds = [...document.querySelectorAll(".river-line")]
-      .map((p) => p.getAttribute("data-lineage"))
-      .sort();
-    expect(kinds).toEqual(["false", "true"]);
+    /*
+     * By edge, not by count. The river now also draws what it derives — a
+     * connection's line to its validation card — so the number of lines is no
+     * longer the number of graph edges, and a count would pass or fail for
+     * reasons unrelated to the property. The two graph edges must keep their
+     * own flags.
+     */
+    const line = (id: string) =>
+      document.querySelector(`.river-line[data-edge="${id}"]`);
+    await waitFor(() => expect(line("e_lin")).not.toBeNull());
+    expect(line("e_lin")!.getAttribute("data-lineage")).toBe("true");
+    expect(line("e_sem")!.getAttribute("data-lineage")).toBe("false");
   });
 
   it("draws no line to an object the filter is withholding", async () => {
@@ -182,12 +188,23 @@ describe("the research river", () => {
     river();
     await settle();
     await waitFor(() => expect(
-      document.querySelectorAll(".river-line")).toHaveLength(2));
+      document.querySelector('.river-line[data-edge="e_lin"]')).not.toBeNull());
 
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "validated" } });
 
+    // The dataset and the claim are withheld, so neither of their edges may
+    // survive; and no line that does survive may end on a hidden card.
     await waitFor(() => expect(
-      document.querySelectorAll(".river-line")).toHaveLength(0));
+      document.querySelector('.river-line[data-edge="e_lin"]')).toBeNull());
+    expect(document.querySelector('.river-line[data-edge="e_sem"]')).toBeNull();
+    const cardTitles = new Set([...document.querySelectorAll(".river-card")]
+      .map((c) => c.getAttribute("title")));
+    for (const path of document.querySelectorAll(".river-line")) {
+      const id = path.getAttribute("data-edge")!;
+      if (id.startsWith("checked:")) {
+        expect(cardTitles.has(id.slice("checked:".length))).toBe(true);
+      }
+    }
   });
 
   it("places a connection in its column, with what produced it", async () => {
@@ -200,7 +217,10 @@ describe("the research river", () => {
     river();
     await settle();
 
-    const card = screen.getByRole("button", { name: /night_heat_z/ });
+    // The connection's own card, not its validation card, which names the same
+    // pair beneath "Survived validation".
+    const card = screen.getAllByRole("button", { name: /night_heat_z/ })
+      .find((b) => b.textContent?.includes("Connection"))!;
     expect(card).toBeTruthy();
     expect(card.textContent).toContain("Validated");
     // The run that produced it, printed rather than drawn — the canvas lays
@@ -208,14 +228,48 @@ describe("the research river", () => {
     expect(card.textContent).toContain("Produced by arun_7");
   });
 
-  it("says why the Validation column is empty, rather than that nothing happened", async () => {
-    /* A validation report is recorded against the connection it checked and
-       has no object of its own, so "nothing recorded" would be a claim about
-       the project that this view cannot support. */
+  it("shows a validated connection's validation where the column is", async () => {
+    /*
+     * The column used to hold one sentence — "validation reports are recorded
+     * against the connection they checked" — and nothing else, because a
+     * report has no research object. The lifecycle is on the page, and it
+     * becomes `validated` only when a validation run passes, so a card saying
+     * so is a statement the data supports.
+     */
     river();
     await settle();
-    expect(screen.getByText(/recorded against the connection they checked/))
-      .toBeTruthy();
+    expect(screen.getByText("Survived validation")).toBeTruthy();
+  });
+
+  it("draws an unvalidated connection's validation as an absence, not as a failure", async () => {
+    /*
+     * An exploratory connection may never have been validated or may have
+     * failed one, and this payload cannot tell those apart — so the card says
+     * neither "not run" nor "failed", and it is a dashed absence, not a card
+     * with a state.
+     */
+    river(PAYLOAD, () => {}, [{ ...CONNECTIONS[0], id: "conn_x", lifecycle_status: "exploratory" }]);
+    await settle();
+    const ghost = screen.getByText("Not yet validated").closest(".river-card")!;
+    expect(ghost.getAttribute("data-ghost")).toBe("true");
+    expect(document.body.textContent).not.toMatch(/validation not run|failed validation/i);
+  });
+
+  it("draws the line from a connection to the analysis that produced it", async () => {
+    /*
+     * Connections came from their own route with no edges, so every line on
+     * the canvas ran from the dataset to the analyses and nothing touched a
+     * connection. The route names the analysis object, which is a recorded
+     * derivation, and it is drawn solid.
+     */
+    river(PAYLOAD, () => {}, [{ ...CONNECTIONS[0], analysis_object_id: "obj_an" }]);
+    await settle();
+    const produced = await waitFor(() => {
+      const el = document.querySelector('.river-line[data-edge^="produced:"]');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(produced.getAttribute("data-lineage")).toBe("true");
   });
 
   it("says on its face that the columns are not a chronology", async () => {

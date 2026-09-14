@@ -39,6 +39,7 @@ import { useApi } from "@/lib/useApi";
 import { STAGES, stageOf, stateOf, type RiverState } from "@/lib/river";
 import { Empty, Failure, Loading } from "./primitives";
 import { ViewTabs } from "./ViewTabs";
+import { humanMethod } from "./views";
 
 /** A node as the knowledge-graph route sends it. */
 type RiverNode = {
@@ -50,13 +51,23 @@ type RiverNode = {
   /**
    * What recorded this, in the object's own words.
    *
-   * Only a connection has one today: `connections.analysis_run_id` is a
-   * recorded fact about what produced it, and it is printed rather than drawn
-   * because the run it names is not the analysis *object* the canvas lays out.
-   * Drawing a line to a node this payload does not identify would be the
-   * inferred edge §09 forbids.
+   * A connection's note was printed rather than drawn, because the run it
+   * named was not an object on the canvas and a line to a node the payload did
+   * not identify would be the inferred edge §09 forbids. The connection route
+   * now sends `analysis_object_id` — the research object of that same run — so
+   * the edge is identified by the payload and is drawn (see `edges`); the note
+   * keeps the handle so it can still be read off the card.
    */
   note?: string;
+  /**
+   * Drawn as an absence rather than as an object: a dashed card saying what
+   * has not happened yet. UI_03 draws "Validation not run" and "No finding
+   * recorded" this way, and a lineage that shows only what exists cannot show
+   * where a line of work stops.
+   */
+  ghost?: boolean;
+  /** The real object a derived card stands for, which is what opening it opens. */
+  opens?: string;
 };
 
 /**
@@ -90,6 +101,8 @@ type ConnectionRow = {
   right_variable: string;
   lifecycle_status: string;
   analysis_run_id: string | null;
+  /** The research object of the run that produced it — the ribbon's far end. */
+  analysis_object_id?: string | null;
 };
 
 type Payload = {
@@ -118,6 +131,87 @@ type Connector = {
   state: RiverState;
   /** True when either end is the selected object. */
   lit: boolean;
+  /** One of many lines leaving the same card, drawn fine so a fan stays legible. */
+  bundle: boolean;
+};
+
+/**
+ * A short handle for an object, as UI_03's cards carry one.
+ *
+ * The master leads each card with a name like CN-014. This product issues
+ * `conn_7b52064487cc4852a480`, and twenty characters of hex on every card
+ * outweighed the sentence beside it. The handle is the kind and the first four
+ * characters of the id — what git does with a commit, for the same reason —
+ * and the full id stays on the card's title and in the detail panel, so
+ * nothing that can be searched for is lost.
+ */
+const HANDLE: Record<string, string> = {
+  citation: "SRC", dataset: "DS", source: "SRC", paper: "SRC", document: "SRC",
+  claim: "CL", hypothesis: "CL", concept: "CL",
+  connection: "CN", analysis: "AN", method: "AN", model: "AN", experiment: "AN",
+  validation: "VR", finding: "F", contradiction: "CT", research_gap: "GAP",
+};
+export function shortHandle(id: string, objectType: string): string {
+  const tail = id.replace(/^val:/, "").replace(/^[a-z]+_/, "").slice(0, 4);
+  return `${HANDLE[objectType] ?? objectType.slice(0, 3).toUpperCase()}-${tail}`;
+}
+
+/**
+ * An analysis object's title with its method written as a name.
+ *
+ * The graph stores titles as `anova — Is region associated with rainfall_mm?`,
+ * the method in its identifier spelling, so a column of analyses opened every
+ * card with a lowercase code. Only the method prefix is touched; the question
+ * after it is the researcher's and is left exactly as recorded.
+ */
+function readableTitle(node: { title: string; object_type: string }): string {
+  if (node.object_type !== "analysis") return node.title;
+  const [method, ...rest] = node.title.split(" — ");
+  if (!rest.length || !/^[a-z_]+$/.test(method)) return node.title;
+  return [humanMethod(method), ...rest].join(" — ");
+}
+
+/**
+ * The run's own points, small, on its analysis card.
+ *
+ * UI_03's analysis cards carry a thumbnail of the association, and it is most
+ * of why that column reads as work rather than as a list of method names. It
+ * is the real cloud, not a decoration: the same `/points` the cockpit plots,
+ * capped at 160 so a card never draws more than it can show, in the theme's
+ * density ink so it belongs to the same system as the full chart.
+ */
+function RiverThumb({ runId }: { runId: string }) {
+  const points = useApi<{ x: number[]; y: number[] }>(`/api/analyses/${runId}/points`, [runId]);
+  const cloud = useMemo(() => {
+    const p = points.data;
+    if (!p?.x?.length || p.x.length !== p.y.length) return null;
+    const step = Math.max(1, Math.ceil(p.x.length / 160));
+    const xs: number[] = [], ys: number[] = [];
+    for (let i = 0; i < p.x.length; i += step) {
+      if (Number.isFinite(p.x[i]) && Number.isFinite(p.y[i])) { xs.push(p.x[i]); ys.push(p.y[i]); }
+    }
+    if (xs.length < 3) return null;
+    const [x0, x1] = [Math.min(...xs), Math.max(...xs)];
+    const [y0, y1] = [Math.min(...ys), Math.max(...ys)];
+    const W = 180, H = 52, pad = 4;
+    const sx = (v: number) => pad + ((v - x0) / (x1 - x0 || 1)) * (W - 2 * pad);
+    const sy = (v: number) => H - pad - ((v - y0) / (y1 - y0 || 1)) * (H - 2 * pad);
+    return xs.map((x, i) => [sx(x), sy(ys[i])] as const);
+  }, [points.data]);
+  if (!cloud) return null;
+  return (
+    <svg className="river-thumb" viewBox="0 0 180 52" aria-hidden="true" focusable="false">
+      {cloud.map(([cx, cy], i) => <circle key={i} cx={cx} cy={cy} r={1.3} />)}
+    </svg>
+  );
+}
+
+/** What a card is, in words — so two cards titled harvest.csv say which is the file and which the dataset. */
+const KIND: Record<string, string> = {
+  citation: "Source file", dataset: "Dataset", source: "Source", paper: "Paper",
+  claim: "Claim", hypothesis: "Hypothesis", connection: "Connection",
+  analysis: "Analysis", validation: "Validation", finding: "Finding",
+  contradiction: "Contradiction", research_gap: "Research gap",
 };
 
 const STATE_LABEL: Record<RiverState, string> = {
@@ -188,10 +282,76 @@ export function River({ projectId, onOpenObject, focus = null }: {
       title: `${link.left_variable} ↔ ${link.right_variable}`,
       object_type: "connection",
       status: link.lifecycle_status,
-      note: link.analysis_run_id ? `Produced by ${link.analysis_run_id}` : undefined,
+      /* The analysis by its handle, not its run id — "Produced by
+         arun_66faed7aef9c4277b863" named the run and said nothing a reader
+         could find on the canvas. */
+      note: link.analysis_object_id
+        ? `Produced by ${shortHandle(link.analysis_object_id, "analysis")}`
+        : link.analysis_run_id ? `Produced by ${link.analysis_run_id}` : undefined,
+    })),
+    /*
+     * One validation card per connection, derived from its lifecycle.
+     *
+     * The column said "Validation reports are recorded against the connection
+     * they checked" and held nothing, while the master's column is where a
+     * line of work visibly survives or stops. Reports are fetched per
+     * connection and are not in this payload, but the lifecycle is, and it
+     * only becomes `validated` when a validation run passes —
+     * `connection.validate` transitions on a pass and on nothing else. So a
+     * validated connection honestly has a passing run behind it, and anything
+     * else honestly has not survived one yet; the wording covers both "never
+     * run" and "ran and failed", because this payload cannot tell them apart.
+     */
+    ...(links.data ?? []).map((link) => {
+      const passed = stateOf(link.lifecycle_status) === "validated";
+      return {
+        id: `val:${link.id}`,
+        title: passed ? "Survived validation" : "Not yet validated",
+        object_type: "validation",
+        status: passed ? "validated" : null,
+        note: `${link.left_variable} ↔ ${link.right_variable}`,
+        ghost: !passed,
+        opens: link.id,
+      };
+    }),
+  ], [graph.data, links.data]);
+
+  const edges = useMemo<RiverEdge[]>(() => [
+    ...(graph.data?.edges ?? []),
+    /*
+     * What produced each connection, as a ribbon.
+     *
+     * Connections arrive from their own route and carry no edges, so the
+     * column the river is about was an island: every line on the canvas ran
+     * from the dataset to the analyses and nothing touched a connection. The
+     * route names each one's analysis object, which is a recorded derivation,
+     * so it is drawn solid — and backwards, because Analyses sits to the right.
+     */
+    ...(links.data ?? [])
+      .filter((link) => link.analysis_object_id)
+      .map((link) => ({
+        id: `produced:${link.id}`,
+        source_object_id: link.analysis_object_id!,
+        target_object_id: link.id,
+        relationship_type: "produced",
+        confidence: null,
+        status: null,
+        edge_kind: "lineage" as const,
+      })),
+    /* Connection to its validation card: solid where a passing run is on
+       record, dotted where the card is an absence, since a dotted line in
+       this legend is a relationship nothing recorded. */
+    ...(links.data ?? []).map((link) => ({
+      id: `checked:${link.id}`,
+      source_object_id: link.id,
+      target_object_id: `val:${link.id}`,
+      relationship_type: "validation",
+      confidence: null,
+      status: null,
+      edge_kind: (stateOf(link.lifecycle_status) === "validated"
+        ? "lineage" : "semantic") as "lineage" | "semantic",
     })),
   ], [graph.data, links.data]);
-  const edges = useMemo(() => graph.data?.edges ?? [], [graph.data]);
 
   /** Does this object survive the current filter and search? */
   const shown = useCallback((node: RiverNode) => {
@@ -220,8 +380,71 @@ export function River({ projectId, onOpenObject, focus = null }: {
       if (stage) byStage.get(stage)!.push(node);
       else unplaced.push(node);
     }
+
+    /*
+     * Related objects on the same row, as UI_03 lays them out.
+     *
+     * Each column was stacked in the order its route returned, so the analysis
+     * that produced the first connection could sit eight cards down its own
+     * column and the ribbon between them ran vertically along the gutter — a
+     * canvas of streaks, where the master's reads left to right because a
+     * connection's analysis, its validation and its finding sit beside it.
+     *
+     * The connections keep the server's ranking. Analyses follow the
+     * connections they produced, validation cards already follow their
+     * connections, and a finding follows the analysis it was drawn from;
+     * anything unrelated keeps its own order after them. Nothing is dropped
+     * and the canvas already says stage placement is not a chronology, so this
+     * is an arrangement for reading and not a claim about sequence.
+     */
+    const rank = new Map<string, number>();
+    (byStage.get("connections") ?? []).forEach((n, i) => rank.set(n.id, i));
+    const producedBy = new Map<string, number>();
+    for (const link of links.data ?? []) {
+      const at = rank.get(link.id);
+      if (link.analysis_object_id && at != null && !producedBy.has(link.analysis_object_id)) {
+        producedBy.set(link.analysis_object_id, at);
+      }
+    }
+    const byRank = (key: (n: RiverNode) => number | undefined) =>
+      (list: RiverNode[]) => list
+        .map((n, i) => ({ n, i, k: key(n) }))
+        .sort((a, b) => (a.k ?? Infinity) - (b.k ?? Infinity) || a.i - b.i)
+        .map(({ n }) => n);
+    byStage.set("analyses", byRank((n) => producedBy.get(n.id))(byStage.get("analyses") ?? []));
+    const analysisRow = new Map<string, number>();
+    (byStage.get("analyses") ?? []).forEach((n, i) => analysisRow.set(n.id, i));
+    const findingFrom = new Map<string, number>();
+    for (const e of edges) {
+      const at = analysisRow.get(e.source_object_id);
+      if (at != null) findingFrom.set(e.target_object_id, Math.min(at, findingFrom.get(e.target_object_id) ?? Infinity));
+    }
+    byStage.set("findings", byRank((n) => findingFrom.get(n.id))(byStage.get("findings") ?? []));
+
     return { byStage, unplaced };
-  }, [visible]);
+  }, [visible, links.data, edges]);
+
+  /*
+   * The runs behind the analyses the connections came from, so their cards can
+   * carry the scatter UI_03 puts on an analysis card. Only these: the mapping
+   * from an analysis object to its run is on the connection row, and a
+   * thumbnail for a run this page cannot identify would be a guess.
+   */
+  const runOfObject = useMemo(() => new Map(
+    (links.data ?? [])
+      .filter((l) => l.analysis_object_id && l.analysis_run_id)
+      .map((l) => [l.analysis_object_id!, l.analysis_run_id!])), [links.data]);
+
+  /* What each dataset holds, for its card's meta line. */
+  const sources = useApi<Array<{ object_id?: string | null;
+                                dataset?: { version: number; row_count: number; column_count: number } | null }>>(
+    `/api/projects/${projectId}/sources`);
+  const holds = useMemo(() => new Map(
+    /* A list or nothing: a card's meta line is decoration on the lineage, and
+       a route answering in the wrong shape must not take the canvas down. */
+    (Array.isArray(sources.data) ? sources.data : [])
+      .filter((src) => src.object_id && src.dataset)
+      .map((src) => [src.object_id!, src.dataset!])), [sources.data]);
 
   const visibleIds = useMemo(
     () => new Set(visible.map((n) => n.id)), [visible]);
@@ -257,24 +480,43 @@ export function River({ projectId, onOpenObject, focus = null }: {
     if (!root) return;
 
     const next: Connector[] = [];
+    const fanOut = new Map<string, number>();
+    for (const edge of drawable) {
+      fanOut.set(edge.source_object_id, (fanOut.get(edge.source_object_id) ?? 0) + 1);
+    }
     for (const edge of drawable) {
       const a = cards.current.get(edge.source_object_id);
       const b = cards.current.get(edge.target_object_id);
       if (!a || !b) continue;
 
-      const x1 = a.offsetLeft + a.offsetWidth;
+      /*
+       * A backwards edge is drawn backwards. The data decides direction, and
+       * straightening it would be the invented chronology §09 forbids.
+       *
+       * What it must not do is leave from the wrong side. Every edge left its
+       * source's right edge and entered its target's left, so an analysis
+       * that produced a connection one column to its left drew a line out past
+       * its own card, looped round and came back across both — a knot on
+       * every connection, which is what the river's centre looked like. A
+       * backward edge now leaves the facing side and enters the facing side,
+       * and still runs right to left.
+       */
+      const backward = b.offsetLeft + b.offsetWidth <= a.offsetLeft;
+      const x1 = backward ? a.offsetLeft : a.offsetLeft + a.offsetWidth;
       const y1 = a.offsetTop + a.offsetHeight / 2;
-      const x2 = b.offsetLeft;
+      const x2 = backward ? b.offsetLeft + b.offsetWidth : b.offsetLeft;
       const y2 = b.offsetTop + b.offsetHeight / 2;
-      // A backwards edge is drawn backwards. The data decides direction, and
-      // straightening it would be the invented chronology §09 forbids.
-      const bend = Math.max(28, Math.abs(x2 - x1) / 2);
+      const bend = Math.max(28, Math.abs(x2 - x1) / 2) * (backward ? -1 : 1);
       next.push({
         id: edge.id,
         d: `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`,
         lineage: edge.edge_kind === "lineage",
         state: stateOf(stateById.get(edge.target_object_id)),
         lit: selected === edge.source_object_id || selected === edge.target_object_id,
+        /* A dataset feeding twenty-three analyses drew twenty-three 7px ribbons
+           over each other, a grey smear across three columns. Past six, each
+           line in the fan is drawn fine and the fan reads as one flow. */
+        bundle: (fanOut.get(edge.source_object_id) ?? 0) > 6,
       });
     }
     setConnectors(next);
@@ -429,6 +671,8 @@ export function River({ projectId, onOpenObject, focus = null }: {
                     data-lineage={c.lineage}
                     data-state={c.state}
                     data-lit={c.lit}
+                    data-bundle={c.bundle}
+                    data-edge={c.id}
                     d={c.d}
                   />
                 ))}
@@ -452,9 +696,11 @@ export function River({ projectId, onOpenObject, focus = null }: {
                         ref={(el) => setCard(node.id, el)}
                         className="river-card"
                         data-state={stateOf(node.status)}
+                        data-ghost={node.ghost ? "true" : undefined}
+                        title={node.opens ?? node.id}
                         aria-pressed={selected === node.id}
                         onClick={() => setSelected(node.id)}
-                        onDoubleClick={() => onOpenObject(node.id)}
+                        onDoubleClick={() => onOpenObject(node.opens ?? node.id)}
                       >
                         {/*
                           * Title first, identifier after — the one place this
@@ -469,11 +715,14 @@ export function River({ projectId, onOpenObject, focus = null }: {
                           */}
                         <span className="river-card-head">
                           <span className="river-dot" aria-hidden />
-                          <span className="river-card-title">{node.title}</span>
+                          <span className="river-card-title">{readableTitle(node)}</span>
                         </span>
                         <span className="river-card-meta">
-                          <span className="river-card-id mono">{node.id}</span>
-                          {stateOf(node.status) !== "neutral" && (
+                          <span className="river-card-id">
+                            <span className="mono">{shortHandle(node.id, node.object_type)}</span>
+                            {" · "}{KIND[node.object_type] ?? node.object_type}
+                          </span>
+                          {stateOf(node.status) !== "neutral" && node.object_type !== "validation" && (
                             <span className="river-chip">
                               {STATE_LABEL[stateOf(node.status)]}
                             </span>
@@ -481,6 +730,15 @@ export function River({ projectId, onOpenObject, focus = null }: {
                         </span>
                         {node.note && (
                           <span className="river-card-note">{node.note}</span>
+                        )}
+                        {holds.get(node.id) && (
+                          <span className="river-card-note">
+                            v{holds.get(node.id)!.version} · {holds.get(node.id)!.row_count.toLocaleString()} rows
+                            {" · "}{holds.get(node.id)!.column_count} columns
+                          </span>
+                        )}
+                        {runOfObject.get(node.id) && (
+                          <RiverThumb runId={runOfObject.get(node.id)!} />
                         )}
                       </button>
                     ))}
@@ -491,6 +749,11 @@ export function River({ projectId, onOpenObject, focus = null }: {
           </div>
 
           <div className="river-legend">
+            {/* The colours say something, so the legend says what. */}
+            <span className="river-state-key" data-state="validated">Validated</span>
+            <span className="river-state-key" data-state="exploratory">Exploratory</span>
+            <span className="river-state-key" data-state="rejected">Rejected</span>
+            <span className="river-legend-rule" aria-hidden />
             <span className="river-key" data-lineage="true">Solid · recorded lineage</span>
             <span className="river-key" data-lineage="false">Dotted · related context</span>
             <span className="river-zoom">

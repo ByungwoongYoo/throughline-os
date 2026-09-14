@@ -13,11 +13,24 @@
  * drawn twice is a mark that will differ, and this is the first thing anybody
  * sees.
  */
-export function BrandMark({ height = 50, className }: {
+export function BrandMark({ height = 50, className, strokePx }: {
   /** Drawn to a height; the width follows the mark's own 220:150. */
   height?: number;
   className?: string;
+  /**
+   * The line's weight in screen pixels, for small sizes.
+   *
+   * The brand file draws a 1.6-unit line in a 150-unit box, which is right at
+   * the size the entrance shows it and a quarter of a pixel at the workspace
+   * header's 28px — so the product's own mark rendered as a pale grey smudge
+   * beside a wordmark set in full ink. Given in pixels, the weight holds
+   * whatever size the mark is drawn at.
+   */
+  strokePx?: number;
 }) {
+  const stroke = strokePx != null
+    ? { strokeWidth: strokePx, vectorEffect: "non-scaling-stroke" as const }
+    : { strokeWidth: 1.6 };
   return (
     <svg
       viewBox="0 0 220 150"
@@ -27,9 +40,9 @@ export function BrandMark({ height = 50, className }: {
       aria-hidden="true"
       fill="none"
     >
-      <circle cx="110" cy="75" r="46" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="110" cy="75" r="46" stroke="currentColor" {...stroke} />
       <line x1="20.7" y1="122.5" x2="199.3" y2="27.5"
-            stroke="currentColor" strokeWidth="1.6" />
+            stroke="currentColor" {...stroke} />
     </svg>
   );
 }

@@ -22,7 +22,7 @@
 import { useApi } from "@/lib/useApi";
 import type { Connection } from "@/lib/api";
 import { Fold, Loading } from "./primitives";
-import { Status } from "./primitives";
+import { StateMark, Status } from "./primitives";
 import {
   IconChevronRight, IconConnections, IconDataset, IconLink, IconNote,
 } from "./icons";
@@ -98,8 +98,11 @@ export function AnalysisContext({ projectId, runId, onOpenConnection,
                   <span className="ax-object-name">
                     {link.left_variable} ↔ {link.right_variable}
                   </span>
+                  {/* The compact mark: the pill's phrase, "Checked — survived
+                      the robustness checks", was longer than the row it sat in
+                      and wrapped the row to four lines. */}
                   <span className="ax-meta">
-                    Connection · <Status value={link.lifecycle_status} />
+                    Connection · <StateMark value={link.lifecycle_status} />
                   </span>
                 </span>
                 <span className="ax-object-go" aria-hidden>
@@ -164,7 +167,7 @@ export function AnalysisContext({ projectId, runId, onOpenConnection,
       {link && (
         <section className="ax-block">
           <h4 className="ax-name">Provenance</h4>
-          <p className="ax-chain mono">
+          <p className="ax-chain">
             <span className="ax-object-icon" aria-hidden><IconLink size={14} /></span>
             <span>
               {link.dataset_name ?? "dataset"}
