@@ -119,6 +119,38 @@ def enqueue(
     return run_id
 
 
+def _fail_runs_that_outlived_their_attempts(cur) -> None:
+    """
+    Close the runs whose worker died on their last attempt.
+
+    Done here, in the same call that claims, rather than left for a sweeper:
+    excluded from the claim but still `running`, such a run would read as
+    in progress for ever — a render button that never stops spinning — and no
+    one would be told it had failed. `finish` rather than a bare UPDATE, so the
+    `WorkflowFinished` event fires as it does for every other ending.
+
+    ``SKIP LOCKED``: two workers arriving together each fail a run once, and
+    neither waits on the other's lock to claim.
+    """
+    cur.execute(
+        """
+        SELECT id, attempts, max_attempts FROM workflow_runs
+        WHERE state = 'running'
+          AND (lease_expires_at IS NULL OR lease_expires_at < now())
+          AND attempts >= max_attempts
+        FOR UPDATE SKIP LOCKED
+        """
+    )
+    for row in cur.fetchall():
+        finish(
+            cur, run_id=row["id"], state=WorkflowState.FAILED,
+            error=(f"The worker running this stopped without finishing, on "
+                   f"attempt {row['attempts']} of {row['max_attempts']}. It was "
+                   "not retried: a "
+                   "job that ends the process running it will usually end the "
+                   "next one too."))
+
+
 def claim_next(
     cur,
     *,
@@ -130,7 +162,16 @@ def claim_next(
 
     ``FOR UPDATE SKIP LOCKED`` lets several workers drain the queue in parallel
     without ever handing the same run to two of them.
+
+    An expired lease is reclaimed only while the run has attempts left. The cap
+    used to live in `reschedule` alone, which a worker reaches from its
+    ``except`` block — so a job that killed the process outright (an OOM kill, a
+    native crash) never met it, and was reclaimed for ever, taking a worker
+    down each time. The Blender render is enqueued with ``max_attempts=1`` for
+    exactly that reason (T157).
     """
+    _fail_runs_that_outlived_their_attempts(cur)
+
     name_filter = ""
     params: list[Any] = []
     if workflow_names:
@@ -145,7 +186,9 @@ def claim_next(
               AND (
                     state IN ('queued', 'retrying')
                  -- A run whose worker died mid-flight: the lease expired.
-                 OR (state = 'running' AND (lease_expires_at IS NULL OR lease_expires_at < now()))
+                 OR (state = 'running'
+                     AND (lease_expires_at IS NULL OR lease_expires_at < now())
+                     AND attempts < max_attempts)
               )
               {name_filter}
             ORDER BY created_at

@@ -42,6 +42,95 @@ def test_expired_lease_is_reclaimed_after_a_worker_dies(empty_queue, cur, projec
     assert reclaimed["attempts"] == 2
 
 
+def _worker_dies(cur, run_id):
+    """What a killed process leaves behind: a lease that lapses, nothing else.
+
+    Not an exception. A handler that raises is caught by the worker and sent
+    to `reschedule`, which has always honoured `max_attempts` — and that is the
+    only kind of death the durability suite simulated. An OOM kill or a native
+    crash never reaches Python, so the lapsed lease is the whole signal.
+    """
+    cur.execute(
+        "UPDATE workflow_runs SET lease_expires_at = now() - interval '1 second' "
+        "WHERE id = %s", (run_id,))
+
+
+def test_a_run_that_kills_its_worker_is_not_reclaimed_past_its_attempts(
+        empty_queue, cur, project):
+    """
+    `claim_next` reclaimed an expired lease whatever `attempts` said, so a job
+    that takes its worker down was retried for ever, one dead worker each time.
+    The Blender render is enqueued with `max_attempts=1` so that exactly this
+    never happens: a scene that crashes the renderer will crash it again (T157).
+    """
+    run_id = workflow.enqueue(cur, workflow_name="visual.render_blender",
+                              project_id=project, max_attempts=1)
+    assert workflow.claim_next(cur, worker_id="worker-a")["id"] == run_id
+    _worker_dies(cur, run_id)
+
+    assert workflow.claim_next(cur, worker_id="worker-b") is None
+
+    run = workflow.get_run(cur, run_id)
+    assert run["state"] == str(WorkflowState.FAILED)
+    assert run["attempts"] == 1
+    assert run["lease_owner"] is None
+    # Says what happened, rather than reading like a timeout or an error in the
+    # handler — nothing in the handler ran to completion to report one.
+    assert "stopped without finishing" in run["error"]
+
+
+def test_a_dead_worker_is_retried_while_attempts_remain(empty_queue, cur, project):
+    """The recovery the lease exists for still happens, up to the cap."""
+    run_id = workflow.enqueue(cur, workflow_name="ingest", project_id=project,
+                              max_attempts=2)
+    workflow.claim_next(cur, worker_id="worker-a")
+    _worker_dies(cur, run_id)
+
+    reclaimed = workflow.claim_next(cur, worker_id="worker-b")
+    assert reclaimed["id"] == run_id and reclaimed["attempts"] == 2
+
+    _worker_dies(cur, run_id)
+    assert workflow.claim_next(cur, worker_id="worker-c") is None
+    assert workflow.get_run(cur, run_id)["state"] == str(WorkflowState.FAILED)
+
+
+def test_the_claim_itself_never_hands_out_an_exhausted_run(
+        empty_queue, cur, project, monkeypatch):
+    """
+    Two guarantees, held separately. Closing a dead run and refusing to claim
+    one are different promises, and the claim should not keep its promise only
+    because something else happened to run first — reordered, or skipped over a
+    row another worker holds locked, the closing step would otherwise take the
+    cap with it. (The first mutation check of this fix removed the cap from the
+    claim and nothing failed, which is why this test exists.)
+    """
+    run_id = workflow.enqueue(cur, workflow_name="visual.render_blender",
+                              project_id=project, max_attempts=1)
+    workflow.claim_next(cur, worker_id="worker-a")
+    _worker_dies(cur, run_id)
+    monkeypatch.setattr(workflow, "_fail_runs_that_outlived_their_attempts",
+                        lambda cur: None)
+
+    assert workflow.claim_next(cur, worker_id="worker-b") is None
+    assert workflow.get_run(cur, run_id)["attempts"] == 1
+
+
+def test_an_exhausted_run_does_not_block_the_queue_behind_it(empty_queue, cur, project):
+    """
+    Failing the dead run and claiming the next one happen in the same call —
+    otherwise the oldest dead run would stand at the head of the queue and a
+    worker would get nothing while real work waited behind it.
+    """
+    dead = workflow.enqueue(cur, workflow_name="visual.render_blender",
+                            project_id=project, max_attempts=1)
+    workflow.claim_next(cur, worker_id="worker-a")
+    _worker_dies(cur, dead)
+    waiting = workflow.enqueue(cur, workflow_name="ingest", project_id=project)
+
+    assert workflow.claim_next(cur, worker_id="worker-b")["id"] == waiting
+    assert workflow.get_run(cur, dead)["state"] == str(WorkflowState.FAILED)
+
+
 def test_heartbeat_only_extends_your_own_lease(empty_queue, cur, project):
     run_id = workflow.enqueue(cur, workflow_name="ingest", project_id=project)
     workflow.claim_next(cur, worker_id="worker-a")
