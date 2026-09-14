@@ -7952,3 +7952,25 @@ button.ax-object:hover .ax-object-go { color: var(--select); }
 }
 :root[data-theme="dark"] .rsn-field-human path { stroke: #8A96A8; opacity: 0.3; }
 :root[data-theme="dark"] .rsn-field-model path { stroke: #E8B76A; opacity: 0.28; }
+
+/* The figure builder's five questions, as a segmented control. */
+.fig-lenses {
+  display: inline-flex; gap: 0; flex-wrap: nowrap; overflow-x: auto; max-width: 100%;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+}
+.fig-lenses .btn {
+  height: 36px; padding: 0 16px; border: 0; border-right: 1px solid var(--line);
+  border-radius: 0; background: transparent; color: var(--ink-soft); font-size: 13.5px;
+}
+.fig-lenses .btn:last-child { border-right: 0; }
+.fig-lenses .btn[aria-current="true"] {
+  background: var(--select-soft); color: var(--on-select-soft);
+  border-color: var(--line); font-weight: 560;
+}
+
+/* A finding's type and causal status: a quiet sentence, not a log line. */
+.fd-meta { margin-top: 8px; font-size: 12.5px; color: var(--ink-faint); }
+
+/* The status pill: a word at a reading size. The 10.5px uppercase rule made
+   "READY" and "PASSED" shout from tables whose other cells are 13px prose. */
+.status { font-size: 12px; letter-spacing: 0.01em; text-transform: none; font-weight: 560; }

@@ -251,7 +251,10 @@ export function Figures({ projectId, runs, focusId = null,
       {/* Two lenses on the same run: everything that was tested, or one
           relationship in detail. The overview is the default because the
           honest summary of a discovery run is how much of it was noise. */}
-      <div className="fig-picker" style={{ marginBottom: 10 }}>
+      {/* The five questions as one segmented control, like every other set of
+          readings in the product; it was loose pills with a gold edge, the one
+          place a choice between views still looked like a row of buttons. */}
+      <div className="fig-picker fig-lenses" style={{ marginBottom: 10 }}>
         <button className="btn" aria-current={view === "all"}
                 onClick={() => setView("all")}>
           Everything tested

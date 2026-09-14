@@ -1596,8 +1596,12 @@ export function Discover({ projectId, sources, onSelectConnection, startWith,
         <Empty title="No dataset to search" hint="Discovery needs tabular data. Add a CSV or spreadsheet." />
       )}
 
+      {/* Label beside its box. `.row` spreads its children to either end,
+          which put the checkbox at the left edge of the column and the
+          sentence that names it at the right — a control and its label a
+          page apart. */}
       {datasets.length > 0 && (
-        <label className="row" style={{ gap: "0.5rem", alignItems: "center" }}>
+        <label className="row" style={{ gap: "0.5rem", alignItems: "center", justifyContent: "flex-start" }}>
           <input
             type="checkbox"
             checked={hold}
@@ -1869,8 +1873,8 @@ export function Findings({ projectId, onSelect }: {
             <Status value={finding.lifecycle_status} />
           </div>
           {finding.statement && <p style={{ margin: "6px 0 0" }}>{finding.statement}</p>}
-          <div className="mono" style={{ color: "var(--ink-faint)", marginTop: 6 }}>
-            {finding.finding_type} · causal status: {finding.causal_status.replace(/_/g, " ")}
+          <div className="fd-meta">
+            {sentenceCase(finding.finding_type.replace(/_/g, " "))} · Causal status: {finding.causal_status.replace(/_/g, " ")}
             {/*
               * That the claim carries caveats, where the claims are scanned.
               *
