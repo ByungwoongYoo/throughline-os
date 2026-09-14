@@ -429,6 +429,23 @@
      */
     --action:    #F4F2EE;
     --on-action: #101216;
+    /*
+     * Restated, because the light root no longer reaches them through the ramp.
+     *
+     * Light used to say `--ink: var(--n-800)`, and the dark theme flipped the
+     * ramp and inherited the rest. Adopting the package's workspace palette
+     * wrote those five as literal colours in light, so the dark theme kept
+     * near-black ink on a near-black ground — every heading, panel name, card
+     * title and the wordmark, invisible — and nothing in the suite could see
+     * it, because the suite applies no CSS. They are stated here as the ramp
+     * values they always resolved to, and `every-literal-light-colour-is-
+     * restated-in-dark` now holds the rule.
+     */
+    --line:        var(--n-200);
+    --line-strong: var(--n-300);
+    --ink-soft:    var(--n-600);
+    --ink:         var(--n-800);
+    --ink-strong:  var(--n-900);
     --focus:     #AFC8FF;
     /* Reversed on the dark ground: sparse sinks toward it, dense rises. */
     --density-sparse: #32465F;
@@ -629,6 +646,23 @@
      */
     --action:    #F4F2EE;
     --on-action: #101216;
+    /*
+     * Restated, because the light root no longer reaches them through the ramp.
+     *
+     * Light used to say `--ink: var(--n-800)`, and the dark theme flipped the
+     * ramp and inherited the rest. Adopting the package's workspace palette
+     * wrote those five as literal colours in light, so the dark theme kept
+     * near-black ink on a near-black ground — every heading, panel name, card
+     * title and the wordmark, invisible — and nothing in the suite could see
+     * it, because the suite applies no CSS. They are stated here as the ramp
+     * values they always resolved to, and `every-literal-light-colour-is-
+     * restated-in-dark` now holds the rule.
+     */
+    --line:        var(--n-200);
+    --line-strong: var(--n-300);
+    --ink-soft:    var(--n-600);
+    --ink:         var(--n-800);
+    --ink-strong:  var(--n-900);
     --focus:     #AFC8FF;
     /* Reversed on the dark ground: sparse sinks toward it, dense rises. */
     --density-sparse: #32465F;
