@@ -316,3 +316,27 @@ describe("the research river", () => {
     expect(screen.queryByRole("tab", { name: "River" })).toBeNull();
   });
 });
+
+/**
+ * The columns stay unpositioned, because the lines are measured from the canvas.
+ *
+ * Connectors take their ends from each card's `offsetLeft` and `offsetTop`,
+ * which are relative to the nearest positioned ancestor. A restyle that made
+ * `.river-col` `position: relative` — to hang a hairline in the gutter — moved
+ * every card's origin to its own column, and the whole canvas's lines were
+ * drawn crammed at the left edge. happy-dom computes no layout, so this reads
+ * the stylesheet rather than a rendered offset.
+ */
+describe("the river's geometry", () => {
+  it("never positions a column, so cards measure from the canvas", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const css = readFileSync(join(__dirname, "..", "app", "globals.css"), "utf8");
+    const rules = [...css.matchAll(/([^{}]*\.river-col[^{}]*)\{([^}]*)\}/g)];
+    const positioned = rules
+      .filter(([, selector, body]) => !/::?(before|after)/.test(selector)
+        && /position\s*:\s*(relative|absolute|sticky|fixed)/.test(body))
+      .map(([, selector]) => selector.trim());
+    expect(positioned).toEqual([]);
+  });
+});

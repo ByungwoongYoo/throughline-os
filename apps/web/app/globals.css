@@ -7988,3 +7988,119 @@ button.ax-object:hover .ax-object-go { color: var(--select); }
 .ckpt-family tr[data-current] td:first-child { box-shadow: inset 3px 0 0 var(--select); }
 .ckpt-family-name { color: var(--ink-faint); font-size: 12px; }
 .ckpt-family .btn-text.mono { font-size: 12.5px; }
+
+/* ==========================================================================
+   The river's line grammar, as UI_03 draws it
+   ==========================================================================
+
+   Four marks, each meaning one thing. Thickness says how much of the record
+   the line is: a ribbon is the flow itself, a hairline is a relationship
+   about it. Pattern says whether it happened: solid is recorded, dotted is not
+   yet or only asserted. An arrowhead appears where direction is the point.
+   Colour is the state of the branch the line belongs to.
+*/
+
+/* Gutters at the reference's proportions. At 16px the ribbons were stubs and a
+   relationship had nowhere to be named; the widest gutter is between
+   Connections and Analyses, because that is where "produced" runs. */
+/*
+ * The hairline is the column's own border, with the gutter split either side
+ * of it by margin and padding.
+ *
+ * It must not be drawn by positioning the column. The connectors are measured
+ * with `offsetLeft`/`offsetTop`, which are relative to the nearest positioned
+ * ancestor; a first version made each column `position: relative` to hang a
+ * `::before` rule in the gutter, every card's offset became relative to its
+ * own column, and every line on the canvas was drawn crammed into the first
+ * two hundred pixels. The columns stay static so the cards measure from the
+ * canvas.
+ */
+.river-content { gap: 0; padding: 18px 20px; }
+.river-col { flex: 0 0 214px; position: static; }
+.river-col + .river-col {
+  flex-basis: 234px; margin-left: 20px; padding-left: 20px;
+  border-left: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+}
+.river-col[data-stage="analyses"] { flex-basis: 249px; margin-left: 35px; padding-left: 35px; }
+
+/* Base: every line takes its branch's colour. */
+.river-line { fill: none; stroke-linecap: butt; stroke: var(--line-strong); }
+.river-line[data-state="validated"]   { stroke: var(--positive); }
+.river-line[data-state="exploratory"] { stroke: var(--accent); }
+.river-line[data-state="rejected"]    { stroke: var(--negative); }
+
+/* The ribbon: the recorded flow, thick and soft. */
+.river-line[data-stroke="ribbon"] { stroke-width: 9; opacity: 0.4; stroke-dasharray: none; }
+.river-line[data-stroke="ribbon"][data-state="neutral"] { stroke-width: 6; opacity: 0.22; }
+
+/* The fan: the same record, fine, where one card feeds many unresolved branches. */
+.river-line[data-stroke="fan"] { stroke-width: 1.2; opacity: 0.3; stroke-dasharray: none; }
+
+/* Directed: a named derivation, a hairline with a head. */
+.river-line[data-stroke="directed"] { stroke-width: 1.6; opacity: 0.95; stroke-dasharray: none; }
+
+/* Dotted: not yet, or asserted — never drawn with the weight of a record. */
+.river-line[data-stroke="dotted"] { stroke-width: 1.4; opacity: 0.85; stroke-dasharray: 3 4; }
+
+/* A lit branch — either end selected — comes forward; everything keeps its kind. */
+.river-line[data-lit="true"][data-stroke="ribbon"] { opacity: 0.75; }
+.river-line[data-lit="true"][data-stroke="fan"] { opacity: 0.7; stroke-width: 1.6; }
+
+/* Arrowheads in their line's colour. */
+.river-arrow path { fill: var(--line-strong); }
+.river-arrow[data-state="validated"] path   { fill: var(--positive); }
+.river-arrow[data-state="exploratory"] path { fill: var(--accent); }
+.river-arrow[data-state="rejected"] path    { fill: var(--negative); }
+
+/* The relationship's name on its line, as the master writes "produced". */
+.river-line-label {
+  font-size: 11px; font-weight: 500; fill: var(--ink-faint);
+  paint-order: stroke; stroke: var(--panel); stroke-width: 4px; stroke-linejoin: round;
+}
+.river-line-label[data-state="validated"]   { fill: var(--positive); }
+.river-line-label[data-state="exploratory"] { fill: var(--accent); }
+.river-line-label[data-state="rejected"]    { fill: var(--negative); }
+
+/* The dark theme's ribbons need more of themselves (D393's measurement). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .river-line[data-stroke="ribbon"] { opacity: 0.55; }
+  :root:not([data-theme="light"]) .river-line[data-stroke="ribbon"][data-state="neutral"] { opacity: 0.4; }
+  :root:not([data-theme="light"]) .river-line[data-stroke="fan"] { opacity: 0.45; }
+}
+:root[data-theme="dark"] .river-line[data-stroke="ribbon"] { opacity: 0.55; }
+:root[data-theme="dark"] .river-line[data-stroke="ribbon"][data-state="neutral"] { opacity: 0.4; }
+:root[data-theme="dark"] .river-line[data-stroke="fan"] { opacity: 0.45; }
+
+/* The focus of the lineage is gold, as UI_03's legend has it: a selected object
+   on this canvas is a research focus, which §08 gives to gold. */
+.river-card[aria-pressed="true"] {
+  border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
+  background: color-mix(in srgb, var(--accent-soft) 35%, var(--panel));
+}
+
+/* The legend draws each mark the way the canvas does. */
+.river-state-key[data-state="selected"]::before {
+  background: var(--panel); box-shadow: inset 0 0 0 2.5px var(--accent);
+}
+.river-stroke-key { display: inline-flex; align-items: center; gap: 7px; }
+.river-stroke-key::before { content: ""; display: inline-block; width: 22px; }
+.river-stroke-key[data-stroke="ribbon"]::before {
+  height: 7px; border-radius: 1px; background: var(--positive); opacity: 0.45;
+}
+.river-stroke-key[data-stroke="directed"]::before {
+  height: 0; border-top: 1.6px solid var(--accent); order: -2;
+}
+/* The head sits on the end of the line, before the word; the negative margin
+   takes back the key's gap so the two read as one mark. */
+.river-stroke-key[data-stroke="directed"]::after {
+  content: ""; order: -1; margin-left: -8px;
+  border-left: 6px solid var(--accent); border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+}
+.river-stroke-key[data-stroke="dotted"]::before {
+  height: 0; border-top: 1.5px dashed var(--ink-faint);
+}
+
+/* A fan line keeps its branch's hue when it has one, so an untested candidate
+   still reads as ochre, only without the weight of an established flow. */
+.river-line[data-stroke="fan"][data-state="exploratory"] { opacity: 0.45; }
+.river-line[data-stroke="fan"][data-state="validated"] { opacity: 0.5; }

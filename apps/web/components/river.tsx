@@ -133,6 +133,32 @@ type Connector = {
   lit: boolean;
   /** One of many lines leaving the same card, drawn fine so a fan stays legible. */
   bundle: boolean;
+  /**
+   * Which of UI_03's four marks this edge is drawn as.
+   *
+   * The master's lines are a grammar, and ours had flattened it to two kinds.
+   * Read off the reference:
+   *
+   * - **ribbon** — thick and soft, the recorded flow along a branch, coloured
+   *   by where that branch ended up (validated, exploratory, rejected);
+   * - **directed** — thin, solid, an arrowhead and a word: a named derivation
+   *   that runs against the column order, as "produced" does from an analysis
+   *   back to its connection;
+   * - **dotted** — thin, dashed, an arrowhead: a step not taken yet, or a
+   *   relationship somebody asserted rather than recorded;
+   * - **fan** — the same recorded lineage as a ribbon, drawn fine where one
+   *   card feeds many and none of those branches has a state yet.
+   *
+   * `lineage` is kept beside it, because solid-versus-dotted is the one
+   * distinction a restyle must never lose and the tests hold it by that flag.
+   */
+  stroke: "ribbon" | "directed" | "dotted" | "fan";
+  /** An arrowhead at the far end, for the marks whose direction is the point. */
+  arrow: boolean;
+  /** The relationship's name, printed on the line, and where. */
+  label?: string;
+  lx?: number;
+  ly?: number;
 };
 
 /**
@@ -475,6 +501,53 @@ export function River({ projectId, onOpenObject, focus = null }: {
   const stateById = useMemo(
     () => new Map(nodes.map((n) => [n.id, n.status])), [nodes]);
 
+  /*
+   * The state of the branch an object is on.
+   *
+   * UI_03 colours a whole branch by where it ended up: the dataset's ribbon
+   * into an analysis is green because that analysis produced a connection that
+   * survived validation. Coloured only by the object at the far end — as it
+   * was — every ribbon into an analysis was grey, since an analysis has no
+   * lifecycle of its own, and the one colour that says "this line of work held"
+   * never reached the start of the line. An analysis takes the state of the
+   * connection it produced; a connection's validation card takes its
+   * connection's; anything else keeps its own.
+   */
+  const { branchOf, untested } = useMemo(() => {
+    const branch = new Map<string, RiverState>();
+    /*
+     * Branches that have not been tested at all.
+     *
+     * `stateOf` files a candidate — "preliminary, not yet tested" — with the
+     * exploratory connections, which is right for its dot and wrong for its
+     * weight: seven candidates drew seven thick ochre ribbons, a wedge that
+     * outweighed the two branches that had actually survived validation. A
+     * ribbon's thickness says the flow is established, so an untested branch
+     * keeps its colour and is drawn fine.
+     */
+    const notTested = new Set<string>();
+    for (const link of links.data ?? []) {
+      const state = stateOf(link.lifecycle_status);
+      branch.set(link.id, state);
+      branch.set(`val:${link.id}`, state);
+      if (link.analysis_object_id) {
+        const prior = branch.get(link.analysis_object_id);
+        // An analysis behind two connections takes the stronger of them.
+        const rank: Record<RiverState, number> = { validated: 3, exploratory: 2, rejected: 1, neutral: 0 };
+        if (!prior || rank[state] > rank[prior]) branch.set(link.analysis_object_id, state);
+      }
+      if (link.lifecycle_status === "candidate") {
+        notTested.add(link.id);
+        notTested.add(`val:${link.id}`);
+        if (link.analysis_object_id) notTested.add(link.analysis_object_id);
+      } else if (link.analysis_object_id) {
+        // A tested connection from the same analysis outranks an untested one.
+        notTested.delete(link.analysis_object_id);
+      }
+    }
+    return { branchOf: branch, untested: notTested };
+  }, [links.data]);
+
   const measure = useCallback(() => {
     const root = content.current;
     if (!root) return;
@@ -507,20 +580,54 @@ export function River({ projectId, onOpenObject, focus = null }: {
       const x2 = backward ? b.offsetLeft + b.offsetWidth : b.offsetLeft;
       const y2 = b.offsetTop + b.offsetHeight / 2;
       const bend = Math.max(28, Math.abs(x2 - x1) / 2) * (backward ? -1 : 1);
+      /*
+       * Two cards in one column — a source file and the dataset profiled from
+       * it — are joined straight down, from the bottom of one to the top of
+       * the other. Drawn side to side, the edge left the first card's right
+       * edge and entered the second's left, which in one column is a loop out
+       * past the canvas's edge and back.
+       */
+      const sameColumn = Math.abs(a.offsetLeft - b.offsetLeft) < 8;
+      const inset = 26;
+      const down = b.offsetTop >= a.offsetTop;
+      const vy1 = down ? a.offsetTop + a.offsetHeight : a.offsetTop;
+      const vy2 = down ? b.offsetTop : b.offsetTop + b.offsetHeight;
+      const vx = a.offsetLeft + inset;
+      const d = sameColumn
+        ? `M ${vx} ${vy1} C ${vx} ${(vy1 + vy2) / 2}, ${vx} ${(vy1 + vy2) / 2}, ${vx} ${vy2}`
+        : `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`;
+      const lineage = edge.edge_kind === "lineage";
+      const produced = edge.relationship_type === "produced";
+      const state = branchOf.get(edge.target_object_id)
+        ?? branchOf.get(edge.source_object_id)
+        ?? stateOf(stateById.get(edge.target_object_id));
+      /* A dataset feeding twenty-three analyses drew twenty-three ribbons over
+         each other, a grey smear across three columns. Past six, a line in the
+         fan whose branch has no state yet is drawn fine; a branch that has one
+         keeps its ribbon, so the coloured paths stand out of the fan. */
+      const bundle = (fanOut.get(edge.source_object_id) ?? 0) > 6;
+      const stroke: Connector["stroke"] = produced ? "directed"
+        : !lineage ? "dotted"
+        : bundle && (state === "neutral" || untested.has(edge.target_object_id)) ? "fan"
+        : "ribbon";
       next.push({
         id: edge.id,
-        d: `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`,
-        lineage: edge.edge_kind === "lineage",
-        state: stateOf(stateById.get(edge.target_object_id)),
+        d,
+        lineage,
+        state,
         lit: selected === edge.source_object_id || selected === edge.target_object_id,
-        /* A dataset feeding twenty-three analyses drew twenty-three 7px ribbons
-           over each other, a grey smear across three columns. Past six, each
-           line in the fan is drawn fine and the fan reads as one flow. */
-        bundle: (fanOut.get(edge.source_object_id) ?? 0) > 6,
+        bundle,
+        stroke,
+        arrow: stroke === "directed" || stroke === "dotted",
+        // The midpoint of this curve is the midpoint of its ends, because the
+        // control points are placed symmetrically; the word sits just above.
+        label: produced ? "produced" : undefined,
+        lx: sameColumn ? vx + 8 : (x1 + x2) / 2,
+        ly: sameColumn ? (vy1 + vy2) / 2 : (y1 + y2) / 2 - 7,
       });
     }
     setConnectors(next);
-  }, [drawable, selected, stateById]);
+  }, [drawable, selected, stateById, branchOf, untested]);
 
   useLayoutEffect(() => { measure(); }, [measure, zoom, view]);
 
@@ -664,6 +771,19 @@ export function River({ projectId, onOpenObject, focus = null }: {
               {/* Sized by the stylesheet to the whole scroll content, so its
                   user units are the same pixels `offsetLeft` reports. */}
               <svg className="river-lines" aria-hidden="true" focusable="false">
+                {/* One arrowhead per state, so the head is the colour of its
+                    line; markers are drawn in user units, so a head is the
+                    same size on a short line and a long one. */}
+                <defs>
+                  {(["validated", "exploratory", "rejected", "neutral"] as const).map((st) => (
+                    <marker key={st} id={`river-arrow-${st}`} className="river-arrow"
+                            data-state={st} viewBox="0 0 10 10" refX="9" refY="5"
+                            markerWidth="7" markerHeight="7" markerUnits="userSpaceOnUse"
+                            orient="auto-start-reverse">
+                      <path d="M 0 1 L 10 5 L 0 9 z" />
+                    </marker>
+                  ))}
+                </defs>
                 {connectors.map((c) => (
                   <path
                     key={c.id}
@@ -672,16 +792,24 @@ export function River({ projectId, onOpenObject, focus = null }: {
                     data-state={c.state}
                     data-lit={c.lit}
                     data-bundle={c.bundle}
+                    data-stroke={c.stroke}
                     data-edge={c.id}
                     d={c.d}
+                    markerEnd={c.arrow ? `url(#river-arrow-${c.state})` : undefined}
                   />
+                ))}
+                {connectors.filter((c) => c.label).map((c) => (
+                  <text key={`${c.id}:label`} className="river-line-label"
+                        data-state={c.state} x={c.lx} y={c.ly} textAnchor="middle">
+                    {c.label}
+                  </text>
                 ))}
               </svg>
 
               {STAGES.map((stage) => {
                 const inStage = columns.byStage.get(stage.id) ?? [];
                 return (
-                  <section className="river-col" key={stage.id}>
+                  <section className="river-col" key={stage.id} data-stage={stage.id}>
                     <h2 className="river-col-name">{stage.label}</h2>
                     <p className="river-col-blurb">{stage.blurb}</p>
                     {inStage.length === 0 ? (
@@ -750,12 +878,15 @@ export function River({ projectId, onOpenObject, focus = null }: {
 
           <div className="river-legend">
             {/* The colours say something, so the legend says what. */}
+            <span className="river-state-key" data-state="selected">Selected</span>
             <span className="river-state-key" data-state="validated">Validated</span>
             <span className="river-state-key" data-state="exploratory">Exploratory</span>
             <span className="river-state-key" data-state="rejected">Rejected</span>
             <span className="river-legend-rule" aria-hidden />
-            <span className="river-key" data-lineage="true">Solid · recorded lineage</span>
-            <span className="river-key" data-lineage="false">Dotted · related context</span>
+            {/* The strokes, named — each drawn as it appears on the canvas. */}
+            <span className="river-stroke-key" data-stroke="ribbon">Recorded flow</span>
+            <span className="river-stroke-key" data-stroke="directed">Produced</span>
+            <span className="river-stroke-key" data-stroke="dotted">Not yet · asserted</span>
             <span className="river-zoom">
               <button
                 className="btn"
