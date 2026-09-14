@@ -72,6 +72,7 @@ def test_a_note_goes_stale_when_its_evidence_changes(cur, project):
     assert len(stale) == 1
     assert stale[0]["note"] == "Reading"
     assert stale[0]["object"] == "AMR panel"
+    assert stale[0]["reason"] == "changed"
     # The reason matters as much as the flag: this is the one problem here that
     # cannot be found by rereading the note.
     assert "cannot be found by rereading" in stale[0]["why"]
@@ -299,3 +300,112 @@ def test_the_index_is_derived_and_stores_nothing(cur, project):
     cur.execute("SELECT count(*) AS n FROM notes WHERE project_id = %s",
                 (project["id"],))
     assert cur.fetchone()["n"] == before
+
+
+# ---------------------------------------------------------------------------
+# Through the paths the product uses (T155)
+# ---------------------------------------------------------------------------
+#
+# Every test above builds its object with a raw INSERT and a hand-written
+# `content_hash`. No product writer supplies that column — `create_object` is
+# called eight times and never with one — so those tests proved a check that
+# could not fire for any researcher. A revised file does not change an object
+# in place either: sources dedupe by content hash, so the revision arrives as a
+# separate object that shares the old one's name. These go through
+# `objects.create_object` and `objects.new_version`, which is how evidence
+# actually enters and changes.
+
+from throughline_domain import objects as _objects  # noqa: E402
+from throughline_schemas.enums import ObjectType  # noqa: E402
+
+
+def _uploaded(cur, project, title: str) -> str:
+    return _objects.create_object(
+        cur, project_id=project["id"], object_type=ObjectType.DATASET,
+        title=title, actor=project["user"])
+
+
+def test_a_note_goes_stale_when_a_newer_upload_shares_its_evidence_name(cur, project):
+    _uploaded(cur, project, "AMR panel")
+    notebook.create(cur, project_id=project["id"], title="Reading",
+                    body="From [[AMR panel]]: the association holds.",
+                    author=project["user"])
+
+    # The revised file: a new source, so a new object with the same name.
+    _uploaded(cur, project, "AMR panel")
+
+    stale = [f for f in notebook.lint(cur, project["id"])["findings"]
+             if f["kind"] == "stale_evidence"]
+    assert [(f["note"], f["object"], f["reason"]) for f in stale] == [
+        ("Reading", "AMR panel", "newer_upload")]
+    assert "A newer 'AMR panel' has been added" in stale[0]["detail"]
+
+
+def test_a_note_goes_stale_when_its_evidence_is_versioned(cur, project):
+    object_id = _uploaded(cur, project, "AMR panel")
+    notebook.create(cur, project_id=project["id"], title="Reading",
+                    body="From [[AMR panel]]: the association holds.",
+                    author=project["user"])
+
+    _objects.new_version(cur, object_id=object_id, actor=project["user"],
+                         description="re-coded", reason="recode")
+
+    stale = [f for f in notebook.lint(cur, project["id"])["findings"]
+             if f["kind"] == "stale_evidence"]
+    # A version, and said as one: the new version row is also a newer object
+    # of the same name, and must not be described as a separate upload.
+    assert [f["reason"] for f in stale] == ["versioned"]
+    assert "has a newer version" in stale[0]["detail"]
+
+
+def test_a_different_kind_of_object_with_the_same_name_is_not_a_revision(cur, project):
+    """A figure called "AMR panel" is not a new version of the dataset."""
+    _uploaded(cur, project, "AMR panel")
+    notebook.create(cur, project_id=project["id"], title="Reading",
+                    body="From [[AMR panel]]: the association holds.",
+                    author=project["user"])
+    _objects.create_object(cur, project_id=project["id"],
+                           object_type=ObjectType.FIGURE, title="AMR panel",
+                           actor=project["user"])
+
+    assert "stale_evidence" not in kinds(notebook.lint(cur, project["id"]))
+
+
+def test_a_new_link_resolves_to_the_newest_evidence_of_that_name(cur, project):
+    """
+    Index scans are switched off for this transaction. The `seq DESC` index
+    happens to hand rows back newest first, so an unordered `LIMIT 1` passed
+    this test by query plan alone — it did, under mutation. In heap order the
+    older file comes back first, which is the answer the old code gave.
+    """
+    cur.execute("SET LOCAL enable_indexscan = off")
+    cur.execute("SET LOCAL enable_bitmapscan = off")
+    _uploaded(cur, project, "AMR panel")
+    newest = _uploaded(cur, project, "AMR panel")
+
+    created = notebook.create(cur, project_id=project["id"], title="Reading",
+                              body="From [[AMR panel]].", author=project["user"])
+
+    assert created["links"][0]["to_object_id"] == newest
+    assert "stale_evidence" not in kinds(notebook.lint(cur, project["id"]))
+
+
+def test_a_link_written_before_its_evidence_arrives_finds_it(cur, project):
+    """
+    Planning, then the upload. Only a *note* arriving used to adopt a waiting
+    link, so this stayed unresolved for ever — and the lint told the
+    researcher "'AMR panel' ... has never been written", advising a page of
+    that name, which would then have shadowed the dataset (notes resolve
+    first).
+    """
+    notebook.create(cur, project_id=project["id"], title="Plan",
+                    body="Check [[AMR panel]] once it lands.",
+                    author=project["user"])
+
+    object_id = _uploaded(cur, project, "AMR panel")
+
+    report = notebook.lint(cur, project["id"])
+    assert "unwritten_page" not in kinds(report)
+    cur.execute("SELECT id FROM notes WHERE title = 'Plan'")
+    links = notebook.outgoing(cur, cur.fetchone()["id"])
+    assert [(l["object_id"], l["kind"]) for l in links] == [(object_id, "dataset")]

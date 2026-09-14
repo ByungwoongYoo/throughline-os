@@ -497,3 +497,38 @@ def test_recording_limitations_can_withdraw_them(cur, project):
 
     cur.execute("SELECT limitations FROM findings WHERE id = %s", (finding_id,))
     assert cur.fetchone()["limitations"] == ["One region only."]
+
+
+def test_a_report_can_be_drafted_from_the_connection_the_graph_returns(cur, project):
+    """
+    The whole chain "Take it further" walks, end to end.
+
+    Each half was proven separately and the join between them was broken for
+    the product's whole life: the evidence graph returned no connections, so
+    the card offered nothing, so `draft_from_connection` was never reached
+    from a finding. Asserting the list is non-empty would not have caught a
+    payload the next step cannot use — the client picks a connection by
+    `canDraftReport` (it names a run) and the server refuses on exactly that
+    condition, so this test pins the two rules against each other by walking
+    from one to the other.
+    """
+    from throughline_domain import authoring, graphs
+
+    parts = _analysed_connection(cur, project)
+    finding_id = findings.create_finding(
+        cur, project_id=project, title="ddd tracks res_pct",
+        finding_type=FindingType.STATISTICAL,
+        from_connections=[parts["connection"]], actor="test")
+
+    graph = graphs.evidence_graph(cur, finding_id=finding_id)
+    # `canDraftReport` in the client, which is "the connection names a run".
+    eligible = [c for c in graph["connections"] if c["analysis_run_id"]]
+    assert eligible, "the card would offer nothing"
+
+    artifact_id = authoring.draft_from_connection(
+        cur, project_id=project, connection_id=eligible[0]["id"],
+        artifact_type="report", audience="peer")
+
+    cur.execute("SELECT project_id FROM communication_artifacts WHERE id = %s",
+                (artifact_id,))
+    assert cur.fetchone()["project_id"] == project

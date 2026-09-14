@@ -308,7 +308,8 @@ def _answered(client, ids) -> list[tuple[str, str, dict]]:
             declared_in = ("lib/api.ts" if body is shared.get(name)
                            else str(source.relative_to(WEB)))
             seen.append((name, url, {"body": body, "sample": sample,
-                                     "declared_in": declared_in}))
+                                     "declared_in": declared_in,
+                                     "path": path}))
     return seen
 
 
@@ -393,23 +394,85 @@ def _nested_drift(name: str, body: str, sample: dict, source: Path,
     return drift, unjudged, checked
 
 
+#: Nested payloads the worked example leaves empty, so the check has nothing
+#: to judge one level down. Listed rather than counted, because the only thing
+#: worse than an unjudged payload is an unjudged payload nobody can name: a
+#: list that silently goes empty stops being checked and the suite stays green,
+#: which is how `EvidenceGraph.connections` — empty for every finding ever
+#: recorded — sat under this guard without it ever having anything to say
+#: (T154, and it is judged now).
+KNOWN_UNJUDGED = {
+    "Ledger.contradictions at /api/projects/${projectId}/contradictions",
+    "Lineage.ancestors at /api/projects/${projectId}/analyses/${runId}/lineage",
+    "Lineage.children at /api/projects/${projectId}/analyses/${runId}/lineage",
+    "Models.history at /api/system/models",
+    # Today's page is created empty, so it links to nothing. The same `Note`
+    # type is judged at `/api/notes/${id}`, whose fixture note does link —
+    # which is why these are keyed by URL and not by type: keyed by type, this
+    # entry would have excused that URL going empty too.
+    "Note.backlinks at /api/projects/${projectId}/notebook/today",
+    "Note.links at /api/projects/${projectId}/notebook/today",
+    "Report.artifacts at /api/projects/${projectId}/exports",
+    "Report.drifted at /api/projects/${projectId}/exports",
+    "Report.unchecked at /api/projects/${projectId}/exports",
+    "Sweep.reports at /api/projects/${projectId}/consistency",
+    "Variables.pending at /api/projects/${projectId}/variables",
+    "Vocabulary.pending at /api/projects/${projectId}/vocabulary",
+    "Vocabulary.variables at /api/projects/${projectId}/vocabulary",
+}
+
+
 def test_every_nested_field_the_interface_requires_is_sent(populated):
     client, ids = populated
     _, per_file = _calls()
     shared = per_file.get(WEB / "lib" / "api.ts", {})
     drift: list[str] = []
+    unjudged: list[str] = []
     checked = 0
     for name, url, found in _answered(client, ids):
-        more, _unjudged, count = _nested_drift(
+        more, empty, count = _nested_drift(
             name, found["body"], found["sample"], WEB / found["declared_in"],
             per_file, shared)
         drift += [f"{line} at {url}" for line in more]
+        unjudged += [f"{field} at {found['path']}" for field in empty]
         checked += count
-    # Ten had data to check when this was written; seventeen more were empty
-    # in the worked example and are reported rather than passed.
+    # Ten had data to check when this was written; the rest were empty in the
+    # worked example and are named below rather than passed over.
     assert checked >= 8, f"only {checked} nested field sets had anything to check"
     assert not drift, ("one level down, the interface and the API disagree:\n  "
                        + "\n  ".join(drift))
+
+    lost = sorted(set(unjudged) - KNOWN_UNJUDGED)
+    assert not lost, (
+        "These nested payloads used to be judged and are empty now:\n  "
+        + "\n  ".join(lost)
+        + "\n\nThe check did not fail — it stopped checking, which is the "
+          "shape this guard exists to prevent. Either the worked example "
+          "should produce one of these again, or the payload has genuinely "
+          "gone away and belongs in KNOWN_UNJUDGED with the reason.")
+
+
+def test_the_unjudged_list_does_not_outlive_its_entries(populated):
+    """
+    An allowlist nobody prunes becomes a list of things that used to be true.
+    When a payload starts carrying data, it is judged from then on and its
+    name has to leave — otherwise the list implies a gap in coverage that has
+    already been closed, and the next reader trusts it.
+    """
+    client, ids = populated
+    _, per_file = _calls()
+    shared = per_file.get(WEB / "lib" / "api.ts", {})
+    unjudged: set[str] = set()
+    for name, _url, found in _answered(client, ids):
+        _, empty, _ = _nested_drift(
+            name, found["body"], found["sample"], WEB / found["declared_in"],
+            per_file, shared)
+        unjudged |= {f"{field} at {found['path']}" for field in empty}
+
+    stale = sorted(KNOWN_UNJUDGED - unjudged)
+    assert not stale, (
+        "These are listed as unjudged but the check can judge them now:\n  "
+        + "\n  ".join(stale) + "\n\nRemove them from KNOWN_UNJUDGED.")
 
 
 def test_the_nested_check_sees_a_dropped_field_and_does_not_pass_an_empty_list():
