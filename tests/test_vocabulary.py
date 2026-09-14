@@ -226,3 +226,63 @@ def test_an_alias_is_approved_or_rejected_and_nothing_else(cur, project):
     with pytest.raises(ValueError):
         vocabulary.decide(cur, alias_id=alias["id"], status="maybe",
                           decided_by="usr_1")
+
+
+# ---------------------------------------------------------------------------
+# A phrase that names two variables names neither (T156)
+# ---------------------------------------------------------------------------
+
+def test_a_label_that_is_another_variables_name_resolves_to_neither(cur, project):
+    """
+    `resolve` was a `UNION ALL ... LIMIT 1` with no order, so a phrase matching
+    two variables returned whichever row the planner produced first. Its own
+    docstring names what that costs: a claim test answering a question the
+    paper never asked. Refusing is the conservative answer both callers already
+    handle — the claim test asks, reconciliation reports different constructs.
+    """
+    _canonical(cur, project, "consumption", label="Resistance")
+    _canonical(cur, project, "resistance", label="Resistance rate")
+
+    assert vocabulary.resolve(cur, project_id=project, phrase="resistance") is None
+
+
+def test_an_alias_that_is_another_variables_name_resolves_to_neither(cur, project):
+    """
+    `suggest` checks a phrase against existing *aliases* and never against
+    canonical names, so approving `resistance` as an alias for consumption
+    succeeds even while a variable called `resistance` exists. The phrase then
+    names two variables through two approved routes, and neither route is the
+    one a person meant to overrule the other.
+
+    (An earlier version of this test used two aliases differing only by `_`.
+    `suggest` folds `_` before looking for a ruling, so the product cannot
+    create that pair — the fixture was a state nothing can produce.)
+    """
+    consumption = _canonical(cur, project, "antibiotic_consumption")
+    _canonical(cur, project, "resistance")
+    alias = vocabulary.suggest(cur, project_id=project, phrase="resistance",
+                               canonical_variable_id=consumption)
+    assert alias is not None, "the premise: nothing stops this alias"
+    vocabulary.decide(cur, alias_id=alias["id"], status=vocabulary.APPROVED,
+                      decided_by="usr_1")
+
+    assert vocabulary.resolve(cur, project_id=project, phrase="resistance") is None
+
+
+def test_two_routes_to_the_same_variable_are_not_ambiguous(cur, project):
+    """
+    The refusal is about two *variables*, not two rows. A name and an approved
+    alias that agree still resolve, and through the name — a confirmed
+    canonical match needs no alias, so none is counted as having saved a step.
+    """
+    canonical = _canonical(cur, project, "antibiotic_consumption",
+                           label="Antibiotic use")
+    alias = vocabulary.suggest(cur, project_id=project, phrase="antibiotic use",
+                               canonical_variable_id=canonical)
+    vocabulary.decide(cur, alias_id=alias["id"], status=vocabulary.APPROVED,
+                      decided_by="usr_1")
+
+    found = vocabulary.resolve(cur, project_id=project, phrase="antibiotic use")
+    assert found["name"] == "antibiotic_consumption"
+    assert found["via"] == "canonical"
+    assert vocabulary.learned(cur, project)["times_an_alias_resolved_a_term"] == 0

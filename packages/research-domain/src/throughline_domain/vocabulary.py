@@ -66,12 +66,26 @@ def resolve(cur, *, project_id: str, phrase: str) -> dict[str, Any] | None:
         "FROM variable_aliases va "
         "JOIN canonical_variables cv ON cv.id = va.canonical_variable_id "
         "WHERE va.project_id = %s AND va.status = %s "
-        "  AND lower(replace(va.alias, '_', ' ')) = %s "
-        "LIMIT 1",
+        "  AND lower(replace(va.alias, '_', ' ')) = %s ",
         (project_id, key, key, project_id, APPROVED, key))
-    row = cur.fetchone()
-    if not row:
+    rows = list(cur.fetchall())
+    if not rows:
         return None
+
+    # Every match, not the first. This was `LIMIT 1` with no order, so a phrase
+    # naming two variables resolved to whichever row the planner produced —
+    # and nothing prevents that: a display label comes from a file's own
+    # description while a name comes from the proposal key, and `suggest`
+    # never checks a phrase against canonical names. A phrase with two meanings
+    # has none here. Both callers already treat "unresolved" conservatively:
+    # the claim test stays not testable and asks, reconciliation reports
+    # different constructs (T156).
+    if len({r["id"] for r in rows}) > 1:
+        return None
+
+    # One variable, possibly by two routes. The canonical route wins, so an
+    # alias is only counted as having saved a step when it was the only way in.
+    row = next((r for r in rows if r["via"] == "canonical"), rows[0])
 
     if row["via"] == "alias":
         # Counted, because "how often has this vocabulary saved a step" is the
