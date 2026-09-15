@@ -1662,7 +1662,9 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   font-size: 10px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--gate-ink-42);
+  /* 56, not 42: at 42% the labels measured 3.79:1 on this ground, under the
+     4.5:1 small text needs (T180). */
+  color: var(--gate-ink-56);
   font-weight: 600;
   margin-bottom: 6px;
 }
@@ -1681,9 +1683,25 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   border-color: rgba(127,168,212,0.75);
   background: var(--gate-ink-06);
 }
-.gate-field input::placeholder { color: var(--gate-ink-25); }
+/* 2.15:1 at 25% (T180). Still quieter than a typed value, which is full ink. */
+.gate-field input::placeholder { color: var(--gate-ink-56); }
 
-.gate-hint { font-size: 11px; color: var(--gate-ink-42); margin-top: 5px; display: block; }
+/*
+ * A sentence, not a label. The hint is a <span> inside `.gate-field`, so
+ * `.gate-field > span` outranked a bare `.gate-hint` and set it as a 10px
+ * uppercase, letter-spaced, bold label at 3.79:1 (T180). Matched at the same
+ * depth, and everything the label rule sets is set back.
+ */
+.gate-field > .gate-hint {
+  font-size: 12px;
+  letter-spacing: normal;
+  text-transform: none;
+  font-weight: 400;
+  color: var(--gate-ink-56);
+  margin: 6px 0 0;
+  display: block;
+  line-height: 1.45;
+}
 
 .gate-submit {
   width: 100%;
@@ -1716,7 +1734,7 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   display: inline-block;
   margin-top: 22px;
   font-size: 12px;
-  color: var(--gate-ink-42);
+  color: var(--gate-ink-56);  /* 3.79:1 at 42% (T180) */
   text-decoration: none;
 }
 .gate-back:hover { color: var(--gate-ink); }

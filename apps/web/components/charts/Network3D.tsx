@@ -28,6 +28,7 @@
 import {
   useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 } from "react";
+import { useMounted } from "@/lib/charts/useMounted";
 import { ScreenPoint, TargetRef, VisualizationController } from "@/lib/spatial/commands";
 import { canvasPoint, isClick } from "@/lib/charts/pointer";
 import { drawLitSphere } from "@/lib/charts3d/shading";
@@ -69,6 +70,10 @@ const PICK_RADIUS = 14;
 export function Network3D({
   graph, width = 720, height = 520, depthOf, controllerRef, onSelect, caption,
 }: Network3DProps) {
+  // The description is computed from floats, and the server's engine and the
+  // browser's disagree in the last bit; said after mounting, so both passes
+  // render the same text (T180).
+  const mounted = useMounted();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const cameraRef = useRef<Camera>({ ...DEFAULT_CAMERA });
   const dirtyRef = useRef(true);
@@ -335,7 +340,7 @@ export function Network3D({
                    redraw={() => { dirtyRef.current = true; }} />
       <figcaption className="chart-caption">
         {caption ? `${caption} ` : ""}
-        {describeLayout(layout)}
+        {mounted && describeLayout(layout)}
         {selected && (
           <> Selected: {layout.nodes.find((n) => n.id === selected)?.label
                         ?? selected}

@@ -33,6 +33,7 @@
 import {
   useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 } from "react";
+import { useMounted } from "@/lib/charts/useMounted";
 import { ScreenPoint, TargetRef, VisualizationController } from "@/lib/spatial/commands";
 import {
   Axes3D, Camera, DEFAULT_CAMERA, insidePolygon, resetCamera, rotateCamera, toCanvas, zoomCamera,
@@ -75,6 +76,10 @@ export function Bars3D({
   bars, settings = DEFAULT_BARS, width = 720, height = 520, controllerRef,
   onSelect, caption, axes,
 }: Bars3DProps) {
+  // The description is computed from floats, and the server's engine and the
+  // browser's disagree in the last bit; said after mounting, so both passes
+  // render the same text (T180).
+  const mounted = useMounted();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const cameraRef = useRef<Camera>({ ...DEFAULT_CAMERA });
   const dirtyRef = useRef(true);
@@ -330,7 +335,7 @@ export function Bars3D({
                    redraw={() => { dirtyRef.current = true; }} />
       <figcaption className="chart-caption">
         {caption ? `${caption} ` : ""}
-        {describeBars(prepared, costs.hidden, costs.stretch)}
+        {mounted && describeBars(prepared, costs.hidden, costs.stretch)}
         {selected !== null && prepared.bars[selected] && (
           <> Selected: {Number(prepared.bars[selected].value.toPrecision(4))}.</>
         )}

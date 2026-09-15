@@ -179,7 +179,7 @@ export default function Charts3DPage() {
      offered no controller to address. §189 says the chart decides which one is
      being addressed; a chart with none was not in the running. */
   const globe = useRef<VisualizationController | null>(null);
-  const [addressing, setAddressing] = useState<string>("—");
+  const [addressing, setAddressing] = useState<string | null>(null);
   const world = useWorld();
 
   const graph = useMemo(citationNetwork, []);
@@ -287,8 +287,11 @@ export default function Charts3DPage() {
       <section>
         <h2>Hand control</h2>
         <p>
-          One hand drives whichever chart it is over. The chart being addressed
-          is <strong>{addressing}</strong>.
+          One hand drives whichever chart it is over.{" "}
+          {/* A sentence either way. "is —." read as a missing value (T180). */}
+          {addressing === null
+            ? "No chart is being addressed yet: start hand control and hold a hand over one."
+            : <>The chart being addressed is <strong>{addressing}</strong>.</>}
         </p>
         <SpatialControl
           controllerRef={network}
@@ -297,14 +300,17 @@ export default function Charts3DPage() {
           onActiveTarget={(read) => {
             const active = read();
             setAddressing(
-              active === null ? "—"
+              active === null ? null
               : active === network.current ? "the citation network"
               : active === field.current ? "the flow field"
               : active === volume.current ? "the density volume"
               : active === trails.current ? "the streamlines"
               : active === shell.current ? "the isosurface"
               : active === columns.current ? "the bars"
-              : "—");
+              // The globe is driven too, and was missing here — so addressing
+              // it said "—" as if nothing were (T180).
+              : active === globe.current ? "the globe"
+              : null);
           }}
         />
       </section>

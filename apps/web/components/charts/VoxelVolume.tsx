@@ -37,6 +37,7 @@
 import {
   useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 } from "react";
+import { useMounted } from "@/lib/charts/useMounted";
 import {
   ScreenPoint, TargetRef, ViewState, VisualizationController,
 } from "@/lib/spatial/commands";
@@ -111,6 +112,10 @@ export function VoxelVolume({
   grid, settings = DEFAULT_VOLUME, width = 720, height = 520, controllerRef,
   onWindowChange, onViewChange, onSelect, caption, axes,
 }: VoxelVolumeProps) {
+  // The description is computed from floats, and the server's engine and the
+  // browser's disagree in the last bit; said after mounting, so both passes
+  // render the same text (T180).
+  const mounted = useMounted();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const cameraRef = useRef<Camera>({ ...DEFAULT_CAMERA });
   const dirtyRef = useRef(true);
@@ -507,7 +512,7 @@ export function VoxelVolume({
                    redraw={() => { dirtyRef.current = true; }} />
       <figcaption className="chart-caption">
         {caption ? `${caption} ` : ""}
-        {describeVolume(volume)}
+        {mounted && describeVolume(volume)}
         {selected !== null && volume.splats[selected] && (
           <> Selected: {describeValue(volume, volume.splats[selected])}.</>
         )}

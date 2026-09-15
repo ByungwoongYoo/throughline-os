@@ -37,6 +37,7 @@
 import {
   useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 } from "react";
+import { useMounted } from "@/lib/charts/useMounted";
 import { ScreenPoint, TargetRef, VisualizationController } from "@/lib/spatial/commands";
 import { canvasPoint, isClick } from "@/lib/charts/pointer";
 import { AXES_SCALED_SEPARATELY, Axes3D, Camera, DEFAULT_CAMERA, insidePolygon, resetCamera, rotateCamera, toCanvas, zoomCamera } from "@/lib/charts/scene3d";
@@ -87,6 +88,10 @@ export function Field3D({
   samples, settings = DEFAULT_FIELD, width = 720, height = 520, controllerRef,
   onSelect, caption, axes, magnitude,
 }: Field3DProps) {
+  // The description is computed from floats, and the server's engine and the
+  // browser's disagree in the last bit; said after mounting, so both passes
+  // render the same text (T180).
+  const mounted = useMounted();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const cameraRef = useRef<Camera>({ ...DEFAULT_CAMERA });
   const dirtyRef = useRef(true);
@@ -364,7 +369,7 @@ export function Field3D({
                    redraw={() => { dirtyRef.current = true; }} />
       <figcaption className="chart-caption">
         {caption ? `${caption} ` : ""}
-        {describeField(field)}
+        {mounted && describeField(field)}
         {selected !== null && field.glyphs[selected] && (
           <> Selected: magnitude{" "}
             {field.glyphs[selected].magnitude.toPrecision(3)}

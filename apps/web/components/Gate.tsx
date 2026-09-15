@@ -124,7 +124,7 @@ export function Gate({ status, onDone }: { status: AuthStatus; onDone: () => voi
           </h1>
           <p className="gate-sub">
             {setup
-              ? "The first account on this machine. It scopes your projects and signs the audit trail."
+              ? "The first account on this machine is its administrator: the only one that can add people, install feature packs and choose the model. It also scopes your projects and signs the audit trail."
               : mode === "signup"
                 ? "Your own workspace on this machine. You will not see anyone else's projects, and they will not see yours."
                 : "Sign in to your local workspace."}
@@ -134,7 +134,7 @@ export function Gate({ status, onDone }: { status: AuthStatus; onDone: () => voi
             {creating && (
               <label className="gate-field">
                 <span>Name</span>
-                <input type="text" value={name} placeholder="Dr Chen"
+                <input type="text" autoComplete="name" value={name} placeholder="Dr Chen"
                        onChange={(e) => setName(e.target.value)} />
               </label>
             )}

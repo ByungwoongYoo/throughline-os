@@ -503,6 +503,29 @@ body:has(.entrance-header) {
 }
 .motion-toggle:hover { color: var(--e-text); border-color: var(--e-muted); }
 
+/*
+ * Nothing on this page may widen it (T180).
+ *
+ * Each quote's scrim (`.fragment::before`) runs 74px past its box so the
+ * gradient reaches zero inside it. On a wide window that lands in the margin;
+ * at 375px it lands past the screen, and a phone browser widens the whole
+ * layout viewport to hold it — `overflow-x: hidden` on the body does not stop
+ * that — so the fixed header grew to 425px and put *Open workspace* off the
+ * edge. `clip` cuts the overflow at the panel without making it a scroll
+ * container, so sticky and fixed children behave as before.
+ */
+.panel { overflow-x: clip; }
+
+/*
+ * A finger needs more than a cursor. The chart forms, the motion switch and the
+ * entry button were 30–40px tall; on a touch screen they are 44px, and the
+ * desktop composition is unchanged (T180).
+ */
+@media (pointer: coarse) {
+  .marks-form, .motion-toggle, .enter { min-height: 44px; }
+  .marks-form { padding-top: 12px; padding-bottom: 12px; }
+}
+
 /* ------------------------------------------------------------- adaptation - */
 
 /* Short or narrow windows stop pinning and read as an ordinary document. The
@@ -525,6 +548,20 @@ body:has(.entrance-header) {
 
 @media (max-width: 900px), (max-height: 620px) {
   .runway { height: auto !important; }
+  /* The list's scrim reaches the screen edge, as it does on a wide window. Its
+     opaque end sat at the gutter instead, and read as a dark card laid on the
+     artwork (T180). */
+  .words {
+    margin-right: calc(-1 * var(--e-gutter));
+    padding-right: var(--e-gutter);
+    /* Stacked, the list crosses the light band, and a linear scrim has a top
+       and bottom edge the band shows. Radial, reaching zero before the box
+       ends on three sides; the fourth is the screen edge. */
+    background: radial-gradient(60% 56% at 70% 50%,
+      rgb(6 7 10 / 0.9) 0%,
+      rgb(6 7 10 / 0.72) 48%,
+      rgb(6 7 10 / 0) 86%);
+  }
   .stage { position: static; height: auto; overflow: visible; }
   .ring { position: fixed; }
   .panel {
