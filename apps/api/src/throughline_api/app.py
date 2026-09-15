@@ -1131,6 +1131,10 @@ def add_note(project_id: str, object_id: str, payload: NoteBody,
                 cur, project_id=project_id, object_id=object_id,
                 object_type=payload.object_type, body=payload.body,
                 author=user["id"], replies_to=payload.replies_to)
+        except journal.NoSuchObject as exc:
+            # 404, as for any id outside the project, so the refusal cannot be
+            # used to tell another project's object ids from made-up ones (T164).
+            raise HTTPException(404, str(exc)) from exc
         except journal.JournalError as exc:
             raise HTTPException(400, str(exc)) from exc
 
