@@ -1,5 +1,10 @@
 /**
- * The read me's catalogue figures, checked against the catalogue.
+ * The catalogue figures in `docs/CAPABILITIES.md`, checked against the catalogue.
+ *
+ * They were in the README until it was restructured to say first what the
+ * product is and how to run it (T186); the paragraph moved verbatim and this
+ * guard moved with it. What follows is the reason it exists, as written when
+ * the paragraph still lived in the README.
  *
  * They had drifted to 238 named and 199 drawable while the registry held 253
  * and drew 216 — understating the product by fifteen and seventeen, in the
@@ -23,7 +28,8 @@ import { describe, expect, it } from "vitest";
 import { CATALOGUE } from "@/lib/charts3d/registry";
 import { isDrawable } from "@/lib/charts3d/examples";
 
-const README = readFileSync(join(__dirname, "..", "..", "..", "README.md"), "utf8");
+const README = readFileSync(
+  join(__dirname, "..", "..", "..", "docs", "CAPABILITIES.md"), "utf8");
 
 /**
  * The paragraph that makes the claim, so a number elsewhere cannot satisfy it.
