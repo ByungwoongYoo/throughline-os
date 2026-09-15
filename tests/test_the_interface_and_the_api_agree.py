@@ -631,12 +631,21 @@ UNREAD: dict[str, set[str]] = {
     # `analysis_object_id` left this set when the river began drawing the
     # line from each connection to the analysis that produced it (D399): it is
     # the research object of that run, and so the ribbon's far end.
+    #
+    # `false_discovery_rate` and `survived_correction` joined when PR #14's
+    # single verdict (T176) and PR #13's river met on `main`: each branch was
+    # right alone, and neither could see the other. They are the connection's
+    # verdict, read where the verdict is the subject (`ResultCard`, the
+    # connection screen); the canvas card says which stage and state an object
+    # is in, for the same reason it does not print the estimate or the q-value.
     "ConnectionRow in components/river.tsx": {
         "created_at", "dataset_name", "dataset_version",
         "dataset_version_id", "discovery_run_id", "effect_size",
-        "effect_size_name", "estimate", "evidence_quality", "method",
+        "effect_size_name", "estimate", "evidence_quality",
+        "false_discovery_rate", "method",
         "object_id", "p_value", "project_id", "q_value", "rank_components",
-        "rank_score", "relationship_type", "sample_size", "updated_at",
+        "rank_score", "relationship_type", "sample_size",
+        "survived_correction", "updated_at",
     },
     # `object_id` joined them under D358: it is the handle every provenance
     # route takes, read by the screens that open a journal or a version
