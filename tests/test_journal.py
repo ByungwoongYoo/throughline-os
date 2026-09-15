@@ -47,7 +47,7 @@ def test_a_note_is_recorded_against_an_object(cur, project):
 
     assert note["body"] == "Check the 2019 rows."
     assert note["author_kind"] == "human"
-    assert journal.notes_for(cur, object_id)[0]["id"] == note["id"]
+    assert journal.notes_for(cur, object_id, project)[0]["id"] == note["id"]
 
 
 def test_an_empty_note_is_refused(cur, project):
@@ -88,7 +88,7 @@ def test_notes_are_kept_in_the_order_they_were_written(cur, project):
         journal.write(cur, project_id=project, object_id=object_id,
                       object_type="dataset", body=body, author="usr_1")
 
-    assert [n["body"] for n in journal.notes_for(cur, object_id)] == [
+    assert [n["body"] for n in journal.notes_for(cur, object_id, project)] == [
         "first", "second", "third"]
 
 
@@ -275,7 +275,7 @@ def test_the_note_records_which_points_were_selected(cur, project, monkeypatch):
                        question="Why are these different?", author="usr_1",
                        selection=_selection(2))
 
-    stored = journal.notes_for(cur, object_id)[0]
+    stored = journal.notes_for(cur, object_id, project)[0]
     assert stored["selection"]["points"][0]["id"] == "p0"
     assert len(stored["selection"]["points"]) == 2
     assert note["author_kind"] == "model"
@@ -289,7 +289,7 @@ def test_a_question_without_a_selection_records_none(cur, project, monkeypatch):
     journal.ask(cur, project_id=project, object_id=object_id,
                 question="What is this?", author="usr_1")
 
-    assert journal.notes_for(cur, object_id)[0]["selection"] is None
+    assert journal.notes_for(cur, object_id, project)[0]["selection"] is None
 
 
 def test_a_selection_that_cannot_be_described_is_refused_before_the_model(
@@ -312,7 +312,7 @@ def test_a_selection_that_cannot_be_described_is_refused_before_the_model(
                                            "y": 0, "z": 0}]})
 
     assert recorder.context is None
-    assert journal.notes_for(cur, object_id) == []
+    assert journal.notes_for(cur, object_id, project) == []
 
 
 # ---------------------------------------------------------------------------

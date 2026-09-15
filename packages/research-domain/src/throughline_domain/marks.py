@@ -83,6 +83,12 @@ def record(cur, *, project_id: str, source_id: str, page: int, kind: str,
         raise MarkError("A mark has to be on a numbered page.")
     if not source_id:
         raise MarkError("A mark has to be on a paper.")
+    # This project's paper: a mark is the reader's own record of reading it,
+    # and one kept on another project's paper is a record of nothing here (T162).
+    cur.execute("SELECT 1 FROM sources WHERE id = %s AND project_id = %s",
+                (source_id, project_id))
+    if cur.fetchone() is None:
+        raise MarkError("That paper is not in this project.")
 
     checked = _checked_points(points, kind)
 

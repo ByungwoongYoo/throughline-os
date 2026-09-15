@@ -66,12 +66,26 @@ def resolve(cur, *, project_id: str, phrase: str) -> dict[str, Any] | None:
         "FROM variable_aliases va "
         "JOIN canonical_variables cv ON cv.id = va.canonical_variable_id "
         "WHERE va.project_id = %s AND va.status = %s "
-        "  AND lower(replace(va.alias, '_', ' ')) = %s "
-        "LIMIT 1",
+        "  AND lower(replace(va.alias, '_', ' ')) = %s ",
         (project_id, key, key, project_id, APPROVED, key))
-    row = cur.fetchone()
-    if not row:
+    rows = list(cur.fetchall())
+    if not rows:
         return None
+
+    # Every match, not the first. This was `LIMIT 1` with no order, so a phrase
+    # naming two variables resolved to whichever row the planner produced —
+    # and nothing prevents that: a display label comes from a file's own
+    # description while a name comes from the proposal key, and `suggest`
+    # never checks a phrase against canonical names. A phrase with two meanings
+    # has none here. Both callers already treat "unresolved" conservatively:
+    # the claim test stays not testable and asks, reconciliation reports
+    # different constructs (T156).
+    if len({r["id"] for r in rows}) > 1:
+        return None
+
+    # One variable, possibly by two routes. The canonical route wins, so an
+    # alias is only counted as having saved a step when it was the only way in.
+    row = next((r for r in rows if r["via"] == "canonical"), rows[0])
 
     if row["via"] == "alias":
         # Counted, because "how often has this vocabulary saved a step" is the
@@ -130,6 +144,10 @@ def candidates(cur, *, project_id: str, phrase: str, limit: int = 3
     return scored[:limit]
 
 
+class AliasRefused(ValueError):
+    """A proposal that would give a phrase two meanings."""
+
+
 def suggest(cur, *, project_id: str, phrase: str, canonical_variable_id: str,
             origin: str = "paper", origin_ref: str | None = None,
             created_by: str = "system") -> dict[str, Any] | None:
@@ -141,6 +159,29 @@ def suggest(cur, *, project_id: str, phrase: str, canonical_variable_id: str,
     that happens to use the word.
     """
     key = normalise(phrase)
+
+    # A phrase that is already the name or label of a *different* variable is
+    # refused, not queued. `resolve` refuses a phrase that names two variables
+    # (T156), so approving this would silently break a lookup that works today
+    # — and the proposal is the only moment a person is there to be told why.
+    # Its own exception rather than `None`: the route turns `None` into "already
+    # has a ruling ... a rejected term is not re-proposed", which would be false
+    # here (T158).
+    cur.execute(
+        "SELECT id, name, display_label FROM canonical_variables "
+        "WHERE project_id = %s AND id <> %s "
+        "  AND (lower(replace(name, '_', ' ')) = %s OR lower(display_label) = %s) "
+        "ORDER BY name LIMIT 1",
+        (project_id, canonical_variable_id, key, key))
+    taken = cur.fetchone()
+    if taken:
+        shown = taken["display_label"] or taken["name"]
+        raise AliasRefused(
+            f"{phrase.strip()!r} already names the variable {shown!r} "
+            f"({taken['name']}) in this project, so it cannot also mean another "
+            "one — a phrase with two meanings resolves to neither. Choose a more "
+            "specific phrase, or map the column to that variable instead.")
+
     cur.execute(
         "SELECT id, status FROM variable_aliases "
         "WHERE project_id = %s AND lower(replace(alias, '_', ' ')) = %s",

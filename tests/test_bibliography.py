@@ -26,7 +26,18 @@ from throughline_domain.ids import new_id
 def _paper(cur, project: str, *, title: str, authors: list, journal: str = "",
            date: str | None = None, doi: str = "", pmid: str = "",
            arxiv: str = "") -> str:
-    """A source with a parsed paper behind it, and one passage to cite."""
+    """
+    A source with a parsed paper behind it, and one passage to cite.
+
+    These six columns are written here directly. For most of this file's life
+    that was a row the product could not produce — `store_paper` wrote the
+    title and the page count and left the citation fields behind, so every
+    entry the export built was missing the author, year and journal of a paper
+    whose author, year and journal a search had already stored one table over.
+    The path that fills them is tested in
+    `test_a_citation_keeps_what_the_search_found.py`; this file stays about
+    what the export does with them once they are there.
+    """
     source = new_id("src")
     cur.execute(
         "INSERT INTO sources(id, project_id, source_type, title, ingestion_status) "

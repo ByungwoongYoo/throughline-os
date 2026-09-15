@@ -217,7 +217,6 @@ export type Project = {
   name: string;
   research_question: string;
   description: string;
-  status: string;
   created_at: string;
 };
 
@@ -370,11 +369,54 @@ export type Finding = {
   limitations?: string[];
 };
 
+/**
+ * One of the ten strongest connections, as the discovery map sends it.
+ *
+ * A projection, not a `Connection`: `graphs.discovery_map` selects ten columns
+ * for its top ten, and this list was typed as the full fifteen-field record —
+ * so the interface was promised `p_value`, `sample_size`, `analysis_run_id`,
+ * `dataset_version_id` and `effect_size_name`, which the server never sends.
+ * Nothing read them, which is the only reason nothing broke; the nested
+ * contract check found it (D353). Written out rather than as
+ * `Pick<Connection, …>` so that check can read it.
+ */
+export type TopConnection = {
+  id: string;
+  left_variable: string;
+  right_variable: string;
+  method: string;
+  lifecycle_status: string;
+  estimate: number | null;
+  q_value: number | null;
+  effect_size: number | null;
+  evidence_quality: string;
+  rank_score: number;
+};
+
+/**
+ * What the recommendation is about, chosen on the same rung as its sentence.
+ *
+ * The step says which of six screens; this says which object on it. It used
+ * to be chosen by the client from the ranked connections — a second ladder —
+ * so on three rungs a sentence about findings put a button under it that
+ * opened an unrelated connection. Only `kind`, `id` and `verb` are always
+ * present; the rest describe whichever kind this is.
+ */
+export type RecommendedTarget = {
+  kind: "connection" | "finding";
+  id: string;
+  /** The act the rung asks for; the button's words come from this. */
+  verb: "validate" | "record" | "evidence" | "promote" | "challenge";
+  left_variable?: string;
+  right_variable?: string;
+  title?: string;
+};
+
 export type DiscoveryMap = {
   counts: Record<string, number>;
   findings: Record<string, number>;
   connections: Record<string, number>;
-  top_connections: Connection[];
+  top_connections: TopConnection[];
   recommended_next_action: string;
   /**
    * Which loop step the recommendation is about, as an id the interface can
@@ -382,6 +424,12 @@ export type DiscoveryMap = {
    * older servers, and null when nothing is left to do or work is in flight.
    */
   recommended_step?: "sources" | "profile" | "discover" | "validate" | "record" | "communicate" | null;
+  /**
+   * The object the recommended step's control opens, from the same rung as
+   * the sentence. Absent from older servers; null where the rung is about a
+   * whole screen rather than one object.
+   */
+  recommended_target?: RecommendedTarget | null;
 };
 
 /**

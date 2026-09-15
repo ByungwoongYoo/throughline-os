@@ -360,8 +360,11 @@ def linear_regression(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalR
         ci_low=float(intervals.loc[predictor_names[0], 0]),
         ci_high=float(intervals.loc[predictor_names[0], 1]),
         confidence_level=confidence,
-        p_value=float(model.f_pvalue) if not math.isnan(model.f_pvalue) else None,
-        test_statistic=float(model.fvalue) if not math.isnan(model.fvalue) else None,
+        # The predictor's own test, like the estimate and interval beside it. The
+        # model's F-test answers whether anything in it explains the outcome — a
+        # strong covariate makes that overwhelming for a predictor with no effect.
+        p_value=coefficients[predictor_names[0]]["p_value"],
+        test_statistic=coefficients[predictor_names[0]]["t"],
         degrees_of_freedom=float(model.df_resid),
         effect_size=EffectSize(name="r_squared", value=r_squared,
                                interpretation="proportion of variance explained"),
@@ -373,6 +376,9 @@ def linear_regression(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalR
             "outcome": outcome_name, "predictors": predictor_names,
             "coefficients": coefficients, "r_squared": r_squared,
             "adjusted_r_squared": float(model.rsquared_adj), "dropped_rows": dropped,
+            "model_f": float(model.fvalue) if not math.isnan(model.fvalue) else None,
+            "model_p_value": (float(model.f_pvalue)
+                              if not math.isnan(model.f_pvalue) else None),
         },
     ))
 
@@ -465,7 +471,10 @@ def mann_whitney(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalResult
     b = working.loc[working["group"] == groups[1], "value"]
     statistic, p = stats.mannwhitneyu(a, b, alternative="two-sided")
     # Rank-biserial correlation, the effect size natural to this test.
-    rank_biserial = float(1 - (2 * statistic) / (len(a) * len(b)))
+    # scipy's U counts the pairs the first group wins (ties as half), so
+    # 2U/(n1 n2) - 1 is P(a > b) - P(b > a): positive when a is larger, the
+    # same direction as the median difference reported beside it.
+    rank_biserial = float((2 * statistic) / (len(a) * len(b)) - 1)
 
     return _finalise(StatisticalResult(
         method="mann_whitney_u",
@@ -499,7 +508,10 @@ def chi_square(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalResult:
     statistic, p, dof, expected = stats.chi2_contingency(table)
     n = int(table.to_numpy().sum())
     min_expected = float(expected.min())
-    cramers_v = float(math.sqrt((statistic / n) / (min(table.shape) - 1)))
+    # Cramér's V is defined on the uncorrected statistic. The test keeps scipy's
+    # Yates correction for a 2×2 table; V taken from it was understated.
+    uncorrected = float(stats.chi2_contingency(table, correction=False)[0])
+    cramers_v = float(math.sqrt((uncorrected / n) / (min(table.shape) - 1)))
 
     return _finalise(StatisticalResult(
         method="chi_square_independence",
@@ -575,7 +587,9 @@ def kruskal_wallis(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalResu
 
     statistic, p = stats.kruskal(*groups)
     n = int(len(working))
-    epsilon_squared = float((statistic - len(groups) + 1) / (n - len(groups))) if n > len(groups) else 0.0
+    # Epsilon-squared is H / (n - 1). (H - k + 1)/(n - k) is eta-squared-H, a
+    # different quantity that was reported under this name.
+    epsilon_squared = float(statistic / (n - 1)) if n > 1 else 0.0
 
     return _finalise(StatisticalResult(
         method="kruskal_wallis",

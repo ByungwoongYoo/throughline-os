@@ -115,6 +115,106 @@ def test_another_accounts_project_is_not_found(client, method, path, body):
 
 # ---------------------------------------------------------------------------
 # The ledger
+def _another_accounts_objects(client) -> dict[str, str]:
+    """Account A's project, with an exploration ledger and a finding in it."""
+    account(client)
+    theirs = project(client, name="Theirs")
+    client.post(f"/api/projects/{theirs}/exploration/tests", json={
+        "verb": "discovery", "description": "their sweep", "p_value": 0.004})
+    finding = client.post(f"/api/projects/{theirs}/findings", json={
+        "title": "Their unpublished result", "finding_type": "statistical"})
+    assert finding.status_code == 201, finding.text
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT enquiry_id FROM exploration_tests WHERE project_id = %s",
+                    (theirs,))
+        enquiry = cur.fetchone()["enquiry_id"]
+    client.post("/api/auth/logout")
+    return {"enquiry": enquiry, "finding": finding.json()["finding_id"]}
+
+
+def test_another_projects_ledger_is_not_served_through_your_own_project(client):
+    """
+    The case the table above cannot reach. Every row there sends another
+    account's *project* id, which the scope check refuses. Sending your own
+    project with another project's enquiry id passed the scope check, and
+    `exploration.ledger` takes the enquiry id alone — so the route returned
+    another account's tests, looks and p-values (T161).
+    """
+    theirs = _another_accounts_objects(client)
+    second_account(client)
+    mine = project(client, name="Mine")
+
+    response = client.get(f"/api/projects/{mine}/exploration/{theirs['enquiry']}")
+    assert response.status_code == 404, response.text
+
+
+def test_another_projects_finding_is_not_served_as_a_library_note(client):
+    """The same hole in the library note: another account's finding, rendered."""
+    theirs = _another_accounts_objects(client)
+    second_account(client)
+    mine = project(client, name="Mine")
+
+    response = client.get(
+        f"/api/projects/{mine}/findings/{theirs['finding']}/library-note")
+    assert response.status_code == 404, response.text
+    assert "Their unpublished result" not in response.text
+
+
+def test_a_test_cannot_be_recorded_into_another_projects_enquiry(client):
+    """
+    The write, which is worse than the reads. `record_test` takes `enquiry_id`
+    from the body and `exploration.record` inserted into that enquiry without
+    asking whose it was — so a second account could add looks to someone
+    else's line of enquiry, changing *their* multiple-comparison correction:
+    their q-values, and which of their results survive (T161).
+    """
+    theirs = _another_accounts_objects(client)
+    second_account(client)
+    mine = project(client, name="Mine")
+
+    response = client.post(f"/api/projects/{mine}/exploration/tests", json={
+        "verb": "discovery", "description": "planted look", "p_value": 0.9,
+        "enquiry_id": theirs["enquiry"]})
+    assert response.status_code == 404, response.text
+
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM exploration_tests WHERE enquiry_id = %s",
+                    (theirs["enquiry"],))
+        assert cur.fetchone()["n"] == 1, "a look was added to another account's enquiry"
+
+
+def test_a_library_note_cannot_read_another_projects_enquiry(client):
+    """`preview_note` also takes `?enquiry_id=`, and the note reports that ledger."""
+    theirs = _another_accounts_objects(client)
+    second_account(client)
+    mine = project(client, name="Mine")
+    own_finding = client.post(f"/api/projects/{mine}/findings", json={
+        "title": "Mine", "finding_type": "statistical"}).json()["finding_id"]
+
+    response = client.get(
+        f"/api/projects/{mine}/findings/{own_finding}/library-note"
+        f"?enquiry_id={theirs['enquiry']}")
+    assert response.status_code == 404, response.text
+
+
+def test_your_own_ledger_and_library_note_still_answer(client):
+    """The check refuses other projects' ids, not the caller's own."""
+    account(client)
+    mine = project(client, name="Mine")
+    client.post(f"/api/projects/{mine}/exploration/tests", json={
+        "verb": "discovery", "description": "my sweep", "p_value": 0.02})
+    finding = client.post(f"/api/projects/{mine}/findings", json={
+        "title": "My result", "finding_type": "statistical"}).json()["finding_id"]
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT enquiry_id FROM exploration_tests WHERE project_id = %s",
+                    (mine,))
+        enquiry = cur.fetchone()["enquiry_id"]
+
+    assert client.get(f"/api/projects/{mine}/exploration/{enquiry}").status_code == 200
+    assert client.get(
+        f"/api/projects/{mine}/findings/{finding}/library-note").status_code == 200
+
+
 # ---------------------------------------------------------------------------
 
 def test_a_recorded_test_answers_with_the_ledger_after_it(client):
@@ -175,10 +275,26 @@ def test_an_unknown_verb_is_a_bad_request_not_a_crash(client):
 
 
 def test_an_empty_session_reads_as_empty_rather_than_missing(client):
+    """
+    A real line of enquiry with no looks in it is empty, not missing.
+
+    This used to ask for `ses_none` — an id nothing had created, from when the
+    browser invented family ids. Since enquiries became records of their own
+    (0042), an id that exists nowhere is not an empty enquiry, and answering it
+    as one was the same leniency that served another project's ledger to
+    anyone who named its id (T161). The interface only ever asks with the id
+    the server gave it.
+    """
     account(client)
     project_id = project(client)
-    body = client.get(f"/api/projects/{project_id}/exploration/ses_none").json()
+    opened = client.post(f"/api/projects/{project_id}/enquiries", json={})
+    assert opened.status_code in (200, 201), opened.text
+
+    body = client.get(f"/api/projects/{project_id}/exploration/{opened.json()['id']}").json()
     assert body["looks"] == 0
+
+    assert client.get(
+        f"/api/projects/{project_id}/exploration/ses_none").status_code == 404
 
 
 # ---------------------------------------------------------------------------

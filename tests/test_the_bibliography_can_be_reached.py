@@ -14,13 +14,13 @@ question on the web side turned up an unreachable undo.
 
 from __future__ import annotations
 
-import uuid
 
 import pytest
 from fastapi.testclient import TestClient
 from throughline_domain import auth, citations
 from throughline_domain.db import connection, transaction
 from throughline_domain.ids import new_id
+from conftest import sign_in
 
 
 @pytest.fixture()
@@ -40,13 +40,7 @@ def clean_users():
 
 
 def _account(client) -> None:
-    status = client.get("/api/auth/status").json()
-    endpoint = "/api/auth/setup" if status["needs_setup"] else "/api/auth/login"
-    response = client.post(endpoint, json={
-        "email": f"cite-{uuid.uuid4().hex[:8]}@lab.local",
-        "display_name": "Lead", "password": "correct-horse-battery",
-    })
-    assert response.status_code == 200, response.text
+    sign_in(client, email="cite@lab.local", display_name="Lead")
 
 
 def _cited_paper(project_id: str, title: str) -> None:

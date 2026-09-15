@@ -77,9 +77,16 @@ def _resolve(cur, *, project_id: str,
         return {"to_note_id": note["id"], "to_object_id": None,
                 "to_object_hash": None}
 
+    # The newest current object of that name. This was an unordered `LIMIT 1`,
+    # so with a revised upload in the project a link could land on either file
+    # — including a version already superseded — and which one was up to the
+    # planner. A newer object of the same name is a revision (T155), so the
+    # link means the newest; `seq` is insertion order, because `created_at`
+    # ties inside a transaction.
     cur.execute(
         "SELECT id, content_hash FROM research_objects WHERE project_id = %s "
-        "AND lower(title) = %s LIMIT 1", (project_id, key))
+        "AND lower(title) = %s "
+        "ORDER BY (status = 'superseded'), seq DESC LIMIT 1", (project_id, key))
     obj = cur.fetchone()
     if obj:
         # The hash is captured here, at the moment the note was written against
@@ -124,6 +131,36 @@ def _adopt_orphans(cur, *, project_id: str, note_id: str, title: str) -> int:
         "WHERE project_id = %s AND to_note_id IS NULL AND to_object_id IS NULL "
         "  AND lower(target_text) = %s AND from_note_id <> %s",
         (note_id, project_id, title.strip().lower(), note_id))
+    return cur.rowcount
+
+
+def adopt_orphans_for_object(cur, *, project_id: str, object_id: str,
+                             title: str) -> int:
+    """
+    Point previously unresolved links at an object that now exists.
+
+    `_adopt_orphans` does this when a *note* arrives, and nothing did it for
+    evidence — so `[[AMR panel]]` written while planning stayed unresolved
+    after the dataset was uploaded, and the lint reported "'AMR panel' ... has
+    never been written", advising a page of that name that would then have
+    shadowed the dataset, because notes resolve first (T155).
+
+    Only links still pointing at nothing are touched: a link that already
+    resolved to an older object of this name stays where it was written, and
+    the lint reports it stale instead — rewriting it here would silently move
+    what a researcher wrote against.
+    """
+    if not (title or "").strip():
+        return 0
+    cur.execute("SELECT content_hash FROM research_objects WHERE id = %s",
+                (object_id,))
+    row = cur.fetchone()
+    cur.execute(
+        "UPDATE note_links SET to_object_id = %s, to_object_hash = %s "
+        "WHERE project_id = %s AND to_note_id IS NULL AND to_object_id IS NULL "
+        "  AND lower(target_text) = %s",
+        (object_id, row["content_hash"] if row else None, project_id,
+         title.strip().lower()))
     return cur.rowcount
 
 
@@ -215,6 +252,18 @@ def daily(cur, *, project_id: str, author: str,
     existing = cur.fetchone()
     if existing:
         return {**dict(existing), "created": False}
+
+    # A note already titled with today's date *is* today's page, whatever kind
+    # of note it was written as. Titles are unique per project, so creating the
+    # daily page beside it was refused — and the route had no handler for the
+    # refusal, so today's page answered 500 every time it was opened, all day
+    # (T172). Opened as it is: its kind and its words are the researcher's.
+    cur.execute(
+        "SELECT id, title, body FROM notes WHERE project_id = %s AND lower(title) = %s",
+        (project_id, on.isoformat()))
+    titled = cur.fetchone()
+    if titled:
+        return {**dict(titled), "created": False}
 
     created = create(cur, project_id=project_id, title=on.isoformat(), body="",
                      author=author, note_kind=DAILY, note_date=on)
@@ -425,31 +474,73 @@ def lint(cur, project_id: str) -> dict[str, Any]:
 
     # --- notes written against evidence that has since changed --------------
     #
-    # Compared by content hash, never by timestamp. `now()` is transaction
-    # stable, so a note and an object written together share a timestamp
-    # exactly, and touching a row without changing it still moves `updated_at`.
-    # The hash answers the actual question: is this the same evidence.
+    # Three ways the evidence under a note moves, and until T155 only the third
+    # was checked — which no product writer could trigger, because nothing
+    # records `research_objects.content_hash`. The first two are how evidence
+    # really changes here:
+    #
+    #   newer_upload  a later object of the same type and name. Sources dedupe
+    #                 by content hash, so a revised file is a separate object
+    #                 sharing the old one's name; decided with the researcher
+    #                 that this is a revision.
+    #   versioned     the linked object was superseded by `new_version`.
+    #   changed       the content hash moved in place.
+    #
+    # Never by timestamp. `now()` is transaction-stable, so objects written
+    # together share one exactly, and touching a row without changing it still
+    # moves `updated_at`; `seq` is recorded insertion order instead. Same type
+    # is required: a figure called "AMR panel" is not a new dataset.
     cur.execute(
         """
-        SELECT n.id, n.title, o.id AS object_id, o.title AS object_title,
-               l.to_object_hash AS read_hash, o.content_hash AS current_hash
+        SELECT DISTINCT ON (n.id, o.id)
+               n.id, n.title, o.id AS object_id, o.title AS object_title,
+               -- `versioned` is tested first: a `new_version` row is itself a
+               -- newer object of the same type and name, and would otherwise
+               -- be described as a separate upload.
+               CASE
+                 WHEN o.status = 'superseded' THEN 'versioned'
+                 WHEN EXISTS (
+                   SELECT 1 FROM research_objects newer
+                   WHERE newer.project_id = o.project_id
+                     AND newer.object_type = o.object_type
+                     AND lower(newer.title) = lower(o.title)
+                     AND newer.seq > o.seq
+                     AND newer.status <> 'superseded') THEN 'newer_upload'
+                 ELSE 'changed'
+               END AS reason
         FROM note_links l
         JOIN notes n ON n.id = l.from_note_id
         JOIN research_objects o ON o.id = l.to_object_id
         WHERE l.project_id = %s
-          AND l.to_object_hash IS NOT NULL
-          AND o.content_hash IS NOT NULL
-          AND o.content_hash <> l.to_object_hash
-        ORDER BY n.title
+          AND (
+            o.status = 'superseded'
+            OR EXISTS (
+              SELECT 1 FROM research_objects newer
+              WHERE newer.project_id = o.project_id
+                AND newer.object_type = o.object_type
+                AND lower(newer.title) = lower(o.title)
+                AND newer.seq > o.seq
+                AND newer.status <> 'superseded')
+            OR (l.to_object_hash IS NOT NULL
+                AND o.content_hash IS NOT NULL
+                AND o.content_hash <> l.to_object_hash))
+        ORDER BY n.id, o.id
         """,
         (project_id,))
-    for row in cur.fetchall():
+    details = {
+        "newer_upload": "A newer {t!r} has been added since this note was written "
+                        "against it.",
+        "versioned": "{t!r} has a newer version than the one this note was "
+                     "written against.",
+        "changed": "{t!r} has changed since this note was written against it.",
+    }
+    for row in sorted(cur.fetchall(), key=lambda r: (r["title"], r["object_title"])):
         findings.append({
             "kind": "stale_evidence",
             "note_id": row["id"], "note": row["title"],
             "object_id": row["object_id"], "object": row["object_title"],
-            "detail": (f"{row['object_title']!r} has changed since this note was "
-                       "written against it."),
+            "reason": row["reason"],
+            "detail": details[row["reason"]].format(t=row["object_title"]),
             "why": ("The note may now describe something the source no longer "
                     "says. This is the one problem here that cannot be found by "
                     "rereading the note."),

@@ -199,11 +199,11 @@ def test_the_sentence_names_the_number_and_what_it_would_take():
 # of its own should not have needed rescuing.
 
 import json
-import uuid
 
 from fastapi.testclient import TestClient
 from throughline_domain.db import connection, transaction
 from throughline_domain.ids import new_id
+from conftest import sign_in
 
 
 @pytest.fixture()
@@ -223,12 +223,7 @@ def clean_users():
 
 
 def _account(client) -> None:
-    status = client.get("/api/auth/status").json()
-    endpoint = "/api/auth/setup" if status["needs_setup"] else "/api/auth/login"
-    assert client.post(endpoint, json={
-        "email": f"frag-{uuid.uuid4().hex[:8]}@lab.local",
-        "display_name": "Lead", "password": "correct-horse-battery",
-    }).status_code == 200
+    sign_in(client, email="frag@lab.local", display_name="Lead")
 
 
 def _connection_with_result(project_id: str, result: dict,

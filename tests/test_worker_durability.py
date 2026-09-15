@@ -200,3 +200,246 @@ def test_a_waiting_run_is_findable_by_the_person_who_must_approve_it(
 
     assert [w["run_id"] for w in waiting] == [run_id]
     assert waiting[0]["describes"].startswith("Record 4 tested pairs")
+
+
+def test_a_worker_that_lost_its_lease_discards_its_work(empty_queue, committed_project):
+    """
+    Through a real `Worker`: the handler's writes share a transaction with
+    `finish`, so when the run is no longer this worker's the whole transaction
+    is rolled back — the new owner is doing that work, and committing both
+    would record it twice. And it is not rescheduled: that is the owner's call.
+    """
+    from throughline_domain import workflow as wf
+
+    @REGISTRY.register("test.outlived_lease")
+    def outlived(run: dict[str, Any], cur: Any) -> dict[str, Any]:
+        cur.execute("INSERT INTO audit_log(id, project_id, actor, action, object_type) "
+                    "VALUES (%s, %s, 'test', 'side_effect', 'run')",
+                    (f"aud_{run['id']}", run["project_id"]))
+        # While this handler worked, its lease lapsed and another worker took over.
+        with connection() as other, other.cursor() as ocur:
+            ocur.execute("UPDATE workflow_runs SET lease_owner = 'w-new', "
+                         "lease_expires_at = now() + interval '1 hour' WHERE id = %s",
+                         (run["id"],))
+        return {"done": True}
+
+    try:
+        run_id = _enqueue(committed_project, "test.outlived_lease")
+        with connection() as conn, conn.cursor() as cur:
+            claimed = wf.claim_next(cur, worker_id="w-old",
+                                    workflow_names=["test.outlived_lease"])
+        Worker(worker_id="w-old")._execute(claimed)
+
+        run = _run(run_id)
+        assert run["state"] == str(WorkflowState.RUNNING)
+        assert run["lease_owner"] == "w-new"
+        with connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM audit_log WHERE id = %s", (f"aud_{run_id}",))
+            assert cur.fetchone() is None, "the stale worker's writes were committed"
+    finally:
+        REGISTRY._handlers.pop("test.outlived_lease", None)
+
+
+def test_a_worker_that_lost_its_lease_does_not_reschedule_a_finished_run(
+        empty_queue, committed_project):
+    """
+    The worse half, through a real `Worker`: the handler fails *after* another
+    worker reclaimed the run and completed it. Rescheduling would set that
+    completed run back to `retrying` and run finished work again. The domain
+    guard exists for this; this test is what proves the worker actually asks it.
+    """
+    @REGISTRY.register("test.failed_after_losing")
+    def failed_after_losing(run: dict[str, Any], cur: Any) -> dict[str, Any]:
+        with connection() as other, other.cursor() as ocur:
+            ocur.execute("UPDATE workflow_runs SET state = 'completed', "
+                         "lease_owner = NULL, lease_expires_at = NULL, "
+                         "output = '{\"by\": \"w-new\"}'::jsonb WHERE id = %s",
+                         (run["id"],))
+        raise RuntimeError("the old worker's copy failed late")
+
+    try:
+        run_id = _enqueue(committed_project, "test.failed_after_losing", max_attempts=3)
+        with connection() as conn, conn.cursor() as cur:
+            claimed = workflow.claim_next(cur, worker_id="w-old",
+                                          workflow_names=["test.failed_after_losing"])
+        Worker(worker_id="w-old")._execute(claimed)
+
+        run = _run(run_id)
+        assert run["state"] == str(WorkflowState.COMPLETED)
+        assert run["output"] == {"by": "w-new"}
+    finally:
+        REGISTRY._handlers.pop("test.failed_after_losing", None)
+
+
+def test_a_worker_that_lost_its_lease_cannot_park_the_run_at_a_gate(
+        empty_queue, committed_project):
+    """
+    The third way out of a handler, which T159 did not cover. The runner
+    catches `AwaitingApproval` inside the transaction and commits, so a worker
+    whose run was reclaimed and completed elsewhere, and which then reached a
+    gate, committed its earlier steps and set the completed run back to waiting
+    for approval (T160).
+    """
+    @REGISTRY.register("test.gated_after_losing")
+    def gated_after_losing(run: dict[str, Any], cur: Any) -> dict[str, Any]:
+        cur.execute("INSERT INTO audit_log(id, project_id, actor, action, object_type) "
+                    "VALUES (%s, %s, 'test', 'pre_gate_step', 'run')",
+                    (f"aud_{run['id']}", run["project_id"]))
+        with connection() as other, other.cursor() as ocur:
+            ocur.execute("UPDATE workflow_runs SET state = 'completed', "
+                         "lease_owner = NULL, lease_expires_at = NULL WHERE id = %s",
+                         (run["id"],))
+        workflow.gate(cur, run_id=run["id"], name="record", describes="Record it.",
+                      worker_id=run["lease_owner"])
+        return {"unreachable": True}
+
+    try:
+        run_id = _enqueue(committed_project, "test.gated_after_losing")
+        with connection() as conn, conn.cursor() as cur:
+            claimed = workflow.claim_next(cur, worker_id="w-old",
+                                          workflow_names=["test.gated_after_losing"])
+        Worker(worker_id="w-old")._execute(claimed)
+
+        assert _run(run_id)["state"] == str(WorkflowState.COMPLETED)
+        with connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM audit_log WHERE id = %s", (f"aud_{run_id}",))
+            assert cur.fetchone() is None, "the stale worker's pre-gate step was committed"
+    finally:
+        REGISTRY._handlers.pop("test.gated_after_losing", None)
+
+
+def test_every_gate_names_the_worker_that_holds_the_run():
+    """
+    The guard only works if it is asked. A gate written without `worker_id`
+    would quietly reopen T160, so every call in the handlers must pass it.
+    """
+    import ast
+    import pathlib
+
+    source = pathlib.Path(__file__).resolve().parents[1] / \
+        "services/workers/src/throughline_workers/handlers.py"
+    calls = [node for node in ast.walk(ast.parse(source.read_text()))
+             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+             and node.func.attr == "gate"]
+    assert calls, "no gate calls found: the premise of this test has moved"
+    missing = [c.lineno for c in calls
+               if not any(k.arg == "worker_id" for k in c.keywords)]
+    assert not missing, f"gate calls without worker_id at handlers.py lines {missing}"
+
+
+# ---------------------------------------------------------------------------
+# A job that gives up says so on the thing it was working on (T163)
+# ---------------------------------------------------------------------------
+
+def _queued_analysis(project_id: str) -> str:
+    spec_id, run_id = f"asp_{project_id}", f"arun_{project_id}"
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO analysis_specs(id, project_id, analysis_type, method, "
+            "content_hash, created_by, research_question, dataset_version_ids) "
+            "VALUES (%s, %s, 'correlation', 'pearson', %s, 'test', 'q', '[]'::jsonb)",
+            (spec_id, project_id, f"h{project_id}"[:64]))
+        cur.execute("INSERT INTO analysis_runs(id, project_id, spec_id) VALUES (%s, %s, %s)",
+                    (run_id, project_id, spec_id))
+    return run_id
+
+
+def _queued_discovery(project_id: str) -> str:
+    source, dataset, version, run_id = (f"src_{project_id}", f"dst_{project_id}",
+                                        f"dsv_{project_id}", f"disc_{project_id}")
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("INSERT INTO sources(id, project_id, title, source_type) "
+                    "VALUES (%s, %s, 'A table', 'upload')", (source, project_id))
+        cur.execute("INSERT INTO datasets(id, project_id, source_id, name, format) "
+                    "VALUES (%s, %s, %s, 'panel', 'csv')", (dataset, project_id, source))
+        cur.execute("INSERT INTO dataset_versions(id, dataset_id, version, content_hash) "
+                    "VALUES (%s, %s, 1, 'hash-1')", (version, dataset))
+        cur.execute("INSERT INTO discovery_runs(id, project_id, dataset_version_id) "
+                    "VALUES (%s, %s, %s)", (run_id, project_id, version))
+    return run_id
+
+
+def _row(table: str, row_id: str) -> dict:
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute(f"SELECT status, error FROM {table} WHERE id = %s", (row_id,))
+        return cur.fetchone()
+
+
+def test_an_analysis_whose_job_gives_up_is_failed_not_queued(
+        empty_queue, committed_project, monkeypatch):
+    """
+    `analysis.run` sets the row to `running` inside the job's transaction, so an
+    unexpected error rolled it back to `queued` — and once the job ran out of
+    attempts nothing ever touched it again. The analysis read as waiting to run,
+    for ever, beside a job that had failed.
+    """
+    import throughline_workers.handlers as handlers
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("the dataset file is unreadable")
+
+    monkeypatch.setattr(handlers, "_prepare_analysis", broken)
+    analysis_run = _queued_analysis(committed_project)
+    _enqueue(committed_project, "analysis.run",
+             payload={"analysis_run_id": analysis_run}, max_attempts=1)
+
+    Worker(worker_id="w").run_once()
+
+    row = _row("analysis_runs", analysis_run)
+    assert row["status"] == "failed", row
+    assert "the dataset file is unreadable" in (row["error"] or "")
+
+
+def test_a_discovery_whose_job_gives_up_is_failed_not_queued(
+        empty_queue, committed_project, monkeypatch):
+    from throughline_domain import discovery
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("planning fell over")
+
+    monkeypatch.setattr(discovery, "plan_candidates", broken)
+    discovery_run = _queued_discovery(committed_project)
+    _enqueue(committed_project, "discovery.run",
+             payload={"discovery_run_id": discovery_run}, max_attempts=1)
+
+    Worker(worker_id="w").run_once()
+
+    row = _row("discovery_runs", discovery_run)
+    assert row["status"] == "failed", row
+    assert "planning fell over" in (row["error"] or "")
+
+
+def test_a_job_whose_worker_died_on_its_last_attempt_fails_its_subject(
+        empty_queue, committed_project):
+    """
+    The crash path: no exception reaches Python, and `claim_next` closes the run
+    (T157). The subject has to be told then too, or a render-killed worker leaves
+    an analysis reading as queued exactly as an exception did.
+    """
+    analysis_run = _queued_analysis(committed_project)
+    run_id = _enqueue(committed_project, "analysis.run",
+                      payload={"analysis_run_id": analysis_run}, max_attempts=1)
+    with connection() as conn, conn.cursor() as cur:
+        workflow.claim_next(cur, worker_id="w-doomed", workflow_names=["analysis.run"])
+        cur.execute("UPDATE workflow_runs SET lease_expires_at = now() - interval '1 second' "
+                    "WHERE id = %s", (run_id,))
+    with connection() as conn, conn.cursor() as cur:
+        assert workflow.claim_next(cur, worker_id="w-next",
+                                   workflow_names=["analysis.run"]) is None
+
+    assert _row("analysis_runs", analysis_run)["status"] == "failed"
+
+
+
+def test_giving_up_does_not_rewrite_an_analysis_that_reached_an_outcome(
+        empty_queue, committed_project):
+    """A late failure is not allowed to turn a completed analysis into a failed one."""
+    import throughline_workers.handlers as handlers
+
+    analysis_run = _queued_analysis(committed_project)
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("UPDATE analysis_runs SET status = 'completed' WHERE id = %s",
+                    (analysis_run,))
+        handlers._analysis_gave_up(cur, {"analysis_run_id": analysis_run}, "late")
+
+    assert _row("analysis_runs", analysis_run)["status"] == "completed"

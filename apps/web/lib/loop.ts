@@ -14,7 +14,8 @@
  */
 
 import type { Section } from "@/components/Shell";
-import type { DiscoveryMap } from "./api";
+import type { DiscoveryMap, RecommendedTarget, TopConnection } from "./api";
+import { HOME_OF_KIND, type Kind } from "./place";
 
 export type LoopStepId =
   | "sources" | "profile" | "discover" | "validate" | "record" | "communicate";
@@ -141,33 +142,87 @@ export function currentStep(map: DiscoveryMap): LoopStep | null {
 }
 
 /** Where taking a step lands, and what the control that takes it says. */
-export type StepTarget = { section: Section; item: string | null; label: string };
+export type StepTarget = {
+  section: Section;
+  item: string | null;
+  label: string;
+  /** What `item` is, so it opens as that — a finding is not a connection. */
+  kind?: Kind;
+};
 
 /**
- * Steps 4 and 5 act on one connection, and the server already ranks them
- * (`top_connections`, strongest first, only those a validation could act on).
- * So the control opens that connection and says so by name, rather than
- * landing the researcher on a six-row table with nothing saying which row the
- * recommendation meant. Every other step lands on its section.
+ * The server's object, in the words its verb calls for.
+ *
+ * The connection's names go through the project's approved labels here, since
+ * those live in the interface; the verb, the object and its kind all came from
+ * the rung that wrote the sentence above the control.
  */
+function fromServer(target: RecommendedTarget, name: (raw: string) => string): StepTarget {
+  const pair = target.left_variable && target.right_variable
+    ? `${name(target.left_variable)} × ${name(target.right_variable)}` : null;
+  const titled = target.title ? `“${target.title}”` : "the finding";
+  const label =
+    target.verb === "validate" ? `Validate ${pair ?? "the connection"}`
+    : target.verb === "record" ? `Record a finding from ${pair ?? "the connection"}`
+    : target.verb === "evidence" ? `Open ${titled}, which needs evidence`
+    : target.verb === "promote" ? `Review ${titled} for promotion`
+    : target.verb === "challenge" ? `Challenge ${titled}`
+    : `Open ${pair ?? titled}`;
+  return { section: HOME_OF_KIND[target.kind], item: target.id, label, kind: target.kind };
+}
+
+/**
+ * Steps 4 and 5 act on one connection, so the control opens one and says so by
+ * name, rather than landing the researcher on a six-row table with nothing
+ * saying which row the recommendation meant. Every other step lands on its
+ * section.
+ *
+ * **The strongest connection at the stage the step is about**, not the
+ * strongest overall. This said the server sends "only those a validation
+ * could act on"; it sends the ten strongest across exploratory, validated and
+ * replicated, ranked at discovery — and validating a connection does not
+ * change its rank. So on the ordinary path, once the strongest had been
+ * validated, the sentence still read "1 exploratory connection is awaiting
+ * robustness validation" and the Validate button under it opened the one just
+ * validated. Record had the mirror fault, opening an exploratory result under
+ * "turn the strongest validated connection into a finding". Where no
+ * connection at that stage is in the ten, the control says so generically
+ * rather than naming the wrong one.
+ */
+/** The stage the Validate step is about: what is awaiting validation. */
+const AWAITING_VALIDATION: readonly string[] = ["exploratory"];
+/** The stages a finding is recorded from. */
+const READY_TO_RECORD: readonly string[] = ["validated", "replicated"];
+
 export function stepTarget(
   step: LoopStep, map: DiscoveryMap,
   /** Approved display names by raw column name, so the label never shows
    *  `resistance_pct` where the project has decided on a better name (Part C). */
   labels: Record<string, string> = {},
 ): StepTarget {
-  const top = map.top_connections?.[0];
   const name = (raw: string) => labels[raw] ?? raw;
-  const pair = top ? `${name(top.left_variable)} × ${name(top.right_variable)}` : null;
+  // The rung's own object, on the row the server recommended. Everything
+  // below is the fallback for other rows and for a server that does not send
+  // one yet.
+  if (map.recommended_step === step.id && map.recommended_target) {
+    return fromServer(map.recommended_target, name);
+  }
+  const pair = (c: TopConnection) => `${name(c.left_variable)} × ${name(c.right_variable)}`;
+  const strongest = (stages: readonly string[]) =>
+    map.top_connections?.find((c) => stages.includes(c.lifecycle_status));
   switch (step.id) {
-    case "validate":
+    case "validate": {
+      const top = strongest(AWAITING_VALIDATION);
       return top
-        ? { section: "connections", item: top.id, label: `Validate ${pair}` }
+        ? { section: "connections", item: top.id, label: `Validate ${pair(top)}`, kind: "connection" }
         : { section: "connections", item: null, label: "Validate a connection" };
-    case "record":
+    }
+    case "record": {
+      const top = strongest(READY_TO_RECORD);
       return top
-        ? { section: "connections", item: top.id, label: `Record a finding from ${pair}` }
+        ? { section: "connections", item: top.id, label: `Record a finding from ${pair(top)}`, kind: "connection" }
         : { section: "connections", item: null, label: "Record a finding" };
+    }
     case "communicate":
       return { section: "reports", item: null, label: "Draft a report" };
     case "profile":

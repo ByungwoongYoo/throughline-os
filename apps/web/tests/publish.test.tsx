@@ -21,6 +21,7 @@ import { ApiError, api } from "@/lib/api";
 const clean = {
   visual_id: "vis_1",
   publishable: true,
+  exportable: true,
   critique: { publishable: true, critiques: [] as Critique[] },
 };
 
@@ -62,6 +63,7 @@ describe("the critic is consulted and believed", () => {
   const refused = {
     visual_id: "vis_2",
     publishable: false,
+    exportable: true,
     critique: {
       publishable: false,
       critiques: [{
@@ -97,7 +99,7 @@ describe("the critic is consulted and believed", () => {
     // A figure that was silently altered before export is one the researcher
     // no longer recognises as theirs.
     vi.spyOn(api, "post").mockResolvedValue({
-      visual_id: "vis_3", publishable: true,
+      visual_id: "vis_3", publishable: true, exportable: true,
       critique: { publishable: true, critiques: [{
         check: "causal_language", outcome: "fixed", severity: "blocking",
         detail: "The caption said 'causes'.",
@@ -208,5 +210,56 @@ describe("when it goes wrong", () => {
     await userEvent.click(await screen.findByRole("button", { name: /Export for/ }));
     expect(await screen.findByRole("button", { name: /Export for publication/ }))
       .toBeTruthy();
+  });
+});
+
+/**
+ * A figure with no publication format at all.
+ *
+ * The publication renderer draws seven flat kinds of figure. Line, linear and
+ * surface figures are not among them, and the format picker was shown for
+ * every figure regardless — so each of those offered PDF, SVG and PNG and a
+ * Download that failed every time it was pressed. Whether a format exists is
+ * now the server's answer, carried as `exportable`.
+ */
+describe("a figure with no publication export", () => {
+  const SURFACE = {
+    visual_id: "vis_s", publishable: true, exportable: false,
+    critique: { publishable: true, critiques: [] as Critique[] },
+    spec: { visual_type: "surface" },
+  };
+
+  beforeEach(() => { vi.restoreAllMocks(); });
+
+  it("offers no format that would fail, and points a surface elsewhere", async () => {
+    vi.spyOn(api, "post").mockResolvedValue(SURFACE as never);
+    // The Blender panel asks for its state as soon as it appears.
+    vi.spyOn(api, "get").mockResolvedValue({
+      visual_id: "vis_s", is_surface: true, available: true, version: "5.2.1",
+      withheld: "", install: "", render: null, run: null,
+    } as never);
+    render(<PublishFigure projectId="prj_1" analysisRunId="arun_1" />);
+
+    await userEvent.click(screen.getByRole("button", { name: /Export for publication/ }));
+
+    expect(await screen.findByText(/has no flat publication export/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: /^Download$/ })).toBeNull();
+    expect(screen.queryByRole("combobox")).toBeNull();
+    // What a surface *can* leave as is still offered.
+    expect(screen.getByRole("button", { name: /Download 3D scene/ })).toBeVisible();
+    expect(await screen.findByRole("button", { name: "Render with Blender" }))
+      .toBeVisible();
+  });
+
+  it("says plainly that another kind has no export, and offers nothing 3D", async () => {
+    vi.spyOn(api, "post").mockResolvedValue(
+      { ...SURFACE, spec: { visual_type: "line" } } as never);
+    render(<PublishFigure projectId="prj_1" analysisRunId="arun_1" />);
+
+    await userEvent.click(screen.getByRole("button", { name: /Export for publication/ }));
+
+    expect(await screen.findByText(/no publication export yet/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: /^Download$/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Download 3D scene/ })).toBeNull();
   });
 });

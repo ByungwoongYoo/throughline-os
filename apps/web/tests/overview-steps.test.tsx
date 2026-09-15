@@ -27,7 +27,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Overview } from "@/components/views";
 import { SECTIONS, Section } from "@/components/Shell";
-import type { Connection, DiscoveryMap } from "@/lib/api";
+import type { DiscoveryMap, TopConnection } from "@/lib/api";
 
 const MAP = {
   counts: { sources: 3, datasets: 1, analyses: 4, findings: 0, reports: 0 },
@@ -38,9 +38,14 @@ const MAP = {
 const PROJECT = { name: "AMR", research_question: "Does use track resistance?" };
 
 /** The connection the server ranks highest, which steps 4 and 5 act on. */
+// A ranked connection as the discovery map sends it. `lifecycle_status` is on
+// every one; this fixture had none, cast past the type, and the Validate
+// button's target now depends on it — which step a connection is ready for is
+// exactly what the button has to get right.
 const TOP = {
   id: "conn_1", left_variable: "consumption_ddd", right_variable: "resistance_pct",
-} as unknown as Connection;
+  lifecycle_status: "exploratory",
+} as unknown as TopConnection;
 
 function mapWith(over: Partial<DiscoveryMap>): DiscoveryMap {
   return { ...MAP, ...over } as DiscoveryMap;

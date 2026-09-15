@@ -209,7 +209,11 @@ def create_visual(
 
     return {"visual_id": visual_id, "object_id": object_id, "spec": spec,
             "data": data, "critique": report.to_dict(),
-            "publishable": report.publishable}
+            "publishable": report.publishable,
+            # Whether any publication format exists for this kind of figure.
+            # Publishable and exportable are different questions: a fitted
+            # surface can pass every check and still have no flat export.
+            "exportable": publication.can_render(spec.visual_type)}
 
 
 def _serialisable(recommendation: dict[str, Any]) -> dict[str, Any]:
@@ -255,6 +259,17 @@ def load_visual(cur, visual_id: str) -> dict[str, Any]:
     return row
 
 
+def _refuse_if_unpublishable(row: dict[str, Any]) -> None:
+    """A figure the critic blocked is refused by every renderer, not by one."""
+    if not row["publishable"]:
+        blocking = [c["check"] for c in (row["critique"].get("critiques") or [])
+                    if c["severity"] == "blocking" and c["outcome"] == "violated"]
+        raise VisualError(
+            "This figure did not pass the visualization critic and must not be "
+            f"published. Unresolved: {', '.join(blocking) or 'unknown'}."
+        )
+
+
 def render_visual(cur, *, visual_id: str, fmt: str,
                   height_px: int | None = None) -> dict[str, Any]:
     """
@@ -266,13 +281,7 @@ def render_visual(cur, *, visual_id: str, fmt: str,
     pixel height and a silent no-op would leave the caller believing otherwise.
     """
     row = load_visual(cur, visual_id)
-    if not row["publishable"]:
-        blocking = [c["check"] for c in (row["critique"].get("critiques") or [])
-                    if c["severity"] == "blocking" and c["outcome"] == "violated"]
-        raise VisualError(
-            "This figure did not pass the visualization critic and must not be "
-            f"published. Unresolved: {', '.join(blocking) or 'unknown'}."
-        )
+    _refuse_if_unpublishable(row)
 
     spec = ResearchVisualSpec.model_validate(row["spec"])
     data = VisualData.model_validate(row["data"])
@@ -283,7 +292,13 @@ def render_visual(cur, *, visual_id: str, fmt: str,
         cur.execute(
             "INSERT INTO visual_renders(id, visual_id, format, spec_hash, payload) "
             "VALUES (%s, %s, %s, %s, %s) "
-            "ON CONFLICT (visual_id, format, spec_hash) DO UPDATE SET payload = EXCLUDED.payload "
+            # This target named the constraint migration 0030 dropped, so every
+            # vega-lite render since then failed with "no unique or exclusion
+            # constraint matching the ON CONFLICT specification" — the file path
+            # was moved to the new index and this one was not. Nothing in the
+            # interface asks for vega-lite, which is why nobody saw it.
+            "ON CONFLICT (visual_id, format, spec_hash, COALESCE(height_px, -1), "
+            "renderer) DO UPDATE SET payload = EXCLUDED.payload "
             "RETURNING id",
             (new_id("vren"), visual_id, fmt, current_hash, jsonb(payload)),
         )
@@ -318,7 +333,8 @@ def render_visual(cur, *, visual_id: str, fmt: str,
     cur.execute(
         "INSERT INTO visual_renders(id, visual_id, format, storage_key, content_hash, "
         "spec_hash, bytes, height_px) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
-        "ON CONFLICT (visual_id, format, spec_hash, COALESCE(height_px, -1)) DO UPDATE "
+        "ON CONFLICT (visual_id, format, spec_hash, COALESCE(height_px, -1), renderer) "
+        "DO UPDATE "
         "SET storage_key = EXCLUDED.storage_key, content_hash = EXCLUDED.content_hash, "
         "bytes = EXCLUDED.bytes RETURNING id",
         (new_id("vren"), visual_id, fmt, storage_key, digest, current_hash,
@@ -377,7 +393,271 @@ def stale_renders(cur, visual_id: str) -> list[dict[str, Any]]:
     """ — renders whose spec has moved on are marked, not silently served."""
     row = load_visual(cur, visual_id)
     cur.execute(
-        "SELECT id, format, spec_hash, created_at FROM visual_renders WHERE visual_id = %s",
+        # `renderer` and `deterministic` as well: this is where a figure's files
+        # are listed, and without them a Blender render read as one more PNG
+        # export of the same figure — the conflation migration 0045 exists to
+        # prevent, repeated one layer up.
+        "SELECT id, format, renderer, deterministic, spec_hash, created_at "
+        "FROM visual_renders WHERE visual_id = %s",
         (visual_id,),
     )
     return [dict(r, stale=r["spec_hash"] != row["spec_hash"]) for r in cur.fetchall()]
+
+
+# ---------------------------------------------------------------------------
+# Rendering through Blender
+# ---------------------------------------------------------------------------
+#
+# `throughline_visual.renderers.blender.render` was written, documented and
+# tested, and called by nothing but its own tests. Settings found Blender,
+# named its version, and promised "a physically-based render for
+# publication"; nothing anywhere could ask for one. What follows is the path
+# from a figure to that render: requested from a route, run by a worker — a
+# render can take minutes, and a request held open that long is a timeout
+# reported as a failure — and recorded beside the export rather than as it.
+
+#: The worker job that runs Blender.
+BLENDER_RENDER_WORKFLOW = "visual.render_blender"
+
+
+class NotASurface(VisualError):
+    """Only a fitted surface has a third axis for Blender to render."""
+
+
+class BlenderUnavailable(VisualError):
+    """This machine cannot render through Blender; the message says how to fix it."""
+
+
+class BlenderRenderFailed(VisualError):
+    """Blender ran and did not produce a picture."""
+
+
+def _refuse_if_not_a_surface(row: dict[str, Any]) -> None:
+    if row["visual_type"] != "surface":
+        raise NotASurface(
+            "Only a fitted surface has a third axis for Blender to render. This "
+            f"figure is a {str(row['visual_type']).replace('_', ' ')}, and its "
+            "publication formats are the export.")
+
+
+_availability_cache: dict[tuple[str, float], dict[str, Any]] = {}
+
+
+def _blender_availability() -> dict[str, Any]:
+    """
+    `blender.availability()`, asked once per installation rather than per poll.
+
+    It runs `blender --version`, which takes most of a second, and the screen
+    asks for a render's state every few seconds while one runs. Keyed on the
+    executable's path and modification time, so installing, upgrading or
+    removing Blender is noticed on the next request rather than at restart.
+    """
+    from throughline_visual.renderers import blender
+
+    executable = blender.find_blender()
+    if not executable:
+        return blender.availability()
+    try:
+        key = (executable, Path(executable).stat().st_mtime)
+    except OSError:
+        return blender.availability()
+    if key not in _availability_cache:
+        _availability_cache.clear()
+        _availability_cache[key] = blender.availability()
+    return _availability_cache[key]
+
+
+def _plain_error(error: str | None) -> str | None:
+    """The runner stores `Type: message`; a researcher needs the message."""
+    if not error:
+        return None
+    for prefix in ("BlenderUnavailable: ", "BlenderRenderFailed: ",
+                   "BlenderError: ", "NotASurface: ", "GeometryError: ",
+                   "VisualError: "):
+        if error.startswith(prefix):
+            return error[len(prefix):]
+    return error
+
+
+def request_blender_render(cur, *, visual_id: str) -> dict[str, Any]:
+    """
+    Queue a Blender render of this figure, or return the one already running.
+
+    Refused up front rather than queued to fail: a figure with no third axis,
+    a figure the critic blocked, and a machine without Blender are all known
+    before any job exists, and a researcher should hear the reason on the
+    click rather than after watching a spinner.
+
+    **Deduplicated against runs in flight, never against finished ones.** The
+    workflow table's `idempotency_key` is unique for all time, so keying a
+    render on the figure would hand back the same run for ever — including a
+    failed one, so a researcher who installed Blender after a failure could
+    never render again. A finished render is no reason to refuse another:
+    Blender's output varies, and asking twice is a reasonable thing to do.
+
+    One attempt only. A missing or broken Blender does not appear on the
+    third try, and retrying would only delay the sentence that says so.
+    """
+    from throughline_schemas.enums import TERMINAL_WORKFLOW_STATES
+
+    from . import workflow
+
+    row = load_visual(cur, visual_id)
+    _refuse_if_not_a_surface(row)
+    _refuse_if_unpublishable(row)
+
+    available = _blender_availability()
+    if not available["available"]:
+        raise BlenderUnavailable(
+            " ".join(part for part in (available.get("withheld"),
+                                       available.get("install")) if part)
+            or "Blender could not be found on this machine.")
+
+    terminal = [str(state) for state in TERMINAL_WORKFLOW_STATES]
+    cur.execute(
+        "SELECT id, state FROM workflow_runs WHERE workflow_name = %s "
+        "AND input->>'visual_id' = %s AND NOT (state = ANY(%s)) "
+        "ORDER BY created_at DESC LIMIT 1",
+        (BLENDER_RENDER_WORKFLOW, visual_id, terminal))
+    running = cur.fetchone()
+    if running:
+        return {"run_id": running["id"], "state": running["state"],
+                "reused": True}
+
+    run_id = workflow.enqueue(
+        cur, workflow_name=BLENDER_RENDER_WORKFLOW,
+        project_id=row["project_id"], payload={"visual_id": visual_id},
+        max_attempts=1)
+    return {"run_id": run_id, "state": "queued", "reused": False}
+
+
+def render_through_blender(cur, *, visual_id: str,
+                           samples: int = 64) -> dict[str, Any]:
+    """
+    Render this figure through Blender, and record it as a render.
+
+    Called by the worker. The geometry is the same the `scene.zip` export
+    carries, written into a directory this system made; Blender reads it as
+    data and never sees a string a researcher typed.
+
+    **The previous file is removed before Blender runs.** `blender.render`
+    believes the output file rather than the exit status, because Blender
+    exits 0 on a great many failures. A re-render writes to the same path, so
+    a render that failed the second time would have found the first render's
+    file waiting there and reported success — the old picture, presented as
+    the new one.
+    """
+    from throughline_visual.renderers import blender, geometry
+
+    row = load_visual(cur, visual_id)
+    _refuse_if_not_a_surface(row)
+    _refuse_if_unpublishable(row)
+
+    spec = ResearchVisualSpec.model_validate(row["spec"])
+    data = VisualData.model_validate(row["data"])
+    current_hash = row["spec_hash"]
+
+    directory = (storage_root() / "figures" / visual_id
+                 / f"blender-{current_hash[:12]}")
+    directory.mkdir(parents=True, exist_ok=True)
+    obj_path = directory / "fitted_surface.obj"
+    ply_path = directory / "observations.ply"
+    obj_path.write_text(geometry.surface_obj(spec, data))
+    ply_path.write_text(geometry.observations_ply(spec, data))
+    out_path = directory / f"{visual_id}-{current_hash[:12]}-blender.png"
+    out_path.unlink(missing_ok=True)
+
+    try:
+        made = blender.render(obj_path=obj_path, ply_path=ply_path,
+                              out_path=out_path, samples=samples)
+    except blender.BlenderError as exc:
+        if blender.find_blender() is None:
+            raise BlenderUnavailable(str(exc)) from exc
+        raise BlenderRenderFailed(str(exc)) from exc
+
+    byte_size = out_path.stat().st_size
+    digest = hashlib.sha256(out_path.read_bytes()).hexdigest()
+    storage_key = str(out_path.relative_to(storage_root()))
+
+    cur.execute(
+        "INSERT INTO visual_renders(id, visual_id, format, storage_key, "
+        "content_hash, spec_hash, bytes, renderer, renderer_version, "
+        "deterministic) VALUES (%s, %s, 'png', %s, %s, %s, %s, 'blender', %s, "
+        "FALSE) "
+        "ON CONFLICT (visual_id, format, spec_hash, COALESCE(height_px, -1), "
+        "renderer) DO UPDATE SET storage_key = EXCLUDED.storage_key, "
+        "content_hash = EXCLUDED.content_hash, bytes = EXCLUDED.bytes, "
+        "renderer_version = EXCLUDED.renderer_version, created_at = now() "
+        "RETURNING id",
+        (new_id("vren"), visual_id, storage_key, digest, current_hash,
+         byte_size, made["renderer_version"]))
+    render_id = cur.fetchone()["id"]
+    audit(cur, project_id=row["project_id"], actor="system:blender",
+          action="render", object_type="visual", object_id=visual_id,
+          detail={"renderer": "blender",
+                  "renderer_version": made["renderer_version"],
+                  "render_id": render_id})
+
+    return {"visual_id": visual_id, "render_id": render_id,
+            "renderer": "blender", "renderer_version": made["renderer_version"],
+            "deterministic": False, "bytes": byte_size, "note": made["note"]}
+
+
+def blender_render_state(cur, *, visual_id: str) -> dict[str, Any]:
+    """Whether this figure can be rendered through Blender, and how far it got."""
+    row = load_visual(cur, visual_id)
+    available = _blender_availability()
+
+    cur.execute(
+        "SELECT id, renderer_version, deterministic, bytes, spec_hash, "
+        "created_at FROM visual_renders WHERE visual_id = %s "
+        "AND renderer = 'blender' ORDER BY created_at DESC LIMIT 1",
+        (visual_id,))
+    render = cur.fetchone()
+    cur.execute(
+        "SELECT id, state, error FROM workflow_runs WHERE workflow_name = %s "
+        "AND input->>'visual_id' = %s ORDER BY created_at DESC LIMIT 1",
+        (BLENDER_RENDER_WORKFLOW, visual_id))
+    run = cur.fetchone()
+
+    return {
+        "visual_id": visual_id,
+        "is_surface": row["visual_type"] == "surface",
+        "available": bool(available["available"]),
+        "version": available.get("version"),
+        "withheld": available.get("withheld") or "",
+        "install": available.get("install") or "",
+        "render": None if not render else {
+            "render_id": render["id"],
+            "renderer_version": render["renderer_version"],
+            "deterministic": render["deterministic"],
+            "bytes": render["bytes"],
+            "created_at": render["created_at"].isoformat(),
+            # A render of an earlier spec is a picture of a figure that no
+            # longer exists in that form. Said, rather than shown as current.
+            "stale": render["spec_hash"] != row["spec_hash"],
+            "note": ("Rendered with Blender "
+                     f"{render['renderer_version'] or '(version unrecorded)'}. "
+                     "A render varies with the version, the build and the "
+                     "machine, so it is kept beside the reproducible export, "
+                     "never in place of it."),
+        },
+        "run": None if not run else {
+            "run_id": run["id"], "state": run["state"],
+            "error": _plain_error(run["error"]),
+        },
+    }
+
+
+def blender_render_file(cur, *, visual_id: str) -> Path | None:
+    """The newest Blender render of this figure, if one exists on disk."""
+    cur.execute(
+        "SELECT storage_key FROM visual_renders WHERE visual_id = %s "
+        "AND renderer = 'blender' ORDER BY created_at DESC LIMIT 1",
+        (visual_id,))
+    found = cur.fetchone()
+    if not found or not found["storage_key"]:
+        return None
+    path = storage_root() / found["storage_key"]
+    return path if path.exists() else None
+

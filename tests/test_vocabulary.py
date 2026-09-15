@@ -226,3 +226,143 @@ def test_an_alias_is_approved_or_rejected_and_nothing_else(cur, project):
     with pytest.raises(ValueError):
         vocabulary.decide(cur, alias_id=alias["id"], status="maybe",
                           decided_by="usr_1")
+
+
+# ---------------------------------------------------------------------------
+# A phrase that names two variables names neither (T156)
+# ---------------------------------------------------------------------------
+
+def test_a_label_that_is_another_variables_name_resolves_to_neither(cur, project):
+    """
+    `resolve` was a `UNION ALL ... LIMIT 1` with no order, so a phrase matching
+    two variables returned whichever row the planner produced first. Its own
+    docstring names what that costs: a claim test answering a question the
+    paper never asked. Refusing is the conservative answer both callers already
+    handle — the claim test asks, reconciliation reports different constructs.
+    """
+    _canonical(cur, project, "consumption", label="Resistance")
+    _canonical(cur, project, "resistance", label="Resistance rate")
+
+    assert vocabulary.resolve(cur, project_id=project, phrase="resistance") is None
+
+
+def test_a_variable_that_arrives_named_like_an_approved_alias_leaves_it_resolving_to_neither(
+        cur, project):
+    """
+    The order a proposal cannot catch. `suggest` now refuses a phrase that is
+    already another variable's name (T158), but an alias approved first and a
+    dataset that later brings a variable of that name still meet — so the
+    ambiguity reaches `resolve`, which has to refuse it on its own.
+
+    (This test used to build the state by proposing the conflicting alias
+    directly; that route is closed now, and a fixture the product cannot
+    produce proves nothing.)
+    """
+    consumption = _canonical(cur, project, "antibiotic_consumption")
+    alias = vocabulary.suggest(cur, project_id=project, phrase="resistance",
+                               canonical_variable_id=consumption)
+    vocabulary.decide(cur, alias_id=alias["id"], status=vocabulary.APPROVED,
+                      decided_by="usr_1")
+    # A later dataset proposes a variable of that name.
+    harmonize._upsert_canonical(cur, project_id=project, name="resistance",
+                                label="Resistance", definition="",
+                                semantic_type="continuous", unit=None)
+
+    assert vocabulary.resolve(cur, project_id=project, phrase="resistance") is None
+
+
+def test_two_routes_to_the_same_variable_are_not_ambiguous(cur, project):
+    """
+    The refusal is about two *variables*, not two rows. A name and an approved
+    alias that agree still resolve, and through the name — a confirmed
+    canonical match needs no alias, so none is counted as having saved a step.
+    """
+    canonical = _canonical(cur, project, "antibiotic_consumption",
+                           label="Antibiotic use")
+    alias = vocabulary.suggest(cur, project_id=project, phrase="antibiotic use",
+                               canonical_variable_id=canonical)
+    vocabulary.decide(cur, alias_id=alias["id"], status=vocabulary.APPROVED,
+                      decided_by="usr_1")
+
+    found = vocabulary.resolve(cur, project_id=project, phrase="antibiotic use")
+    assert found["name"] == "antibiotic_consumption"
+    assert found["via"] == "canonical"
+    assert vocabulary.learned(cur, project)["times_an_alias_resolved_a_term"] == 0
+
+
+# ---------------------------------------------------------------------------
+# A phrase that already names a variable cannot be proposed for another (T158)
+# ---------------------------------------------------------------------------
+
+def test_a_phrase_that_names_another_variable_cannot_be_proposed(cur, project):
+    """
+    `suggest` looked only at existing aliases, so a phrase could be proposed —
+    and approved — for one variable while it was the name of another. Since
+    T156 that approval makes the phrase resolve to nothing, so a single click
+    would silently break a lookup that worked. Refused where it is proposed,
+    which is the only point a person is there to be told.
+    """
+    consumption = _canonical(cur, project, "antibiotic_consumption")
+    _canonical(cur, project, "resistance")
+
+    with pytest.raises(vocabulary.AliasRefused) as refused:
+        vocabulary.suggest(cur, project_id=project, phrase="resistance",
+                           canonical_variable_id=consumption)
+    # Names the variable it collides with, so the refusal can be acted on.
+    assert "resistance" in str(refused.value)
+    assert vocabulary.resolve(cur, project_id=project,
+                              phrase="resistance")["name"] == "resistance"
+
+
+def test_a_phrase_that_is_another_variables_label_cannot_be_proposed(cur, project):
+    consumption = _canonical(cur, project, "antibiotic_consumption")
+    _canonical(cur, project, "amr_pct", label="Resistance rate")
+
+    with pytest.raises(vocabulary.AliasRefused):
+        vocabulary.suggest(cur, project_id=project, phrase="resistance rate",
+                           canonical_variable_id=consumption)
+
+
+def test_a_phrase_that_names_the_same_variable_is_still_proposable(cur, project):
+    """
+    Not ambiguous — both routes lead to one variable — so not refused. Whether
+    such an alias is worth recording is the reviewer's decision, not this one.
+    """
+    canonical = _canonical(cur, project, "antibiotic_consumption")
+    assert vocabulary.suggest(cur, project_id=project, phrase="antibiotic consumption",
+                              canonical_variable_id=canonical) is not None
+
+
+def test_the_route_says_why_it_refused_rather_than_calling_it_a_ruling():
+    """
+    The route turned every `None` from `suggest` into "already has a ruling ...
+    a rejected term is not re-proposed". Reusing `None` for this refusal would
+    have told the researcher something false about their own vocabulary.
+    """
+    from fastapi.testclient import TestClient
+    from throughline_api.app import app
+    from throughline_domain.db import connection
+
+    with TestClient(app) as client:
+        try:
+            status = client.get("/api/auth/status").json()
+            endpoint = "/api/auth/setup" if status["needs_setup"] else "/api/auth/login"
+            signed_in = client.post(endpoint, json={
+                "email": "lead@lab.local", "display_name": "Lead",
+                "password": "correct-horse-battery"})
+            assert signed_in.status_code == 200, signed_in.text
+            project = client.post("/api/projects", json={"name": "Vocabulary"}).json()["id"]
+
+            with connection() as conn, conn.cursor() as cur:
+                consumption = _canonical(cur, project, "antibiotic_consumption")
+                _canonical(cur, project, "resistance")
+
+            response = client.post(f"/api/projects/{project}/vocabulary", json={
+                "phrase": "resistance", "canonical_variable_id": consumption})
+            assert response.status_code == 409, response.text
+            detail = response.json()["detail"]
+            assert "ruling" not in detail and "rejected" not in detail
+            assert "resistance" in detail
+        finally:
+            with connection() as conn, conn.cursor() as cur:
+                cur.execute("DELETE FROM users")

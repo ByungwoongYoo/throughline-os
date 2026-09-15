@@ -168,14 +168,29 @@ def _record(
 
 
 def retrieval_provenance(cur, event_id: str) -> dict[str, Any]:
-    """ — reconstruct exactly what an answer was built from."""
+    """
+    Reconstruct exactly what an answer was built from.
+
+    `r.rerank_score` was selected here and is not any more. Nothing in this
+    system reranks, so nothing ever wrote that column, and a provenance record
+    listing a null rerank score beside real lexical and semantic ones reads as
+    "reranking ran and found nothing" rather than "no reranking happened".
+    Provenance is the one record where that difference has to be unambiguous.
+    The column stays in the schema for a reranker to fill; until one exists it
+    is not part of the account of how these passages were chosen.
+
+    The note is here rather than inside the query because a SQL literal that
+    opens with a comment does not start with `SELECT`, and the guard in
+    `test_sql_references.py` skips it — which quietly dropped every column of
+    this query out of the read surface and made five of them look unread.
+    """
     cur.execute("SELECT * FROM retrieval_events WHERE id = %s", (event_id,))
     event = cur.fetchone()
     if not event:
         raise ValueError(f"Unknown retrieval event: {event_id}")
     cur.execute(
         """
-        SELECT r.rank, r.lexical_score, r.semantic_score, r.fused_score, r.rerank_score,
+        SELECT r.rank, r.lexical_score, r.semantic_score, r.fused_score,
                p.id AS passage_id, p.content, p.locator, p.page, p.section,
                p.char_start, p.char_end, s.title AS source_title, s.id AS source_id
         FROM retrieval_results r

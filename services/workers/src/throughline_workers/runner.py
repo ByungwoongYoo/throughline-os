@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import signal
+import threading
 import time
 import traceback
 from typing import Any, Callable, Protocol
@@ -53,6 +54,61 @@ class Registry:
 
 
 REGISTRY = Registry()
+
+
+class _KeepAlive:
+    """
+    Hold a run's lease for as long as its handler is working.
+
+    A claim leases a run for `DEFAULT_LEASE_SECONDS` — sixty — and
+    `claim_next` reclaims any running run whose lease has lapsed, on the
+    reasonable assumption that its worker died. Nothing renewed the lease, so
+    *any* handler that outlived it looked dead mid-flight: with more than one
+    worker, a second would claim the same run and do the work again, and the
+    first would then finish a run it no longer owned. `workflow.heartbeat`
+    existed for exactly this and had no caller.
+
+    Blender made it concrete: the renderer allows 600 seconds, ten leases. It
+    renders in seconds on a fast machine, but the timeout is the contract.
+
+    A thread on its own connection, renewing a third of the way into each
+    lease, so one late beat never costs the run. It opens a connection only
+    when it beats, so the short jobs that are most of the queue never pay for
+    it at all.
+    """
+
+    def __init__(self, run_id: str, worker_id: str,
+                 lease_seconds: int | None = None) -> None:
+        self.run_id = run_id
+        self.worker_id = worker_id
+        self.lease_seconds = lease_seconds or workflow.DEFAULT_LEASE_SECONDS
+        self.every = max(self.lease_seconds / 3.0, 0.05)
+        self._done = threading.Event()
+        self._thread = threading.Thread(
+            target=self._beat, name=f"lease-{run_id}", daemon=True)
+
+    def _beat(self) -> None:
+        while not self._done.wait(self.every):
+            try:
+                with connection() as conn, conn.cursor() as cur:
+                    held = workflow.heartbeat(
+                        cur, run_id=self.run_id, worker_id=self.worker_id,
+                        lease_seconds=self.lease_seconds)
+                if not held:
+                    log.warning("run %s lost its lease while still working",
+                                self.run_id)
+                    return
+            except Exception as exc:  # noqa: BLE001 — a missed beat is not a failed run
+                log.warning("could not renew the lease on run %s: %s",
+                            self.run_id, exc)
+
+    def start(self) -> "_KeepAlive":
+        self._thread.start()
+        return self
+
+    def stop(self) -> None:
+        self._done.set()
+        self._thread.join(timeout=self.every + 5)
 
 
 class Worker:
@@ -147,6 +203,7 @@ class Worker:
                 )
             return
 
+        keep_alive = _KeepAlive(run_id, self.worker_id).start()
         try:
             with connection() as conn:
                 with conn.cursor() as cur:
@@ -166,9 +223,18 @@ class Worker:
                         log.info("run %s waiting for approval of %s",
                                  run_id, gate.node_name)
                         return
-                    workflow.finish(
-                        cur, run_id=run_id, state=WorkflowState.COMPLETED, output=output
-                    )
+                    closed = workflow.finish(
+                        cur, run_id=run_id, state=WorkflowState.COMPLETED,
+                        output=output, worker_id=self.worker_id)
+                    if not closed:
+                        # Raised *inside* the transaction, so the handler's
+                        # writes roll back with it. The run was reclaimed while
+                        # this worker was busy, and its new owner is doing the
+                        # same work; committing both would record it twice.
+                        raise workflow.LeaseLost(run_id)
+        except workflow.LeaseLost:
+            log.warning("run %s was reclaimed while this worker ran it; its "
+                        "result was discarded", run_id)
         except Exception as exc:  # noqa: BLE001 — the worker is the boundary
             error = f"{type(exc).__name__}: {exc}"
             log.warning("run %s failed: %s", run_id, error)
@@ -176,7 +242,10 @@ class Worker:
             attempt = int(run["attempts"])
             delay = RETRY_BACKOFF[min(attempt - 1, len(RETRY_BACKOFF) - 1)]
             with connection() as conn, conn.cursor() as cur:
-                workflow.reschedule(cur, run_id=run_id, delay_seconds=delay, error=error)
+                workflow.reschedule(cur, run_id=run_id, delay_seconds=delay,
+                                    error=error, worker_id=self.worker_id)
+        finally:
+            keep_alive.stop()
 
 
 def main() -> None:

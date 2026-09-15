@@ -123,8 +123,41 @@ export type PlainSummary = {
   headline: string;
   what_it_means: string;
   how_confident: string;
+  /**
+   * What would change this reading — the sentence the model is asked for and
+   * this type did not name.
+   *
+   * `interpret.py` asks for four things: the headline, what it means, how
+   * confident, and what would change it. The fourth was generated, validated
+   * against a 600-character bound, stored, and sent to the browser, where no
+   * screen could read it because this declaration stopped at three. So it was
+   * dropped on arrival, on every result, since the route was connected.
+   *
+   * It is the one this product can least afford to lose. Registration records
+   * `falsified_if` so that "goalposts nobody wrote down cannot be seen to
+   * move", and the ledger refuses a directionless prediction because a
+   * prediction that cannot be wrong is a description. This is that same idea
+   * for a result nobody registered — and it was the half being thrown away.
+   */
+  what_would_change_it: string;
   causal_reading: string;
   design?: { description: string; permits_causal_language: boolean };
+  /**
+   * Who wrote this, and when. A model writes every sentence above; these say
+   * which model, at which prompt, and whether the reading was kept from an
+   * earlier call rather than written for this view.
+   *
+   * The route sent all of it and nothing showed it. The claim test already
+   * attributes its reading — "Located by {model} · {prompt}" — because two
+   * readings can disagree and the disagreement has to be attributable rather
+   * than argued about; the same holds for a plain-language reading of a
+   * result, which is the sentence most likely to be quoted.
+   */
+  model: string;
+  prompt: string;
+  cached: boolean;
+  /** Present on a fresh reading only: the cached branch does not send it. */
+  operational_summary?: string;
 };
 
 export function ResultCard({
@@ -230,6 +263,20 @@ export function ResultCard({
             weak evidence.
           </p>
           {summary?.how_confident && <p>{summary.how_confident}</p>}
+          {/* Beside the confidence rather than below the figures: how much to
+              trust a reading and what would overturn it are one thought, and
+              splitting them lets the first be read without the second. */}
+          {summary?.what_would_change_it && (
+            <p className="rc-would-change">
+              <span>What would change this</span> {summary.what_would_change_it}
+            </p>
+          )}
+          {summary?.model && (
+            <p className="note">
+              Written by {summary.model} · {summary.prompt}
+              {summary.cached ? ", kept from an earlier reading" : ""}.
+            </p>
+          )}
           {summary?.design && !summary.design.permits_causal_language && (
             <p className="rc-caveat">
               {summary.design.description}. Nothing here can establish that one

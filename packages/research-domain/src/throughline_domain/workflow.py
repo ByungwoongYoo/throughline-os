@@ -19,18 +19,42 @@ Durability here means three things:
 
 from __future__ import annotations
 
+import logging
 import os
 import socket
 from datetime import timedelta
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 from throughline_schemas.enums import TERMINAL_WORKFLOW_STATES, WorkflowState
 
 from .events import emit
 from .ids import new_id
 
+log = logging.getLogger(__name__)
+
 DEFAULT_LEASE_SECONDS = int(os.environ.get("THROUGHLINE_WORKFLOW_LEASE", "60"))
 WORKER_ID = f"{socket.gethostname()}:{os.getpid()}"
+
+#: What each kind of job does to the thing it was working on when it gives up.
+#:
+#: A job's own writes live in its transaction, so when it fails they roll back —
+#: including the `running` it set on its subject, which returns to `queued`.
+#: Once the run is out of attempts nothing touches that subject again, so a
+#: source read `uploaded` and an analysis `queued` for ever beside a job that had
+#: failed (T163). Run from `finish`, because every way a run ends as failed goes
+#: through it — attempts exhausted, a dead worker's last attempt closed by
+#: `claim_next`, no handler — and by then the job's transaction, and the lock it
+#: held on the subject, are gone.
+GiveUp = Callable[[Any, dict[str, Any], str], None]
+_GIVE_UP: dict[str, GiveUp] = {}
+
+
+def on_give_up(workflow_name: str) -> Callable[[GiveUp], GiveUp]:
+    """Register what `workflow_name` records on its subject when a run fails."""
+    def register(fn: GiveUp) -> GiveUp:
+        _GIVE_UP[workflow_name] = fn
+        return fn
+    return register
 
 
 class WorkflowError(RuntimeError):
@@ -39,6 +63,10 @@ class WorkflowError(RuntimeError):
 
 class CostLimitExceeded(WorkflowError):
     """ — a workflow node carries a cost limit and must respect it."""
+
+
+class LeaseLost(WorkflowError):
+    """This worker no longer holds the run it was working on."""
 
 
 class AwaitingApproval(WorkflowError):
@@ -119,6 +147,38 @@ def enqueue(
     return run_id
 
 
+def _fail_runs_that_outlived_their_attempts(cur) -> None:
+    """
+    Close the runs whose worker died on their last attempt.
+
+    Done here, in the same call that claims, rather than left for a sweeper:
+    excluded from the claim but still `running`, such a run would read as
+    in progress for ever — a render button that never stops spinning — and no
+    one would be told it had failed. `finish` rather than a bare UPDATE, so the
+    `WorkflowFinished` event fires as it does for every other ending.
+
+    ``SKIP LOCKED``: two workers arriving together each fail a run once, and
+    neither waits on the other's lock to claim.
+    """
+    cur.execute(
+        """
+        SELECT id, attempts, max_attempts FROM workflow_runs
+        WHERE state = 'running'
+          AND (lease_expires_at IS NULL OR lease_expires_at < now())
+          AND attempts >= max_attempts
+        FOR UPDATE SKIP LOCKED
+        """
+    )
+    for row in cur.fetchall():
+        finish(
+            cur, run_id=row["id"], state=WorkflowState.FAILED,
+            error=(f"The worker running this stopped without finishing, on "
+                   f"attempt {row['attempts']} of {row['max_attempts']}. It was "
+                   "not retried: a "
+                   "job that ends the process running it will usually end the "
+                   "next one too."))
+
+
 def claim_next(
     cur,
     *,
@@ -130,7 +190,16 @@ def claim_next(
 
     ``FOR UPDATE SKIP LOCKED`` lets several workers drain the queue in parallel
     without ever handing the same run to two of them.
+
+    An expired lease is reclaimed only while the run has attempts left. The cap
+    used to live in `reschedule` alone, which a worker reaches from its
+    ``except`` block — so a job that killed the process outright (an OOM kill, a
+    native crash) never met it, and was reclaimed for ever, taking a worker
+    down each time. The Blender render is enqueued with ``max_attempts=1`` for
+    exactly that reason (T157).
     """
+    _fail_runs_that_outlived_their_attempts(cur)
+
     name_filter = ""
     params: list[Any] = []
     if workflow_names:
@@ -145,7 +214,9 @@ def claim_next(
               AND (
                     state IN ('queued', 'retrying')
                  -- A run whose worker died mid-flight: the lease expired.
-                 OR (state = 'running' AND (lease_expires_at IS NULL OR lease_expires_at < now()))
+                 OR (state = 'running'
+                     AND (lease_expires_at IS NULL OR lease_expires_at < now())
+                     AND attempts < max_attempts)
               )
               {name_filter}
             ORDER BY created_at
@@ -296,7 +367,8 @@ def _node(cur, *, run_id: str, name: str,
     return cur.fetchone()
 
 
-def gate(cur, *, run_id: str, name: str, describes: str) -> None:
+def gate(cur, *, run_id: str, name: str, describes: str,
+         worker_id: str | None = None) -> None:
     """
     Hold the run here until a person releases it — §36/LAW 4.
 
@@ -310,6 +382,13 @@ def gate(cur, *, run_id: str, name: str, describes: str) -> None:
     in their own terms, at the moment they decide. It is stored on the node so
     the interface shows what the worker meant rather than what a page author
     guessed later.
+
+    ``worker_id`` is the worker holding the run, as for `finish`. Parking a run
+    at a gate is the third way a handler ends, and the runner commits it — so a
+    worker whose lease lapsed would otherwise commit its earlier steps and set
+    a run another worker holds, or has completed, back to waiting for approval
+    (T160). A run that is not this worker's raises `LeaseLost`, which rolls the
+    whole transaction back.
     """
     if not describes.strip():
         raise WorkflowError("A gate must describe what it is asking to release")
@@ -329,10 +408,17 @@ def gate(cur, *, run_id: str, name: str, describes: str) -> None:
         "UPDATE workflow_nodes SET state = %s, input = %s WHERE id = %s",
         (str(WorkflowState.AWAITING_APPROVAL), {"describes": describes},
          node["id"]))
+    owned = ""
+    params: list[Any] = [str(WorkflowState.AWAITING_APPROVAL), run_id]
+    if worker_id is not None:
+        owned = " AND lease_owner = %s AND state = 'running'"
+        params.append(worker_id)
     cur.execute(
         "UPDATE workflow_runs SET state = %s, lease_owner = NULL, "
-        "lease_expires_at = NULL, updated_at = now() WHERE id = %s",
-        (str(WorkflowState.AWAITING_APPROVAL), run_id))
+        "lease_expires_at = NULL, updated_at = now() WHERE id = %s" + owned +
+        " RETURNING id", params)
+    if cur.fetchone() is None:
+        raise LeaseLost(run_id)
     raise AwaitingApproval(run_id, name)
 
 
@@ -423,14 +509,31 @@ def finish(
     state: WorkflowState,
     output: dict[str, Any] | None = None,
     error: str | None = None,
-) -> None:
+    worker_id: str | None = None,
+) -> bool:
+    """
+    Close a run. Returns whether this call closed it.
+
+    ``worker_id`` is the claim a worker makes: it may only close a run it still
+    holds, and one that is still running. A worker whose lease lapsed has lost
+    the run to whoever reclaimed it, and nothing checked that — so its late
+    result overwrote a run another worker was working on, or had already
+    finished (T159). Without ``worker_id`` this is the system acting on a run
+    nobody holds — no handler, or an exhausted run — and is unconditional.
+    """
     if state not in TERMINAL_WORKFLOW_STATES:
         raise WorkflowError(f"{state} is not a terminal state")
+    owned = ""
+    params: list[Any] = [str(state), output or {}, error, run_id]
+    if worker_id is not None:
+        owned = " AND lease_owner = %s AND state = 'running'"
+        params.append(worker_id)
     cur.execute(
         "UPDATE workflow_runs SET state = %s, output = %s, error = %s, "
         "finished_at = now(), updated_at = now(), lease_owner = NULL, "
-        "lease_expires_at = NULL WHERE id = %s RETURNING project_id, workflow_name",
-        (str(state), output or {}, error, run_id),
+        "lease_expires_at = NULL WHERE id = %s" + owned +
+        " RETURNING project_id, workflow_name, input",
+        params,
     )
     row = cur.fetchone()
     if row:
@@ -440,18 +543,41 @@ def finish(
             event_type="WorkflowFinished",
             payload={"run_id": run_id, "workflow": row["workflow_name"], "state": str(state)},
         )
+        give_up = _GIVE_UP.get(row["workflow_name"])
+        if state == WorkflowState.FAILED and give_up is not None:
+            # In a savepoint: a subject that cannot be marked failed must not
+            # undo the run being marked failed, or the run would stay claimable
+            # and be tried again for ever — the loop T157 closed.
+            try:
+                with cur.connection.transaction():
+                    give_up(cur, dict(row["input"] or {}), error or "")
+            except Exception:  # noqa: BLE001 — the run's own ending comes first
+                log.warning("run %s failed, and its subject could not be marked "
+                            "failed", run_id, exc_info=True)
+    return row is not None
 
 
-def reschedule(cur, *, run_id: str, delay_seconds: int, error: str | None = None) -> bool:
-    """Retry a run after a delay, or fail it permanently once attempts run out."""
-    cur.execute("SELECT attempts, max_attempts, project_id FROM workflow_runs WHERE id = %s",
-                (run_id,))
+def reschedule(cur, *, run_id: str, delay_seconds: int, error: str | None = None,
+               worker_id: str | None = None) -> bool:
+    """
+    Retry a run after a delay, or fail it permanently once attempts run out.
+
+    Returns whether the run will be retried. With ``worker_id``, a worker that
+    no longer holds the run changes nothing: this used to set a run another
+    worker had already *completed* back to `retrying`, so finished work ran a
+    second time (T159).
+    """
+    cur.execute("SELECT attempts, max_attempts, project_id, lease_owner, state "
+                "FROM workflow_runs WHERE id = %s FOR UPDATE", (run_id,))
     row = cur.fetchone()
     if not row:
         raise WorkflowError(f"Unknown run: {run_id}")
+    if worker_id is not None and (row["lease_owner"] != worker_id
+                                  or row["state"] != str(WorkflowState.RUNNING)):
+        return False
     if row["attempts"] >= row["max_attempts"]:
         finish(cur, run_id=run_id, state=WorkflowState.FAILED,
-               error=error or "Exhausted retry attempts")
+               error=error or "Exhausted retry attempts", worker_id=worker_id)
         return False
     cur.execute(
         "UPDATE workflow_runs SET state = %s, run_after = now() + %s::interval, "

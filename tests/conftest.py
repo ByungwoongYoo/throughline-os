@@ -335,3 +335,76 @@ def make_enquiry_for(cur):
         return make_enquiry(cur, project_id, name)
 
     return _make
+
+
+def sign_in(client, *, email: str = "researcher@lab.local",
+            password: str = "correct-horse-battery",
+            display_name: str = "Researcher") -> str:
+    """
+    Sign a test client in, and fail loudly here if it did not work.
+
+    Twenty-two test files opened with the same four lines:
+
+        status = client.get("/api/auth/status").json()
+        endpoint = "/api/auth/setup" if status["needs_setup"] else "/api/auth/login"
+        client.post(endpoint, json={"email": ..., "password": ...})
+
+    Nine of them generated a fresh random email each run, and only five of the
+    twenty-two looked at what the sign-in answered. Those two facts together
+    are a flake that cost two preflight investigations before it was caught
+    here:
+
+      a user row survives from an earlier file, so `needs_setup` is false;
+      the branch therefore picks *login*, with an address that has never
+      existed anywhere; the login answers 401 "Email or password is
+      incorrect"; nobody looks; and the next request fails with 401 "Sign in
+      to continue" — a message that names none of this, three lines from the
+      cause, in a file that has nothing to do with authentication.
+
+    That is the failure this whole codebase keeps finding in itself: an
+    absence read as evidence. A sign-in that did not happen looked exactly
+    like a sign-in that did.
+
+    So this asks for the account it wants rather than inferring one from
+    global state. Setup when the installation has no account; log in when this
+    account exists; and create it first when some *other* account got there —
+    which is the case the old branch could not express, and the whole reason
+    it broke. The account is created directly for the same reason
+    `test_interpretation_api` does it: setup closes after the first account,
+    and a second one has no route.
+
+    Returns the email, so a caller that wants a second, different account can
+    say which one it is holding.
+    """
+    from throughline_domain import auth
+    from throughline_domain.db import connection
+
+    email = email.strip().lower()
+    status = client.get("/api/auth/status")
+    assert status.status_code == 200, status.text
+
+    if status.json()["needs_setup"]:
+        answer = client.post("/api/auth/setup", json={
+            "email": email, "display_name": display_name, "password": password})
+        assert answer.status_code == 200, (
+            f"setting up {email} failed: {answer.status_code} {answer.text}")
+        return email
+
+    answer = client.post("/api/auth/login",
+                         json={"email": email, "password": password})
+    if answer.status_code == 200:
+        return email
+
+    # Somebody else's account closed setup. Make this one and sign in.
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM users WHERE email = %s", (email,))
+        if not cur.fetchone():
+            auth.create_user(cur, email=email, display_name=display_name,
+                             password=password)
+        conn.commit()
+
+    answer = client.post("/api/auth/login",
+                         json={"email": email, "password": password})
+    assert answer.status_code == 200, (
+        f"signing in as {email} failed: {answer.status_code} {answer.text}")
+    return email

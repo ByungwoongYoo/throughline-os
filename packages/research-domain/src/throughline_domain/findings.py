@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Sequence
 
+from psycopg.types.json import Json
+
 from throughline_schemas.enums import (
     FINDING_PROMOTION,
     CausalStatus,
@@ -21,6 +23,7 @@ from throughline_schemas.enums import (
     FindingType,
 )
 
+from .events import audit
 from .ids import new_id
 
 #:  — the checks an exploratory pattern must survive to become validated.
@@ -365,6 +368,55 @@ def contradicted_checks(
     recorded = recorded_checks(cur, finding_id)
     return {name: recorded[name] for name, claimed in checks.items()
             if claimed and recorded.get(name, {}).get("outcome") == "violated"}
+
+
+class LimitationsRefused(Exception):
+    """A caveat that says nothing is worse than no caveat at all."""
+
+
+def record_limitations(
+    cur, *, finding_id: str, limitations: Sequence[str], actor: str,
+) -> dict[str, Any]:
+    """
+    Write down what this finding does *not* establish.
+
+    `findings.limitations` was read in three places — the evidence graph, the
+    library note, and the finding page — and written by nothing, so every
+    finding showed no caveats whether or not it had any, and a reader could
+    not tell "none were recorded" from "none exist". That is the absence this
+    codebase treats as its worst failure, sitting on the field whose whole job
+    is honesty (T154).
+
+    Blank entries are refused rather than stored: a caveat list containing an
+    empty string renders as a bullet that says nothing, which reads as though
+    the researcher had a reservation they declined to name.
+    """
+    # Materialised once: read twice, a caller passing an iterator would have
+    # the second read come back empty and every blank line silently accepted.
+    given = list(limitations)
+    cleaned = [line.strip() for line in given if line and line.strip()]
+    if len(cleaned) != len(given):
+        raise LimitationsRefused(
+            "A limitation cannot be blank. Remove the empty line, or say what "
+            "the reservation is.")
+
+    cur.execute("SELECT project_id, limitations FROM findings WHERE id = %s",
+                (finding_id,))
+    row = cur.fetchone()
+    if not row:
+        raise ValueError(f"Unknown finding: {finding_id}")
+
+    cur.execute(
+        "UPDATE findings SET limitations = %s, updated_at = now() WHERE id = %s",
+        (Json(cleaned), finding_id),
+    )
+    # Recorded like any other change to what the project asserts: a caveat
+    # removed later should be as visible as one added.
+    audit(cur, project_id=row["project_id"], actor=actor,
+          action="finding.limitations_recorded", object_type="finding",
+          object_id=finding_id,
+          detail={"count": len(cleaned), "before": list(row["limitations"] or [])})
+    return {"finding_id": finding_id, "limitations": cleaned}
 
 
 def transition(

@@ -14,6 +14,7 @@ from typing import Any, Sequence
 
 from throughline_schemas.enums import LineageType, ObjectType
 
+from .db import jsonb
 from .embeddings import provider as embedding_provider
 from .ids import new_id
 from .lineage import add_edge
@@ -111,6 +112,53 @@ def _readable_title(cur, parsed: Any, source_id: str) -> str:
     return "Untitled paper"
 
 
+def _bibliography_of(cur, source_id: str) -> dict[str, Any]:
+    """
+    The citation fields a search already fetched for this paper.
+
+    `papers` carries `authors`, `journal`, `publication_date`, `doi`, `pmid`
+    and `arxiv_id`, and `bibliography.entries` reads all six. Nothing wrote any
+    of them: importing a paper from a literature search stores its authors,
+    year, venue and identifiers in `sources.metadata`, and creating the paper
+    row copied across the title and the page count and left the rest behind.
+
+    So every BibTeX entry this system produced was missing the author, year and
+    journal of a paper whose author, year and journal it already held one table
+    over. The export said so — `missing_fields` is computed honestly — which
+    made it a feature that could not work rather than a false claim, and a
+    bibliography that omits every author is not usable either way.
+
+    A paper uploaded as a file rather than found through a search has none of
+    this, and those fields stay empty. That is the true answer for it, and the
+    export goes on reporting them as missing.
+    """
+    cur.execute("SELECT metadata FROM sources WHERE id = %s", (source_id,))
+    row = cur.fetchone()
+    found = (row["metadata"] if row else None) or {}
+    if not isinstance(found, dict):
+        return {}
+
+    authors = [str(a).strip() for a in (found.get("authors") or [])
+               if str(a).strip()]
+    year = found.get("year")
+    return {
+        # `authors` and `journal` are NOT NULL with defaults, so "nothing was
+        # found" is an empty list and an empty string here, not NULL. The
+        # upsert below has to test for empties rather than for NULL, or a
+        # re-parse would overwrite a real author list with the default.
+        "authors": authors,
+        "journal": (found.get("venue") or "").strip(),
+        # TEXT, and a year is all a search returns. Stored as the year alone
+        # rather than padded to a fake day: `_year` reads the leading digits,
+        # and inventing "-01-01" would put a precision in the record that
+        # nothing established.
+        "publication_date": str(year).strip() if year not in (None, "") else None,
+        "doi": (found.get("doi") or "").strip() or None,
+        "pmid": (found.get("pmid") or "").strip() or None,
+        "arxiv_id": (found.get("arxiv_id") or "").strip() or None,
+    }
+
+
 def store_paper(
     cur, *, project_id: str, source_id: str, parsed: Any, actor: str,
 ) -> dict[str, Any]:
@@ -124,17 +172,35 @@ def store_paper(
         metadata={"parser": parsed.metadata.get("parser"), "pages": parsed.page_count},
     )
     paper_id = new_id("pap")
+    citation = _bibliography_of(cur, source_id)
     cur.execute(
         """
-        INSERT INTO papers (id, project_id, source_id, object_id, title, page_count, metadata)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO papers (id, project_id, source_id, object_id, title,
+                            page_count, metadata, authors, journal,
+                            publication_date, doi, pmid, arxiv_id)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (source_id) DO UPDATE
             SET title = EXCLUDED.title, page_count = EXCLUDED.page_count,
-                metadata = EXCLUDED.metadata
+                metadata = EXCLUDED.metadata,
+                -- Re-parsing a PDF must not erase what a search established.
+                -- The parser knows the page count; it does not know the DOI,
+                -- and letting a second parse overwrite one with NULL would
+                -- lose a citation to an act that had nothing to do with it.
+                authors = CASE WHEN jsonb_array_length(EXCLUDED.authors) > 0
+                               THEN EXCLUDED.authors ELSE papers.authors END,
+                journal = COALESCE(NULLIF(EXCLUDED.journal, ''), papers.journal),
+                publication_date = COALESCE(EXCLUDED.publication_date,
+                                            papers.publication_date),
+                doi = COALESCE(EXCLUDED.doi, papers.doi),
+                pmid = COALESCE(EXCLUDED.pmid, papers.pmid),
+                arxiv_id = COALESCE(EXCLUDED.arxiv_id, papers.arxiv_id)
         RETURNING id
         """,
         (paper_id, project_id, source_id, paper_object_id, title,
-         parsed.page_count, parsed.metadata),
+         parsed.page_count, parsed.metadata,
+         jsonb(citation.get("authors") or []), citation.get("journal") or "",
+         citation.get("publication_date"),
+         citation.get("doi"), citation.get("pmid"), citation.get("arxiv_id")),
     )
     return {"paper_id": cur.fetchone()["id"], "object_id": paper_object_id}
 

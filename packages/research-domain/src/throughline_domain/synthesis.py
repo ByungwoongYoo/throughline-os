@@ -65,6 +65,15 @@ def matrix(cur, *, project_id: str, source_ids: list[str]) -> dict[str, Any]:
             f"{len(unique) * (len(unique) - 1) // 2} pairwise comparisons and a "
             f"table too wide to read. Compare at most {MAX_PAPERS} at a time.")
 
+    # Every paper is this project's. `extraction.stored` and the title lookup
+    # below both take a source id alone, so a comparison could read another
+    # project's readings and titles into this one (T162). The route checks
+    # first; this is so no other caller has to remember to.
+    cur.execute("SELECT id FROM sources WHERE project_id = %s AND id = ANY(%s)",
+                (project_id, unique))
+    if len(cur.fetchall()) != len(unique):
+        raise SynthesisError("One of these papers is not in this project.")
+
     papers: list[dict[str, Any]] = []
     missing: list[str] = []
     for source_id in unique:

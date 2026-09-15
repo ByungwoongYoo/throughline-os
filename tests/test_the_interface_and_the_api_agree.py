@@ -24,18 +24,36 @@ separates a finding from `assumption_checks: Array<{ name }>`.
 from __future__ import annotations
 
 import re
-import uuid
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 from throughline_domain.db import connection
 from throughline_workers.runner import Worker
+from conftest import sign_in
 
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "apps" / "web"
 
-CALL = re.compile(r'useApi<([A-Za-z][A-Za-z0-9]*)(\[\])?>\(\s*[`"\']([^`"\']+)')
+#: Typed GET calls, however they are spelled.
+#:
+#: This read `useApi<T>` alone, which is a little over half the typed calls in
+#: the interface: 60 of 118. `api.get<T>(path)` is the same question — a path,
+#: a declared shape, an answer to compare them against — and skipping it left
+#: 17 endpoints unchecked, among them the notebook, the consistency sweep, the
+#: fragility report and every `/api/system` route.
+#:
+#: `api.post` and `api.put` stay out, and not for want of trying: exercising
+#: them means synthesising a request body per route, and a body guessed wrong
+#: produces a 4xx that this harness would read as "not answered" — a check
+#: reporting agreement because it never asked. `_unexercised` below names them
+#: rather than letting them disappear.
+CALL = re.compile(
+    r'''(?:useApi|api\.get)<([A-Za-z][A-Za-z0-9]*)(\[\])?>\(\s*[`"\']([^`"\']+)''')
+
+#: `import { PlainSummary } from "./ResultCard"` — a type used here, declared
+#: there.
+IMPORT = re.compile(r'import\s*\{([^}]*)\}\s*from\s*["\'](\.[^"\']+)["\']')
 OPENS = re.compile(r"(?:export )?type (\w+) = \{")
 
 
@@ -122,17 +140,62 @@ def _calls() -> tuple[list[tuple[Path, str, bool, str]], dict[Path, dict[str, st
     return calls, per_file
 
 
+def _imports(source: Path) -> dict[str, Path]:
+    """Type name → the file it was imported from, for relative imports."""
+    found: dict[str, Path] = {}
+    for names, target in IMPORT.findall(source.read_text()):
+        for suffix in (".tsx", ".ts"):
+            candidate = (source.parent / target).with_suffix(suffix)
+            if candidate.exists():
+                for name in names.split(","):
+                    name = name.strip().removeprefix("type ").strip()
+                    if name:
+                        found[name] = candidate
+                break
+    return found
+
+
+def _declaration_for(name: str, source: Path,
+                     per_file: dict[Path, dict[str, str]],
+                     shared: dict[str, str]) -> str | None:
+    """
+    The body of `name` as *this* file sees it.
+
+    Looked up in the calling file, then `lib/api.ts`, then whichever file the
+    calling file imported it from. Keying by name across the whole interface
+    would be wrong for the reason `_answered` gives — `lifecycle.tsx` declares
+    its own narrow `FindingRecord`, and several components declare a `Source`
+    with only the fields they show — so resolution follows the import rather
+    than the name.
+
+    Without this step a type declared elsewhere was silently unresolvable and
+    its call was skipped, which looked exactly like a call that had been
+    checked and found fine. `PlainSummary`, declared in `ResultCard.tsx` and
+    used in two other components, was the one that was actually being missed.
+    """
+    body = per_file.get(source, {}).get(name) or shared.get(name)
+    if body is not None:
+        return body
+    origin = _imports(source).get(name)
+    if origin is None:
+        return None
+    return per_file.get(origin, _declarations(origin.read_text())).get(name)
+
+
 @pytest.fixture(scope="module")
 def populated():
     from throughline_api.app import app
 
     with TestClient(app) as client:
-        status = client.get("/api/auth/status").json()
-        endpoint = ("/api/auth/setup" if status["needs_setup"]
-                    else "/api/auth/login")
-        client.post(endpoint, json={
-            "email": f"shape-{uuid.uuid4().hex[:8]}@lab.local",
-            "display_name": "Shape", "password": "correct-horse-battery"})
+        # Signed in through the shared helper, which asserts that it worked.
+        # This branched on `needs_setup` and then logged in with a fresh random
+        # address — so a user row left behind by any earlier file sent it down
+        # the login path as an account that had never existed, the 401 went
+        # unread, and the failure surfaced two lines below as "Sign in to
+        # continue" on project creation. That is the flake this suite carried
+        # as an open defect, and it is the same absence-read-as-evidence this
+        # file exists to catch in the API.
+        sign_in(client, email="shape@lab.local", display_name="Shape")
         made = client.post("/api/projects/example")
         assert made.status_code in (200, 201), made.text
         while Worker(worker_id="shape-check").run_once():
@@ -158,7 +221,50 @@ def populated():
                 row = cur.fetchone()
                 if row:
                     ids[key] = row["id"]
+
         try:
+            # Inside the `try`, so a step that fails still reaches the
+            # `finally` that deletes the project. Outside it, a failure left
+            # the project behind; the worked example is idempotent per
+            # account, so the next fixture instance was handed that same
+            # project back and every later test failed with "already exists"
+            # — three lines from nothing to do with the real cause.
+            # Things the worked example never does, done here through the product's
+            # own routes so the nested check has something to judge. Seventeen
+            # nested field sets came back empty against the example alone — notes,
+            # their links, lint, registrations, a finding's evidence graph — and an
+            # empty list says nothing about the shape of what it would hold.
+            # Written through the routes rather than into the tables, because a
+            # fixture that writes rows the product cannot produce is how three of
+            # this file's neighbours passed over a defect.
+            # Titled so they cannot collide with the worked example's own notes —
+            # it already has one called "Resistance", and titles are how links
+            # resolve, so the notebook refuses a second.
+            first = client.post(f"/api/projects/{project_id}/notebook", json={
+                "title": "Shape check: resistance",
+                "body": "Tracks [[Shape check: consumption]]. "
+                        "See also [[Shape check: a page nobody wrote]]."})
+            assert first.status_code == 201, first.text
+            second = client.post(f"/api/projects/{project_id}/notebook", json={
+                "title": "Shape check: consumption",
+                "body": "Drives [[Shape check: resistance]]."})
+            assert second.status_code == 201, second.text
+            ids["id"] = first.json()["id"]
+
+            if "connectionId" in ids:
+                recorded = client.post(f"/api/projects/{project_id}/findings", json={
+                    "title": "Consumption tracks resistance",
+                    "finding_type": "statistical",
+                    "from_connections": [ids["connectionId"]]})
+                assert recorded.status_code == 201, recorded.text
+                # The finding the evidence graph can actually walk, rather than
+                # whichever one the database happened to list first.
+                ids["findingId"] = recorded.json()["finding_id"]
+
+            registered = client.post(f"/api/projects/{project_id}/preregistrations", json={
+                "hypothesis": "Antibiotic consumption increases resistance.",
+                "predicted_direction": "increase"})
+            assert registered.status_code == 201, registered.text
             yield client, ids
         finally:
             client.delete(f"/api/projects/{project_id}")
@@ -175,7 +281,7 @@ def _answered(client, ids) -> list[tuple[str, str, dict]]:
     seen = []
     for source, name, is_list, path in sorted(set(calls),
                                               key=lambda c: (c[1], c[3])):
-        body = per_file.get(source, {}).get(name) or shared.get(name)
+        body = _declaration_for(name, source, per_file, shared)
         if body is None or not path.startswith("/api"):
             continue
         parameters = re.findall(r"\$\{(\w+)\}", path)
@@ -202,14 +308,23 @@ def _answered(client, ids) -> list[tuple[str, str, dict]]:
             declared_in = ("lib/api.ts" if body is shared.get(name)
                            else str(source.relative_to(WEB)))
             seen.append((name, url, {"body": body, "sample": sample,
-                                     "declared_in": declared_in}))
+                                     "declared_in": declared_in,
+                                     "path": path}))
     return seen
 
 
 def test_enough_endpoints_answer_to_make_this_mean_something(populated):
-    """A scan that checked two endpoints would report agreement for ever."""
+    """
+    A scan that checked two endpoints would report agreement for ever.
+
+    The floor tracks what the scan reaches, so reach cannot quietly fall back.
+    It was 15 while only `useApi<T>` calls were read; reading `api.get<T>` and
+    resolving types through their imports took it to 41. Set below that with
+    headroom for endpoints that answer only once a worker finishes — but far
+    enough above 15 that losing either widening fails here.
+    """
     client, ids = populated
-    assert len(_answered(client, ids)) >= 15
+    assert len(_answered(client, ids)) >= 35
 
 
 def test_every_field_the_interface_requires_is_sent(populated):
@@ -223,6 +338,157 @@ def test_every_field_the_interface_requires_is_sent(populated):
                          f"which the response does not carry")
     assert not drift, ("the interface and the API disagree about what comes "
                        "back:\n  " + "\n  ".join(drift))
+
+
+# ---------------------------------------------------------------------------
+# One level down
+# ---------------------------------------------------------------------------
+#
+# The check above reads top-level fields only. `KeyFinding.method` — a field of
+# an array element — was sent on every key finding and declared nowhere, and
+# was found by reading the code rather than by this file. Measured before this
+# was written: of 66 typed calls it can resolve, 41 fields hold another named
+# type, and on its first run against the worked example it found one real
+# disagreement — `DiscoveryMap.top_connections` typed as the full `Connection`
+# while the server sends a ten-column projection.
+
+#: A field whose declared type is another named type: `Inner`, `Inner[]` or
+#: `Array<Inner>`, optionally `| null`.
+_NAMED_FIELD = (r"(?m)^\s*{field}\??:\s*(?:Array<\s*([A-Z]\w*)\s*>|([A-Z]\w*)\s*\[\]"
+                r"|([A-Z]\w*))\s*(?:\|\s*null)?\s*;?\s*$")
+
+
+def _nested_drift(name: str, body: str, sample: dict, source: Path,
+                  per_file: dict, shared: dict) -> tuple[list[str], list[str], int]:
+    """
+    Required fields missing one level down, what could not be judged, and how
+    many nested field sets were actually checked.
+
+    A list is judged by its first element, as the top-level check judges a
+    list response. An empty list or an absent object is *unjudged* — reported,
+    never counted as a pass — because a response with nothing in it says
+    nothing about the shape of what it would contain.
+    """
+    drift: list[str] = []
+    unjudged: list[str] = []
+    checked = 0
+    for field, _optional in _fields(body):
+        match = re.search(_NAMED_FIELD.format(field=re.escape(field)), body)
+        if not match:
+            continue
+        inner = next(x for x in match.groups() if x)
+        inner_body = _declaration_for(inner, source, per_file, shared)
+        if inner_body is None:
+            continue
+        value = sample.get(field)
+        element = (value[0] if isinstance(value, list) and value
+                   else value if isinstance(value, dict) else None)
+        if element is None:
+            unjudged.append(f"{name}.{field}")
+            continue
+        checked += 1
+        absent = [f for f in _required(inner_body) if f not in element]
+        if absent:
+            drift.append(f"{name}.{field} ({inner}): the interface requires "
+                         f"{absent}, which the response does not carry")
+    return drift, unjudged, checked
+
+
+#: Nested payloads the worked example leaves empty, so the check has nothing
+#: to judge one level down. Listed rather than counted, because the only thing
+#: worse than an unjudged payload is an unjudged payload nobody can name: a
+#: list that silently goes empty stops being checked and the suite stays green,
+#: which is how `EvidenceGraph.connections` — empty for every finding ever
+#: recorded — sat under this guard without it ever having anything to say
+#: (T154, and it is judged now).
+KNOWN_UNJUDGED = {
+    "Ledger.contradictions at /api/projects/${projectId}/contradictions",
+    "Lineage.ancestors at /api/projects/${projectId}/analyses/${runId}/lineage",
+    "Lineage.children at /api/projects/${projectId}/analyses/${runId}/lineage",
+    "Models.history at /api/system/models",
+    # Today's page is created empty, so it links to nothing. The same `Note`
+    # type is judged at `/api/notes/${id}`, whose fixture note does link —
+    # which is why these are keyed by URL and not by type: keyed by type, this
+    # entry would have excused that URL going empty too.
+    "Note.backlinks at /api/projects/${projectId}/notebook/today",
+    "Note.links at /api/projects/${projectId}/notebook/today",
+    "Report.artifacts at /api/projects/${projectId}/exports",
+    "Report.drifted at /api/projects/${projectId}/exports",
+    "Report.unchecked at /api/projects/${projectId}/exports",
+    "Sweep.reports at /api/projects/${projectId}/consistency",
+    "Variables.pending at /api/projects/${projectId}/variables",
+    "Vocabulary.pending at /api/projects/${projectId}/vocabulary",
+    "Vocabulary.variables at /api/projects/${projectId}/vocabulary",
+}
+
+
+def test_every_nested_field_the_interface_requires_is_sent(populated):
+    client, ids = populated
+    _, per_file = _calls()
+    shared = per_file.get(WEB / "lib" / "api.ts", {})
+    drift: list[str] = []
+    unjudged: list[str] = []
+    checked = 0
+    for name, url, found in _answered(client, ids):
+        more, empty, count = _nested_drift(
+            name, found["body"], found["sample"], WEB / found["declared_in"],
+            per_file, shared)
+        drift += [f"{line} at {url}" for line in more]
+        unjudged += [f"{field} at {found['path']}" for field in empty]
+        checked += count
+    # Ten had data to check when this was written; the rest were empty in the
+    # worked example and are named below rather than passed over.
+    assert checked >= 8, f"only {checked} nested field sets had anything to check"
+    assert not drift, ("one level down, the interface and the API disagree:\n  "
+                       + "\n  ".join(drift))
+
+    lost = sorted(set(unjudged) - KNOWN_UNJUDGED)
+    assert not lost, (
+        "These nested payloads used to be judged and are empty now:\n  "
+        + "\n  ".join(lost)
+        + "\n\nThe check did not fail — it stopped checking, which is the "
+          "shape this guard exists to prevent. Either the worked example "
+          "should produce one of these again, or the payload has genuinely "
+          "gone away and belongs in KNOWN_UNJUDGED with the reason.")
+
+
+def test_the_unjudged_list_does_not_outlive_its_entries(populated):
+    """
+    An allowlist nobody prunes becomes a list of things that used to be true.
+    When a payload starts carrying data, it is judged from then on and its
+    name has to leave — otherwise the list implies a gap in coverage that has
+    already been closed, and the next reader trusts it.
+    """
+    client, ids = populated
+    _, per_file = _calls()
+    shared = per_file.get(WEB / "lib" / "api.ts", {})
+    unjudged: set[str] = set()
+    for name, _url, found in _answered(client, ids):
+        _, empty, _ = _nested_drift(
+            name, found["body"], found["sample"], WEB / found["declared_in"],
+            per_file, shared)
+        unjudged |= {f"{field} at {found['path']}" for field in empty}
+
+    stale = sorted(KNOWN_UNJUDGED - unjudged)
+    assert not stale, (
+        "These are listed as unjudged but the check can judge them now:\n  "
+        + "\n  ".join(stale) + "\n\nRemove them from KNOWN_UNJUDGED.")
+
+
+def test_the_nested_check_sees_a_dropped_field_and_does_not_pass_an_empty_list():
+    """Planted, so the check is shown to see the thing it exists for."""
+    source = WEB / "planted.tsx"
+    per_file = {source: {"Inner": "id: string;\n  method: string;\n",
+                         "Other": "a: string;\n"}}
+    body = "items: Inner[];\n  one: Other;\n  none: Inner[];\n"
+    sample = {"items": [{"id": "conn_1"}], "one": {"a": "x"}, "none": []}
+
+    drift, unjudged, checked = _nested_drift("Outer", body, sample, source,
+                                             per_file, {})
+
+    assert checked == 2
+    assert unjudged == ["Outer.none"]
+    assert len(drift) == 1 and "'method'" in drift[0]
 
 
 def _declared(body: str) -> list[str]:
@@ -311,6 +577,28 @@ UNREAD: dict[str, set[str]] = {
     # of the `pending` list the panel already renders in full, so the number
     # would only repeat what is on screen.
     "Vocabulary in components/variables.tsx": {"pending_aliases"},
+    # The rest of this block arrived when the check started reading
+    # `api.get<T>` as well as `useApi<T>` — seventeen endpoints it had never
+    # seen. The fields that were substantive are now declared and shown: a
+    # graph that says when it is partial, a result's "what would change this",
+    # who wrote a plain reading, the risk ratio an E-value rests on, and the
+    # method on three sweeps. What remains here is the part that is not.
+    #
+    # `text` is `"\n".join(lines)`: the same section, already joined.
+    "Narrative in components/deviations.tsx": {"lines"},
+    # `notebook.create` writes `author_kind = 'human'` as a literal, so every
+    # note in a notebook was written by a person and saying so on each one
+    # would be noise. If a model is ever allowed to write here, this entry
+    # must go and the note must say which kind of author it had.
+    "Note in components/notebook.tsx": {
+        "author", "author_kind", "created_at", "note_date", "object_id",
+        "project_id",
+    },
+    # The same constant as `Detected.method`, on the same screen. Stated once,
+    # in the footer, rather than twice.
+    "Findings in components/patterns.tsx": {"method"},
+    # The id the screen already asked for, echoed back.
+    "Report in components/fragility.tsx": {"connection_id"},
 }
 
 

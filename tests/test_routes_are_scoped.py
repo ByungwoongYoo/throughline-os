@@ -81,6 +81,8 @@ NO_PROJECT = {
     "POST /api/system/version/check": "Asks whether a newer one exists.",
     "GET /api/system/packs/{name}": "Whether an optional feature pack is present.",
     "POST /api/system/packs/{name}/install": "Installs an optional feature pack.",
+    "GET /api/system/registration": "Whether this installation accepts sign-ups from the network.",
+    "PUT /api/system/registration": "Opens or closes sign-up from the network (administrator only).",
 }
 
 

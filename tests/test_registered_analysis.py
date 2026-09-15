@@ -474,3 +474,37 @@ def test_a_failed_run_contributes_no_p_value_even_if_it_carries_one(
         cur.execute("SELECT p_value FROM exploration_tests WHERE analysis_run_id = %s",
                     (run_id,))
         assert cur.fetchone()["p_value"] is None
+
+
+def test_an_analysis_cannot_count_as_a_look_in_another_projects_enquiry(client, workspace):
+    """
+    `POST /analyses` took `enquiry_id` from the request and recorded the look
+    into it unchecked — the same hole as the exploration route, reachable from
+    the analysis screen. A look counted in someone else's enquiry changes their
+    correction (T161). Refused before anything is created: a 404 that left a
+    spec and a queued run behind would be a refusal in name only.
+    """
+    from throughline_domain import auth, enquiry
+
+    project_id, version_id = workspace
+    with connection() as conn, conn.cursor() as cur:
+        other = auth.create_user(cur, email="other@lab.local", display_name="Other",
+                                 password="correct-horse-battery")
+        other_id = other["id"] if isinstance(other, dict) else other
+        cur.execute("INSERT INTO projects(id, owner_user_id, name) "
+                    "VALUES ('prj_theirs_t161', %s, 'Theirs')", (other_id,))
+        theirs = enquiry.open_new(cur, project_id="prj_theirs_t161")["id"]
+        cur.execute("SELECT count(*) AS n FROM analysis_runs WHERE project_id = %s",
+                    (project_id,))
+        runs_before = cur.fetchone()["n"]
+
+    response = _run(client, project_id, version_id, enquiry_id=theirs)
+    assert response.status_code == 404, response.text
+
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM exploration_tests WHERE enquiry_id = %s",
+                    (theirs,))
+        assert cur.fetchone()["n"] == 0
+        cur.execute("SELECT count(*) AS n FROM analysis_runs WHERE project_id = %s",
+                    (project_id,))
+        assert cur.fetchone()["n"] == runs_before

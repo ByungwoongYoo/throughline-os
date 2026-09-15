@@ -230,10 +230,61 @@ const READING = {
   headline: "Antibiotic use tracks resistance across these countries.",
   what_it_means: "Where more antibiotics are used, more resistance is carried.",
   how_confident: "Strong, and it survived the checks that were run.",
+  // The fourth sentence the model is asked for. It was missing from this
+  // fixture for as long as it was missing from `PlainSummary` — the type
+  // stopped at three, so the field was dropped on arrival and a fixture
+  // without it still looked like the real payload.
+  what_would_change_it:
+    "Data from countries with very different prescribing rules.",
   causal_reading: "This is an observational comparison between countries.",
   design: { description: "Cross-sectional, one year.",
             permits_causal_language: false },
+  // Who wrote it. Sent on every reading, and absent from this fixture for as
+  // long as the screen ignored it.
+  model: "qwen2.5:7b-instruct",
+  prompt: "plain_summary v3",
+  cached: false,
+  operational_summary: "Read the recorded result, its assumption checks and "
+    + "its validation report, and restated them in plain language without "
+    + "figures.",
 };
+
+describe("what a plain reading owes the reader", () => {
+  it("says what would change it", async () => {
+    // The fourth sentence the model is asked for, and the one the type
+    // dropped. It is the reading's own account of how it could be wrong.
+    vi.spyOn(api, "get").mockResolvedValue(READING as never);
+    render(<PlainReading runId="arun_1" />);
+
+    expect(await screen.findByText("What would change this")).toBeTruthy();
+    expect(screen.getByText(/very different prescribing rules/)).toBeTruthy();
+  });
+
+  it("names the model and prompt that wrote it", async () => {
+    /*
+     * Every sentence here is a model's. Two readings of one result can
+     * differ — another model, or the same one at a later prompt — and without
+     * attribution the difference is a matter of which one was seen last.
+     */
+    vi.spyOn(api, "get").mockResolvedValue(READING as never);
+    render(<PlainReading runId="arun_1" />);
+
+    expect(await screen.findByText(/Written by qwen2\.5:7b-instruct · plain_summary v3/))
+      .toBeTruthy();
+  });
+
+  it("says when the reading was kept from an earlier call", async () => {
+    // The cached branch sends no `operational_summary`, which is why that
+    // field is optional in the type.
+    const { operational_summary: _dropped, ...cached } = READING;
+    vi.spyOn(api, "get").mockResolvedValue(
+      { ...cached, cached: true } as never);
+    render(<PlainReading runId="arun_1" />);
+
+    expect(await screen.findByText(/kept from an earlier reading of this result/))
+      .toBeTruthy();
+  });
+});
 
 describe("reading a result in plain words", () => {
   it("asks for the run it was given, with no connection involved", async () => {

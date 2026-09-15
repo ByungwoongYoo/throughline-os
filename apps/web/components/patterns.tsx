@@ -55,6 +55,13 @@ type Detected = {
   connections_examined: number;
   canonical_coverage: number;
   note: string;
+  /**
+   * Always "deterministic": nothing on this screen consulted a model. Sent
+   * and not shown, which left a researcher unable to tell these patterns from
+   * a model's reading of the same results. `compare.tsx` states its method
+   * "because it is the reason to trust the verdict"; so does this.
+   */
+  method: string;
 };
 
 type KeyFinding = {
@@ -64,6 +71,14 @@ type KeyFinding = {
   lifecycle_status: string;
   evidence_quality: string;
   sample_size: number | null;
+  /**
+   * The test behind the result — `pearson_correlation`, `mann_whitney`, and
+   * so on. Sent on every key finding and not declared, so a card headed
+   * "the strongest surviving result in the project" could not say whether it
+   * came from a rank test or a regression. The contract check reads only
+   * top-level fields, which is how a nested one went unseen.
+   */
+  method: string;
   canonical: boolean;
   supporting_patterns: Pattern[];
   contradicting_patterns: Pattern[];
@@ -221,7 +236,11 @@ export function Patterns({ projectId, datasetVersionId, columns }: {
             <p className="pat-foot">
               {detected.connections_examined.toLocaleString()} results examined,{" "}
               {detected.canonical_coverage.toLocaleString()} of them in confirmed
-              canonical variables. {detected.note}
+              canonical variables. {detected.note}{" "}
+              <span className="cmp-method">
+                {detected.method} — computed from the recorded results, not
+                inferred
+              </span>
             </p>
           </>
         )}
@@ -280,6 +299,7 @@ function KeyFindingCard({ finding }: { finding: KeyFinding }) {
         <p className="pat-meta">
           {finding.lifecycle_status.replace(/_/g, " ")} ·{" "}
           {finding.evidence_quality?.replace(/_/g, " ")}
+          {finding.method ? ` · ${finding.method.replace(/_/g, " ")}` : ""}
           {finding.sample_size ? ` · n = ${finding.sample_size.toLocaleString()}` : ""}
           {!finding.canonical && (
             <span className="pat-warn">

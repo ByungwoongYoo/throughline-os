@@ -172,6 +172,15 @@ def record(cur, *, enquiry_id: str, project_id: str, verb: str,
     if verb not in VERBS:
         raise ValueError(f"verb must be one of {VERBS}; got {verb!r}")
 
+    # The family is the enquiry's, and so is its correction. An enquiry from
+    # another project would take this look into someone else's ledger and
+    # change which of *their* results survive. The route checks this too; it
+    # is here so that no other caller has to remember to (T161).
+    cur.execute("SELECT project_id FROM enquiries WHERE id = %s", (enquiry_id,))
+    owner = cur.fetchone()
+    if owner is None or owner["project_id"] != project_id:
+        raise ValueError("That line of enquiry does not belong to this project.")
+
     confirmatory, why = False, None
     # The claim is only storable when the thing claimed exists — a foreign key
     # cannot point at a registration nobody wrote, and a caller quoting an id

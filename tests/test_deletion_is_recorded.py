@@ -171,3 +171,79 @@ def test_every_destructive_route_writes_an_audit_entry():
         "These routes delete rows and record nothing in the audit log: "
         f"{missing}. A research record that logs creation but not destruction "
         "cannot answer the only question anybody asks it.")
+
+
+def _exports_on_disk(project_id: str) -> dict[str, pathlib.Path]:
+    """A rendered report and a figure for this project, written where the renderers write them."""
+    from throughline_domain import storage
+    from throughline_domain.ids import new_id
+
+    artifact, visual = new_id("art"), new_id("vis")
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("INSERT INTO communication_artifacts(id, project_id, artifact_type, title) "
+                    "VALUES (%s, %s, 'report', 'Unpublished')", (artifact, project_id))
+        spec, run = new_id("asp"), new_id("arun")
+        cur.execute(
+            "INSERT INTO analysis_specs(id, project_id, analysis_type, method, content_hash, "
+            "created_by, research_question, dataset_version_ids) "
+            "VALUES (%s, %s, 'correlation', 'pearson', %s, 'test', 'q', '[]'::jsonb)",
+            (spec, project_id, new_id("h")[:64]))
+        cur.execute("INSERT INTO analysis_runs(id, project_id, spec_id) VALUES (%s, %s, %s)",
+                    (run, project_id, spec))
+        cur.execute(
+            "INSERT INTO visuals(id, project_id, analysis_run_id, visual_type, spec, spec_hash, "
+            "created_by) VALUES (%s, %s, %s, 'scatter', '{}'::jsonb, 'h', 'test')",
+            (visual, project_id, run))
+
+    report = storage.storage_root() / "artifacts" / artifact / "ren_1.pdf"
+    figure = storage.storage_root() / "figures" / visual / f"{visual}-abc-blender.png"
+    for path in (report, figure):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"unpublished work")
+    return {"report": report, "figure": figure}
+
+
+def test_deleting_a_project_removes_its_exported_documents_and_figures(client):
+    """
+    "Everything in it is gone" — the route's own words. Cleanup read only the
+    `files` table, and rendered reports and figures are written outside it, so
+    a researcher's unpublished exports stayed on disk after the deletion they
+    asked for (T170). Another project's exports are left exactly as they were.
+    """
+    _account(client)
+    doomed = client.post("/api/projects", json={"name": "Doomed", "research_question": "q"}).json()["id"]
+    kept = client.post("/api/projects", json={"name": "Kept", "research_question": "q"}).json()["id"]
+    doomed_files, kept_files = _exports_on_disk(doomed), _exports_on_disk(kept)
+
+    assert client.delete(f"/api/projects/{doomed}").status_code in (200, 204)
+
+    for name, path in doomed_files.items():
+        assert not path.exists(), f"the deleted project's {name} is still on disk: {path}"
+        assert not path.parent.exists(), f"its {name} directory was left behind"
+    for name, path in kept_files.items():
+        assert path.exists(), f"another project's {name} was removed: {path}"
+
+
+def test_an_id_that_is_not_a_plain_name_cannot_widen_the_deletion(tmp_path, monkeypatch):
+    """
+    Removal is by directory, so an id is treated as a name and never a path. One
+    that resolved elsewhere — `..` would be the whole store — is refused, and
+    nothing outside its own folder is touched.
+
+    Against a store of its own: the mutation check that removed this guard
+    deleted the whole storage directory it was pointed at, so a regression here
+    must not be able to reach the store the rest of the suite shares.
+    """
+    from throughline_domain import storage
+
+    monkeypatch.setattr(storage, "storage_root", lambda: tmp_path)
+    neighbour = tmp_path / "artifacts" / "art_someone_else" / "ren_1.pdf"
+    neighbour.parent.mkdir(parents=True)
+    neighbour.write_bytes(b"someone else's report")
+    (tmp_path / "figures").mkdir()
+
+    result = storage.collect_exports({"communication_artifacts": ["..", "../figures", "."]})
+
+    assert result["removed"] == 0
+    assert neighbour.exists()
+    assert (tmp_path / "figures").is_dir()
