@@ -3538,6 +3538,16 @@ def create_analysis(project_id: str, payload: AnalysisSpecRequest,
     """Validate a spec and queue it for sandboxed execution."""
     scoped_project(project_id, user)
     with transaction() as cur:
+        # Before anything is created. `enquiry_id` comes from the request, and
+        # this route recorded the look into whatever enquiry it named — so an
+        # analysis in your own project could count as a look in someone else's,
+        # changing their correction (T161). `exploration.record` refuses that
+        # too, but by then the spec and run exist and the refusal is a 500.
+        if payload.enquiry_id:
+            cur.execute("SELECT id FROM enquiries WHERE id = %s AND project_id = %s",
+                        (payload.enquiry_id, project_id))
+            if not cur.fetchone():
+                raise HTTPException(404, "no such line of enquiry")
         try:
             created = analysis.create_spec(cur, project_id=project_id,
                                            spec=payload.model_dump(), actor=user["id"])
