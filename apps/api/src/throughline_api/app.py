@@ -183,6 +183,25 @@ def current_user(throughline_session: str | None = Cookie(default=None)) -> dict
     return user
 
 
+def admin_user(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    """
+    The signed-in account, if it is this installation's administrator.
+
+    `users.is_admin` has been set since accounts existed — the first account is
+    the administrator, `docs/TRY_IT.md` says so, and the interface shows the
+    badge — and nothing checked it. Any account could install packs, save or
+    clear the model key, change the model, create accounts and install the
+    desktop entry. Those act on the machine rather than on a researcher's own
+    projects, and they are this role's now (T166). 403 rather than 404: unlike
+    another account's project, what is being refused here is no secret.
+    """
+    if not user.get("is_admin"):
+        raise HTTPException(
+            403, "Only the administrator of this installation can do this. It "
+                 "changes the machine for everyone who uses it, not one project.")
+    return user
+
+
 def scoped_project(project_id: str, user: dict[str, Any]) -> str:
     """Project isolation is checked here, never in the client."""
     with transaction() as cur:
@@ -296,11 +315,49 @@ def _registration_is_open(request: Request) -> bool:
     open registration server.
     """
     with transaction() as cur:
-        if (domain_settings.get(cur, "open_registration") or "").lower() in (
-                "1", "true", "yes", "on"):
+        if (domain_settings.get(cur, "open_registration") or "").lower() in _OPEN:
             return True
     host = (request.client.host if request.client else "") or ""
     return host in ("127.0.0.1", "::1", "localhost")
+
+
+class RegistrationSetting(BaseModel):
+    open: bool
+
+
+_OPEN = ("1", "true", "yes", "on")
+
+
+@app.get("/api/system/registration")
+def registration_setting(user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Whether strangers on the network may create accounts, and whether you can
+    change that. Readable by any account, so the screen can say what is true
+    and who can alter it rather than offering a switch that answers 403.
+    """
+    with transaction() as cur:
+        value = (domain_settings.get(cur, "open_registration") or "").lower()
+    return {"open": value in _OPEN, "can_change": bool(user.get("is_admin"))}
+
+
+@app.put("/api/system/registration")
+def set_registration(payload: RegistrationSetting,
+                     user: dict = Depends(admin_user)) -> dict[str, Any]:
+    """
+    Turn open registration on or off.
+
+    `_registration_is_open` has always read this, and the sign-up refusal and
+    `docs/TRY_IT.md` both told people to turn it on in Settings — where there
+    was no such switch, and no route that wrote it (T166). Administrator only:
+    turned on, anyone who can reach the port can make themselves an account
+    beside unpublished data. Written through `settings.set_value`, so who
+    opened it and when is on the record.
+    """
+    with transaction() as cur:
+        domain_settings.set_value(cur, "open_registration",
+                                  "true" if payload.open else "false",
+                                  changed_by=user["id"])
+    return {"open": payload.open, "can_change": True}
 
 
 @app.post("/api/auth/register", status_code=201)
@@ -365,7 +422,7 @@ class PasswordChange(BaseModel):
 
 @app.post("/api/auth/accounts", status_code=201)
 def create_account(payload: NewAccount,
-                   user: dict = Depends(current_user)) -> dict[str, Any]:
+                   user: dict = Depends(admin_user)) -> dict[str, Any]:
     """
     Add another researcher to this installation.
 
@@ -3081,7 +3138,7 @@ def available_models(user: dict = Depends(current_user)) -> dict[str, Any]:
 
 @app.put("/api/system/models")
 def choose_model(payload: ModelChoice,
-                 user: dict = Depends(current_user)) -> dict[str, Any]:
+                 user: dict = Depends(admin_user)) -> dict[str, Any]:
     """
     Point the system at a different model, effective immediately and after a
     restart.
@@ -3162,7 +3219,7 @@ class ModelKey(BaseModel):
 
 @app.put("/api/system/model-key")
 def save_model_key(payload: ModelKey,
-                   user: dict = Depends(current_user)) -> dict[str, Any]:
+                   user: dict = Depends(admin_user)) -> dict[str, Any]:
     """
     Save the hosted model's API key. Does not select the hosted model.
 
@@ -3195,7 +3252,7 @@ def save_model_key(payload: ModelKey,
 
 
 @app.delete("/api/system/model-key")
-def clear_model_key(user: dict = Depends(current_user)) -> dict[str, Any]:
+def clear_model_key(user: dict = Depends(admin_user)) -> dict[str, Any]:
     """
     Remove the key, and stop using the hosted model if it was selected.
 
@@ -3381,7 +3438,7 @@ def system_launchers() -> dict[str, Any]:
 
 
 @app.post("/api/system/launchers/desktop-entry", status_code=200)
-def install_desktop_entry(user: dict = Depends(current_user)) -> dict[str, Any]:
+def install_desktop_entry(user: dict = Depends(admin_user)) -> dict[str, Any]:
     """Add Throughline to the Linux applications menu.
 
     A POST because it writes a file into the researcher's home directory —
@@ -3451,7 +3508,7 @@ def pack_state(name: str) -> dict[str, Any]:
 
 
 @app.post("/api/system/packs/{name}/install", status_code=202)
-def install_pack(name: str, user: dict = Depends(current_user)) -> dict[str, Any]:
+def install_pack(name: str, user: dict = Depends(admin_user)) -> dict[str, Any]:
     """Turn a capability on, from the screen that reported it missing.
 
     **202 and not 200.** Some of these are gigabytes — `speech` pulls in torch —

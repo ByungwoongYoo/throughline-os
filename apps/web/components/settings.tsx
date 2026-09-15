@@ -119,7 +119,7 @@ type Projection = {
  * machine or the network the researcher chose, and an open sign-up endpoint
  * would let them help themselves to the corpus.
  */
-export function Accounts() {
+export function Accounts({ isAdmin = true }: { isAdmin?: boolean } = {}) {
   const [people, setPeople] = useState<Array<{
     id: string; email: string; display_name: string; is_admin: boolean;
   }> | null>(null);
@@ -201,8 +201,9 @@ export function Accounts() {
       <section className="set-section">
         <h2>People</h2>
         <p className="set-sub">
-          Everyone with an account on this installation. There is no public
-          sign-up: accounts are added from inside, by someone already signed in.
+          Everyone with an account on this installation. The administrator adds
+          people here; anyone at this machine can also sign up, and sign-up from
+          the network is off unless it is turned on below.
         </p>
 
         {peopleError != null && (
@@ -219,7 +220,12 @@ export function Accounts() {
           ))}
         </ul>
 
-        <div className="set-form">
+        {!isAdmin && (
+          <p className="set-note">
+            {"Only the administrator of this installation can add people. It changes the machine for everyone who uses it, not one project."}
+          </p>
+        )}
+        {isAdmin && <div className="set-form">
           <label>
             <span>Email</span>
             <input value={email} type="email" autoComplete="off"
@@ -240,12 +246,95 @@ export function Accounts() {
                   onClick={() => void addPerson()}>
             Add person
           </button>
-        </div>
+        </div>}
 
         {message && <p className="set-note">{message}</p>}
         {error ? <Failure error={error} /> : null}
       </section>
     </>
+  );
+}
+
+/**
+ * Sign-up from the network: whether it is open, and a switch for the one account
+ * allowed to change it.
+ *
+ * The sign-up refusal and `docs/TRY_IT.md` both told people to turn on open
+ * registration in Settings, and there was no such switch — the setting was read
+ * at sign-up and nothing wrote it (T166). The server says who may change it
+ * (`can_change`), so this never offers a switch that would only answer 403.
+ */
+export function RegistrationPanel() {
+  const [state, setState] = useState<{ open: boolean; can_change: boolean } | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  const [asking, setAsking] = useState(false);
+
+  useEffect(() => {
+    api.get<{ open: boolean; can_change: boolean }>("/api/system/registration")
+      .then(setState).catch(setError);
+  }, []);
+
+  async function change(open: boolean) {
+    setBusy(true); setError(null);
+    try {
+      setState(await api.put<{ open: boolean; can_change: boolean }>(
+        "/api/system/registration", { open }));
+      setAsking(false);
+    } catch (err) { setError(err); } finally { setBusy(false); }
+  }
+
+  return (
+    <section className="set-section">
+      <h2>Sign-up from the network</h2>
+      <p className="set-sub">
+        Anyone at this machine can make an account. Turned on, so can anyone who
+        can reach it over the network — on café wifi, that is everyone there.
+      </p>
+      {error != null && <Failure error={error} />}
+      {/*
+        Only what the server said. An answer without `open` is not "closed" —
+        reading a missing field as the safe-sounding value would state a fact
+        nobody reported. And no `role="status"`: this is the setting as it
+        stands, not an announcement, and the page already has one status line
+        that must stay the only one a reader is told about.
+      */}
+      {state && typeof state.open === "boolean" && (
+        <>
+          <p className="set-note">
+            {state.open
+              ? "Open: people on the network can create accounts."
+              : "Closed: accounts can only be created at this machine."}
+          </p>
+          {state.can_change ? (
+            <div className="set-pack-actions">
+              <button type="button" className="btn" disabled={busy}
+                      onClick={() => (state.open ? void change(false) : setAsking(true))}>
+                {state.open ? "Close sign-up" : "Open sign-up to the network"}
+              </button>
+            </div>
+          ) : (
+            <p className="set-note">
+              {"Only the administrator of this installation can change this. It changes the machine for everyone who uses it, not one project."}
+            </p>
+          )}
+          <ConfirmDialog
+            open={asking}
+            title="Let anyone on the network create an account?"
+            body={<>Each new account starts empty and cannot see anyone else&rsquo;s
+              projects, but it sits on the same machine as this corpus.</>}
+            consequences={[
+              "Anyone who can reach this machine can sign up until it is closed again",
+              "It can be closed from here at any time; accounts already made stay",
+            ]}
+            confirmLabel="Open sign-up"
+            busy={busy}
+            onConfirm={() => void change(true)}
+            onCancel={() => setAsking(false)}
+          />
+        </>
+      )}
+    </section>
   );
 }
 
@@ -352,7 +441,7 @@ function BlenderRow({ state }: { state: BlenderAvailability }) {
   );
 }
 
-export function FeaturePacks() {
+export function FeaturePacks({ isAdmin = true }: { isAdmin?: boolean } = {}) {
   const [packs, setPacks] = useState<Record<string, Pack> | null>(null);
   /*
    * `null` *or* absent. The capabilities endpoint is versioned by nothing, and
@@ -444,7 +533,7 @@ export function FeaturePacks() {
                   type="button"
                   className="btn"
                   onClick={() => install(name)}
-                  disabled={busy !== null || pack.install_state === "running"}
+                  disabled={!isAdmin || busy !== null || pack.install_state === "running"}
                 >
                   {pack.install_state === "running" || busy === name
                     ? "Installing…"
@@ -455,6 +544,9 @@ export function FeaturePacks() {
                     when the button fails on a machine nobody can see. */}
                 {pack.install && <code>{pack.install}</code>}
               </div>
+            )}
+            {!pack.installed && !isAdmin && (
+              <p className="set-note">{"Only the administrator of this installation can install packs. It changes the machine for everyone who uses it, not one project."}</p>
             )}
 
             {pack.install_state === "running" && (
@@ -650,7 +742,7 @@ type Launcher = {
  * dangerous and stops — which is the right instinct, and the reason to spend a
  * sentence on it in advance.
  */
-export function StartingPanel() {
+export function StartingPanel({ isAdmin = true }: { isAdmin?: boolean } = {}) {
   const [launcher, setLauncher] = useState<Launcher | null>(null);
   const [adding, setAdding] = useState(false);
   const [added, setAdded] = useState<string | null>(null);
@@ -724,13 +816,17 @@ export function StartingPanel() {
                   : " There is not one yet."}
               </p>
               <div className="set-pack-actions">
-                <button type="button" className="btn" onClick={addToMenu} disabled={adding}>
+                <button type="button" className="btn" onClick={addToMenu}
+                        disabled={!isAdmin || adding}>
                   {adding ? "Adding…"
                     : launcher.desktop_entry_installed
                       ? "Add it again"
                       : "Add to applications menu"}
                 </button>
               </div>
+              {!isAdmin && (
+                <p className="set-note">{"Only the administrator of this installation can add a menu entry. It changes the machine for everyone who uses it, not one project."}</p>
+              )}
             </>
           )}
 
@@ -750,7 +846,7 @@ export function StartingPanel() {
 /** What `POST /api/projects/{id}/graph-projection` returns (`app.py:1120`). */
 type Rebuilt = { nodes: number; edges: number; source_watermark: string | null };
 
-export function Settings({ projectId }: {
+export function Settings({ projectId, isAdmin = true }: {
   /**
    * The project whose graph projection this screen can rebuild.
    *
@@ -762,6 +858,15 @@ export function Settings({ projectId }: {
    * has nothing to act on (§123).
    */
   projectId?: string;
+  /**
+   * Whether the signed-in account is this installation's administrator.
+   *
+   * Only decides what is *offered*: the server refuses these actions to anyone
+   * else whatever the screen shows (T166). Defaults to offering, so a caller
+   * that forgets it shows a control the server then refuses in its own words —
+   * less helpful, never a hole. The workspace always passes the real value.
+   */
+  isAdmin?: boolean;
 }) {
   const [models, setModels] = useState<Models | null>(null);
   const [projection, setProjection] = useState<Projection | null>(null);
@@ -982,6 +1087,9 @@ export function Settings({ projectId }: {
           </div>
         )}
 
+        {!isAdmin && (
+          <p className="set-note">{"Only the administrator of this installation can change its model or key. It changes the machine for everyone who uses it, not one project."}</p>
+        )}
         <div className="set-models">
           {models?.installed.map((model) => {
             // Exact match, or base-name match only when the selection carries
@@ -998,7 +1106,7 @@ export function Settings({ projectId }: {
                 key={model.name}
                 className="set-model"
                 data-active={active}
-                disabled={saving !== null}
+                disabled={!isAdmin || saving !== null}
                 onClick={() => void chooseModel(model)}
               >
                 <span className="set-model-name">{model.name}</span>
@@ -1086,13 +1194,14 @@ export function Settings({ projectId }: {
                     ? `saved ${models.hosted.key_hint ?? ""}`
                     : "not set"}
                   value={keyInput}
+                  disabled={!isAdmin}
                   onChange={(event) => setKeyInput(event.target.value)}
                 />
               </label>
               <button
                 type="button"
                 className="btn"
-                disabled={keyBusy || keyInput.trim().length === 0}
+                disabled={!isAdmin || keyBusy || keyInput.trim().length === 0}
                 onClick={() => void saveKey()}
               >
                 {models.hosted.key_saved ? "Replace key" : "Save key"}
@@ -1101,7 +1210,7 @@ export function Settings({ projectId }: {
                 <button
                   type="button"
                   className="btn btn-danger"
-                  disabled={keyBusy}
+                  disabled={!isAdmin || keyBusy}
                   onClick={() => setAskingRemoveKey(true)}
                 >
                   Remove
@@ -1138,7 +1247,7 @@ export function Settings({ projectId }: {
               type="button"
               className="set-model"
               data-active={models.selection.provider === models.hosted.provider}
-              disabled={saving !== null || !models.hosted.key_saved}
+              disabled={!isAdmin || saving !== null || !models.hosted.key_saved}
               onClick={() => void chooseHosted()}
             >
               <span className="set-model-name">{models.hosted.model}</span>
@@ -1274,13 +1383,15 @@ export function Settings({ projectId }: {
         </section>
       )}
 
-      <StartingPanel />
+      <StartingPanel isAdmin={isAdmin} />
 
       <VersionPanel />
 
-      <FeaturePacks />
+      <FeaturePacks isAdmin={isAdmin} />
 
-      <Accounts />
+      <Accounts isAdmin={isAdmin} />
+
+      <RegistrationPanel />
 
       {models && models.history.length > 0 && (
         <section className="set-section">

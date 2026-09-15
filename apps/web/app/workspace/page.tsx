@@ -775,7 +775,9 @@ function Workspace({ user }: { user: SignedInUser }) {
           <Journal projectId={project.id} onOpenObject={select("object")} />
         )}
         {section === "activity" && <ProjectActivity projectId={project.id} />}
-        {section === "settings" && <Settings projectId={project.id} />}
+        {section === "settings" && (
+          <Settings projectId={project.id} isAdmin={user.is_admin === true} />
+        )}
         {section === "graph" && (
           /*
            * `replace`, not push: a graph is browsed by clicking node after
