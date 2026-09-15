@@ -184,9 +184,50 @@ def _declaration_for(name: str, source: Path,
 
 @pytest.fixture(scope="module")
 def populated():
-    from throughline_api.app import app
+    from unittest.mock import patch
 
-    with TestClient(app) as client:
+    from throughline_api.app import app
+    import throughline_model.ollama as ollama
+
+    # Ollama's tag listing, answered here, so `Models.installed` is judged.
+    #
+    # Whatever models a machine has is a fact about the machine, not about the
+    # worked example, and no CI runner has a model server: the list came back
+    # empty on every run, `main`'s included, so the guard's "stopped checking"
+    # assertion failed on every push since T150 reached `settings.tsx`. Excusing
+    # it in `KNOWN_UNJUDGED` would have left the shape unchecked everywhere.
+    # Answering the one HTTP call instead lets `OllamaProvider.installed()` run
+    # its real parsing — the fields it builds are what is compared against the
+    # interface's `Installed` type — and a cloud-tagged entry exercises
+    # `runs_here`. Every other URL goes to the real `urlopen`.
+    tags = {"models": [
+        {"name": "llama3.1:8b", "size": 4_920_000_000,
+         "details": {"parameter_size": "8.0B", "quantization_level": "Q4_K_M",
+                     "family": "llama"}},
+        {"name": "gpt-oss:120b-cloud", "size": 384,
+         "details": {"parameter_size": "116.8B", "quantization_level": "MXFP4",
+                     "family": "gptoss"}},
+    ]}
+    real_urlopen = ollama.urllib.request.urlopen
+
+    class _Answer:
+        def __init__(self, body: bytes):
+            self._body = body
+        def read(self) -> bytes:
+            return self._body
+        def __enter__(self):
+            return self
+        def __exit__(self, *exc):
+            return False
+
+    def urlopen(request, *args, **kwargs):
+        url = request if isinstance(request, str) else request.full_url
+        if url.endswith("/api/tags"):
+            import json
+            return _Answer(json.dumps(tags).encode("utf-8"))
+        return real_urlopen(request, *args, **kwargs)
+
+    with patch.object(ollama.urllib.request, "urlopen", urlopen), TestClient(app) as client:
         # Signed in through the shared helper, which asserts that it worked.
         # This branched on `needs_setup` and then logged in with a fresh random
         # address — so a user row left behind by any earlier file sent it down
