@@ -16,6 +16,8 @@ from typing import Any, Sequence
 from throughline_schemas.enums import WorkflowState
 from throughline_schemas.words import counted, plural
 
+from . import discovery
+
 #:  — a hard ceiling, not a suggestion.
 MAX_NODES = 300
 
@@ -213,7 +215,9 @@ def evidence_graph(cur, *, finding_id: str) -> dict[str, Any]:
             """
             SELECT DISTINCT c.*, dr.dataset_version_id,
                    r.object_id AS analysis_object_id,
-                   ds.name AS dataset_name, dv.version AS dataset_version
+                   ds.name AS dataset_name, dv.version AS dataset_version,
+                   COALESCE(dr.false_discovery_rate, {default_fdr}) AS false_discovery_rate,
+                   {survived} AS survived_correction
             FROM artifact_lineage_edges e
             JOIN research_objects o ON o.id = e.source_artifact_id
             JOIN analysis_runs r ON r.object_id = o.id
@@ -223,7 +227,8 @@ def evidence_graph(cur, *, finding_id: str) -> dict[str, Any]:
             LEFT JOIN datasets ds ON ds.id = dv.dataset_id
             WHERE e.target_artifact_id = %s
             ORDER BY c.rank_score DESC, c.created_at DESC
-            """,
+            """.replace("{survived}", discovery.SURVIVED_SQL)
+               .replace("{default_fdr}", str(discovery.DEFAULT_FDR)),
             (finding["object_id"],),
         )
         connections = list(cur.fetchall())
