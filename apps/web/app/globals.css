@@ -6042,8 +6042,16 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
    group the day somebody renders its rows unconditionally. */
 .rail-entries { min-width: 0; }
 
-/* The gate's two doors, as equal labelled buttons above the form. */
-.gate-modes { display: flex; gap: 8px; margin-bottom: 18px; }
+/* The gate's two doors, as equal labelled buttons above the form.
+ *
+ * Each label stays on one line, and when the column is too narrow for both the
+ * pair stacks into two full-width rows. They wrapped inside themselves
+ * instead — "Create an / account" beside "I already have / an account" at a
+ * 1024px window (T183) — which reads as four fragments rather than two choices.
+ */
+.gate-modes { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+.gate-modes > .btn { flex: 1 1 auto; white-space: nowrap; justify-content: center; }
+@media (pointer: coarse) { .gate-modes > .btn { min-height: 44px; } }
 
 /* The one-clause note beside a label, shown only when the rail is wide enough
    to carry it without wrapping the row: a note that pushed rows off the
