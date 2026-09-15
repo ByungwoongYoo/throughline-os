@@ -23,6 +23,7 @@ to `validation.py`.
 from __future__ import annotations
 
 import math
+from fractions import Fraction
 from typing import Any, Iterable, Sequence
 
 from .ids import new_id
@@ -246,23 +247,32 @@ def benjamini_hochberg(p_values: Sequence[float], fdr: float = 0.05) -> list[dic
     tested = [i for i, value in enumerate(cleaned) if value is not None]
     family = len(tested)
 
-    q_values: list[float | None] = [None] * len(p_values)
+    # In exact rational arithmetic, not floating point. `p * m / rank` in floats
+    # lands a result that is exactly on the threshold a hair above it — 0.05 * 6
+    # / 3 is 0.10000000000000002 — and `q <= fdr` then reported a result that
+    # meets the criterion as failing it. Rounded p-values in small families put
+    # results on the line routinely (T173). `Fraction` of a float is that
+    # float's exact value, so the comparison is between the numbers the
+    # researcher actually has; only the reported q-value is converted back.
+    exact: list[Fraction | None] = [None] * len(p_values)
     if family:
         order = sorted(tested, key=lambda i: cleaned[i])
-        running_min = 1.0
+        running_min = Fraction(1)
         # Walk from the largest p-value down, enforcing monotonicity of q. Ties
         # therefore share a q-value: the first of a tied group reached is the one
         # at the highest rank, which gives the smallest p*m/rank, and the rest of
         # the group takes it from `running_min`.
         for rank_from_end, index in enumerate(reversed(order), start=1):
             rank = family - rank_from_end + 1
-            q = min(running_min, cleaned[index] * family / rank)
+            q = min(running_min, Fraction(cleaned[index]) * family / rank)
             running_min = q
-            q_values[index] = q
+            exact[index] = q
 
+    threshold = Fraction(fdr)
     return [
-        {"p_value": p_values[i], "q_value": q_values[i],
-         "survives": q_values[i] is not None and q_values[i] <= fdr}
+        {"p_value": p_values[i],
+         "q_value": None if exact[i] is None else float(exact[i]),
+         "survives": exact[i] is not None and exact[i] <= threshold}
         for i in range(len(p_values))
     ]
 

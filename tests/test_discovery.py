@@ -568,3 +568,54 @@ def test_discovery_runs_inline_for_a_caller_that_has_no_workflow_run():
             assert workflow.awaiting_approval(cur, project_id=project_id) == []
     finally:
         _cleanup(user_id)
+
+
+# ---------------------------------------------------------------------------
+# A result exactly at the threshold (T173)
+# ---------------------------------------------------------------------------
+
+def test_a_result_exactly_at_the_false_discovery_rate_survives_it():
+    """
+    q = p·m/rank was computed in floating point, and 0.05·6/3 came out as
+    0.10000000000000002 — above an FDR of 0.1 by noise alone — so a result that
+    meets the criterion exactly was reported as not surviving. Rounded p-values
+    in small families put results on the line routinely.
+    """
+    from throughline_domain import discovery
+
+    ps = [0.01, 0.02, 0.05, 0.3, 0.6, 0.9]
+    out = discovery.benjamini_hochberg(ps, fdr=0.1)
+
+    assert out[2]["q_value"] == 0.1
+    assert out[2]["survives"] is True
+
+
+def test_the_correction_agrees_with_statsmodels_on_many_families():
+    """
+    The reference implementation, on families with ties, missing p-values and
+    values on the threshold. Written because the boundary disagreement was found
+    this way and not by any example anyone thought to write down.
+    """
+    import math
+    import random
+
+    pytest.importorskip("statsmodels")
+    from statsmodels.stats.multitest import multipletests
+    from throughline_domain import discovery
+
+    rng = random.Random(7)
+    for _ in range(2000):
+        ps = []
+        for _ in range(rng.randint(1, 25)):
+            r = rng.random()
+            ps.append(None if r < 0.1 else rng.choice([0.01, 0.02, 0.05, 0.5])
+                      if r < 0.3 else rng.random() ** 3)
+        fdr = rng.choice([0.05, 0.1, 0.2])
+        out = discovery.benjamini_hochberg(ps, fdr=fdr)
+        tested = [i for i, p in enumerate(ps) if p is not None]
+        if not tested:
+            continue
+        reject, q, _, _ = multipletests([ps[i] for i in tested], alpha=fdr, method="fdr_bh")
+        for k, i in enumerate(tested):
+            assert math.isclose(out[i]["q_value"], q[k], rel_tol=1e-12, abs_tol=1e-15), (ps, fdr, i)
+            assert out[i]["survives"] == bool(reject[k]), (ps, fdr, i, out[i], q[k])
