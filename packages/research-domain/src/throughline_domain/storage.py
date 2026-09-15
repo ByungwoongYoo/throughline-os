@@ -112,6 +112,44 @@ def collect(orphan_keys: list[str]) -> dict[str, int]:
     return {"removed": removed, "failed": failed}
 
 
+#: Where renderers write outside the content-addressed store: one directory per
+#: object, named by its id, so nothing in one is shared with another project.
+EXPORT_DIRECTORIES = {"communication_artifacts": "artifacts", "visuals": "figures"}
+
+
+def collect_exports(ids_by_table: dict[str, list[str]]) -> dict[str, int]:
+    """
+    Remove the rendered documents and figures of objects that no longer exist.
+
+    `collect` only ever saw blobs listed in `files`. Reports are rendered into
+    `artifacts/{artifact_id}/` and figures — with their Blender scene files and
+    renders — into `figures/{visual_id}/`, and nothing removed either, so a
+    deleted project's unpublished exports stayed on disk after the deletion
+    that was supposed to take them (T170). Each directory is named by one
+    object's id and holds only that object's files, so this cannot reach
+    another project's. Failures are counted, not raised, for the reason
+    `collect` gives.
+    """
+    removed = failed = 0
+    root = storage_root().resolve()
+    for table, ids in ids_by_table.items():
+        folder = EXPORT_DIRECTORIES[table]
+        for object_id in ids:
+            try:
+                directory = (storage_root() / folder / object_id).resolve()
+                # An id is a name, never a path: refuse anything that would
+                # resolve outside its own folder, however it got into a row.
+                if directory.parent != root / folder:
+                    failed += 1
+                    continue
+                if directory.is_dir():
+                    shutil.rmtree(directory)
+                    removed += 1
+            except OSError:
+                failed += 1
+    return {"removed": removed, "failed": failed}
+
+
 def verify(storage_key: str, expected_hash: str) -> bool:
     """Re-check stored bytes against the hash a finding cited."""
     with path_for(storage_key).open("rb") as handle:

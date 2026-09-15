@@ -613,6 +613,15 @@ def delete_project(project_id: str,
             if count:
                 destroyed[table] = count
 
+        # Their ids, before the cascade takes the rows: rendered reports and
+        # figures live in per-object directories outside `files`, and afterwards
+        # there is nothing left to say which ones were this project's (T170).
+        exports: dict[str, list[str]] = {}
+        for table in storage.EXPORT_DIRECTORIES:
+            cur.execute(f"SELECT id FROM {table} WHERE project_id = %s",  # noqa: S608
+                        (project_id,))
+            exports[table] = [row["id"] for row in cur.fetchall()]
+
         cur.execute("DELETE FROM projects WHERE id = %s", (project_id,))
 
         events.audit(
@@ -633,6 +642,9 @@ def delete_project(project_id: str,
                 orphans.append(key)
 
     collected = storage.collect(orphans)
+    # After the commit, like `collect`: files are removed only once the rows
+    # that described them are gone for good.
+    storage.collect_exports(exports)
     return {
         "deleted": project_id,
         "name": project["name"],
