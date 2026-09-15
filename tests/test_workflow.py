@@ -170,6 +170,32 @@ def test_a_worker_that_lost_its_run_cannot_finish_it_over_the_new_owner(
     assert run["lease_owner"] == "worker-b"
 
 
+def test_a_gate_refuses_a_run_the_worker_no_longer_holds(empty_queue, cur, project):
+    """
+    Asserted here, on `gate` itself, as well as through a worker: the worker
+    test would also pass if the gate raised for any other reason, which is how
+    the first draft of it passed before this was written (T160).
+    """
+    run_id = workflow.enqueue(cur, workflow_name="discover", project_id=project)
+    workflow.claim_next(cur, worker_id="worker-a")
+    _worker_dies(cur, run_id)
+    workflow.claim_next(cur, worker_id="worker-b")
+
+    with pytest.raises(workflow.LeaseLost):
+        workflow.gate(cur, run_id=run_id, name="record", describes="Record it.",
+                      worker_id="worker-a")
+
+
+def test_the_holder_can_still_park_its_run_at_a_gate(empty_queue, cur, project):
+    run_id = workflow.enqueue(cur, workflow_name="discover", project_id=project)
+    workflow.claim_next(cur, worker_id="worker-a")
+
+    with pytest.raises(workflow.AwaitingApproval):
+        workflow.gate(cur, run_id=run_id, name="record", describes="Record it.",
+                      worker_id="worker-a")
+    assert workflow.get_run(cur, run_id)["state"] == str(WorkflowState.AWAITING_APPROVAL)
+
+
 def test_finishing_without_naming_a_worker_is_unchanged(empty_queue, cur, project):
     """
     The guard is for workers. `claim_next` closing an exhausted run, and a run

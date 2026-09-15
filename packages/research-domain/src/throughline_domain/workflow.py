@@ -343,7 +343,8 @@ def _node(cur, *, run_id: str, name: str,
     return cur.fetchone()
 
 
-def gate(cur, *, run_id: str, name: str, describes: str) -> None:
+def gate(cur, *, run_id: str, name: str, describes: str,
+         worker_id: str | None = None) -> None:
     """
     Hold the run here until a person releases it — §36/LAW 4.
 
@@ -357,6 +358,13 @@ def gate(cur, *, run_id: str, name: str, describes: str) -> None:
     in their own terms, at the moment they decide. It is stored on the node so
     the interface shows what the worker meant rather than what a page author
     guessed later.
+
+    ``worker_id`` is the worker holding the run, as for `finish`. Parking a run
+    at a gate is the third way a handler ends, and the runner commits it — so a
+    worker whose lease lapsed would otherwise commit its earlier steps and set
+    a run another worker holds, or has completed, back to waiting for approval
+    (T160). A run that is not this worker's raises `LeaseLost`, which rolls the
+    whole transaction back.
     """
     if not describes.strip():
         raise WorkflowError("A gate must describe what it is asking to release")
@@ -376,10 +384,17 @@ def gate(cur, *, run_id: str, name: str, describes: str) -> None:
         "UPDATE workflow_nodes SET state = %s, input = %s WHERE id = %s",
         (str(WorkflowState.AWAITING_APPROVAL), {"describes": describes},
          node["id"]))
+    owned = ""
+    params: list[Any] = [str(WorkflowState.AWAITING_APPROVAL), run_id]
+    if worker_id is not None:
+        owned = " AND lease_owner = %s AND state = 'running'"
+        params.append(worker_id)
     cur.execute(
         "UPDATE workflow_runs SET state = %s, lease_owner = NULL, "
-        "lease_expires_at = NULL, updated_at = now() WHERE id = %s",
-        (str(WorkflowState.AWAITING_APPROVAL), run_id))
+        "lease_expires_at = NULL, updated_at = now() WHERE id = %s" + owned +
+        " RETURNING id", params)
+    if cur.fetchone() is None:
+        raise LeaseLost(run_id)
     raise AwaitingApproval(run_id, name)
 
 

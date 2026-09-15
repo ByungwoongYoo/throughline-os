@@ -269,3 +269,59 @@ def test_a_worker_that_lost_its_lease_does_not_reschedule_a_finished_run(
         assert run["output"] == {"by": "w-new"}
     finally:
         REGISTRY._handlers.pop("test.failed_after_losing", None)
+
+
+def test_a_worker_that_lost_its_lease_cannot_park_the_run_at_a_gate(
+        empty_queue, committed_project):
+    """
+    The third way out of a handler, which T159 did not cover. The runner
+    catches `AwaitingApproval` inside the transaction and commits, so a worker
+    whose run was reclaimed and completed elsewhere, and which then reached a
+    gate, committed its earlier steps and set the completed run back to waiting
+    for approval (T160).
+    """
+    @REGISTRY.register("test.gated_after_losing")
+    def gated_after_losing(run: dict[str, Any], cur: Any) -> dict[str, Any]:
+        cur.execute("INSERT INTO audit_log(id, project_id, actor, action, object_type) "
+                    "VALUES (%s, %s, 'test', 'pre_gate_step', 'run')",
+                    (f"aud_{run['id']}", run["project_id"]))
+        with connection() as other, other.cursor() as ocur:
+            ocur.execute("UPDATE workflow_runs SET state = 'completed', "
+                         "lease_owner = NULL, lease_expires_at = NULL WHERE id = %s",
+                         (run["id"],))
+        workflow.gate(cur, run_id=run["id"], name="record", describes="Record it.",
+                      worker_id=run["lease_owner"])
+        return {"unreachable": True}
+
+    try:
+        run_id = _enqueue(committed_project, "test.gated_after_losing")
+        with connection() as conn, conn.cursor() as cur:
+            claimed = workflow.claim_next(cur, worker_id="w-old",
+                                          workflow_names=["test.gated_after_losing"])
+        Worker(worker_id="w-old")._execute(claimed)
+
+        assert _run(run_id)["state"] == str(WorkflowState.COMPLETED)
+        with connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM audit_log WHERE id = %s", (f"aud_{run_id}",))
+            assert cur.fetchone() is None, "the stale worker's pre-gate step was committed"
+    finally:
+        REGISTRY._handlers.pop("test.gated_after_losing", None)
+
+
+def test_every_gate_names_the_worker_that_holds_the_run():
+    """
+    The guard only works if it is asked. A gate written without `worker_id`
+    would quietly reopen T160, so every call in the handlers must pass it.
+    """
+    import ast
+    import pathlib
+
+    source = pathlib.Path(__file__).resolve().parents[1] / \
+        "services/workers/src/throughline_workers/handlers.py"
+    calls = [node for node in ast.walk(ast.parse(source.read_text()))
+             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+             and node.func.attr == "gate"]
+    assert calls, "no gate calls found: the premise of this test has moved"
+    missing = [c.lineno for c in calls
+               if not any(k.arg == "worker_id" for k in c.keywords)]
+    assert not missing, f"gate calls without worker_id at handlers.py lines {missing}"

@@ -520,6 +520,8 @@ def discovery_run(run: dict[str, Any], cur: Any) -> dict[str, Any]:
                             if (t["run"] or {}).get("status") == "completed")
         workflow.gate(
             cur, run_id=workflow_run_id, name="record_connections",
+            # The claimer: `claim_next` returns the row it leased (T160).
+            worker_id=run.get("lease_owner"),
             describes=(
                 f"Record {completed_now} tested "
                 f"{'pair' if completed_now == 1 else 'pairs'} into this project "
