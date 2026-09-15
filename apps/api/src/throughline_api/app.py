@@ -64,8 +64,6 @@ from throughline_domain.ids import new_id
 from throughline_domain.migrate import migrate
 from throughline_runtime.executor import policy_report as sandbox_policy_report
 from .security import SecurityMiddleware, deployment_is_local, session_cookie_kwargs
-from .security import SecurityMiddleware, deployment_is_local, session_cookie_kwargs
-from .security import SecurityMiddleware, deployment_is_local, session_cookie_kwargs
 from throughline_schemas.enums import (
     FindingLifecycle,
     FindingType,
@@ -102,14 +100,11 @@ app = FastAPI(title="Throughline OS", version=API_VERSION, lifespan=lifespan)
 
 # Rate limiting and security headers (§99). Added as middleware so no endpoint
 # can be written that forgets them.
-app.add_middleware(SecurityMiddleware)
-
-# Rate limiting and security headers. Added as middleware so no endpoint
-# can be written that forgets them.
-app.add_middleware(SecurityMiddleware)
-
-# Rate limiting and security headers. Added as middleware so no endpoint
-# can be written that forgets them.
+#
+# Once. This line — and its import — appeared three times, so every request was
+# counted three times: a hosted sign-in allowed about three attempts rather than
+# ten, and every limit was a third of what it said. Invisible while limits were
+# looked up by concrete path, since no bucket came near one (T167).
 app.add_middleware(SecurityMiddleware)
 
 

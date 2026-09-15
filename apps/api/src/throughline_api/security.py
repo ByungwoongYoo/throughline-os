@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from fastapi.responses import JSONResponse
 from fastapi import HTTPException, Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.routing import Match
 
 
 def deployment_is_local() -> bool:
@@ -71,6 +72,12 @@ class Limit:
 LIMITS: dict[str, Limit] = {
     "/api/auth/login": Limit(10, 300),
     "/api/auth/setup": Limit(5, 3600),
+    # Changing a password checks the current one, so a stolen session could
+    # otherwise guess it at the default rate; sign-up can be opened to the
+    # network (T166), and an open sign-up at the default rate is an
+    # account-creation loop (T167).
+    "/api/auth/password": Limit(10, 300),
+    "/api/auth/register": Limit(10, 3600),
     "/api/projects/{project_id}/discoveries": Limit(20, 3600),
     "/api/projects/{project_id}/analyses": Limit(60, 3600),
     "__default__": Limit(600, 60),
@@ -96,6 +103,8 @@ LIMITS: dict[str, Limit] = {
 LOCAL_LIMITS: dict[str, Limit] = {
     "/api/auth/login": Limit(100, 300),
     "/api/auth/setup": Limit(30, 3600),
+    "/api/auth/password": Limit(100, 300),
+    "/api/auth/register": Limit(30, 3600),
 }
 
 
@@ -183,12 +192,45 @@ def client_key(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+def route_template(request: Request) -> str:
+    """
+    The route a request will reach, as its template: `/api/projects/{project_id}/...`.
+
+    Limits are keyed by template, and this used to read `scope["route"]` — which
+    Starlette sets only once the router runs, *after* middleware. It was always
+    None, so the concrete path was looked up instead, no path ever matched a
+    template, and the sandbox limits on discoveries and analyses never applied;
+    and buckets were per concrete path, so per project rather than per caller
+    (T167). So the router is asked directly; a request that matches no route
+    falls back to its path.
+    """
+    for route in request.app.router.routes:
+        match, _ = route.matches(request.scope)
+        if match == Match.FULL:
+            return getattr(route, "path", request.url.path)
+    return request.url.path
+
+
+#: Methods that read. The named limits guard signing in and starting sandboxed
+#: work — all writes — and a template is shared by a route's read and write:
+#: `/api/projects/{project_id}/analyses` is also the list the interface polls.
+#: Found only once templates resolved: the analyses list would have been held to
+#: sixty requests an hour (T167). Reads keep the default limit, in a bucket of
+#: their own so they cannot spend a write's budget either.
+_READS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def limit_key(request: Request) -> str:
+    """The route a request is counted against, by method as well as template."""
+    template = route_template(request)
+    return f"{request.method} {template}" if request.method in _READS else template
+
+
 class SecurityMiddleware(BaseHTTPMiddleware):
     """Rate limiting plus the response headers a browser needs."""
 
     async def dispatch(self, request: Request, call_next):  # noqa: ANN001
-        route = request.scope.get("route")
-        route_path = getattr(route, "path", request.url.path)
+        route_path = limit_key(request)
 
         allowed, retry_after = (
             _limiter.check(key=client_key(request), route=route_path)

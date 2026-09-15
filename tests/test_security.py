@@ -270,3 +270,125 @@ def test_node_env_no_longer_decides_anything(monkeypatch):
     """
     monkeypatch.setenv("NODE_ENV", "development")
     assert "unsafe-eval" not in _csp(monkeypatch, "production")
+
+
+# ---------------------------------------------------------------------------
+# Through the middleware, where the limits actually have to be found (T167)
+# ---------------------------------------------------------------------------
+
+def _limiting_on(monkeypatch):
+    monkeypatch.setenv("THROUGHLINE_RATE_LIMIT", "on")
+    monkeypatch.setenv("THROUGHLINE_DEPLOYMENT", "hosted")
+
+
+def test_a_template_keyed_limit_applies_to_real_requests(monkeypatch, client):
+    """
+    The limit for starting a discovery is keyed by its route template, and the
+    middleware looked it up by the request's *concrete* path — `scope["route"]`
+    is set by the router only after middleware has run, so it was always None.
+    No path matches a template, so the sandbox limits never applied. The tests
+    above call `limit_for` with the template directly and never met the
+    middleware.
+    """
+    _limiting_on(monkeypatch)
+    allowed = security.LIMITS["/api/projects/{project_id}/discoveries"].requests
+
+    answers = [client.post(f"/api/projects/prj_{i}/discoveries", json={}).status_code
+               for i in range(allowed + 1)]
+
+    assert 429 not in answers[:allowed], answers
+    assert answers[allowed] == 429, answers
+
+
+def test_a_limit_is_per_caller_not_per_project(monkeypatch, client):
+    """
+    Each request above names a different project. Counted per concrete path, a
+    caller rotating project ids would never meet a limit at all — the bucket is
+    the caller and the route, whatever id the path carries.
+    """
+    _limiting_on(monkeypatch)
+    route = "/api/projects/{project_id}/analyses"
+    allowed = security.LIMITS[route].requests
+
+    for i in range(allowed):
+        client.post(f"/api/projects/prj_rotate_{i}/analyses", json={})
+    assert client.post("/api/projects/prj_brand_new/analyses", json={}).status_code == 429
+
+
+def test_guessing_the_current_password_is_throttled(monkeypatch, client):
+    """
+    `POST /api/auth/password` checks the current password, so a stolen session
+    could otherwise try one guess after another at the default 600 a minute.
+    """
+    _limiting_on(monkeypatch)
+    assert "/api/auth/password" in security.LIMITS
+    allowed = security.LIMITS["/api/auth/password"].requests
+
+    answers = [client.post("/api/auth/password", json={
+        "current_password": f"guess-{i:012d}", "new_password": "x" * 12}).status_code
+               for i in range(allowed + 1)]
+    assert answers[allowed] == 429, answers
+
+
+def test_signing_up_from_the_network_is_throttled(monkeypatch, client):
+    """
+    Sign-up from the network can be opened now (T166), and an open sign-up with
+    only the default limit is an account-creation loop.
+    """
+    _limiting_on(monkeypatch)
+    assert "/api/auth/register" in security.LIMITS
+    allowed = security.LIMITS["/api/auth/register"].requests
+
+    answers = [client.post("/api/auth/register", json={
+        "email": f"flood{i}@lab.local", "display_name": "F", "password": "x" * 12}).status_code
+               for i in range(allowed + 1)]
+    assert answers[allowed] == 429, answers
+
+
+def test_the_security_middleware_is_registered_once():
+    """
+    It was registered three times, so each request was counted three times and
+    every limit was a third of its stated size (T167).
+    """
+    from throughline_api.app import app
+
+    names = [m.cls.__name__ for m in app.user_middleware]
+    assert names.count("SecurityMiddleware") == 1, names
+
+
+def test_a_hosted_sign_in_allows_the_attempts_it_says(monkeypatch, client):
+    """Counted once per request: ten wrong passwords before the eleventh is refused."""
+    _limiting_on(monkeypatch)
+    allowed = security.LIMITS["/api/auth/login"].requests
+
+    answers = [client.post("/api/auth/login", json={
+        "email": "nobody@lab.local", "password": f"wrong-{i:012d}"}).status_code
+               for i in range(allowed + 1)]
+
+    assert 429 not in answers[:allowed], answers
+    assert answers[allowed] == 429, answers
+
+
+def test_reading_a_list_is_not_held_to_the_limit_on_starting_work(monkeypatch, client):
+    """
+    `/api/projects/{project_id}/analyses` is both "start an analysis" (sixty an
+    hour) and the list the interface polls. Keyed by template alone, resolving
+    templates would have throttled the list — found only once they resolved.
+    """
+    _limiting_on(monkeypatch)
+    allowed = security.LIMITS["/api/projects/{project_id}/analyses"].requests
+
+    answers = [client.get("/api/projects/prj_1/analyses").status_code
+               for _ in range(allowed + 5)]
+
+    assert 429 not in answers, answers
+
+
+def test_reads_do_not_spend_the_budget_for_starting_work(monkeypatch, client):
+    _limiting_on(monkeypatch)
+    allowed = security.LIMITS["/api/projects/{project_id}/analyses"].requests
+
+    for _ in range(allowed + 5):
+        client.get("/api/projects/prj_1/analyses")
+
+    assert client.post("/api/projects/prj_1/analyses", json={}).status_code != 429
