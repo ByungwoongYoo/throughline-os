@@ -113,15 +113,23 @@ app.add_middleware(SecurityMiddleware)
 # ---------------------------------------------------------------------------
 
 
+#: The longest password any request accepts — one number for every model that
+#: takes one. Setting a password allowed 1024 characters while signing in (and
+#: first-run setup) allowed 400, so a long generated passphrase could be set and
+#: then never used: sign-in refused it as too long before checking it, and the
+#: account was locked out for good (T169).
+MAX_PASSWORD = 1024
+
+
 class SetupRequest(BaseModel):
     email: str = Field(min_length=3, max_length=254)
     display_name: str = Field(min_length=1, max_length=200)
-    password: str = Field(min_length=12, max_length=400)
+    password: str = Field(min_length=12, max_length=MAX_PASSWORD)
 
 
 class LoginRequest(BaseModel):
     email: str = Field(min_length=3, max_length=254)
-    password: str = Field(min_length=1, max_length=400)
+    password: str = Field(min_length=1, max_length=MAX_PASSWORD)
 
 
 class ProjectCreate(BaseModel):
@@ -293,7 +301,7 @@ def auth_setup(payload: SetupRequest, response: Response) -> dict[str, Any]:
 class RegisterRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     display_name: str = Field(default="", max_length=200)
-    password: str = Field(min_length=12, max_length=1024)
+    password: str = Field(min_length=12, max_length=MAX_PASSWORD)
 
 
 def _registration_is_open(request: Request) -> bool:
@@ -407,12 +415,12 @@ def auth_login(payload: LoginRequest, response: Response) -> dict[str, Any]:
 class NewAccount(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     display_name: str = Field(default="", max_length=200)
-    password: str = Field(min_length=12, max_length=1024)
+    password: str = Field(min_length=12, max_length=MAX_PASSWORD)
 
 
 class PasswordChange(BaseModel):
-    current_password: str = Field(min_length=1, max_length=1024)
-    new_password: str = Field(min_length=12, max_length=1024)
+    current_password: str = Field(min_length=1, max_length=MAX_PASSWORD)
+    new_password: str = Field(min_length=12, max_length=MAX_PASSWORD)
 
 
 @app.post("/api/auth/accounts", status_code=201)
