@@ -465,7 +465,10 @@ def mann_whitney(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalResult
     b = working.loc[working["group"] == groups[1], "value"]
     statistic, p = stats.mannwhitneyu(a, b, alternative="two-sided")
     # Rank-biserial correlation, the effect size natural to this test.
-    rank_biserial = float(1 - (2 * statistic) / (len(a) * len(b)))
+    # scipy's U counts the pairs the first group wins (ties as half), so
+    # 2U/(n1 n2) - 1 is P(a > b) - P(b > a): positive when a is larger, the
+    # same direction as the median difference reported beside it.
+    rank_biserial = float((2 * statistic) / (len(a) * len(b)) - 1)
 
     return _finalise(StatisticalResult(
         method="mann_whitney_u",
@@ -575,7 +578,9 @@ def kruskal_wallis(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalResu
 
     statistic, p = stats.kruskal(*groups)
     n = int(len(working))
-    epsilon_squared = float((statistic - len(groups) + 1) / (n - len(groups))) if n > len(groups) else 0.0
+    # Epsilon-squared is H / (n - 1). (H - k + 1)/(n - k) is eta-squared-H, a
+    # different quantity that was reported under this name.
+    epsilon_squared = float(statistic / (n - 1)) if n > 1 else 0.0
 
     return _finalise(StatisticalResult(
         method="kruskal_wallis",

@@ -338,3 +338,75 @@ def test_a_mixed_model_refuses_a_single_group():
     frame = pd.DataFrame({"x": range(20), "y": range(20), "site": ["only"] * 20})
     with pytest.raises(AnalysisError, match="group"):
         run("mixed_model", frame, outcome="y", predictors=["x"], group="site")
+
+
+# ---------------------------------------------------------------------------
+# Effect sizes report what they are (T174)
+# ---------------------------------------------------------------------------
+
+def _two_groups(larger: str = "a"):
+    rng = np.random.default_rng(3)
+    high, low = rng.normal(10, 1, 40), rng.normal(8, 1, 40)
+    a, b = (high, low) if larger == "a" else (low, high)
+    return pd.DataFrame({"value": list(a) + list(b), "group": ["a"] * 40 + ["b"] * 40}), a, b
+
+
+def test_rank_biserial_points_the_same_way_as_the_difference_it_describes():
+    """
+    It was `1 - 2U/(n1 n2)` with scipy's U for the first group — the number of
+    pairs that group wins — which reverses the sign: a clearly larger group came
+    out at about -0.92 beside a median difference and a Cohen's d that are both
+    positive. One result contradicting itself on the page.
+    """
+    frame, a, b = _two_groups("a")
+    result = run("mann_whitney", frame, value="value", group="group")
+
+    wins = sum((x > y) + 0.5 * (x == y) for x in a for y in b)
+    reference = (2 * wins) / (len(a) * len(b)) - 1  # Kerby: P(a > b) - P(b > a)
+
+    assert result.estimate > 0
+    assert result.effect_size.value > 0
+    assert math.isclose(result.effect_size.value, reference, rel_tol=1e-12)
+
+
+def test_rank_biserial_is_negative_when_the_first_group_is_smaller():
+    frame, _, _ = _two_groups("b")
+    result = run("mann_whitney", frame, value="value", group="group")
+    assert result.estimate < 0 and result.effect_size.value < 0
+
+
+def test_the_kruskal_wallis_effect_is_the_epsilon_squared_it_is_called():
+    """`(H - k + 1)/(n - k)` is eta-squared-H. Epsilon-squared is H / (n - 1)."""
+    rng = np.random.default_rng(5)
+    groups = [rng.normal(m, 1, 25) for m in (0.0, 0.4, 0.9)]
+    frame = pd.DataFrame({"value": np.concatenate(groups),
+                          "group": ["g1"] * 25 + ["g2"] * 25 + ["g3"] * 25})
+    result = run("kruskal_wallis", frame, value="value", group="group")
+
+    h, _ = stats.kruskal(*groups)
+    assert result.effect_size.name == "epsilon_squared"
+    assert math.isclose(result.effect_size.value, h / (75 - 1), rel_tol=1e-12)
+
+
+@pytest.mark.parametrize("name,value,expected", [
+    # Proportions of variance explained: Cohen's (1988) small .01, medium .06, large .14.
+    ("eta_squared", 0.005, "negligible"), ("eta_squared", 0.03, "small"),
+    ("eta_squared", 0.12, "moderate"), ("eta_squared", 0.20, "large"),
+    ("epsilon_squared", 0.12, "moderate"),
+    # r-squared as the correlation thresholds squared: .01, .09, .25.
+    ("r_squared", 0.20, "moderate"), ("r_squared", 0.30, "large"),
+    # Correlation-scale measures keep .1, .3, .5.
+    ("pearson_r", 0.20, "small"), ("rank_biserial", -0.35, "moderate"),
+    ("cohens_d", 0.6, "moderate"),
+])
+def test_each_effect_size_is_judged_on_its_own_scale(name, value, expected):
+    """
+    eta-squared and r-squared are proportions of variance, and they were judged
+    with the thresholds for a correlation coefficient — so eta-squared of 0.12,
+    medium-to-large by the convention everyone quotes, was called "small", and a
+    regression explaining a fifth of the variance with it. Rank-biserial and
+    epsilon-squared have scales of their own and were never judged at all.
+    """
+    from throughline_runtime.contract import describe_practical_significance
+
+    assert describe_practical_significance(EffectSize(name=name, value=value)) == expected
