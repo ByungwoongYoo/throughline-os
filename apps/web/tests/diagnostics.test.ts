@@ -58,10 +58,22 @@ describe("the volcano", () => {
      * significant would be manufacturing exactly the false discovery this
      * product exists to prevent.
      */
-    const [passes] = volcano([tested({ pValue: 0.01, qValue: 0.03 })]);
-    const [fails] = volcano([tested({ pValue: 0.01, qValue: 0.4 })]);
+    const [passes] = volcano([tested({ pValue: 0.01, qValue: 0.03, survived: true })]);
+    const [fails] = volcano([tested({ pValue: 0.01, qValue: 0.4, survived: false })]);
     expect(passes.group).toBe("survives correction");
     expect(fails.group).toBe("does not survive");
+  });
+
+  it("colours by the server's verdict, not by a threshold of its own (T176)", () => {
+    // A run corrected at 0.10 promoted q = 0.08; one corrected at 0.01 left
+    // q = 0.03 behind. Re-deriving with `q <= 0.05` inverted both.
+    const [promoted] = volcano([tested({ qValue: 0.08, survived: true })]);
+    const [leftBehind] = volcano([tested({ qValue: 0.03, survived: false })]);
+    expect(promoted.group).toBe("survives correction");
+    expect(leftBehind.group).toBe("does not survive");
+    // A q-value with no verdict beside it is not a survivor.
+    const [unknown] = volcano([tested({ qValue: 0.001, survived: undefined })]);
+    expect(unknown.group).toBe("does not survive");
   });
 
   it("says when nothing was corrected at all", () => {
@@ -180,8 +192,8 @@ describe("the funnel", () => {
 describe("what each figure says in words", () => {
   it("counts what survived, when there was a correction", () => {
     const points = volcano([
-      tested({ id: "a", qValue: 0.01 }),
-      tested({ id: "b", qValue: 0.9 }),
+      tested({ id: "a", qValue: 0.01, survived: true }),
+      tested({ id: "b", qValue: 0.9, survived: false }),
     ]);
     expect(readAs("volcano", points)).toContain("1 still stand");
   });

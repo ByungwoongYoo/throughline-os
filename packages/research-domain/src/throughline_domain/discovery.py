@@ -268,13 +268,46 @@ def benjamini_hochberg(p_values: Sequence[float], fdr: float = 0.05) -> list[dic
             running_min = q
             exact[index] = q
 
-    threshold = Fraction(fdr)
+    # Survival is asked of the q-value that is stored, through the one rule
+    # every later reader uses, so the walk and the screens cannot disagree about
+    # a result. The exact walk is what keeps that stored q on the right side of
+    # the line; the float it becomes differs from it by less than half a ulp.
+    reported = [None if value is None else float(value) for value in exact]
     return [
         {"p_value": p_values[i],
-         "q_value": None if exact[i] is None else float(exact[i]),
-         "survives": exact[i] is not None and exact[i] <= threshold}
+         "q_value": reported[i],
+         "survives": survived_correction(reported[i], fdr)}
         for i in range(len(p_values))
     ]
+
+
+#: The rate a q-value is read against when no discovery run recorded one — a
+#: connection written by a script, or whose run has since been deleted.
+DEFAULT_FDR = 0.05
+
+
+def survived_correction(q_value: float | None, fdr: float | None) -> bool:
+    """Whether a corrected result survived, at the rate it was corrected at (T176).
+
+    The one definition. A run's false-discovery rate is the researcher's to set,
+    and the worker promotes what survives *that* rate — so every later reading
+    of the same q-value has to ask with the same rate, and with the same
+    inclusive comparison Benjamini–Hochberg uses. Eight readers each hardcoded
+    `q < 0.05`: a discovery promoted at 0.10 was then called not significant on
+    every screen, and q = 0.05 at the default rate was kept by the correction
+    and rejected by everything downstream.
+
+    A result that was never corrected has not survived correction.
+    """
+    if q_value is None:
+        return False
+    return float(q_value) <= (DEFAULT_FDR if fdr is None else float(fdr))
+
+
+#: The same rule in SQL, for queries that count or filter by it. Needs
+#: `connections c` and `LEFT JOIN discovery_runs dr ON dr.id = c.discovery_run_id`.
+SURVIVED_SQL = (f"(c.q_value IS NOT NULL AND c.q_value <= "
+                f"COALESCE(dr.false_discovery_rate, {DEFAULT_FDR}))")
 
 
 # ---------------------------------------------------------------------------
@@ -294,9 +327,18 @@ RANK_WEIGHTS = {
 _EVIDENCE_SCORE = {"strong": 1.0, "moderate": 0.65, "weak": 0.3, "insufficient": 0.0}
 
 
+def _run_rate(cur, discovery_run_id: str | None) -> float | None:
+    if not discovery_run_id:
+        return None
+    cur.execute("SELECT false_discovery_rate FROM discovery_runs WHERE id = %s",
+                (discovery_run_id,))
+    row = cur.fetchone()
+    return None if row is None else row["false_discovery_rate"]
+
+
 def rank_score(
     *, effect_size: float | None, evidence_quality: str,
-    q_value: float | None, sample_size: int | None,
+    q_value: float | None, sample_size: int | None, fdr: float | None = None,
 ) -> tuple[float, dict[str, float]]:
     magnitude = min(abs(float(effect_size)), 1.0) if effect_size is not None else 0.0
     evidence = _EVIDENCE_SCORE.get(evidence_quality, 0.0)
@@ -304,7 +346,11 @@ def rank_score(
         credibility = 0.0
     else:
         # Saturating: q = 0.001 and q = 1e-12 are both simply "credible".
-        credibility = max(0.0, min(1.0, 1.0 - (float(q_value) / 0.05))) if q_value <= 0.05 else 0.0
+        # Scaled to the rate the run was corrected at: a survivor at 0.10 is
+        # credited, not scored as though it had failed a 0.05 it was never held to.
+        rate = DEFAULT_FDR if fdr is None else float(fdr)
+        credibility = (max(0.0, min(1.0, 1.0 - float(q_value) / rate))
+                       if survived_correction(q_value, rate) else 0.0)
     adequacy = min(1.0, (sample_size or 0) / 100.0)
 
     components = {
@@ -390,6 +436,7 @@ def record_connection(
         effect_size=effect_value,
         evidence_quality=result.get("evidence_quality", "insufficient"),
         q_value=q_value, sample_size=result.get("sample_size"),
+        fdr=_run_rate(cur, discovery_run_id),
     )
     connection_id = new_id("conn")
     cur.execute(
@@ -509,7 +556,9 @@ def list_connections(
         # first took for evidence of this were in two different projects, seen
         # through a query with no project filter.
         f"SELECT c.*, dr.dataset_version_id, ar.object_id AS analysis_object_id, "
-        f"       ds.name AS dataset_name, dv.version AS dataset_version "
+        f"       ds.name AS dataset_name, dv.version AS dataset_version, "
+        f"       COALESCE(dr.false_discovery_rate, {DEFAULT_FDR}) AS false_discovery_rate, "
+        f"       {SURVIVED_SQL} AS survived_correction "
         f"FROM connections c "
         f"LEFT JOIN discovery_runs dr ON dr.id = c.discovery_run_id "
         f"LEFT JOIN dataset_versions dv ON dv.id = dr.dataset_version_id "

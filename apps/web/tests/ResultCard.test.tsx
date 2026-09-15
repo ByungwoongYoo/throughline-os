@@ -27,6 +27,8 @@ function connection(overrides: Partial<Connection> = {}): Connection {
     estimate: 0.88,
     p_value: 1e-40,
     q_value: 1e-38,
+    survived_correction: true,
+    false_discovery_rate: 0.05,
     effect_size: 0.88,
     effect_size_name: "pearson_r",
     sample_size: 160,
@@ -103,5 +105,28 @@ describe("the result card", () => {
       evidence_quality: "weak", q_value: 0.04, estimate: 0.18 })} />);
 
     expect(document.body.textContent).toMatch(/weak/i);
+  });
+
+  it("says a result survived at the rate its run was corrected at (T176)", () => {
+    // Promoted at 0.10 with q = 0.08. Re-deriving with `q < .05` called this
+    // discovery "not significant after correction".
+    render(<ResultCard connection={connection({
+      q_value: 0.08, survived_correction: true, false_discovery_rate: 0.1 })} />);
+
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("survived correction at a false-discovery rate of 0.1");
+    expect(text).not.toMatch(/not significant/i);
+  });
+
+  it("says a result did not survive when its stricter run left it behind", () => {
+    render(<ResultCard connection={connection({
+      q_value: 0.03, survived_correction: false, false_discovery_rate: 0.01 })} />);
+
+    expect(document.body.textContent).toContain("not significant after correction");
+  });
+
+  it("says an uncorrected result was not corrected", () => {
+    render(<ResultCard connection={connection({ q_value: null, survived_correction: false })} />);
+    expect(document.body.textContent).toContain("not corrected");
   });
 });

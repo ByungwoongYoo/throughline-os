@@ -467,3 +467,21 @@ def test_cramers_v_is_computed_without_the_continuity_correction():
                         association(table, method="cramer"), rel_tol=1e-12)
     # The test itself keeps scipy's default.
     assert math.isclose(result.p_value, stats.chi2_contingency(table)[1], rel_tol=1e-12)
+
+
+@pytest.mark.parametrize("confidence", [0.95, 0.99, 0.90])
+def test_a_p_value_on_the_threshold_gets_one_verdict(confidence):
+    """
+    `1 - 0.95` is 0.050000000000000044. The flag was set from it while the
+    sentence beside it rounded, so p = 0.05 was flagged significant and
+    described as "not below the 0.05 threshold" in the same result (T176).
+    """
+    from throughline_runtime.contract import StatisticalResult
+    from throughline_runtime.methods import _finalise
+
+    alpha = round(1 - confidence, 10)
+    result = _finalise(StatisticalResult(method="m", method_rationale="", sample_size=50,
+                                         p_value=alpha, confidence_level=confidence))
+
+    assert result.statistically_significant is False
+    assert "not below" in result.interpretation
