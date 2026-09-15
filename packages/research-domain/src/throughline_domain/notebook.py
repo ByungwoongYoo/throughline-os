@@ -253,6 +253,18 @@ def daily(cur, *, project_id: str, author: str,
     if existing:
         return {**dict(existing), "created": False}
 
+    # A note already titled with today's date *is* today's page, whatever kind
+    # of note it was written as. Titles are unique per project, so creating the
+    # daily page beside it was refused — and the route had no handler for the
+    # refusal, so today's page answered 500 every time it was opened, all day
+    # (T172). Opened as it is: its kind and its words are the researcher's.
+    cur.execute(
+        "SELECT id, title, body FROM notes WHERE project_id = %s AND lower(title) = %s",
+        (project_id, on.isoformat()))
+    titled = cur.fetchone()
+    if titled:
+        return {**dict(titled), "created": False}
+
     created = create(cur, project_id=project_id, title=on.isoformat(), body="",
                      author=author, note_kind=DAILY, note_date=on)
     return {"id": created["id"], "title": created["title"], "body": "",

@@ -290,3 +290,54 @@ def test_the_listing_shows_how_connected_each_note_is(cur, project):
     listing = {row["title"]: row for row in notebook.listing(cur, project)}
     assert listing["Hub"]["backlink_count"] == 2
     assert listing["A"]["link_count"] == 1
+
+
+def test_todays_page_opens_when_a_note_already_has_todays_date_as_its_title(cur, project):
+    """
+    The daily page is titled with the date, and titles are unique per project,
+    so a researcher who had already written a note called `2026-09-15` made
+    `daily` try to create a duplicate — refused, and the route had no handler for
+    the refusal, so today's page answered 500 every time it was opened, all day
+    (T172). A note titled with today's date is today's page in every sense a
+    researcher would recognise; it is opened, not duplicated, and not changed.
+    """
+    from datetime import date
+
+    on = date(2026, 9, 15)
+    theirs = notebook.create(cur, project_id=project, title="2026-09-15",
+                             body="Started this by hand.", author="usr_1")
+
+    page = notebook.daily(cur, project_id=project, author="usr_1", on=on)
+
+    assert page["id"] == theirs["id"]
+    assert page["created"] is False
+    cur.execute("SELECT note_kind, body FROM notes WHERE id = %s", (theirs["id"],))
+    kept = cur.fetchone()
+    assert kept["note_kind"] == notebook.NOTE and kept["body"] == "Started this by hand."
+
+
+def test_the_route_opens_todays_page_rather_than_failing(monkeypatch):
+    """Through the route: the page the notebook opens to must not be a 500."""
+    from datetime import date as real_date
+    from fastapi.testclient import TestClient
+    from throughline_api.app import app
+    from throughline_domain.db import connection
+
+    today = real_date.today().isoformat()
+    with TestClient(app, raise_server_exceptions=False) as client:
+        try:
+            status = client.get("/api/auth/status").json()
+            endpoint = "/api/auth/setup" if status["needs_setup"] else "/api/auth/login"
+            assert client.post(endpoint, json={"email": "daily@lab.local", "display_name": "D",
+                                               "password": "correct-horse-battery"}).status_code == 200
+            project_id = client.post("/api/projects", json={"name": "Daily"}).json()["id"]
+            assert client.post(f"/api/projects/{project_id}/notebook",
+                               json={"title": today, "body": "By hand."}).status_code == 201
+
+            response = client.get(f"/api/projects/{project_id}/notebook/today")
+
+            assert response.status_code == 200, response.text
+            assert response.json()["body"] == "By hand."
+        finally:
+            with connection() as conn, conn.cursor() as cur:
+                cur.execute("DELETE FROM users")
