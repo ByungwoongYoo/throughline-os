@@ -325,3 +325,121 @@ def test_every_gate_names_the_worker_that_holds_the_run():
     missing = [c.lineno for c in calls
                if not any(k.arg == "worker_id" for k in c.keywords)]
     assert not missing, f"gate calls without worker_id at handlers.py lines {missing}"
+
+
+# ---------------------------------------------------------------------------
+# A job that gives up says so on the thing it was working on (T163)
+# ---------------------------------------------------------------------------
+
+def _queued_analysis(project_id: str) -> str:
+    spec_id, run_id = f"asp_{project_id}", f"arun_{project_id}"
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO analysis_specs(id, project_id, analysis_type, method, "
+            "content_hash, created_by, research_question, dataset_version_ids) "
+            "VALUES (%s, %s, 'correlation', 'pearson', %s, 'test', 'q', '[]'::jsonb)",
+            (spec_id, project_id, f"h{project_id}"[:64]))
+        cur.execute("INSERT INTO analysis_runs(id, project_id, spec_id) VALUES (%s, %s, %s)",
+                    (run_id, project_id, spec_id))
+    return run_id
+
+
+def _queued_discovery(project_id: str) -> str:
+    source, dataset, version, run_id = (f"src_{project_id}", f"dst_{project_id}",
+                                        f"dsv_{project_id}", f"disc_{project_id}")
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("INSERT INTO sources(id, project_id, title, source_type) "
+                    "VALUES (%s, %s, 'A table', 'upload')", (source, project_id))
+        cur.execute("INSERT INTO datasets(id, project_id, source_id, name, format) "
+                    "VALUES (%s, %s, %s, 'panel', 'csv')", (dataset, project_id, source))
+        cur.execute("INSERT INTO dataset_versions(id, dataset_id, version, content_hash) "
+                    "VALUES (%s, %s, 1, 'hash-1')", (version, dataset))
+        cur.execute("INSERT INTO discovery_runs(id, project_id, dataset_version_id) "
+                    "VALUES (%s, %s, %s)", (run_id, project_id, version))
+    return run_id
+
+
+def _row(table: str, row_id: str) -> dict:
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute(f"SELECT status, error FROM {table} WHERE id = %s", (row_id,))
+        return cur.fetchone()
+
+
+def test_an_analysis_whose_job_gives_up_is_failed_not_queued(
+        empty_queue, committed_project, monkeypatch):
+    """
+    `analysis.run` sets the row to `running` inside the job's transaction, so an
+    unexpected error rolled it back to `queued` — and once the job ran out of
+    attempts nothing ever touched it again. The analysis read as waiting to run,
+    for ever, beside a job that had failed.
+    """
+    import throughline_workers.handlers as handlers
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("the dataset file is unreadable")
+
+    monkeypatch.setattr(handlers, "_prepare_analysis", broken)
+    analysis_run = _queued_analysis(committed_project)
+    _enqueue(committed_project, "analysis.run",
+             payload={"analysis_run_id": analysis_run}, max_attempts=1)
+
+    Worker(worker_id="w").run_once()
+
+    row = _row("analysis_runs", analysis_run)
+    assert row["status"] == "failed", row
+    assert "the dataset file is unreadable" in (row["error"] or "")
+
+
+def test_a_discovery_whose_job_gives_up_is_failed_not_queued(
+        empty_queue, committed_project, monkeypatch):
+    from throughline_domain import discovery
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("planning fell over")
+
+    monkeypatch.setattr(discovery, "plan_candidates", broken)
+    discovery_run = _queued_discovery(committed_project)
+    _enqueue(committed_project, "discovery.run",
+             payload={"discovery_run_id": discovery_run}, max_attempts=1)
+
+    Worker(worker_id="w").run_once()
+
+    row = _row("discovery_runs", discovery_run)
+    assert row["status"] == "failed", row
+    assert "planning fell over" in (row["error"] or "")
+
+
+def test_a_job_whose_worker_died_on_its_last_attempt_fails_its_subject(
+        empty_queue, committed_project):
+    """
+    The crash path: no exception reaches Python, and `claim_next` closes the run
+    (T157). The subject has to be told then too, or a render-killed worker leaves
+    an analysis reading as queued exactly as an exception did.
+    """
+    analysis_run = _queued_analysis(committed_project)
+    run_id = _enqueue(committed_project, "analysis.run",
+                      payload={"analysis_run_id": analysis_run}, max_attempts=1)
+    with connection() as conn, conn.cursor() as cur:
+        workflow.claim_next(cur, worker_id="w-doomed", workflow_names=["analysis.run"])
+        cur.execute("UPDATE workflow_runs SET lease_expires_at = now() - interval '1 second' "
+                    "WHERE id = %s", (run_id,))
+    with connection() as conn, conn.cursor() as cur:
+        assert workflow.claim_next(cur, worker_id="w-next",
+                                   workflow_names=["analysis.run"]) is None
+
+    assert _row("analysis_runs", analysis_run)["status"] == "failed"
+
+
+
+def test_giving_up_does_not_rewrite_an_analysis_that_reached_an_outcome(
+        empty_queue, committed_project):
+    """A late failure is not allowed to turn a completed analysis into a failed one."""
+    import throughline_workers.handlers as handlers
+
+    analysis_run = _queued_analysis(committed_project)
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("UPDATE analysis_runs SET status = 'completed' WHERE id = %s",
+                    (analysis_run,))
+        handlers._analysis_gave_up(cur, {"analysis_run_id": analysis_run}, "late")
+
+    assert _row("analysis_runs", analysis_run)["status"] == "completed"

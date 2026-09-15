@@ -512,3 +512,42 @@ def test_a_waiting_run_is_not_handed_to_a_worker(cur, project):
                       describes="Record the results.")
 
     assert workflow.claim_next(cur, worker_id="worker-b") is None
+
+
+
+# ---------------------------------------------------------------------------
+# What a job records on its subject when it gives up (T163)
+# ---------------------------------------------------------------------------
+
+def test_a_give_up_step_that_fails_does_not_undo_the_run_failing(
+        empty_queue, cur, project, monkeypatch):
+    """
+    The subject is secondary. If marking it failed raised and took the run's own
+    ending with it, the run would stay claimable and be tried again for ever —
+    the loop T157 closed.
+    """
+    def broken(cur, payload, error):
+        raise RuntimeError("the subject row is gone")
+
+    monkeypatch.setitem(workflow._GIVE_UP, "test.subject", broken)
+    run_id = workflow.enqueue(cur, workflow_name="test.subject", project_id=project)
+
+    assert workflow.finish(cur, run_id=run_id, state=WorkflowState.FAILED,
+                           error="boom") is True
+    assert workflow.get_run(cur, run_id)["state"] == str(WorkflowState.FAILED)
+
+
+def test_the_give_up_step_runs_only_when_a_run_fails(empty_queue, cur, project, monkeypatch):
+    seen: list[tuple[dict, str]] = []
+    monkeypatch.setitem(workflow._GIVE_UP, "test.subject",
+                        lambda cur, payload, error: seen.append((payload, error)))
+
+    done = workflow.enqueue(cur, workflow_name="test.subject", project_id=project,
+                            payload={"thing": "a"})
+    workflow.finish(cur, run_id=done, state=WorkflowState.COMPLETED)
+    assert seen == []
+
+    failed = workflow.enqueue(cur, workflow_name="test.subject", project_id=project,
+                              payload={"thing": "b"})
+    workflow.finish(cur, run_id=failed, state=WorkflowState.FAILED, error="why")
+    assert seen == [({"thing": "b"}, "why")]

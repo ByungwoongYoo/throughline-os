@@ -11,8 +11,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from throughline_domain import corpus, objects, storage, trust
-from throughline_domain.db import connection
+from throughline_domain import corpus, objects, storage, trust, workflow
 from throughline_ingestion import datasets as dataset_parser
 from throughline_ingestion import documents as document_parser
 from throughline_schemas.enums import IngestionStatus
@@ -111,41 +110,45 @@ def ingest_source(run: dict[str, Any], cur: Any) -> dict[str, Any]:
                                   to_status=IngestionStatus.FAILED, detail=str(exc))
         return {"source_id": source_id, "status": "failed", "reason": str(exc)}
 
-    except Exception as exc:
-        # A transient failure should retry, but re-raising rolls this transaction
-        # back — including the failure record. Write it on its own connection so
-        # the researcher sees the state even though the work is rolled back.
-        _record_failure(source_id, f"{type(exc).__name__}: {exc}")
-        raise
+    # Anything else re-raises and is retried. There is no failure record here:
+    # this used to write one on a second connection, which could never succeed —
+    # by then this transaction holds the source row's lock, so the write waited
+    # out its two-second lock timeout on every attempt and was logged and lost.
+    # The source then read `uploaded`, with no reason, for ever after the run
+    # had failed (T163). Between attempts it still reads as in progress, which
+    # is true; once the run gives up, `_source_gave_up` records why.
 
 
-def _record_failure(source_id: str, detail: str) -> None:
+@workflow.on_give_up("ingest.source")
+def _source_gave_up(cur: Any, payload: dict[str, Any], error: str) -> None:
+    """The run is out of attempts: the source says it failed, and why."""
+    objects.advance_ingestion(cur, source_id=payload["source_id"],
+                              to_status=IngestionStatus.FAILED,
+                              detail=error or "Ingestion stopped without finishing.")
+
+
+@workflow.on_give_up("analysis.run")
+def _analysis_gave_up(cur: Any, payload: dict[str, Any], error: str) -> None:
     """
-    Record an ingestion failure on its own connection, or give up quickly.
-
-    **The lock timeout is what stops this deadlocking against its own caller.**
-    This runs while the caller still holds an open transaction that has already
-    touched this source row, so the second connection queues behind a lock the
-    first will not release until this returns. Without a timeout that wait is
-    unbounded: the handler never returns, the worker's run never finishes, and
-    because a claimed run stays claimable the retry loop spins forever. A single
-    transient ingestion failure was enough to hang the worker permanently.
-
-    Two seconds is far longer than the write needs and far shorter than a
-    researcher would wait. If it does time out the failure is still visible —
-    the workflow run carries the error either way — so the fallback loses a
-    status field, not the information.
+    The run set this row to `running` inside its own transaction, so its failure
+    rolled it back to `queued`. Only a row that has not reached an outcome is
+    touched: a completed analysis is not rewritten by a later failure.
     """
-    try:
-        with connection() as conn, conn.cursor() as cur:
-            cur.execute("SET LOCAL lock_timeout = '2s'")
-            objects.advance_ingestion(cur, source_id=source_id,
-                                      to_status=IngestionStatus.FAILED, detail=detail)
-    except Exception:
-        # Logged rather than silently swallowed: this failing used to be
-        # invisible, which is how the deadlock went unnoticed.
-        log.warning("could not record ingestion failure for %s", source_id,
-                    exc_info=True)
+    cur.execute(
+        "UPDATE analysis_runs SET status = 'failed', error = %s, "
+        "finished_at = COALESCE(finished_at, now()) "
+        "WHERE id = %s AND status NOT IN ('completed', 'failed')",
+        (error or "The analysis stopped without finishing.",
+         payload["analysis_run_id"]))
+
+
+@workflow.on_give_up("discovery.run")
+def _discovery_gave_up(cur: Any, payload: dict[str, Any], error: str) -> None:
+    cur.execute(
+        "UPDATE discovery_runs SET status = 'failed', error = %s "
+        "WHERE id = %s AND status NOT IN ('complete', 'failed')",
+        (error or "The sweep stopped without finishing.",
+         payload["discovery_run_id"]))
 
 
 def _ingest_document(

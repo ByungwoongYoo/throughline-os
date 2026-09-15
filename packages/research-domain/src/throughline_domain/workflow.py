@@ -19,18 +19,42 @@ Durability here means three things:
 
 from __future__ import annotations
 
+import logging
 import os
 import socket
 from datetime import timedelta
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 from throughline_schemas.enums import TERMINAL_WORKFLOW_STATES, WorkflowState
 
 from .events import emit
 from .ids import new_id
 
+log = logging.getLogger(__name__)
+
 DEFAULT_LEASE_SECONDS = int(os.environ.get("THROUGHLINE_WORKFLOW_LEASE", "60"))
 WORKER_ID = f"{socket.gethostname()}:{os.getpid()}"
+
+#: What each kind of job does to the thing it was working on when it gives up.
+#:
+#: A job's own writes live in its transaction, so when it fails they roll back —
+#: including the `running` it set on its subject, which returns to `queued`.
+#: Once the run is out of attempts nothing touches that subject again, so a
+#: source read `uploaded` and an analysis `queued` for ever beside a job that had
+#: failed (T163). Run from `finish`, because every way a run ends as failed goes
+#: through it — attempts exhausted, a dead worker's last attempt closed by
+#: `claim_next`, no handler — and by then the job's transaction, and the lock it
+#: held on the subject, are gone.
+GiveUp = Callable[[Any, dict[str, Any], str], None]
+_GIVE_UP: dict[str, GiveUp] = {}
+
+
+def on_give_up(workflow_name: str) -> Callable[[GiveUp], GiveUp]:
+    """Register what `workflow_name` records on its subject when a run fails."""
+    def register(fn: GiveUp) -> GiveUp:
+        _GIVE_UP[workflow_name] = fn
+        return fn
+    return register
 
 
 class WorkflowError(RuntimeError):
@@ -508,7 +532,7 @@ def finish(
         "UPDATE workflow_runs SET state = %s, output = %s, error = %s, "
         "finished_at = now(), updated_at = now(), lease_owner = NULL, "
         "lease_expires_at = NULL WHERE id = %s" + owned +
-        " RETURNING project_id, workflow_name",
+        " RETURNING project_id, workflow_name, input",
         params,
     )
     row = cur.fetchone()
@@ -519,6 +543,17 @@ def finish(
             event_type="WorkflowFinished",
             payload={"run_id": run_id, "workflow": row["workflow_name"], "state": str(state)},
         )
+        give_up = _GIVE_UP.get(row["workflow_name"])
+        if state == WorkflowState.FAILED and give_up is not None:
+            # In a savepoint: a subject that cannot be marked failed must not
+            # undo the run being marked failed, or the run would stay claimable
+            # and be tried again for ever — the loop T157 closed.
+            try:
+                with cur.connection.transaction():
+                    give_up(cur, dict(row["input"] or {}), error or "")
+            except Exception:  # noqa: BLE001 — the run's own ending comes first
+                log.warning("run %s failed, and its subject could not be marked "
+                            "failed", run_id, exc_info=True)
     return row is not None
 
 
