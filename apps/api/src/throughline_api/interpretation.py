@@ -414,6 +414,12 @@ def write_note(project_id: str, finding_id: str, body: LibraryExport,
     _scoped(project_id, user)
 
     with transaction() as cur:
+        # The preview beside this was scoped in T161 and this was not, and this
+        # is the one that sends the note out of the system — to the library
+        # named in the request, which is the caller's (T162).
+        _finding_in_project(cur, project_id, finding_id)
+        if body.enquiry_id:
+            _enquiry_in_project(cur, project_id, body.enquiry_id)
         try:
             family = body.enquiry_id or enquiry.current(
                 cur, project_id=project_id)["id"]

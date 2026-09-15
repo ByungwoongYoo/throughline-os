@@ -789,6 +789,23 @@ def _object_in_project(cur, *, project_id: str, object_id: str) -> dict[str, Any
     return dict(row)
 
 
+def _sources_in_project(cur, *, project_id: str, source_ids: list[str]) -> None:
+    """
+    Every source named in a request body belongs to the project in its path.
+
+    Scoping the project is not scoping the ids a body carries: synthesis, marks
+    and excerpts handed `source_id` straight to a domain function that looked
+    it up alone, so another project's papers could be read into a comparison
+    or marked from your own (T162). 404 for any stranger, the same as an id
+    that does not exist, and before anything is read or written.
+    """
+    wanted = set(source_ids)
+    cur.execute("SELECT id FROM sources WHERE project_id = %s AND id = ANY(%s)",
+                (project_id, list(wanted)))
+    if {row["id"] for row in cur.fetchall()} != wanted:
+        raise HTTPException(404, "No such paper in this project.")
+
+
 #: Why a lookup came back empty, said in the caller's terms.
 #:
 #: Each names the ordinary state that produces it, because every one of them is
@@ -1418,6 +1435,7 @@ def compare_papers(project_id: str, payload: SynthesisRequest,
     """
     scoped_project(project_id, user)
     with transaction() as cur:
+        _sources_in_project(cur, project_id=project_id, source_ids=payload.source_ids)
         try:
             return synthesis.matrix(cur, project_id=project_id,
                                     source_ids=payload.source_ids)
@@ -1436,6 +1454,7 @@ def synthesis_key_points(project_id: str, payload: SynthesisRequest,
     """
     scoped_project(project_id, user)
     with transaction() as cur:
+        _sources_in_project(cur, project_id=project_id, source_ids=payload.source_ids)
         try:
             return synthesis.key_points(cur, project_id=project_id,
                                         source_ids=payload.source_ids)
@@ -2430,6 +2449,7 @@ def keep_mark(project_id: str, payload: MarkRequest,
     """
     scoped_project(project_id, user)
     with transaction() as cur:
+        _sources_in_project(cur, project_id=project_id, source_ids=[payload.source_id])
         try:
             return marks.record(
                 cur, project_id=project_id, source_id=payload.source_id,
@@ -2477,6 +2497,7 @@ def keep_excerpt(project_id: str, payload: ExcerptRequest,
     """
     scoped_project(project_id, user)
     with transaction() as cur:
+        _sources_in_project(cur, project_id=project_id, source_ids=[payload.source_id])
         try:
             return excerpts.record(
                 cur,
@@ -3723,6 +3744,14 @@ def start_discovery(project_id: str, payload: DiscoveryRequest,
     """generate, test, correct and rank candidate relationships."""
     scoped_project(project_id, user)
     with transaction() as cur:
+        # The enquiry as well as the dataset. Accepted from another project,
+        # the sweep ran in full and failed only when the worker came to record
+        # its looks, which `exploration.record` refuses since T161 (T162).
+        if payload.enquiry_id:
+            cur.execute("SELECT id FROM enquiries WHERE id = %s AND project_id = %s",
+                        (payload.enquiry_id, project_id))
+            if not cur.fetchone():
+                raise HTTPException(404, "no such line of enquiry")
         cur.execute(
             "SELECT d.project_id FROM dataset_versions dv "
             "JOIN datasets d ON d.id = dv.dataset_id WHERE dv.id = %s",

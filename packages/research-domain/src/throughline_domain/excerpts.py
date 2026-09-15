@@ -106,6 +106,12 @@ def record(
         raise ExcerptError("An excerpt has to come from a numbered page.")
     if not source_id:
         raise ExcerptError("An excerpt has to come from a paper.")
+    # This project's paper (T162): kept from another's, the excerpt listing
+    # showed that paper's title here.
+    cur.execute("SELECT 1 FROM sources WHERE id = %s AND project_id = %s",
+                (source_id, project_id))
+    if cur.fetchone() is None:
+        raise ExcerptError("That paper is not in this project.")
 
     checked = _checked_region(region)
 
