@@ -111,12 +111,16 @@ function effectWord(estimate: number | null, name: string): string {
  * smaller exponent as a stronger finding. The threshold form says the only
  * thing the number licenses.
  */
-function significanceWord(q: number | null): string {
-  if (q === null) return "not corrected";
-  if (q < 0.001) return "p < .001 (BH corrected)";
-  if (q < 0.01) return "p < .01 (BH corrected)";
-  if (q < 0.05) return "p < .05 (BH corrected)";
-  return "not significant after correction";
+export function significanceWord(
+  connection: Pick<Connection, "q_value" | "survived_correction" | "false_discovery_rate">,
+): string {
+  // Whether it survived is the server's verdict, at the rate its run corrected
+  // at. Re-deriving it here with `q < .05` told a discovery promoted at 0.10
+  // that it was "not significant after correction" (T176).
+  if (connection.q_value === null) return "not corrected";
+  if (!connection.survived_correction) return "not significant after correction";
+  const rate = connection.false_discovery_rate;
+  return `survived correction at a false-discovery rate of ${rate}`;
 }
 
 export type PlainSummary = {
@@ -191,7 +195,7 @@ export function ResultCard({
   const right = labels[connection.right_variable] ?? connection.right_variable;
 
   const effect = effectWord(connection.estimate, connection.effect_size_name || "");
-  const significance = significanceWord(connection.q_value);
+  const significance = significanceWord(connection);
 
   // The sentence. Uses the model's plain reading when there is one, and falls
   // back to a constructed sentence that is still a sentence — never a bare

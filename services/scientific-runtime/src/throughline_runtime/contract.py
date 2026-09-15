@@ -70,6 +70,17 @@ class StatisticalResult:
         return asdict(self)
 
 
+def significance_level(confidence_level: float) -> float:
+    """The alpha a confidence level implies, as the number a researcher wrote.
+
+    `1 - 0.95` is 0.050000000000000044 in floating point. The flag was set from
+    that while the sentence beside it rounded — so at p = 0.05 the result said
+    significant and its own interpretation said "not below the 0.05 threshold"
+    (T176). Both read this.
+    """
+    return round(1 - confidence_level, 10)
+
+
 def grade_evidence(
     *,
     sample_size: int,
@@ -132,7 +143,7 @@ def compose_interpretation(result: StatisticalResult) -> str:
     """A sentence that keeps significance and magnitude visibly separate."""
     parts: list[str] = []
     if result.p_value is not None:
-        alpha = round(1 - result.confidence_level, 10)
+        alpha = significance_level(result.confidence_level)
         significant = result.p_value < alpha
         parts.append(
             f"p = {result.p_value:.4g}, which is "

@@ -16,6 +16,7 @@ from typing import Any, Callable, Sequence
 
 from throughline_schemas.words import counted
 from .analysis import create_run, create_spec, get_run
+from . import discovery
 from .ids import new_id
 
 #: Fraction of rows that may be dropped by listwise deletion before the
@@ -99,12 +100,17 @@ def validate_connection(
 
     # --- multiple comparison correction (already applied at discovery) --------
     q = connection["q_value"]
-    passed = q is not None and float(q) <= 0.05
+    # At the rate the discovery run corrected at, through the rule that
+    # promoted it — a survivor of a 0.10 run was recorded here as `violated`.
+    rate = discovery._run_rate(cur, connection["discovery_run_id"])
+    rate = discovery.DEFAULT_FDR if rate is None else float(rate)
+    passed = discovery.survived_correction(q, rate)
     checks["multiple_comparison_correction"] = passed
     record_check(
         cur, report_id=report_id, name="multiple_comparison_correction",
         outcome="passed" if passed else "violated",
-        detail=(f"Benjamini-Hochberg q = {q:.4g} across the discovery family."
+        detail=(f"Benjamini-Hochberg q = {q:.4g} across the discovery family, "
+                f"against a false-discovery rate of {rate:g}."
                 if q is not None else "No corrected q-value was recorded."),
         evidence={"q_value": q, "p_value": connection["p_value"]},
     )

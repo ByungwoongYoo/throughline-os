@@ -33,6 +33,7 @@ function asTested(connections: Connection[]): Tested[] {
     estimate: c.estimate,
     pValue: c.p_value,
     qValue: c.q_value,
+    survived: c.survived_correction,
   }));
 }
 

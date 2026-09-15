@@ -26,6 +26,7 @@ from .contract import (
     compose_interpretation,
     describe_practical_significance,
     grade_evidence,
+    significance_level,
 )
 
 MethodFn = Callable[[pd.DataFrame, dict[str, Any]], StatisticalResult]
@@ -133,7 +134,8 @@ def _outliers(series: pd.Series, label: str) -> AssumptionCheck:
 def _finalise(result: StatisticalResult) -> StatisticalResult:
     """Apply the  judgements that every method shares."""
     if result.p_value is not None:
-        result.statistically_significant = result.p_value < (1 - result.confidence_level)
+        result.statistically_significant = result.p_value < significance_level(
+            result.confidence_level)
     result.practical_significance = describe_practical_significance(result.effect_size)
     result.evidence_quality = grade_evidence(
         sample_size=result.sample_size, assumptions=result.assumptions,

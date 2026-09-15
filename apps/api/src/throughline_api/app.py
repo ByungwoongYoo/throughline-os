@@ -4620,8 +4620,11 @@ def correlation_matrix(project_id: str,
     scoped_project(project_id, user)
     with transaction() as cur:
         cur.execute(
-            "SELECT left_variable, right_variable, estimate, q_value "
-            "FROM connections WHERE project_id = %s AND estimate IS NOT NULL",
+            "SELECT c.left_variable, c.right_variable, c.estimate, "
+            f"       {discovery.SURVIVED_SQL} AS survived "
+            "FROM connections c "
+            "LEFT JOIN discovery_runs dr ON dr.id = c.discovery_run_id "
+            "WHERE c.project_id = %s AND c.estimate IS NOT NULL",
             (project_id,),
         )
         rows = list(cur.fetchall())
@@ -4646,9 +4649,9 @@ def correlation_matrix(project_id: str,
         # direction only — so both cells are emitted from the one measurement
         # rather than leaving half the grid blank.
         cells.append({"row": left, "column": right, "value": row["estimate"],
-                      "significant": (row["q_value"] or 1) < 0.05})
+                      "significant": row["survived"]})
         cells.append({"row": right, "column": left, "value": row["estimate"],
-                      "significant": (row["q_value"] or 1) < 0.05})
+                      "significant": row["survived"]})
 
     return {
         "cells": cells,
@@ -4674,12 +4677,14 @@ def project_estimates(project_id: str, limit: int = Query(30, ge=1, le=200),
         cur.execute(
             """
             SELECT c.id, c.left_variable, c.right_variable, c.estimate, c.q_value,
+                   {survived} AS survived,
                    (r.result->>'ci_low')::float  AS ci_low,
                    (r.result->>'ci_high')::float AS ci_high,
                    r.result->>'estimate_name'    AS estimate_name,
                    c.sample_size, c.lifecycle_status
             FROM connections c
             JOIN analysis_runs r ON r.id = c.analysis_run_id
+            LEFT JOIN discovery_runs dr ON dr.id = c.discovery_run_id
             WHERE c.project_id = %s
               AND r.result ? 'ci_low' AND r.result ? 'ci_high'
               -- An estimate with no value is not an estimate. A categorical
@@ -4691,7 +4696,7 @@ def project_estimates(project_id: str, limit: int = Query(30, ge=1, le=200),
               AND (r.result->>'ci_high') IS NOT NULL
             ORDER BY abs(c.estimate) DESC
             LIMIT %s
-            """,
+            """.replace("{survived}", discovery.SURVIVED_SQL),
             (project_id, limit),
         )
         rows = list(cur.fetchall())
@@ -4720,7 +4725,7 @@ def project_estimates(project_id: str, limit: int = Query(30, ge=1, le=200),
                 # Marks which survived correction. Never used to reorder: ranking
                 # by significance is how a reader learns to read p-values as
                 # importance.
-                "significant": row["q_value"] is not None and row["q_value"] < 0.05,
+                "significant": row["survived"],
                 "lifecycle_status": row["lifecycle_status"],
             }
             for row in rows

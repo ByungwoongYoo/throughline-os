@@ -28,7 +28,8 @@ import type { Connection } from "@/lib/api";
 const CONNECTION: Connection = {
   id: "conn_1", left_variable: "consumption", right_variable: "resistance",
   method: "pearson_correlation", lifecycle_status: "exploratory",
-  estimate: 0.81, p_value: 0.001, q_value: 0.01, effect_size: 0.81,
+  estimate: 0.81, p_value: 0.001, q_value: 0.01,
+  survived_correction: true, false_discovery_rate: 0.05, effect_size: 0.81,
   effect_size_name: "r", sample_size: 120, evidence_quality: "moderate",
   rank_score: 0.7, analysis_run_id: "arun_1", analysis_object_id: null,
   dataset_version_id: "dsv_1",

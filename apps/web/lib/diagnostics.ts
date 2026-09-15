@@ -30,6 +30,12 @@ export type Tested = {
   pValue: number | null;
   /** After multiplicity correction. Null when the family was never corrected. */
   qValue?: number | null;
+  /**
+   * Whether it survived that correction, as the server decided it — at the rate
+   * its own run used. A figure that re-derived this with `q <= 0.05` coloured a
+   * discovery promoted at 0.10 as a failure (T176).
+   */
+  survived?: boolean | null;
   ciLow?: number | null;
   ciHigh?: number | null;
 };
@@ -84,9 +90,7 @@ function usable(t: Tested): boolean {
  * ten points sit above p = 0.05 by chance alone and look identical to the real
  * one.
  */
-export function volcano(tested: readonly Tested[],
-                        options: { alpha?: number } = {}): Point[] {
-  const alpha = options.alpha ?? 0.05;
+export function volcano(tested: readonly Tested[]): Point[] {
   return tested.filter(usable).map((t) => ({
     id: t.id,
     label: t.label,
@@ -97,7 +101,7 @@ export function volcano(tested: readonly Tested[],
       // not survive correction", and collapsing them would let an uncorrected
       // screen present itself as one where nothing passed.
       t.qValue === null || t.qValue === undefined ? "not corrected"
-      : t.qValue <= alpha ? "survives correction"
+      : t.survived === true ? "survives correction"
       : "does not survive",
   }));
 }

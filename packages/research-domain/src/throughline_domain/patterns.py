@@ -29,6 +29,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
+from . import discovery
 from .verdicts import Verdict
 
 #: Above this, two variables are almost certainly one quantity measured twice.
@@ -66,7 +67,7 @@ def _canonical_connections(cur, project_id: str) -> list[dict[str, Any]]:
         )
         SELECT c.id, c.left_variable, c.right_variable, c.estimate, c.q_value,
         c.p_value, c.sample_size, c.method, c.lifecycle_status,
-        c.evidence_quality, dr.dataset_version_id,
+        c.evidence_quality, dr.dataset_version_id, dr.false_discovery_rate,
         l.canonical AS left_canonical, r.canonical AS right_canonical
         FROM connections c
         LEFT JOIN discovery_runs dr ON dr.id = c.discovery_run_id
@@ -85,8 +86,8 @@ def _canonical_connections(cur, project_id: str) -> list[dict[str, Any]]:
         row["left"] = row["left_canonical"] or row["left_variable"]
         row["right"] = row["right_canonical"] or row["right_variable"]
         row["canonical"] = bool(row["left_canonical"] and row["right_canonical"])
-        row["significant"] = (row["q_value"] is not None
-                                  and row["q_value"] < ALPHA)
+        row["significant"] = discovery.survived_correction(
+            row["q_value"], row["false_discovery_rate"])
         row["direction"] = ("positive" if (row["estimate"] or 0) > 0
                             else "negative" if (row["estimate"] or 0) < 0
                             else "none")
@@ -121,28 +122,43 @@ def multiplicity(cur, project_id: str) -> dict[str, Any]:
     row = cur.fetchone() or {}
     tests = int(row.get("tests") or 0)
 
+    # Each survivor at the rate its own run was corrected at, and the noise
+    # expected among them summed run by run. Counting `q < 0.05` and describing
+    # the count at the largest rate in the project was a number taken at one
+    # rate and reported at another (T176).
     cur.execute(
-        "SELECT count(*) AS n FROM connections "
-        "WHERE project_id = %s AND q_value IS NOT NULL AND q_value < %s",
-        (project_id, ALPHA))
-    survived = cur.fetchone()["n"]
+        "SELECT count(*) AS n, "
+        f"       COALESCE(sum(COALESCE(dr.false_discovery_rate, {discovery.DEFAULT_FDR})), 0) "
+        "           AS expected, "
+        f"       count(DISTINCT COALESCE(dr.false_discovery_rate, {discovery.DEFAULT_FDR})) "
+        "           AS rates "
+        "FROM connections c "
+        "LEFT JOIN discovery_runs dr ON dr.id = c.discovery_run_id "
+        f"WHERE c.project_id = %s AND {discovery.SURVIVED_SQL}",
+        (project_id,))
+    counted_survivors = cur.fetchone()
+    survived = int(counted_survivors["n"])
+    expected = float(counted_survivors["expected"])
+    one_rate = int(counted_survivors["rates"]) <= 1
 
     fdr = float(row.get("fdr") or ALPHA)
+    rate_phrase = (f"At a false-discovery rate of {fdr:g}" if one_rate
+                   else "At the false-discovery rates their runs were corrected at")
     return {
-                     "tests_run": tests,
-                                 "candidates_considered": int(row.get("considered") or 0),
-                          "discovery_runs": int(row.get("runs") or 0),
-                               "survived_correction": survived,
-                                "false_discovery_rate": fdr,
+        "tests_run": tests,
+        "candidates_considered": int(row.get("considered") or 0),
+        "discovery_runs": int(row.get("runs") or 0),
+        "survived_correction": survived,
+        "false_discovery_rate": fdr,
         # Expected, not observed. The point is that the number is not zero.
-                                          "expected_false_among_survivors": round(survived * fdr, 1),
-                                          "note": (
+        "expected_false_among_survivors": round(expected, 1),
+        "note": (
             f"{tests:,} comparisons have been run in this project and {survived} "
-                                                                f"survived correction. At a false-discovery rate of {fdr:g}, roughly "
-              f"{survived * fdr:.1f} of those survivors are expected to be noise. "
-              "That is the correction working as designed, not a fault — but it "
-              "means the weakest survivor is the least safe thing to build on."
-             ) if tests else "No discovery run has completed in this project yet.",
+            f"survived correction. {rate_phrase}, roughly "
+            f"{expected:.1f} of those survivors are expected to be noise. "
+            "That is the correction working as designed, not a fault — but it "
+            "means the weakest survivor is the least safe thing to build on."
+        ) if tests else "No discovery run has completed in this project yet.",
              }
 
 

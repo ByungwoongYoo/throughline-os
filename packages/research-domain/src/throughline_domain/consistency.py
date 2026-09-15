@@ -47,7 +47,8 @@ import logging
 
 from typing import Any
 
-from .patterns import ALPHA, multiplicity
+from . import discovery
+from .patterns import multiplicity
 from .verdicts import RunState, Verdict
 
 
@@ -117,7 +118,7 @@ def _load(cur, connection_id: str, project_id: str) -> dict[str, Any]:
         SELECT c.id, c.left_variable, c.right_variable, c.estimate, c.q_value,
                c.method, c.lifecycle_status, c.sample_size, c.evidence_quality,
                c.created_at, c.discovery_run_id, c.analysis_run_id,
-               dr.dataset_version_id, dv.dataset_id, dv.version, dv.created_at
+               dr.dataset_version_id, dr.false_discovery_rate, dv.dataset_id, dv.version, dv.created_at
                    AS version_created_at,
                s.id AS source_id, s.title AS dataset_title, s.updated_at
                    AS source_updated_at
@@ -136,7 +137,8 @@ def _load(cur, connection_id: str, project_id: str) -> dict[str, Any]:
     row = dict(row)
     row["direction"] = ("positive" if (row["estimate"] or 0) > 0
                         else "negative" if (row["estimate"] or 0) < 0 else "none")
-    row["significant"] = row["q_value"] is not None and row["q_value"] < ALPHA
+    row["significant"] = discovery.survived_correction(
+        row["q_value"], row["false_discovery_rate"])
     return row
 
 

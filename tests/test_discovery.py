@@ -677,3 +677,27 @@ def test_the_correction_agrees_with_statsmodels_on_many_families():
         for k, i in enumerate(tested):
             assert math.isclose(out[i]["q_value"], q[k], rel_tol=1e-12, abs_tol=1e-15), (ps, fdr, i)
             assert out[i]["survives"] == bool(reject[k]), (ps, fdr, i, out[i], q[k])
+
+
+def test_validation_reads_a_survivor_at_its_runs_rate(signal_project):
+    """
+    The multiple-comparison check hardcoded `q <= 0.05`, so a connection that
+    survived a run corrected at 0.10 was recorded as `violated` by the check
+    named for the correction that promoted it (T176).
+    """
+    project_id, version_id = signal_project
+    _discover(project_id, version_id)
+    with connection() as conn, conn.cursor() as cur:
+        target = next(c for c in discovery.list_connections(
+            cur, project_id=project_id, status="exploratory")
+            if c["left_variable"] == "consumption_ddd")
+        cur.execute("UPDATE discovery_runs SET false_discovery_rate = 0.10 WHERE id = %s",
+                    (target["discovery_run_id"],))
+        cur.execute("UPDATE connections SET q_value = 0.08 WHERE id = %s", (target["id"],))
+
+    report = _validate(project_id, target["id"], confounders=["gdp_per_capita"])
+    check = next(c for c in report["check_details"]
+                 if c["name"] == "multiple_comparison_correction")
+
+    assert check["outcome"] == "passed", check
+    assert "0.1" in check["detail"]

@@ -337,6 +337,14 @@ export type Connection = {
   estimate: number | null;
   p_value: number | null;
   q_value: number | null;
+  /**
+   * Whether the q-value survived correction at the rate its run was corrected
+   * at — decided on the server by the rule that promoted it. Read this; never
+   * compare `q_value` with a threshold here (T176).
+   */
+  survived_correction: boolean;
+  /** The rate the run corrected at (0.05 when no run was recorded). */
+  false_discovery_rate: number;
   effect_size: number | null;
   effect_size_name: string;
   sample_size: number | null;

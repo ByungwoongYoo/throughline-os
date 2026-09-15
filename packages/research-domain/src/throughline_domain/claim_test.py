@@ -32,7 +32,7 @@ import math
 import re
 from typing import Any
 
-from . import causal, harmonize, vocabulary
+from . import causal, discovery, harmonize, vocabulary
 from .db import jsonb
 from .ids import new_id
 from .verdicts import Family, RunState, Verdict
@@ -599,11 +599,14 @@ def test_claim(cur, *, project_id: str, claim: dict[str, Any],
     exposure = testability["exposure_column"]
     outcome_name = testability["outcome_column"]
     cur.execute(
-        "SELECT id, estimate, q_value, lifecycle_status, sample_size, method "
-        "FROM connections WHERE project_id = %s "
-        "AND ((left_variable = %s AND right_variable = %s) "
-        "  OR (left_variable = %s AND right_variable = %s)) "
-        "ORDER BY created_at DESC LIMIT 1",
+        "SELECT c.id, c.estimate, c.q_value, c.lifecycle_status, c.sample_size, "
+        "       c.method, dr.false_discovery_rate "
+        "FROM connections c "
+        "LEFT JOIN discovery_runs dr ON dr.id = c.discovery_run_id "
+        "WHERE c.project_id = %s "
+        "AND ((c.left_variable = %s AND c.right_variable = %s) "
+        "  OR (c.left_variable = %s AND c.right_variable = %s)) "
+        "ORDER BY c.created_at DESC LIMIT 1",
         (project_id, exposure, outcome_name, outcome_name, exposure))
     connection = cur.fetchone()
 
@@ -634,11 +637,7 @@ def test_claim(cur, *, project_id: str, claim: dict[str, Any],
         claimed_effect = parse_claimed_effect(claim.get("statement"))
         if claimed_effect is not None:
             claimed_effect_text = f"{claimed_effect} (read from the quoted claim)"
-    if claimed_effect is None:
-        claimed_effect = parse_claimed_effect(claim.get("statement"))
-        if claimed_effect is not None:
-            claimed_effect_text = f"{claimed_effect} (read from the quoted claim)"
-    significant = q_value is not None and q_value < 0.05
+    significant = discovery.survived_correction(q_value, connection["false_discovery_rate"])
 
     refs = [*testability["evidence_refs"], connection["id"]]
     caveats = list(testability["unchecked"])
