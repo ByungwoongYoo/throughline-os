@@ -131,6 +131,56 @@ def test_an_exhausted_run_does_not_block_the_queue_behind_it(empty_queue, cur, p
     assert workflow.get_run(cur, dead)["state"] == str(WorkflowState.FAILED)
 
 
+def test_a_worker_that_lost_its_run_cannot_turn_a_completed_run_back(
+        empty_queue, cur, project):
+    """
+    Worker A's lease lapses; B reclaims the run and completes it. A's handler
+    then raises, and A reschedules — which set a *completed* run back to
+    `retrying`, so finished work would run a second time with every side
+    effect it has. Nothing checked that A still owned the run (T159).
+    """
+    run_id = workflow.enqueue(cur, workflow_name="ingest", project_id=project)
+    workflow.claim_next(cur, worker_id="worker-a")
+    _worker_dies(cur, run_id)
+    workflow.claim_next(cur, worker_id="worker-b")
+    assert workflow.finish(cur, run_id=run_id, state=WorkflowState.COMPLETED,
+                           output={"by": "b"}, worker_id="worker-b") is True
+
+    assert workflow.reschedule(cur, run_id=run_id, delay_seconds=0,
+                               error="late failure", worker_id="worker-a") is False
+
+    run = workflow.get_run(cur, run_id)
+    assert run["state"] == str(WorkflowState.COMPLETED)
+    assert run["output"] == {"by": "b"}
+
+
+def test_a_worker_that_lost_its_run_cannot_finish_it_over_the_new_owner(
+        empty_queue, cur, project):
+    """A's late success must not close a run B is still working on."""
+    run_id = workflow.enqueue(cur, workflow_name="ingest", project_id=project)
+    workflow.claim_next(cur, worker_id="worker-a")
+    _worker_dies(cur, run_id)
+    workflow.claim_next(cur, worker_id="worker-b")
+
+    assert workflow.finish(cur, run_id=run_id, state=WorkflowState.COMPLETED,
+                           output={"by": "a"}, worker_id="worker-a") is False
+
+    run = workflow.get_run(cur, run_id)
+    assert run["state"] == str(WorkflowState.RUNNING)
+    assert run["lease_owner"] == "worker-b"
+
+
+def test_finishing_without_naming_a_worker_is_unchanged(empty_queue, cur, project):
+    """
+    The guard is for workers. `claim_next` closing an exhausted run, and a run
+    with no handler, are the system acting on a run nobody holds.
+    """
+    run_id = workflow.enqueue(cur, workflow_name="ingest", project_id=project)
+    assert workflow.finish(cur, run_id=run_id, state=WorkflowState.FAILED,
+                           error="no handler") is True
+    assert workflow.get_run(cur, run_id)["state"] == str(WorkflowState.FAILED)
+
+
 def test_heartbeat_only_extends_your_own_lease(empty_queue, cur, project):
     run_id = workflow.enqueue(cur, workflow_name="ingest", project_id=project)
     workflow.claim_next(cur, worker_id="worker-a")

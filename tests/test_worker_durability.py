@@ -200,3 +200,72 @@ def test_a_waiting_run_is_findable_by_the_person_who_must_approve_it(
 
     assert [w["run_id"] for w in waiting] == [run_id]
     assert waiting[0]["describes"].startswith("Record 4 tested pairs")
+
+
+def test_a_worker_that_lost_its_lease_discards_its_work(empty_queue, committed_project):
+    """
+    Through a real `Worker`: the handler's writes share a transaction with
+    `finish`, so when the run is no longer this worker's the whole transaction
+    is rolled back — the new owner is doing that work, and committing both
+    would record it twice. And it is not rescheduled: that is the owner's call.
+    """
+    from throughline_domain import workflow as wf
+
+    @REGISTRY.register("test.outlived_lease")
+    def outlived(run: dict[str, Any], cur: Any) -> dict[str, Any]:
+        cur.execute("INSERT INTO audit_log(id, project_id, actor, action, object_type) "
+                    "VALUES (%s, %s, 'test', 'side_effect', 'run')",
+                    (f"aud_{run['id']}", run["project_id"]))
+        # While this handler worked, its lease lapsed and another worker took over.
+        with connection() as other, other.cursor() as ocur:
+            ocur.execute("UPDATE workflow_runs SET lease_owner = 'w-new', "
+                         "lease_expires_at = now() + interval '1 hour' WHERE id = %s",
+                         (run["id"],))
+        return {"done": True}
+
+    try:
+        run_id = _enqueue(committed_project, "test.outlived_lease")
+        with connection() as conn, conn.cursor() as cur:
+            claimed = wf.claim_next(cur, worker_id="w-old",
+                                    workflow_names=["test.outlived_lease"])
+        Worker(worker_id="w-old")._execute(claimed)
+
+        run = _run(run_id)
+        assert run["state"] == str(WorkflowState.RUNNING)
+        assert run["lease_owner"] == "w-new"
+        with connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM audit_log WHERE id = %s", (f"aud_{run_id}",))
+            assert cur.fetchone() is None, "the stale worker's writes were committed"
+    finally:
+        REGISTRY._handlers.pop("test.outlived_lease", None)
+
+
+def test_a_worker_that_lost_its_lease_does_not_reschedule_a_finished_run(
+        empty_queue, committed_project):
+    """
+    The worse half, through a real `Worker`: the handler fails *after* another
+    worker reclaimed the run and completed it. Rescheduling would set that
+    completed run back to `retrying` and run finished work again. The domain
+    guard exists for this; this test is what proves the worker actually asks it.
+    """
+    @REGISTRY.register("test.failed_after_losing")
+    def failed_after_losing(run: dict[str, Any], cur: Any) -> dict[str, Any]:
+        with connection() as other, other.cursor() as ocur:
+            ocur.execute("UPDATE workflow_runs SET state = 'completed', "
+                         "lease_owner = NULL, lease_expires_at = NULL, "
+                         "output = '{\"by\": \"w-new\"}'::jsonb WHERE id = %s",
+                         (run["id"],))
+        raise RuntimeError("the old worker's copy failed late")
+
+    try:
+        run_id = _enqueue(committed_project, "test.failed_after_losing", max_attempts=3)
+        with connection() as conn, conn.cursor() as cur:
+            claimed = workflow.claim_next(cur, worker_id="w-old",
+                                          workflow_names=["test.failed_after_losing"])
+        Worker(worker_id="w-old")._execute(claimed)
+
+        run = _run(run_id)
+        assert run["state"] == str(WorkflowState.COMPLETED)
+        assert run["output"] == {"by": "w-new"}
+    finally:
+        REGISTRY._handlers.pop("test.failed_after_losing", None)

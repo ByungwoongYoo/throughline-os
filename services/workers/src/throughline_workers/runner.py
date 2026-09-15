@@ -223,9 +223,18 @@ class Worker:
                         log.info("run %s waiting for approval of %s",
                                  run_id, gate.node_name)
                         return
-                    workflow.finish(
-                        cur, run_id=run_id, state=WorkflowState.COMPLETED, output=output
-                    )
+                    closed = workflow.finish(
+                        cur, run_id=run_id, state=WorkflowState.COMPLETED,
+                        output=output, worker_id=self.worker_id)
+                    if not closed:
+                        # Raised *inside* the transaction, so the handler's
+                        # writes roll back with it. The run was reclaimed while
+                        # this worker was busy, and its new owner is doing the
+                        # same work; committing both would record it twice.
+                        raise workflow.LeaseLost(run_id)
+        except workflow.LeaseLost:
+            log.warning("run %s was reclaimed while this worker ran it; its "
+                        "result was discarded", run_id)
         except Exception as exc:  # noqa: BLE001 — the worker is the boundary
             error = f"{type(exc).__name__}: {exc}"
             log.warning("run %s failed: %s", run_id, error)
@@ -233,7 +242,8 @@ class Worker:
             attempt = int(run["attempts"])
             delay = RETRY_BACKOFF[min(attempt - 1, len(RETRY_BACKOFF) - 1)]
             with connection() as conn, conn.cursor() as cur:
-                workflow.reschedule(cur, run_id=run_id, delay_seconds=delay, error=error)
+                workflow.reschedule(cur, run_id=run_id, delay_seconds=delay,
+                                    error=error, worker_id=self.worker_id)
         finally:
             keep_alive.stop()
 

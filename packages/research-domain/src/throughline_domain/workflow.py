@@ -41,6 +41,10 @@ class CostLimitExceeded(WorkflowError):
     """ — a workflow node carries a cost limit and must respect it."""
 
 
+class LeaseLost(WorkflowError):
+    """This worker no longer holds the run it was working on."""
+
+
 class AwaitingApproval(WorkflowError):
     """
     Raised by `gate()` to stop a run at a step a person has not released.
@@ -466,14 +470,31 @@ def finish(
     state: WorkflowState,
     output: dict[str, Any] | None = None,
     error: str | None = None,
-) -> None:
+    worker_id: str | None = None,
+) -> bool:
+    """
+    Close a run. Returns whether this call closed it.
+
+    ``worker_id`` is the claim a worker makes: it may only close a run it still
+    holds, and one that is still running. A worker whose lease lapsed has lost
+    the run to whoever reclaimed it, and nothing checked that — so its late
+    result overwrote a run another worker was working on, or had already
+    finished (T159). Without ``worker_id`` this is the system acting on a run
+    nobody holds — no handler, or an exhausted run — and is unconditional.
+    """
     if state not in TERMINAL_WORKFLOW_STATES:
         raise WorkflowError(f"{state} is not a terminal state")
+    owned = ""
+    params: list[Any] = [str(state), output or {}, error, run_id]
+    if worker_id is not None:
+        owned = " AND lease_owner = %s AND state = 'running'"
+        params.append(worker_id)
     cur.execute(
         "UPDATE workflow_runs SET state = %s, output = %s, error = %s, "
         "finished_at = now(), updated_at = now(), lease_owner = NULL, "
-        "lease_expires_at = NULL WHERE id = %s RETURNING project_id, workflow_name",
-        (str(state), output or {}, error, run_id),
+        "lease_expires_at = NULL WHERE id = %s" + owned +
+        " RETURNING project_id, workflow_name",
+        params,
     )
     row = cur.fetchone()
     if row:
@@ -483,18 +504,30 @@ def finish(
             event_type="WorkflowFinished",
             payload={"run_id": run_id, "workflow": row["workflow_name"], "state": str(state)},
         )
+    return row is not None
 
 
-def reschedule(cur, *, run_id: str, delay_seconds: int, error: str | None = None) -> bool:
-    """Retry a run after a delay, or fail it permanently once attempts run out."""
-    cur.execute("SELECT attempts, max_attempts, project_id FROM workflow_runs WHERE id = %s",
-                (run_id,))
+def reschedule(cur, *, run_id: str, delay_seconds: int, error: str | None = None,
+               worker_id: str | None = None) -> bool:
+    """
+    Retry a run after a delay, or fail it permanently once attempts run out.
+
+    Returns whether the run will be retried. With ``worker_id``, a worker that
+    no longer holds the run changes nothing: this used to set a run another
+    worker had already *completed* back to `retrying`, so finished work ran a
+    second time (T159).
+    """
+    cur.execute("SELECT attempts, max_attempts, project_id, lease_owner, state "
+                "FROM workflow_runs WHERE id = %s FOR UPDATE", (run_id,))
     row = cur.fetchone()
     if not row:
         raise WorkflowError(f"Unknown run: {run_id}")
+    if worker_id is not None and (row["lease_owner"] != worker_id
+                                  or row["state"] != str(WorkflowState.RUNNING)):
+        return False
     if row["attempts"] >= row["max_attempts"]:
         finish(cur, run_id=run_id, state=WorkflowState.FAILED,
-               error=error or "Exhausted retry attempts")
+               error=error or "Exhausted retry attempts", worker_id=worker_id)
         return False
     cur.execute(
         "UPDATE workflow_runs SET state = %s, run_after = now() + %s::interval, "
