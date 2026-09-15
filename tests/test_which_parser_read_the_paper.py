@@ -49,11 +49,50 @@ def test_a_pdf_records_which_parser_read_it(paper):
 
 
 def test_the_recorded_parser_is_the_one_that_is_available(paper):
-    """Not a tautology: before this, the answer was always pymupdf."""
+    """
+    Not a tautology: before this, the answer was always pymupdf.
+
+    Docling installed means Docling is *tried*, not that it succeeds. It loads
+    models on the GPU, and on an 8 GB Mac late in the full suite it ran out of
+    GPU memory and fell back — correctly — failing a test that assumed installed
+    meant used (T168). So the flat parser is accepted when Docling is available
+    only together with a recorded reason. A regression that stopped trying
+    Docling at all would still fail here: it would read flat with no reason.
+    """
     parsed = documents.parse_document(paper, suffix=".pdf")
 
-    expected = "docling" if structured.available() else "pymupdf"
-    assert parsed.metadata["parser"] == expected
+    if not structured.available():
+        assert parsed.metadata["parser"] == "pymupdf"
+        assert "parser_fallback" not in parsed.metadata
+    elif parsed.metadata["parser"] == "pymupdf":
+        assert parsed.metadata.get("parser_fallback"), \
+            "Docling was available and the paper was read flat with no reason recorded"
+    else:
+        assert parsed.metadata["parser"] == "docling"
+
+
+def test_a_docling_failure_is_recorded_on_the_document(paper, monkeypatch):
+    """Deterministically, the path the GPU took by chance."""
+    def out_of_memory(path):
+        raise RuntimeError("Insufficient Memory (kIOGPUCommandBufferCallbackErrorOutOfMemory)")
+
+    monkeypatch.setattr(structured, "available", lambda: True)
+    monkeypatch.setattr(structured, "parse", out_of_memory)
+
+    parsed = documents.parse_document(paper, suffix=".pdf")
+
+    assert parsed.metadata["parser"] == "pymupdf"
+    assert "Docling could not read it" in parsed.metadata["parser_fallback"]
+    assert "OutOfMemory" in parsed.metadata["parser_fallback"]
+
+
+def test_docling_not_being_installed_is_not_called_a_failure(paper, monkeypatch):
+    monkeypatch.setattr(structured, "available", lambda: False)
+
+    parsed = documents.parse_document(paper, suffix=".pdf")
+
+    assert parsed.metadata["parser"] == "pymupdf"
+    assert "parser_fallback" not in parsed.metadata
 
 
 def test_the_text_survives_whichever_parser_ran(paper):
