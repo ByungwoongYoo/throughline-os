@@ -515,3 +515,46 @@ class TestTheSameDoorAnUploadUses:
 
         assert response.status_code == 404, response.text
         assert serving.asked == [], "someone else's project still fetched"
+
+
+def test_the_real_fetch_checks_the_address_it_connects_to(monkeypatch):
+    """
+    `_fetch_over_http` resolved the name to check it and let the connection
+    resolve it again — the rebinding gap the paper fetcher had (T165). Here with
+    a real loopback server, so a fetch that returns is a fetch that reached this
+    machine; and the refusal arrives as `DatasetImportRefused`, which the route
+    answers as a refusal, not as a server error.
+    """
+    import http.server
+    import socket
+    import threading
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            self.send_response(200)
+            self.send_header("Content-Type", "text/csv")
+            self.end_headers()
+            self.wfile.write(b"a,b\n1,2\n")
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    real, calls = socket.getaddrinfo, {"n": 0}
+
+    def rebinding(host, *args, **kwargs):
+        if host != "rebind.example":
+            return real(host, *args, **kwargs)
+        calls["n"] += 1
+        address = "93.184.216.34" if calls["n"] == 1 else "127.0.0.1"
+        port = args[0] if args else kwargs.get("port")
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, port or 0))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", rebinding)
+    try:
+        with pytest.raises(dataset_import.DatasetImportRefused, match="not a public address"):
+            dataset_import._fetch_over_http(
+                f"http://rebind.example:{server.server_port}/data.csv")
+    finally:
+        server.shutdown()

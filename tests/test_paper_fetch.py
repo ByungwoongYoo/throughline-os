@@ -233,3 +233,109 @@ class TestTheBytesItWillAccept:
         body = b"%PDF-1.7\n..."
         assert papers._body(self.FakeResponse(
             body, {"Content-Length": "not a number"})) == body
+
+
+class TestTheConnectionIsCheckedToo:
+    """
+    The name is resolved to check it, and `urllib` resolves it again to connect.
+    A name whose DNS answers a public address for the first and loopback for the
+    second — DNS rebinding — passed the check and then fetched from this machine
+    (T165). These run a real server on loopback, so a fetch that succeeds is a
+    fetch that reached it.
+    """
+
+    @staticmethod
+    def _serve_a_pdf():
+        import http.server
+        import threading
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802
+                body = b"%PDF-1.4\n% from the loopback server\n%%EOF\n"
+                self.send_response(200)
+                self.send_header("Content-Type", "application/pdf")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        return server
+
+    def test_a_name_that_rebinds_to_loopback_between_check_and_connect(self, monkeypatch):
+        server = self._serve_a_pdf()
+        real = socket.getaddrinfo
+        answers = {"n": 0}
+
+        def rebinding(host, *args, **kwargs):
+            if host != "rebind.example":
+                return real(host, *args, **kwargs)
+            answers["n"] += 1
+            address = "93.184.216.34" if answers["n"] == 1 else "127.0.0.1"
+            port = args[0] if args else kwargs.get("port")
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, port or 0))]
+
+        monkeypatch.setattr(socket, "getaddrinfo", rebinding)
+        try:
+            # The refusal itself, not any fetch error: "could not be downloaded"
+            # is a PaperFetchError too, and would pass a looser assertion.
+            with pytest.raises(papers.PaperFetchError, match="not a public address"):
+                papers.fetch_pdf(f"http://rebind.example:{server.server_port}/paper.pdf")
+            assert answers["n"] >= 2, "the connection never looked the name up again"
+        finally:
+            server.shutdown()
+
+    @staticmethod
+    def _stub_connection(peer: str):
+        class FakeSocket:
+            closed = False
+
+            def getpeername(self):
+                return (peer, 443)
+
+            def close(self):
+                self.closed = True
+
+        class Connection:
+            opened: list = []
+
+            def __init__(self, host, **kwargs):
+                self.host = host
+
+                def create(address, *a, **kw):
+                    sock = FakeSocket()
+                    Connection.opened.append(sock)
+                    return sock
+
+                self._create_connection = create
+
+        return Connection
+
+    def test_a_public_peer_is_connected_to(self):
+        make = papers._connection_to_public_peers(
+            self._stub_connection("93.184.216.34"), host="example.org", proxied=False)
+        sock = make("example.org")._create_connection(("example.org", 443))
+        assert not sock.closed
+
+    def test_a_loopback_peer_is_refused_and_closed(self):
+        base = self._stub_connection("::ffff:127.0.0.1")
+        make = papers._connection_to_public_peers(base, host="example.org", proxied=False)
+        with pytest.raises(papers.PaperFetchError, match="not a public address"):
+            make("example.org")._create_connection(("example.org", 443))
+        # Closed, not abandoned: a refusal that left the socket open would leak a
+        # descriptor per attempt, and this is an endpoint a caller can repeat.
+        assert base.opened and base.opened[-1].closed
+
+    def test_a_proxied_fetch_is_left_to_the_proxy(self):
+        """
+        The socket's peer is then the proxy, which may rightly be private; the
+        proxy resolves the destination. Checking it would refuse every fetch on
+        an installation behind one.
+        """
+        base = self._stub_connection("10.0.0.8")
+        make = papers._connection_to_public_peers(base, host="example.org", proxied=True)
+        sock = make("proxy.internal")._create_connection(("proxy.internal", 3128))
+        assert not sock.closed

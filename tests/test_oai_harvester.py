@@ -236,3 +236,94 @@ def test_capability_does_not_advertise_a_search_it_cannot_do():
 def test_a_base_url_that_is_not_http_is_refused_at_construction():
     with pytest.raises(ConnectorError, match="http"):
         OAIRepository("repo.example.org/oai2")
+
+
+# ---------------------------------------------------------------------------
+# A harvest address that points inside this machine (T165)
+# ---------------------------------------------------------------------------
+
+class TestAHarvestCannotReachThisMachine:
+    """
+    `POST /projects/{id}/harvest` takes `base_url` from the request, and the
+    connector checked only that it began with http(s) — no private-address
+    guard at all, and `urllib` following redirects wherever they led. A signed-in
+    caller could harvest `http://127.0.0.1:8080/...` from the server's own
+    network position. These run a real server on loopback and count what
+    reaches it: the refusal has to come before the request, not after.
+    """
+
+    @staticmethod
+    def _loopback_repository():
+        import http.server
+        import threading
+
+        hits: list[str] = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802
+                hits.append(self.path)
+                body = (b'<?xml version="1.0"?><OAI-PMH xmlns="http://www.openarchives.org/'
+                        b'OAI/2.0/"><Identify><repositoryName>inside</repositoryName>'
+                        b'<baseURL>http://127.0.0.1/oai</baseURL></Identify></OAI-PMH>')
+                self.send_response(200)
+                self.send_header("Content-Type", "text/xml")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        return server, hits
+
+    def test_a_loopback_base_url_is_refused_before_anything_is_sent(self):
+        server, hits = self._loopback_repository()
+        try:
+            repo = OAIRepository(f"http://127.0.0.1:{server.server_port}/oai")
+            with pytest.raises(ConnectorError, match="not a public address"):
+                repo.identify()
+        finally:
+            server.shutdown()
+        assert hits == [], f"the harvest reached this machine: {hits}"
+
+    def test_an_internal_address_is_refused_without_opening_a_connection(self, monkeypatch):
+        """
+        The name is checked before connecting, not only the peer after. A check
+        made only once connected would open a TCP connection to the internal
+        host first — and "refused" for a closed port against "not a public
+        address" for an open one would make this endpoint a port scanner for the
+        machine it runs on.
+        """
+        import socket
+
+        def no_connections(*args, **kwargs):
+            raise AssertionError("a connection was opened to an internal address")
+
+        monkeypatch.setattr(socket, "create_connection", no_connections)
+        repo = OAIRepository("http://127.0.0.1:9/oai")
+        with pytest.raises(ConnectorError, match="not a public address"):
+            repo.identify()
+
+    def test_a_redirect_into_this_machine_is_refused(self):
+        """
+        Redirects are still followed — repositories do redirect — but each new
+        address is checked before the hop is taken. `urllib`'s own handler
+        followed them unchecked.
+        """
+        from throughline_connectors import oai
+
+        with pytest.raises(ConnectorError, match="not a public address"):
+            oai._PublicRedirects().redirect_request(
+                None, None, 302, "Found", {}, "http://127.0.0.1:8080/api/projects")
+
+    def test_building_a_repository_does_no_network_lookup(self, monkeypatch):
+        """The name is resolved when it is used, so scripted repositories stay offline."""
+        import socket
+
+        def no_lookups(*args, **kwargs):
+            raise AssertionError("OAIRepository() resolved a name")
+
+        monkeypatch.setattr(socket, "getaddrinfo", no_lookups)
+        OAIRepository("https://repo.example.org/oai2")

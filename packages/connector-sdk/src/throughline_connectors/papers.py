@@ -21,6 +21,12 @@ rejected if it lands anywhere private. Redirects are followed manually so each
 hop is checked the same way — a public URL that 302s to `169.254.169.254` is
 the standard way this guard gets bypassed when it is applied only once.
 
+**And the address actually connected to is checked as well.** Resolving a name
+to decide and letting the connection resolve it again is the other standard
+bypass: a name whose DNS answers public for the check and loopback for the
+connection (rebinding) passed the first guard and was fetched from this machine
+(T165). See `_connection_to_public_peers`.
+
 **A PDF is not trusted here either.** The bytes are handed to the browser, which
 hands them to PDF.js with scripting off; nothing on this side parses them. What
 this does enforce is that they are plausibly a PDF and not, say, a 900MB file
@@ -31,6 +37,7 @@ helping nobody.
 
 from __future__ import annotations
 
+import http.client
 import ipaddress
 import socket
 import urllib.error
@@ -114,7 +121,8 @@ def fetch_pdf(url: str, *, mailto: str | None = None) -> bytes:
 
     for _ in range(MAX_REDIRECTS):
         request = urllib.request.Request(current, headers=headers)
-        opener = urllib.request.build_opener(_NoRedirects)
+        opener = urllib.request.build_opener(_NoRedirects, _PublicOnlyHTTP,
+                                             _PublicOnlyHTTPS)
         try:
             with opener.open(request, timeout=TIMEOUT) as response:
                 location = response.headers.get("Location")
@@ -179,3 +187,53 @@ class _NoRedirects(urllib.request.HTTPRedirectHandler):
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D102
         return None
+
+
+def _connection_to_public_peers(base: type, *, host: str, proxied: bool):
+    """
+    A connection class that refuses to talk to anything but a public address.
+
+    `_checked` resolves the name to decide, and the connection resolves it
+    *again* to connect — so a name whose DNS answers a public address for the
+    first lookup and loopback for the second (DNS rebinding) passed the check
+    and was fetched from this machine: the API on loopback, cloud metadata, the
+    very things this module exists to keep out of reach (T165). So the address
+    the socket actually connected to is checked, after connecting and before a
+    byte of the request is sent. It is the peer that matters, not any lookup.
+
+    Not when a proxy is configured: then the socket's peer is the proxy, which
+    may rightly be on a private network, and the proxy — not this process —
+    resolves the destination. Refusing every proxied fetch would break the
+    installations behind one, and the hostname is still checked by `_checked`.
+    """
+    def make(connect_to: str, **kwargs):
+        connection = base(connect_to, **kwargs)
+        if proxied:
+            return connection
+        create = connection._create_connection
+
+        def checked(address, *args, **kw):
+            sock = create(address, *args, **kw)
+            peer = sock.getpeername()[0].split("%", 1)[0]
+            if not ipaddress.ip_address(peer).is_global:
+                sock.close()
+                raise PaperFetchError(
+                    f"{host} is not a public address this can fetch from.")
+            return sock
+
+        connection._create_connection = checked
+        return connection
+    return make
+
+
+class _PublicOnlyHTTP(urllib.request.HTTPHandler):
+    def http_open(self, req):  # noqa: D102
+        return self.do_open(_connection_to_public_peers(
+            http.client.HTTPConnection, host=urllib.parse.urlsplit(req.full_url).hostname or "", proxied=req.has_proxy()), req)
+
+
+class _PublicOnlyHTTPS(urllib.request.HTTPSHandler):
+    def https_open(self, req):  # noqa: D102
+        return self.do_open(_connection_to_public_peers(
+            http.client.HTTPSConnection, host=urllib.parse.urlsplit(req.full_url).hostname or "", proxied=req.has_proxy()),
+            req, context=self._context)
