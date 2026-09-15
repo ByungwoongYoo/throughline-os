@@ -410,3 +410,60 @@ def test_each_effect_size_is_judged_on_its_own_scale(name, value, expected):
     from throughline_runtime.contract import describe_practical_significance
 
     assert describe_practical_significance(EffectSize(name=name, value=value)) == expected
+
+
+# ---------------------------------------------------------------------------
+# A result's headline numbers describe the same thing (T175)
+# ---------------------------------------------------------------------------
+
+def _adjusted_frame():
+    """y is driven by z; x, the predictor asked about, has no effect."""
+    rng = np.random.default_rng(11)
+    n = 200
+    z, x = rng.normal(size=n), rng.normal(size=n)
+    return pd.DataFrame({"y": 3 * z + rng.normal(size=n), "x": x, "z": z})
+
+
+def test_a_regressions_p_value_is_the_predictors_it_sits_beside():
+    """
+    The headline estimate and interval are the first predictor's, adjusted for
+    the rest; the p-value beside them was the whole model's F-test. With a
+    strong covariate that read as overwhelming evidence about a predictor whose
+    own interval spans zero — and the evidence grade was built on it.
+    """
+    result = run("linear_regression", _adjusted_frame(), outcome="y", predictors=["x", "z"])
+    own = result.extra["coefficients"]["x"]
+
+    assert result.ci_low < 0 < result.ci_high
+    assert result.p_value == own["p_value"] and result.p_value > 0.05
+    assert result.test_statistic == own["t"]
+    # The model's test is still there, named as what it is.
+    assert result.extra["model_p_value"] < 1e-10
+    assert result.extra["model_f"] > 100
+
+
+def test_with_one_predictor_the_two_tests_agree():
+    rng = np.random.default_rng(12)
+    x = rng.normal(size=80)
+    frame = pd.DataFrame({"x": x, "y": 0.5 * x + rng.normal(size=80)})
+    result = run("linear_regression", frame, outcome="y", predictors=["x"])
+    assert math.isclose(result.p_value, result.extra["model_p_value"], rel_tol=1e-9)
+
+
+def test_cramers_v_is_computed_without_the_continuity_correction():
+    """
+    `chi2_contingency` applies Yates' correction to a 2×2 table. That is a
+    choice for the test; Cramér's V is defined on the uncorrected statistic, and
+    taking the corrected one understated it (0.234 against 0.267 here).
+    """
+    from scipy.stats.contingency import association
+
+    frame = pd.DataFrame({"a": ["u"] * 30 + ["v"] * 30,
+                          "b": ["p"] * 20 + ["q"] * 10 + ["p"] * 12 + ["q"] * 18})
+    result = run("chi_square", frame, x="a", y="b")
+    table = pd.crosstab(frame["a"], frame["b"]).to_numpy()
+
+    assert math.isclose(result.effect_size.value,
+                        association(table, method="cramer"), rel_tol=1e-12)
+    # The test itself keeps scipy's default.
+    assert math.isclose(result.p_value, stats.chi2_contingency(table)[1], rel_tol=1e-12)

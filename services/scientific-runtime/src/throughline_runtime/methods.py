@@ -360,8 +360,11 @@ def linear_regression(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalR
         ci_low=float(intervals.loc[predictor_names[0], 0]),
         ci_high=float(intervals.loc[predictor_names[0], 1]),
         confidence_level=confidence,
-        p_value=float(model.f_pvalue) if not math.isnan(model.f_pvalue) else None,
-        test_statistic=float(model.fvalue) if not math.isnan(model.fvalue) else None,
+        # The predictor's own test, like the estimate and interval beside it. The
+        # model's F-test answers whether anything in it explains the outcome — a
+        # strong covariate makes that overwhelming for a predictor with no effect.
+        p_value=coefficients[predictor_names[0]]["p_value"],
+        test_statistic=coefficients[predictor_names[0]]["t"],
         degrees_of_freedom=float(model.df_resid),
         effect_size=EffectSize(name="r_squared", value=r_squared,
                                interpretation="proportion of variance explained"),
@@ -373,6 +376,9 @@ def linear_regression(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalR
             "outcome": outcome_name, "predictors": predictor_names,
             "coefficients": coefficients, "r_squared": r_squared,
             "adjusted_r_squared": float(model.rsquared_adj), "dropped_rows": dropped,
+            "model_f": float(model.fvalue) if not math.isnan(model.fvalue) else None,
+            "model_p_value": (float(model.f_pvalue)
+                              if not math.isnan(model.f_pvalue) else None),
         },
     ))
 
@@ -502,7 +508,10 @@ def chi_square(frame: pd.DataFrame, spec: dict[str, Any]) -> StatisticalResult:
     statistic, p, dof, expected = stats.chi2_contingency(table)
     n = int(table.to_numpy().sum())
     min_expected = float(expected.min())
-    cramers_v = float(math.sqrt((statistic / n) / (min(table.shape) - 1)))
+    # Cramér's V is defined on the uncorrected statistic. The test keeps scipy's
+    # Yates correction for a 2×2 table; V taken from it was understated.
+    uncorrected = float(stats.chi2_contingency(table, correction=False)[0])
+    cramers_v = float(math.sqrt((uncorrected / n) / (min(table.shape) - 1)))
 
     return _finalise(StatisticalResult(
         method="chi_square_independence",
