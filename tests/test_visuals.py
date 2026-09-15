@@ -269,7 +269,11 @@ def test_one_spec_renders_to_publication_and_web_without_recomputing(analysed, t
     assert chart["usermeta"]["statistics"]["method"] == "linear_regression"
 
 
-@pytest.mark.parametrize("fmt", ["svg", "pdf", "png"])
+# Every format the renderer declares, not three of them. Publish offers seven,
+# and eps, tiff, jpeg and webp were offered and declared supported and never
+# once rendered here — the same shape as the vega-lite path that failed on
+# every call for a migration's lifetime without a test noticing.
+@pytest.mark.parametrize("fmt", publication.SUPPORTED_FORMATS)
 def test_publication_formats_all_render(analysed, tmp_path, fmt):
     """§84 — SVG, PDF and high-DPI PNG."""
     project_id, _, runs = analysed

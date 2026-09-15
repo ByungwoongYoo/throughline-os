@@ -66,6 +66,20 @@ def write(cur, *, project_id: str, object_id: str, object_type: str, body: str,
     if author_kind not in (HUMAN, MODEL):
         raise JournalError(f"A note is written by a human or a model, not "
                            f"{author_kind!r}.")
+    # The object, and the note being replied to, are this project's. Neither was
+    # checked, and an object's notes were read by its id alone — so a note
+    # written from one account onto another's object appeared in *their*
+    # journal, and `ask` fed it to their model as context about their own data
+    # (T164).
+    cur.execute("SELECT 1 FROM research_objects WHERE id = %s AND project_id = %s",
+                (object_id, project_id))
+    if cur.fetchone() is None:
+        raise NoSuchObject(f"No such object in this project: {object_id}")
+    if replies_to is not None:
+        cur.execute("SELECT 1 FROM notes WHERE id = %s AND project_id = %s",
+                    (replies_to, project_id))
+        if cur.fetchone() is None:
+            raise NoSuchObject(f"No such note in this project: {replies_to}")
 
     note_id = new_id("note")
     cur.execute(
@@ -80,14 +94,18 @@ def write(cur, *, project_id: str, object_id: str, object_type: str, body: str,
     return dict(cur.fetchone())
 
 
-def notes_for(cur, object_id: str) -> list[dict[str, Any]]:
+def notes_for(cur, object_id: str, project_id: str) -> list[dict[str, Any]]:
     cur.execute(
         "SELECT id, object_id, body, author_kind, author, prompt, model, "
-        "       replies_to, selection, created_at FROM notes WHERE object_id = %s "
+        "       replies_to, selection, created_at FROM notes "
+        # Scoped by project as well as object. `write` now refuses a foreign
+        # object, but rows written before it did are still in researchers'
+        # databases, and this is what reaches a model's prompt (T164).
+        "WHERE object_id = %s AND project_id = %s "
         # By sequence, not timestamp: notes written in one transaction share a
         # timestamp exactly, and a question sorting after its answer would
         # misrepresent the order the researcher thought in.
-        "ORDER BY seq", (object_id,))
+        "ORDER BY seq", (object_id, project_id))
     return [dict(row) for row in cur.fetchall()]
 
 
@@ -151,7 +169,7 @@ def context(cur, *, project_id: str, object_id: str) -> dict[str, Any]:
         "object": dict(node),
         "derived_from": upstream,
         "used_by": downstream,
-        "notes": notes_for(cur, object_id),
+        "notes": notes_for(cur, object_id, project_id),
     }
 
 

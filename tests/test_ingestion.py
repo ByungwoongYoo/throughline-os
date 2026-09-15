@@ -327,3 +327,64 @@ def test_a_real_parsed_title_is_preferred_over_the_filename(cur, project):
     cur.execute("SELECT title FROM research_objects WHERE id = %s",
                 (stored["object_id"],))
     assert cur.fetchone()["title"].startswith("Antibiotic consumption")
+
+
+def _retry_now(source_id: str) -> None:
+    """The backoff is the only thing between a failure and its retry."""
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("UPDATE workflow_runs SET run_after = now() "
+                    "WHERE input->>'source_id' = %s", (source_id,))
+
+
+def _ingest_run(source_id: str) -> dict:
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT state, attempts, error FROM workflow_runs "
+                    "WHERE input->>'source_id' = %s", (source_id,))
+        return cur.fetchone()
+
+
+def test_a_transient_ingestion_failure_is_retried_to_ready(committed_project, monkeypatch):
+    calls = {"n": 0}
+    real = dataset_parser.profile_dataset
+
+    def flaky(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("the disk blinked")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(dataset_parser, "profile_dataset", flaky)
+    source_id = _upload(committed_project, "amr.csv",
+                        b"country,year,rate\nIND,2019,31.2\nUSA,2019,18.6\nGBR,2020,15.0\n")
+
+    Worker(worker_id="test").run_once()
+    _retry_now(source_id)
+    _drain()
+
+    assert calls["n"] == 2, "the retry never reached the parser"
+    assert _source(source_id)["ingestion_status"] == str(IngestionStatus.READY)
+
+
+def test_a_source_whose_ingestion_keeps_failing_says_it_failed(committed_project, monkeypatch):
+    """
+    The run gave up after three attempts and said why; the source kept reading
+    `uploaded`, with no reason, for ever. Its fallback wrote the failure on a
+    second connection while the job's transaction held that row's lock, so the
+    write timed out every time — the warning was logged on each attempt and the
+    status a researcher reads was never set (T163).
+    """
+    def broken(*args, **kwargs):
+        raise RuntimeError("the disk blinked")
+
+    monkeypatch.setattr(dataset_parser, "profile_dataset", broken)
+    source_id = _upload(committed_project, "amr.csv",
+                        b"country,year,rate\nIND,2019,31.2\nUSA,2019,18.6\n")
+
+    for _ in range(6):
+        Worker(worker_id="test").run_once()
+        _retry_now(source_id)
+
+    run, source = _ingest_run(source_id), _source(source_id)
+    assert run["state"] == "failed"
+    assert source["ingestion_status"] == str(IngestionStatus.FAILED), source["ingestion_status"]
+    assert "the disk blinked" in (source["ingestion_detail"] or "")

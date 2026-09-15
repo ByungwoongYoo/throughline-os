@@ -326,3 +326,88 @@ class TestTheSentenceAndTheStepComeOffOneLadder:
         _source_and_dataset(cur, project)
         _a_finding_with_its_evidence(cur, project)
         assert agrees(), "on the rung for a finding waiting to be promoted"
+
+
+
+# ---------------------------------------------------------------------------
+# The rung names what it is about
+# ---------------------------------------------------------------------------
+#
+# The step said *which of six* screens; the object a control opened was chosen
+# by the client from the ranked list — a second ladder. On three rungs the
+# sentence was about findings and the button opened a connection, and on the
+# ordinary path the Validate button reopened the connection just validated.
+
+def _target(cur, project):
+    return graphs.discovery_map(cur, project_id=project)["recommended_target"]
+
+
+class TestEachRungNamesItsObject:
+    def test_a_rung_about_a_whole_screen_names_no_object(self, cur, project):
+        assert _target(cur, project) is None
+        _a_source(cur, project)
+        assert _target(cur, project) is None
+
+    def test_validate_names_the_connection_still_waiting_not_the_strongest(
+            self, cur, project):
+        """The ordinary path: the strongest was validated and kept its rank."""
+        _source_and_dataset(cur, project)
+        done, waiting = _connection(cur, project), _connection(cur, project)
+        cur.execute("UPDATE connections SET lifecycle_status = 'validated', "
+                    "rank_score = 0.91 WHERE id = %s", (done,))
+        cur.execute("UPDATE connections SET lifecycle_status = 'exploratory', "
+                    "rank_score = 0.44 WHERE id = %s", (waiting,))
+        target = _target(cur, project)
+        assert (target["kind"], target["verb"], target["id"]) == (
+            "connection", "validate", waiting)
+
+    def test_record_names_the_strongest_validated_connection(self, cur, project):
+        _source_and_dataset(cur, project)
+        connection = _connection(cur, project)
+        target = _target(cur, project)
+        assert (target["kind"], target["verb"], target["id"]) == (
+            "connection", "record", connection)
+        assert target["left_variable"] and target["right_variable"]
+
+    def test_the_finding_needing_evidence_is_the_object(self, cur, project):
+        _source_and_dataset(cur, project)
+        _connection(cur, project)
+        hunch = findings.create_finding(
+            cur, project_id=project, title="A hunch",
+            finding_type=FindingType.STATISTICAL, actor="researcher")
+        target = _target(cur, project)
+        assert (target["kind"], target["verb"], target["title"]) == (
+            "finding", "evidence", "A hunch")
+        assert target["id"] == (hunch["id"] if isinstance(hunch, dict) else hunch)
+
+    def test_the_finding_ready_for_promotion_is_the_object(self, cur, project):
+        _source_and_dataset(cur, project)
+        finding_id = _a_finding_with_its_evidence(cur, project)
+        target = _target(cur, project)
+        assert (target["kind"], target["verb"], target["id"]) == (
+            "finding", "promote", finding_id)
+
+    def test_challenge_prefers_a_validated_finding_nobody_has_challenged(
+            self, cur, project):
+        _source_and_dataset(cur, project)
+        fresh = _a_finding_with_its_evidence(cur, project)
+        tried = _a_finding_with_its_evidence(cur, project)
+        _move_to(cur, fresh, "validated")
+        _move_to(cur, tried, "validated")
+        cur.execute("INSERT INTO challenges(id, project_id, finding_id) "
+                    "VALUES (%s, %s, %s)", (new_id("chal"), project, tried))
+        target = _target(cur, project)
+        assert (target["kind"], target["verb"], target["id"]) == (
+            "finding", "challenge", fresh)
+
+    def test_the_last_rung_names_no_object(self, cur, project):
+        _source_and_dataset(cur, project)
+        _move_to(cur, _a_finding_with_its_evidence(cur, project), "exploratory")
+        assert _target(cur, project) is None
+
+    def test_the_object_survives_the_wire(self, cur, project):
+        _source_and_dataset(cur, project)
+        _connection(cur, project)
+        overview = json.loads(json.dumps(
+            graphs.discovery_map(cur, project_id=project), default=str))
+        assert overview["recommended_target"]["kind"] == "connection"

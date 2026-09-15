@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import io
 import json
-import uuid
 
 import pytest
 from fastapi.testclient import TestClient
@@ -35,6 +34,7 @@ cv2 = pytest.importorskip("cv2", reason="the digitise pack is not installed here
 # indistinguishable from a normal state, which is the defect this repository
 # spends most of its time removing from the product itself.
 import numpy as np  # noqa: E402
+from conftest import sign_in
 
 
 @pytest.fixture()
@@ -54,12 +54,7 @@ def clean_users():
 
 
 def _account(client) -> None:
-    status = client.get("/api/auth/status").json()
-    endpoint = "/api/auth/setup" if status["needs_setup"] else "/api/auth/login"
-    assert client.post(endpoint, json={
-        "email": f"fig-{uuid.uuid4().hex[:8]}@lab.local",
-        "display_name": "Lead", "password": "correct-horse-battery",
-    }).status_code == 200
+    sign_in(client, email="fig@lab.local", display_name="Lead")
 
 
 def _project(client) -> str:

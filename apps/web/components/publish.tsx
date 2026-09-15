@@ -28,7 +28,7 @@
  * with a critique attached.
  */
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
 
 /** What the critic reports about one check. */
@@ -51,6 +51,15 @@ export type Created = {
    * would be the capability going unreachable again.
    */
   spec?: { visual_type?: string };
+  /**
+   * Whether the publication renderer draws this kind of figure at all.
+   *
+   * It draws seven flat kinds, and a fitted surface is not one of them — yet
+   * the format picker was shown for every figure, so a surface offered PDF,
+   * SVG and PNG and a Download that failed every time it was pressed. Asked
+   * of the server, which owns that list, rather than copied here to drift.
+   */
+  exportable: boolean;
 };
 
 /**
@@ -249,6 +258,7 @@ export function PublishFigure({ projectId, analysisRunId, spec, findingId,
         </div>
       ) : (
         <>
+          {created.exportable ? (
           <div className="row" style={{ gap: "0.75rem", alignItems: "center" }}>
             <label>
               Format{" "}
@@ -280,6 +290,19 @@ export function PublishFigure({ projectId, analysisRunId, spec, findingId,
               {busy ? "Rendering…" : "Download"}
             </button>
           </div>
+          ) : (
+            /* No format exists for this kind of figure, so no format is
+               offered — and the reason is said, because a missing button
+               with no sentence reads as a page that failed to load. */
+            <p className="note">
+              {created.spec?.visual_type === "surface"
+                ? "A fitted surface is three-dimensional and has no flat "
+                  + "publication export. Render it with Blender below, or "
+                  + "download the 3D scene for any other tool."
+                : "Figures of this kind have no publication export yet, so "
+                  + "there is no file to download here."}
+            </p>
+          )}
           {created.spec?.visual_type === "surface" && (
             <div className="scene">
               <button className="btn" disabled={busy}
@@ -292,12 +315,13 @@ export function PublishFigure({ projectId, analysisRunId, spec, findingId,
                 separately, so a slope measured on the mesh is not the slope in
                 the data — the archive states the ranges that map it back.
               </p>
+              <BlenderRender visualId={created.visual_id} />
             </div>
           )}
           {/* A vector format has no pixel size, and the server refuses a height
               for one rather than ignoring it. Saying so is better than hiding
               the field and leaving the researcher to wonder where it went. */}
-          {!takesAHeight(format) && (
+          {created.exportable && !takesAHeight(format) && (
             <p style={{ color: "var(--ink-faint)" }}>
               {format.toUpperCase()} is a vector format — it has no pixel size
               and stays sharp at any scale.
@@ -311,3 +335,184 @@ export function PublishFigure({ projectId, analysisRunId, spec, findingId,
     </section>
   );
 }
+
+
+/** What `/api/visuals/{id}/blender-render` reports. */
+export type BlenderState = {
+  visual_id: string;
+  is_surface: boolean;
+  available: boolean;
+  version: string | null;
+  withheld: string;
+  install: string;
+  render: null | {
+    render_id: string;
+    renderer_version: string | null;
+    deterministic: boolean;
+    bytes: number;
+    created_at: string;
+    stale: boolean;
+    note: string;
+  };
+  run: null | { run_id: string; state: string; error: string | null };
+};
+
+/** States after which a run will not change on its own. */
+const FINISHED = ["completed", "partially_completed", "failed", "cancelled"];
+
+/**
+ * Rendering this figure through Blender, from inside Throughline.
+ *
+ * Blender's renderer was written, documented and tested, and nothing in the
+ * product called it: Settings found Blender, named its version and promised
+ * "a physically-based render for publication", and there was nowhere to ask
+ * for one. This is where.
+ *
+ * It runs as a job on this machine rather than inside the request, because a
+ * render can take minutes and a request held open that long is a timeout
+ * reported as a failure while Blender is still working — so it is started and
+ * then watched, the way a feature pack install is.
+ *
+ * The picture is labelled as a render wherever it appears. A Blender render
+ * varies with the version, the build and the machine; the export beside it is
+ * reproducible byte for byte, and the one must never pass for the other.
+ */
+export function BlenderRender({ visualId }: { visualId: string }) {
+  const [state, setState] = useState<BlenderState | null>(null);
+  const [image, setImage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+  const poll = useRef<number | null>(null);
+  const shown = useRef<string | null>(null);
+
+  const load = useCallback(async () => {
+    const next = await api.get<BlenderState>(
+      `/api/visuals/${visualId}/blender-render`);
+    setState(next);
+    return next;
+  }, [visualId]);
+
+  const showImage = useCallback(async (renderId: string) => {
+    if (shown.current === renderId) return;
+    const bytes = await api.getForBytes(
+      `/api/visuals/${visualId}/blender-render.png`);
+    shown.current = renderId;
+    setImage(URL.createObjectURL(
+      new Blob([bytes as BlobPart], { type: "image/png" })));
+  }, [visualId]);
+
+  const stop = useCallback(() => {
+    if (poll.current !== null) {
+      window.clearInterval(poll.current);
+      poll.current = null;
+    }
+  }, []);
+
+  const watch = useCallback(() => {
+    stop();
+    poll.current = window.setInterval(async () => {
+      try {
+        const next = await load();
+        if (!next.run || FINISHED.includes(next.run.state)) {
+          stop();
+          if (next.render) await showImage(next.render.render_id);
+        }
+      } catch (err) {
+        stop();
+        setError(err instanceof ApiError ? err.message : String(err));
+      }
+    }, 3000);
+  }, [load, showImage, stop]);
+
+  useEffect(() => {
+    let live = true;
+    load()
+      .then(async (first) => {
+        if (!live) return;
+        if (first.run && !FINISHED.includes(first.run.state)) watch();
+        else if (first.render) await showImage(first.render.render_id);
+      })
+      .catch((err) => {
+        if (live) setError(err instanceof ApiError ? err.message : String(err));
+      });
+    return () => { live = false; stop(); };
+  }, [load, showImage, stop, watch]);
+
+  // Each object URL is released when it is replaced or the panel closes.
+  useEffect(() => () => { if (image) URL.revokeObjectURL(image); }, [image]);
+
+  async function start() {
+    setStarting(true);
+    setError(null);
+    try {
+      await api.post(`/api/visuals/${visualId}/blender-render`);
+      await load();
+      watch();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  async function saveRender() {
+    try {
+      const bytes = await api.getForBytes(
+        `/api/visuals/${visualId}/blender-render.png`);
+      save(bytes, `${visualId}-blender-render.png`, "image/png");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    }
+  }
+
+  if (!state) {
+    return error ? <p className="notice" role="alert">{error}</p> : null;
+  }
+  if (!state.is_surface) return null;
+
+  const running = Boolean(state.run && !FINISHED.includes(state.run.state));
+  const failed = state.run?.state === "failed" ? state.run.error : null;
+
+  return (
+    <div className="blender-render">
+      <h3 className="eyebrow">Render with Blender</h3>
+      {!state.available ? (
+        <>
+          <p className="note">{state.withheld}</p>
+          {state.install && <p className="note">{state.install}</p>}
+        </>
+      ) : (
+        <>
+          <p className="note">
+            Blender {state.version} on this machine renders the fitted surface
+            with light and material. It runs in the background, and the picture
+            appears here when it is done.
+          </p>
+          <button className="btn" disabled={running || starting}
+                  onClick={() => void start()}>
+            {running ? "Rendering in Blender…"
+              : starting ? "Starting…"
+              : state.render ? "Render again" : "Render with Blender"}
+          </button>
+        </>
+      )}
+      {failed && <p className="notice" role="alert">{failed}</p>}
+      {error && <p className="notice" role="alert">{error}</p>}
+      {state.render && image && (
+        <figure>
+          <img src={image} alt="The fitted surface, rendered through Blender" />
+          <figcaption>
+            {state.render.note}
+            {state.render.stale
+              && " This is a render of an earlier version of the figure; render "
+                 + "again to match it."}
+          </figcaption>
+          <button className="btn" onClick={() => void saveRender()}>
+            Download the render
+          </button>
+        </figure>
+      )}
+    </div>
+  );
+}
+

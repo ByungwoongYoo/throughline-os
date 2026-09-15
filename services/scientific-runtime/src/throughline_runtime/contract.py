@@ -100,27 +100,31 @@ def grade_evidence(
     return "moderate"
 
 
+# Cohen's (1988) conventions, each on the scale its measure lives on. A
+# proportion of variance explained is not a correlation: eta-squared of 0.12 is
+# medium-to-large, and judged against 0.1/0.3/0.5 it read as "small".
+_CONVENTIONS: tuple[tuple[frozenset[str], tuple[float, float, float]], ...] = (
+    (frozenset({"pearson_r", "spearman_rho", "cramers_v", "rank_biserial"}), (0.1, 0.3, 0.5)),
+    (frozenset({"eta_squared", "epsilon_squared"}), (0.01, 0.06, 0.14)),
+    (frozenset({"r_squared"}), (0.01, 0.09, 0.25)),
+    (frozenset({"cohens_d", "hedges_g"}), (0.2, 0.5, 0.8)),
+)
+
+
 def describe_practical_significance(effect: EffectSize | None) -> str:
     """Say plainly whether the magnitude matters, separately from the p-value."""
     if effect is None:
         return "not_assessed"
     magnitude = abs(effect.value)
-    if effect.name in {"pearson_r", "spearman_rho", "cramers_v", "eta_squared", "r_squared"}:
-        if magnitude < 0.1:
-            return "negligible"
-        if magnitude < 0.3:
-            return "small"
-        if magnitude < 0.5:
-            return "moderate"
-        return "large"
-    if effect.name in {"cohens_d", "hedges_g"}:
-        if magnitude < 0.2:
-            return "negligible"
-        if magnitude < 0.5:
-            return "small"
-        if magnitude < 0.8:
-            return "moderate"
-        return "large"
+    for names, (small, moderate, large) in _CONVENTIONS:
+        if effect.name in names:
+            if magnitude < small:
+                return "negligible"
+            if magnitude < moderate:
+                return "small"
+            if magnitude < large:
+                return "moderate"
+            return "large"
     return "not_assessed"
 
 

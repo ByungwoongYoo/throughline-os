@@ -176,6 +176,17 @@ class Connector:
 
     # -- transport ---------------------------------------------------------
 
+    def _open(self, request: urllib.request.Request):
+        """
+        Send one request. Every fetch in this class goes through here.
+
+        The seam a connector overrides when the address it fetches came from a
+        caller rather than from its own code: an API connector's URLs are its
+        own, while the OAI harvester's base URL is typed by whoever asked, and
+        must not be allowed to reach this machine (T165).
+        """
+        return urllib.request.urlopen(request, timeout=self.timeout)
+
     def _get(self, url: str, *, headers: dict[str, str] | None = None,
              attempts: int = 3) -> bytes:
         """
@@ -197,7 +208,7 @@ class Connector:
             self._bucket.take()
             try:
                 request = urllib.request.Request(url, headers=request_headers)
-                with urllib.request.urlopen(request, timeout=self.timeout) as r:
+                with self._open(request) as r:
                     return r.read()
             except urllib.error.HTTPError as exc:
                 last = exc
@@ -258,7 +269,7 @@ class Connector:
         request = urllib.request.Request(url, data=body, method=method,
                                          headers=request_headers)
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as r:
+            with self._open(request) as r:
                 raw = r.read()
                 return r.status, (json.loads(raw.decode("utf-8")) if raw else None)
         except urllib.error.HTTPError as exc:

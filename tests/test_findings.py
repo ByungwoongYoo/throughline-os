@@ -259,6 +259,59 @@ def test_the_evidence_graph_reaches_the_analysis_behind_a_finding(cur, project):
     assert [a["id"] for a in graph["analyses"]] == [parts["run"]]
 
 
+def test_the_evidence_graph_reaches_the_connection_behind_a_finding(cur, project):
+    """
+    The branch beside the one above, which no test ever judged.
+
+    `evidence_graph` looked for connections through lineage on
+    `connections.object_id` — a column the only INSERT into `connections`
+    (`discovery.record_connection`) does not write, so the list was empty for
+    every finding ever recorded, including one recorded *from* a tested
+    connection. "Take it further" reads that list, so every finding was told
+    it had "No tested connection to write a report from".
+
+    The walk is the one `findings.validation_checks` already uses: a
+    connection names the run that tested it, and the runs are what the finding
+    hangs from. `analysis_run_id` is in the payload because the button's rule
+    (`canDraftReport`) is exactly "the connection names a run".
+    """
+    from throughline_domain import graphs
+
+    parts = _analysed_connection(cur, project)
+    finding_id = findings.create_finding(
+        cur, project_id=project, title="ddd tracks res_pct",
+        finding_type=FindingType.STATISTICAL,
+        from_connections=[parts["connection"]], actor="test")
+
+    graph = graphs.evidence_graph(cur, finding_id=finding_id)
+    assert [c["id"] for c in graph["connections"]] == [parts["connection"]]
+    assert graph["connections"][0]["analysis_run_id"] == parts["run"]
+
+
+def test_the_evidence_graph_leaves_out_connections_it_was_not_drawn_from(
+        cur, project):
+    """
+    The walk goes finding -> its runs -> the connections those runs tested, so
+    the thing to prove is that it stops there. A second tested connection in
+    the same project, which this finding was not recorded from, must not
+    appear under "why do we believe this?" — an evidence graph that widens is
+    worse than one that is empty, because it reads as corroboration.
+    """
+    from throughline_domain import graphs
+
+    parts = _analysed_connection(cur, project)
+    other = _analysed_connection(cur, project)
+    finding_id = findings.create_finding(
+        cur, project_id=project, title="ddd tracks res_pct",
+        finding_type=FindingType.STATISTICAL,
+        from_connections=[parts["connection"]], actor="test")
+
+    graph = graphs.evidence_graph(cur, finding_id=finding_id)
+    ids = [c["id"] for c in graph["connections"]]
+    assert ids == [parts["connection"]]
+    assert other["connection"] not in ids
+
+
 def test_a_finding_recorded_by_hand_is_still_allowed(cur, project):
     """
     A researcher may write a finding down before anything computes one.
@@ -359,3 +412,123 @@ def test_a_finding_with_no_causal_assessment_still_says_so(cur, project):
 
     assert graph["causal_reading"]["status"] == "not_assessed"
     assert "was not assessed" in graph["causal_reading"]["note"]
+
+
+def test_a_challenge_re_runs_the_robustness_suite_on_the_connection(cur, project):
+    """
+    The same defect as the evidence graph's, one file over: `critic` reached
+    the connections behind a finding through `connections.object_id`, which
+    nothing writes, so the probe it calls "re-run the robustness suite on the
+    connections behind it" never ran for any finding. A challenge reported a
+    verdict with that probe silently missing — the worst shape for a check,
+    because a verdict that ran fewer probes than it claims reads as stronger
+    than it is.
+    """
+    from throughline_domain import critic
+
+    parts = _analysed_connection(cur, project)
+    finding_id = findings.create_finding(
+        cur, project_id=project, title="ddd tracks res_pct",
+        finding_type=FindingType.STATISTICAL,
+        from_connections=[parts["connection"]], actor="test")
+
+    report = critic.challenge_finding(
+        cur, finding_id=finding_id, runner=lambda run_id: None, actor="test")
+
+    probes = [p["probe"] for p in report["probes"]]
+    assert any(p.startswith("robustness[") for p in probes), probes
+
+
+def test_limitations_can_be_recorded_and_read_back(cur, project):
+    """
+    `findings.limitations` was read in three places and written by nothing, so
+    a finding with real caveats and one with none showed the same page. The
+    round trip is asserted through the evidence graph — the query behind "why
+    do we believe this?" — because that is where a reader meets them.
+    """
+    from throughline_domain import graphs
+
+    finding_id = findings.create_finding(
+        cur, project_id=project, title="ddd tracks res_pct",
+        finding_type=FindingType.STATISTICAL, actor="test")
+
+    findings.record_limitations(
+        cur, finding_id=finding_id, actor="test",
+        limitations=["Observational data: no randomisation.",
+                     "One region only."])
+
+    graph = graphs.evidence_graph(cur, finding_id=finding_id)
+    assert graph["limitations"] == ["Observational data: no randomisation.",
+                                    "One region only."]
+
+
+def test_a_blank_limitation_is_refused(cur, project):
+    """
+    An empty bullet reads as a reservation the researcher declined to name,
+    which is worse than no bullet — so it is refused rather than stored.
+    """
+    finding_id = findings.create_finding(
+        cur, project_id=project, title="ddd tracks res_pct",
+        finding_type=FindingType.STATISTICAL, actor="test")
+
+    with pytest.raises(findings.LimitationsRefused):
+        findings.record_limitations(
+            cur, finding_id=finding_id, actor="test",
+            limitations=["Observational data.", "   "])
+
+    cur.execute("SELECT limitations FROM findings WHERE id = %s", (finding_id,))
+    assert cur.fetchone()["limitations"] == []
+
+
+def test_recording_limitations_can_withdraw_them(cur, project):
+    """
+    The whole list is the statement, so sending a shorter one withdraws a
+    caveat. A writer that could only add would make a mistaken caveat
+    permanent.
+    """
+    finding_id = findings.create_finding(
+        cur, project_id=project, title="ddd tracks res_pct",
+        finding_type=FindingType.STATISTICAL, actor="test")
+
+    findings.record_limitations(cur, finding_id=finding_id, actor="test",
+                               limitations=["One region only.", "Small n."])
+    findings.record_limitations(cur, finding_id=finding_id, actor="test",
+                               limitations=["One region only."])
+
+    cur.execute("SELECT limitations FROM findings WHERE id = %s", (finding_id,))
+    assert cur.fetchone()["limitations"] == ["One region only."]
+
+
+def test_a_report_can_be_drafted_from_the_connection_the_graph_returns(cur, project):
+    """
+    The whole chain "Take it further" walks, end to end.
+
+    Each half was proven separately and the join between them was broken for
+    the product's whole life: the evidence graph returned no connections, so
+    the card offered nothing, so `draft_from_connection` was never reached
+    from a finding. Asserting the list is non-empty would not have caught a
+    payload the next step cannot use — the client picks a connection by
+    `canDraftReport` (it names a run) and the server refuses on exactly that
+    condition, so this test pins the two rules against each other by walking
+    from one to the other.
+    """
+    from throughline_domain import authoring, graphs
+
+    parts = _analysed_connection(cur, project)
+    finding_id = findings.create_finding(
+        cur, project_id=project, title="ddd tracks res_pct",
+        finding_type=FindingType.STATISTICAL,
+        from_connections=[parts["connection"]], actor="test")
+
+    graph = graphs.evidence_graph(cur, finding_id=finding_id)
+    # `canDraftReport` in the client, which is "the connection names a run".
+    eligible = [c for c in graph["connections"] if c["analysis_run_id"]]
+    assert eligible, "the card would offer nothing"
+
+    artifact_id = authoring.draft_from_connection(
+        cur, project_id=project, connection_id=eligible[0]["id"],
+        artifact_type="report", audience="peer")
+
+    cur.execute("SELECT project_id FROM communication_artifacts WHERE id = %s",
+                (artifact_id,))
+    assert cur.fetchone()["project_id"] == project

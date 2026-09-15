@@ -54,6 +54,7 @@ const findings = {
     variables: ["antibiotic_consumption", "resistance_prevalence"],
     direction: "positive", lifecycle_status: "exploratory",
     evidence_quality: "strong", sample_size: 160, canonical: true,
+    method: "spearman_correlation",
     supporting_patterns: [],
     contradicting_patterns: [{
       kind: "probably_the_same_quantity",
@@ -134,5 +135,16 @@ describe("the robustness tab", () => {
 
     expect(await screen.findByText(/A dataset is needed|reason to adjust for/))
       .toBeVisible();
+  });
+});
+
+
+describe("what a key finding came from", () => {
+  it("names the test behind the result", async () => {
+    // Sent on every key finding and dropped: "the strongest surviving result"
+    // with no word on whether it was a rank test or a regression.
+    mount();
+
+    expect(await screen.findByText(/spearman correlation/)).toBeVisible();
   });
 });

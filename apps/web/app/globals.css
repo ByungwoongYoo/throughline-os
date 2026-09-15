@@ -3102,6 +3102,31 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
 }
 .vr-units input { margin-top: 2px; flex: none; }
 
+/* What would change a reading. Set apart from the confidence sentence it
+   follows, because it is the half a reader skips if it looks like more of the
+   same paragraph. */
+/* A graph that is only part of the project says so before its counts. */
+.ng-partial {
+  margin: 12px 0 0;
+  padding: 8px 11px;
+  border: 1px solid var(--caution);
+  border-radius: var(--r-control);
+  background: var(--n-25);
+  font-size: 13px; color: var(--ink-soft);
+}
+
+.rc-would-change {
+  margin: 10px 0 0;
+  padding-left: 11px;
+  border-left: 2px solid var(--line-strong);
+  font-size: 13px; line-height: 1.55; color: var(--ink-soft);
+}
+.rc-would-change > span:first-child {
+  display: block;
+  font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
 @media (max-width: 640px) {
   .ct-record-open { grid-template-columns: minmax(0, 1fr); }
 }
@@ -8104,3 +8129,19 @@ button.ax-object:hover .ax-object-go { color: var(--select); }
    still reads as ochre, only without the weight of an established flow. */
 .river-line[data-stroke="fan"][data-state="exploratory"] { opacity: 0.45; }
 .river-line[data-stroke="fan"][data-state="validated"] { opacity: 0.5; }
+
+/* A Blender render, labelled as a render wherever it appears — beside the
+   reproducible export, never in its place. */
+.blender-render { margin-top: 16px; display: grid; gap: 8px; }
+.blender-render figure { margin: 6px 0 0; display: grid; gap: 8px; }
+.blender-render img {
+  width: 100%; max-width: 640px; height: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--n-25);
+}
+.blender-render figcaption {
+  max-width: 640px;
+  font-size: 12px; line-height: 1.5; color: var(--ink-faint);
+}
+

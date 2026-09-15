@@ -127,3 +127,74 @@ class TestItIsStable:
         _work(cur, project, "mine")
         parsed = json.loads(snapshot.as_json(cur, project))
         assert parsed["tables"]["connections"][0]["estimate"] in ("0.5", 0.5)
+
+
+class TestNothingIsLeftOutByAccident:
+    """
+    A project's work is not all in tables with a `project_id`. A dataset's
+    versions and columns, a report's text and citations, validation checks and
+    a finding's claims reach the project through a parent, and fifteen such
+    tables were silently absent from the archive (T171).
+    """
+
+    def test_every_table_is_exported_or_named_with_a_reason(self, cur):
+        undecided = sorted(name for name, why in snapshot.coverage(cur).items()
+                           if why == "UNDECIDED")
+        assert not undecided, (
+            "These tables are in no snapshot and nobody said why: "
+            + ", ".join(undecided))
+
+    def test_a_projects_dataset_versions_and_report_text_are_in_it(self, cur, project):
+        source, dataset, version = new_id("src"), new_id("dst"), new_id("dsv")
+        cur.execute("INSERT INTO sources(id, project_id, source_type, title) "
+                    "VALUES (%s, %s, 'upload', 'panel.csv')", (source, project))
+        cur.execute("INSERT INTO datasets(id, project_id, source_id, name, format) "
+                    "VALUES (%s, %s, %s, 'panel', 'csv')", (dataset, project, source))
+        cur.execute("INSERT INTO dataset_versions(id, dataset_id, version, content_hash) "
+                    "VALUES (%s, %s, 1, 'hash-1')", (version, dataset))
+        artifact, block = new_id("art"), new_id("blk")
+        cur.execute("INSERT INTO communication_artifacts(id, project_id, artifact_type, title) "
+                    "VALUES (%s, %s, 'report', 'Draft')", (artifact, project))
+        cur.execute("INSERT INTO artifact_blocks(id, artifact_id, sequence, block_type, template) "
+                    "VALUES (%s, %s, 0, 'paragraph', 'The words of the report.')",
+                    (block, artifact))
+
+        tables = snapshot.gather(cur, project)["tables"]
+
+        assert [r["id"] for r in tables["dataset_versions"]] == [version]
+        assert [r["id"] for r in tables["artifact_blocks"]] == [block]
+
+    def test_another_projects_children_are_not_in_it(self, cur, project):
+        other = new_id("prj")
+        cur.execute("SELECT owner_user_id FROM projects WHERE id = %s", (project,))
+        owner = cur.fetchone()["owner_user_id"]
+        cur.execute("INSERT INTO projects(id, owner_user_id, name, research_question) "
+                    "VALUES (%s, %s, 'Theirs', 'q')", (other, owner))
+        artifact = new_id("art")
+        cur.execute("INSERT INTO communication_artifacts(id, project_id, artifact_type, title) "
+                    "VALUES (%s, %s, 'report', 'Theirs')", (artifact, other))
+        cur.execute("INSERT INTO artifact_blocks(id, artifact_id, sequence, block_type, template) "
+                    "VALUES (%s, %s, 0, 'paragraph', 'their private words')", (new_id("blk"), artifact))
+
+        assert "their private words" not in snapshot.as_json(cur, project)
+
+    def test_a_search_log_stays_out_one_level_down(self, cur):
+        """`retrieval_results` reaches the project through `passages` too, but its
+        rows are the same search log `retrieval_events` is excluded for."""
+        assert "retrieval_results" not in snapshot.child_tables(cur)
+        assert snapshot.coverage(cur)["retrieval_results"].startswith("excluded")
+
+
+def test_the_completeness_check_reads_the_whole_schema(cur):
+    """
+    A check that reads the wrong rows finds nothing to complain about. The
+    first version of `coverage` read another query's result and passed; this
+    requires it to account for every real table, by count and by name.
+    """
+    cur.execute("SELECT count(*) AS n FROM information_schema.tables "
+                "WHERE table_schema = 'public' AND table_type = 'BASE TABLE'")
+    total = cur.fetchone()["n"]
+    answered = snapshot.coverage(cur)
+    assert len(answered) == total > 40
+    for name in ("users", "dataset_versions", "artifact_blocks", "retrieval_results", "findings"):
+        assert name in answered, name

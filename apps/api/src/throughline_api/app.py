@@ -64,8 +64,6 @@ from throughline_domain.ids import new_id
 from throughline_domain.migrate import migrate
 from throughline_runtime.executor import policy_report as sandbox_policy_report
 from .security import SecurityMiddleware, deployment_is_local, session_cookie_kwargs
-from .security import SecurityMiddleware, deployment_is_local, session_cookie_kwargs
-from .security import SecurityMiddleware, deployment_is_local, session_cookie_kwargs
 from throughline_schemas.enums import (
     FindingLifecycle,
     FindingType,
@@ -102,14 +100,11 @@ app = FastAPI(title="Throughline OS", version=API_VERSION, lifespan=lifespan)
 
 # Rate limiting and security headers (§99). Added as middleware so no endpoint
 # can be written that forgets them.
-app.add_middleware(SecurityMiddleware)
-
-# Rate limiting and security headers. Added as middleware so no endpoint
-# can be written that forgets them.
-app.add_middleware(SecurityMiddleware)
-
-# Rate limiting and security headers. Added as middleware so no endpoint
-# can be written that forgets them.
+#
+# Once. This line — and its import — appeared three times, so every request was
+# counted three times: a hosted sign-in allowed about three attempts rather than
+# ten, and every limit was a third of what it said. Invisible while limits were
+# looked up by concrete path, since no bucket came near one (T167).
 app.add_middleware(SecurityMiddleware)
 
 
@@ -118,15 +113,23 @@ app.add_middleware(SecurityMiddleware)
 # ---------------------------------------------------------------------------
 
 
+#: The longest password any request accepts — one number for every model that
+#: takes one. Setting a password allowed 1024 characters while signing in (and
+#: first-run setup) allowed 400, so a long generated passphrase could be set and
+#: then never used: sign-in refused it as too long before checking it, and the
+#: account was locked out for good (T169).
+MAX_PASSWORD = 1024
+
+
 class SetupRequest(BaseModel):
     email: str = Field(min_length=3, max_length=254)
     display_name: str = Field(min_length=1, max_length=200)
-    password: str = Field(min_length=12, max_length=400)
+    password: str = Field(min_length=12, max_length=MAX_PASSWORD)
 
 
 class LoginRequest(BaseModel):
     email: str = Field(min_length=3, max_length=254)
-    password: str = Field(min_length=1, max_length=400)
+    password: str = Field(min_length=1, max_length=MAX_PASSWORD)
 
 
 class ProjectCreate(BaseModel):
@@ -164,6 +167,12 @@ class FindingTransition(BaseModel):
     checks: dict[str, bool] = Field(default_factory=dict)
 
 
+class FindingLimitations(BaseModel):
+    """What a finding does not establish, in the researcher's own words."""
+
+    limitations: list[str] = Field(default_factory=list, max_length=40)
+
+
 # ---------------------------------------------------------------------------
 # Auth plumbing
 # ---------------------------------------------------------------------------
@@ -174,6 +183,25 @@ def current_user(throughline_session: str | None = Cookie(default=None)) -> dict
         user = auth.resolve_session(cur, throughline_session)
     if not user:
         raise HTTPException(401, "Sign in to continue.")
+    return user
+
+
+def admin_user(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    """
+    The signed-in account, if it is this installation's administrator.
+
+    `users.is_admin` has been set since accounts existed — the first account is
+    the administrator, `docs/TRY_IT.md` says so, and the interface shows the
+    badge — and nothing checked it. Any account could install packs, save or
+    clear the model key, change the model, create accounts and install the
+    desktop entry. Those act on the machine rather than on a researcher's own
+    projects, and they are this role's now (T166). 403 rather than 404: unlike
+    another account's project, what is being refused here is no secret.
+    """
+    if not user.get("is_admin"):
+        raise HTTPException(
+            403, "Only the administrator of this installation can do this. It "
+                 "changes the machine for everyone who uses it, not one project.")
     return user
 
 
@@ -273,7 +301,7 @@ def auth_setup(payload: SetupRequest, response: Response) -> dict[str, Any]:
 class RegisterRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     display_name: str = Field(default="", max_length=200)
-    password: str = Field(min_length=12, max_length=1024)
+    password: str = Field(min_length=12, max_length=MAX_PASSWORD)
 
 
 def _registration_is_open(request: Request) -> bool:
@@ -290,11 +318,49 @@ def _registration_is_open(request: Request) -> bool:
     open registration server.
     """
     with transaction() as cur:
-        if (domain_settings.get(cur, "open_registration") or "").lower() in (
-                "1", "true", "yes", "on"):
+        if (domain_settings.get(cur, "open_registration") or "").lower() in _OPEN:
             return True
     host = (request.client.host if request.client else "") or ""
     return host in ("127.0.0.1", "::1", "localhost")
+
+
+class RegistrationSetting(BaseModel):
+    open: bool
+
+
+_OPEN = ("1", "true", "yes", "on")
+
+
+@app.get("/api/system/registration")
+def registration_setting(user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Whether strangers on the network may create accounts, and whether you can
+    change that. Readable by any account, so the screen can say what is true
+    and who can alter it rather than offering a switch that answers 403.
+    """
+    with transaction() as cur:
+        value = (domain_settings.get(cur, "open_registration") or "").lower()
+    return {"open": value in _OPEN, "can_change": bool(user.get("is_admin"))}
+
+
+@app.put("/api/system/registration")
+def set_registration(payload: RegistrationSetting,
+                     user: dict = Depends(admin_user)) -> dict[str, Any]:
+    """
+    Turn open registration on or off.
+
+    `_registration_is_open` has always read this, and the sign-up refusal and
+    `docs/TRY_IT.md` both told people to turn it on in Settings — where there
+    was no such switch, and no route that wrote it (T166). Administrator only:
+    turned on, anyone who can reach the port can make themselves an account
+    beside unpublished data. Written through `settings.set_value`, so who
+    opened it and when is on the record.
+    """
+    with transaction() as cur:
+        domain_settings.set_value(cur, "open_registration",
+                                  "true" if payload.open else "false",
+                                  changed_by=user["id"])
+    return {"open": payload.open, "can_change": True}
 
 
 @app.post("/api/auth/register", status_code=201)
@@ -349,17 +415,17 @@ def auth_login(payload: LoginRequest, response: Response) -> dict[str, Any]:
 class NewAccount(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     display_name: str = Field(default="", max_length=200)
-    password: str = Field(min_length=12, max_length=1024)
+    password: str = Field(min_length=12, max_length=MAX_PASSWORD)
 
 
 class PasswordChange(BaseModel):
-    current_password: str = Field(min_length=1, max_length=1024)
-    new_password: str = Field(min_length=12, max_length=1024)
+    current_password: str = Field(min_length=1, max_length=MAX_PASSWORD)
+    new_password: str = Field(min_length=12, max_length=MAX_PASSWORD)
 
 
 @app.post("/api/auth/accounts", status_code=201)
 def create_account(payload: NewAccount,
-                   user: dict = Depends(current_user)) -> dict[str, Any]:
+                   user: dict = Depends(admin_user)) -> dict[str, Any]:
     """
     Add another researcher to this installation.
 
@@ -448,7 +514,12 @@ def _set_session_cookie(response: Response, token: str) -> None:
 def list_projects(user: dict = Depends(current_user)) -> list[dict[str, Any]]:
     with transaction() as cur:
         cur.execute(
-            "SELECT id, name, research_question, description, status, created_at, updated_at "
+            # No `status`: the column exists with a DEFAULT and nothing ever
+            # writes it, so every project was sent the word "active" whatever
+            # its real state. Archiving is `archived_at`, which the filter
+            # below already reads, and the client never displayed the constant
+            # it was being sent (T154).
+            "SELECT id, name, research_question, description, created_at, updated_at "
             "FROM projects WHERE owner_user_id = %s AND archived_at IS NULL "
             "ORDER BY created_at DESC",
             (user["id"],),
@@ -579,6 +650,15 @@ def delete_project(project_id: str,
             if count:
                 destroyed[table] = count
 
+        # Their ids, before the cascade takes the rows: rendered reports and
+        # figures live in per-object directories outside `files`, and afterwards
+        # there is nothing left to say which ones were this project's (T170).
+        exports: dict[str, list[str]] = {}
+        for table in storage.EXPORT_DIRECTORIES:
+            cur.execute(f"SELECT id FROM {table} WHERE project_id = %s",  # noqa: S608
+                        (project_id,))
+            exports[table] = [row["id"] for row in cur.fetchall()]
+
         cur.execute("DELETE FROM projects WHERE id = %s", (project_id,))
 
         events.audit(
@@ -599,6 +679,9 @@ def delete_project(project_id: str,
                 orphans.append(key)
 
     collected = storage.collect(orphans)
+    # After the commit, like `collect`: files are removed only once the rows
+    # that described them are gone for good.
+    storage.collect_exports(exports)
     return {
         "deleted": project_id,
         "name": project["name"],
@@ -854,6 +937,23 @@ def _object_in_project(cur, *, project_id: str, object_id: str) -> dict[str, Any
     if row is None:
         raise HTTPException(404, "No such object in this project.")
     return dict(row)
+
+
+def _sources_in_project(cur, *, project_id: str, source_ids: list[str]) -> None:
+    """
+    Every source named in a request body belongs to the project in its path.
+
+    Scoping the project is not scoping the ids a body carries: synthesis, marks
+    and excerpts handed `source_id` straight to a domain function that looked
+    it up alone, so another project's papers could be read into a comparison
+    or marked from your own (T162). 404 for any stranger, the same as an id
+    that does not exist, and before anything is read or written.
+    """
+    wanted = set(source_ids)
+    cur.execute("SELECT id FROM sources WHERE project_id = %s AND id = ANY(%s)",
+                (project_id, list(wanted)))
+    if {row["id"] for row in cur.fetchall()} != wanted:
+        raise HTTPException(404, "No such paper in this project.")
 
 
 #: Why a lookup came back empty, said in the caller's terms.
@@ -1181,6 +1281,10 @@ def add_note(project_id: str, object_id: str, payload: NoteBody,
                 cur, project_id=project_id, object_id=object_id,
                 object_type=payload.object_type, body=payload.body,
                 author=user["id"], replies_to=payload.replies_to)
+        except journal.NoSuchObject as exc:
+            # 404, as for any id outside the project, so the refusal cannot be
+            # used to tell another project's object ids from made-up ones (T164).
+            raise HTTPException(404, str(exc)) from exc
         except journal.JournalError as exc:
             raise HTTPException(400, str(exc)) from exc
 
@@ -1485,6 +1589,7 @@ def compare_papers(project_id: str, payload: SynthesisRequest,
     """
     scoped_project(project_id, user)
     with transaction() as cur:
+        _sources_in_project(cur, project_id=project_id, source_ids=payload.source_ids)
         try:
             return synthesis.matrix(cur, project_id=project_id,
                                     source_ids=payload.source_ids)
@@ -1503,6 +1608,7 @@ def synthesis_key_points(project_id: str, payload: SynthesisRequest,
     """
     scoped_project(project_id, user)
     with transaction() as cur:
+        _sources_in_project(cur, project_id=project_id, source_ids=payload.source_ids)
         try:
             return synthesis.key_points(cur, project_id=project_id,
                                         source_ids=payload.source_ids)
@@ -2497,6 +2603,7 @@ def keep_mark(project_id: str, payload: MarkRequest,
     """
     scoped_project(project_id, user)
     with transaction() as cur:
+        _sources_in_project(cur, project_id=project_id, source_ids=[payload.source_id])
         try:
             return marks.record(
                 cur, project_id=project_id, source_id=payload.source_id,
@@ -2544,6 +2651,7 @@ def keep_excerpt(project_id: str, payload: ExcerptRequest,
     """
     scoped_project(project_id, user)
     with transaction() as cur:
+        _sources_in_project(cur, project_id=project_id, source_ids=[payload.source_id])
         try:
             return excerpts.record(
                 cur,
@@ -3009,11 +3117,16 @@ def suggest_alias(project_id: str, payload: AliasSuggestion,
     """Propose that a phrase names a canonical variable. Resolves nothing yet."""
     scoped_project(project_id, user)
     with transaction() as cur:
-        suggested = vocabulary.suggest(
-            cur, project_id=project_id, phrase=payload.phrase,
-            canonical_variable_id=payload.canonical_variable_id,
-            origin=payload.origin, origin_ref=payload.origin_ref,
-            created_by=user["id"])
+        try:
+            suggested = vocabulary.suggest(
+                cur, project_id=project_id, phrase=payload.phrase,
+                canonical_variable_id=payload.canonical_variable_id,
+                origin=payload.origin, origin_ref=payload.origin_ref,
+                created_by=user["id"])
+        except vocabulary.AliasRefused as exc:
+            # The domain's own sentence: it names the variable the phrase
+            # already belongs to, which the generic refusal below cannot.
+            raise HTTPException(409, str(exc)) from exc
         if suggested is None:
             raise HTTPException(409, (
                 f"{payload.phrase!r} already has a ruling in this project. A "
@@ -3118,7 +3231,7 @@ def available_models(user: dict = Depends(current_user)) -> dict[str, Any]:
 
 @app.put("/api/system/models")
 def choose_model(payload: ModelChoice,
-                 user: dict = Depends(current_user)) -> dict[str, Any]:
+                 user: dict = Depends(admin_user)) -> dict[str, Any]:
     """
     Point the system at a different model, effective immediately and after a
     restart.
@@ -3199,7 +3312,7 @@ class ModelKey(BaseModel):
 
 @app.put("/api/system/model-key")
 def save_model_key(payload: ModelKey,
-                   user: dict = Depends(current_user)) -> dict[str, Any]:
+                   user: dict = Depends(admin_user)) -> dict[str, Any]:
     """
     Save the hosted model's API key. Does not select the hosted model.
 
@@ -3232,7 +3345,7 @@ def save_model_key(payload: ModelKey,
 
 
 @app.delete("/api/system/model-key")
-def clear_model_key(user: dict = Depends(current_user)) -> dict[str, Any]:
+def clear_model_key(user: dict = Depends(admin_user)) -> dict[str, Any]:
     """
     Remove the key, and stop using the hosted model if it was selected.
 
@@ -3418,7 +3531,7 @@ def system_launchers() -> dict[str, Any]:
 
 
 @app.post("/api/system/launchers/desktop-entry", status_code=200)
-def install_desktop_entry(user: dict = Depends(current_user)) -> dict[str, Any]:
+def install_desktop_entry(user: dict = Depends(admin_user)) -> dict[str, Any]:
     """Add Throughline to the Linux applications menu.
 
     A POST because it writes a file into the researcher's home directory —
@@ -3488,7 +3601,7 @@ def pack_state(name: str) -> dict[str, Any]:
 
 
 @app.post("/api/system/packs/{name}/install", status_code=202)
-def install_pack(name: str, user: dict = Depends(current_user)) -> dict[str, Any]:
+def install_pack(name: str, user: dict = Depends(admin_user)) -> dict[str, Any]:
     """Turn a capability on, from the screen that reported it missing.
 
     **202 and not 200.** Some of these are gigabytes — `speech` pulls in torch —
@@ -3600,6 +3713,16 @@ def create_analysis(project_id: str, payload: AnalysisSpecRequest,
     """Validate a spec and queue it for sandboxed execution."""
     scoped_project(project_id, user)
     with transaction() as cur:
+        # Before anything is created. `enquiry_id` comes from the request, and
+        # this route recorded the look into whatever enquiry it named — so an
+        # analysis in your own project could count as a look in someone else's,
+        # changing their correction (T161). `exploration.record` refuses that
+        # too, but by then the spec and run exist and the refusal is a 500.
+        if payload.enquiry_id:
+            cur.execute("SELECT id FROM enquiries WHERE id = %s AND project_id = %s",
+                        (payload.enquiry_id, project_id))
+            if not cur.fetchone():
+                raise HTTPException(404, "no such line of enquiry")
         try:
             created = analysis.create_spec(cur, project_id=project_id,
                                            spec=payload.model_dump(), actor=user["id"])
@@ -3775,6 +3898,14 @@ def start_discovery(project_id: str, payload: DiscoveryRequest,
     """generate, test, correct and rank candidate relationships."""
     scoped_project(project_id, user)
     with transaction() as cur:
+        # The enquiry as well as the dataset. Accepted from another project,
+        # the sweep ran in full and failed only when the worker came to record
+        # its looks, which `exploration.record` refuses since T161 (T162).
+        if payload.enquiry_id:
+            cur.execute("SELECT id FROM enquiries WHERE id = %s AND project_id = %s",
+                        (payload.enquiry_id, project_id))
+            if not cur.fetchone():
+                raise HTTPException(404, "no such line of enquiry")
         cur.execute(
             "SELECT d.project_id FROM dataset_versions dv "
             "JOIN datasets d ON d.id = dv.dataset_id WHERE dv.id = %s",
@@ -4781,7 +4912,12 @@ def create_visual(project_id: str, payload: VisualCreate,
 
     return {"visual_id": created["visual_id"], "object_id": created["object_id"],
             "publishable": created["publishable"], "critique": created["critique"],
-            "spec": created["spec"].model_dump(mode="json")}
+            "spec": created["spec"].model_dump(mode="json"),
+            # Assembled here rather than passed through, so a field the domain
+            # adds reaches the interface only if it is named — which is why
+            # this one is. Without it Publish offered PDF, SVG and PNG for a
+            # surface and a Download that could only fail.
+            "exportable": created["exportable"]}
 
 
 @app.get("/api/projects/{project_id}/visuals")
@@ -4942,6 +5078,73 @@ def download_visual_geometry(visual_id: str,
         content=payload, media_type="application/zip",
         headers={"Content-Disposition":
                  f'attachment; filename="{visual_id}-scene.zip"'})
+
+
+@app.post("/api/visuals/{visual_id}/blender-render", status_code=202)
+def start_blender_render(visual_id: str,
+                         user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Render this figure through Blender, on this machine, in the background.
+
+    Blender's renderer was written and tested and called by nothing: Settings
+    found Blender and promised a render for publication that no route could
+    produce. This is the route. It queues the render and answers at once —
+    a render can take minutes — and returns the run already in flight rather
+    than starting a second.
+
+    400 for a figure with no third axis, 409 for one the critic blocked, 503
+    when this machine has no usable Blender — each with a sentence saying why.
+    """
+    with transaction() as cur:
+        try:
+            row = visuals.load_visual(cur, visual_id)
+        except visuals.VisualError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        scoped_project(row["project_id"], user)
+        try:
+            return visuals.request_blender_render(cur, visual_id=visual_id)
+        except visuals.NotASurface as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except visuals.BlenderUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+        except visuals.VisualError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+
+@app.get("/api/visuals/{visual_id}/blender-render")
+def blender_render_state(visual_id: str,
+                         user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Whether this figure can be rendered through Blender, and how far it got."""
+    with transaction() as cur:
+        try:
+            row = visuals.load_visual(cur, visual_id)
+        except visuals.VisualError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        scoped_project(row["project_id"], user)
+        return visuals.blender_render_state(cur, visual_id=visual_id)
+
+
+@app.get("/api/visuals/{visual_id}/blender-render.png")
+def blender_render_image(visual_id: str,
+                         user: dict = Depends(current_user)) -> FileResponse:
+    """
+    The newest Blender render of this figure.
+
+    Named as a render in its filename as well as on screen, because a file
+    that leaves the building loses the label the page gave it.
+    """
+    with transaction() as cur:
+        try:
+            row = visuals.load_visual(cur, visual_id)
+        except visuals.VisualError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        scoped_project(row["project_id"], user)
+        path = visuals.blender_render_file(cur, visual_id=visual_id)
+    if path is None:
+        raise HTTPException(
+            404, "Nothing has been rendered through Blender for this figure yet.")
+    return FileResponse(path, media_type="image/png",
+                        filename=f"{visual_id}-blender-render.png")
 
 
 @app.patch("/api/visuals/{visual_id}")
@@ -5216,6 +5419,36 @@ def transition_finding(finding_id: str, payload: FindingTransition,
             # researcher needs to be told which of the two happened.
             raise HTTPException(409, str(exc)) from exc
         except (findings.IllegalTransition, findings.ValidationIncomplete) as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+
+@app.put("/api/findings/{finding_id}/limitations")
+def record_finding_limitations(
+    finding_id: str, payload: FindingLimitations,
+    user: dict = Depends(current_user),
+) -> dict[str, Any]:
+    """
+    Record the caveats on a finding.
+
+    The column was read on the finding page, in the library note and in the
+    evidence graph, and written by nothing — so every finding displayed no
+    limitations whether or not it had any, which is the same screen a
+    researcher sees for a finding with nothing left to caveat. PUT rather than
+    POST: the list is the whole statement of what this finding does not
+    establish, and sending it entire is what lets a caveat be withdrawn (T154).
+    """
+    with transaction() as cur:
+        cur.execute("SELECT project_id FROM findings WHERE id = %s", (finding_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Finding not found.")
+        scoped_project(row["project_id"], user)
+        try:
+            return findings.record_limitations(
+                cur, finding_id=finding_id, limitations=payload.limitations,
+                actor=user["id"])
+        except findings.LimitationsRefused as exc:
+            # 422: the request is well formed and its content is not usable.
             raise HTTPException(422, str(exc)) from exc
 
 

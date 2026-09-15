@@ -445,3 +445,25 @@ def test_a_run_with_no_session_stays_its_own_family(cur, project):
         analysis_run_id=None, result={"p_value": 0.04}, q_value=None)
 
     assert exploration.ledger(cur, enquiries.standalone_id(run_id))["looks"] == 1
+
+
+def test_a_look_cannot_be_recorded_into_another_projects_enquiry(cur, project):
+    """
+    Held in `record` itself, not only at the routes. Three routes took an
+    enquiry id from the request and one of them reached this with nothing in
+    between; a check that lives only at the edges is one new caller away from
+    changing someone else's correction again (T161).
+    """
+    other_user, other_project = new_id("usr"), new_id("prj")
+    cur.execute(
+        "INSERT INTO users(id, email, display_name, password_hash, password_salt) "
+        "VALUES (%s, %s, 'Other', 'x', 'y')", (other_user, f"{other_user}@test.local"))
+    cur.execute("INSERT INTO projects(id, owner_user_id, name) VALUES (%s, %s, 'Other')",
+                (other_project, other_user))
+    theirs = make_enquiry(cur, other_project)
+
+    with pytest.raises(ValueError, match="does not belong to this project"):
+        exploration.record(cur, enquiry_id=theirs, project_id=project["id"],
+                           verb="discovery", description="planted", p_value=0.9)
+
+    assert exploration.ledger(cur, theirs)["looks"] == 0

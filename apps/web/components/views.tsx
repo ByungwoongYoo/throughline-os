@@ -34,6 +34,7 @@ import { Approvals } from "./approvals";
 import { WhatTheSweepDid } from "./sweep";
 import { currentStep, loopSteps, stepTarget } from "@/lib/loop";
 import { ObjectAction, ObjectActions } from "./objectactions";
+import { Limitations } from "./limitations";
 import { canDraftReport, draftReport } from "./reports";
 import { Term } from "./term";
 
@@ -341,9 +342,18 @@ export function Overview({ project, map, onGo, onOpen, onAddSources, onLineage,
                       {/* The effect, because a list of pairs with no size is a
                           list of names. Absent rather than zero where the
                           method records none. */}
+                      {/* Named from the method, and only where that name is
+                          certain. This read `effect_size_name`, which the
+                          ranked list has never carried — `main`'s tightened
+                          `TopConnection` type is what caught it — so every row
+                          printed the fallback word "effect". A correlation's
+                          effect is its coefficient; anything else keeps the
+                          plain word rather than a symbol that might be wrong. */}
                       {c.effect_size != null && (
-                        <span className="mono">
-                          {c.effect_size_name ?? "effect"} {c.effect_size.toFixed(2)}
+                        <span className="numeric">
+                          {/^(pearson|spearman|kendall)/.test(c.method)
+                            ? estimateSymbol(c.method) : "effect"}{" "}
+                          {c.effect_size.toFixed(2)}
                         </span>
                       )}
                     </span>
@@ -2023,12 +2033,18 @@ export function EvidenceGraphView({ findingId, onOpenAnalysis, onLoaded }: {
         </div>
       )}
 
-      {data.limitations?.length > 0 && (
-        <div className="finding-limits">
-          <h2>What this finding does not establish</h2>
-          <ul>{data.limitations.map((l) => <li key={l}>{l}</li>)}</ul>
-        </div>
-      )}
+      {/*
+        Always rendered, never folded away when empty: nothing wrote this
+        column, so the section never appeared, and a finding whose caveats
+        nobody had written looked exactly like one with nothing left to
+        caveat. The editor inside it is the "somewhere for them to do it"
+        that the absence needed (T154).
+      */}
+      <Limitations
+        findingId={findingId}
+        limitations={data.limitations ?? []}
+        onRecorded={() => void reload()}
+      />
 
       <h2>Claims and their evidence</h2>
       {data.claims.length === 0 && <Empty

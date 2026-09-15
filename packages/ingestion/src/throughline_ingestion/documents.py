@@ -351,17 +351,33 @@ def _parse_pdf_with_the_best_available_parser(path: Path) -> ParsedDocument:
     # `ParsedDocument` from this module, so a top-level import is a cycle.
     from . import structured
 
+    # Why Docling did not read it, when it was there to. Recording only the parser
+    # that ran made "Docling is not installed" and "Docling crashed" read the
+    # same — against the promise above that which parser ran is attributable.
+    # Found when Docling ran out of GPU memory on an 8 GB Mac mid-suite and the
+    # paper was quietly read flat (T168).
+    fell_back_because: str | None = None
     if structured.available():
         try:
             parsed = structured.parse(path)
-        except Exception:  # noqa: BLE001 - any failure falls back; see above
+        except Exception as exc:  # noqa: BLE001 - any failure falls back; see above
             parsed = None
-        if parsed is not None and not parsed.verify_anchors():
-            parsed.metadata = {**parsed.metadata, "parser": "docling"}
-            return parsed
+            fell_back_because = (
+                f"Docling could not read it ({type(exc).__name__}: "
+                f"{str(exc)[:200]})")
+        if parsed is not None:
+            broken = parsed.verify_anchors()
+            if not broken:
+                parsed.metadata = {**parsed.metadata, "parser": "docling"}
+                return parsed
+            fell_back_because = (
+                f"Docling's reading had {len(broken)} passage anchors that did not "
+                "match its own text, so the flat reading was used instead")
 
     flat = parse_pdf(path)
     flat.metadata = {**flat.metadata, "parser": "pymupdf"}
+    if fell_back_because:
+        flat.metadata["parser_fallback"] = fell_back_because
     return flat
 
 

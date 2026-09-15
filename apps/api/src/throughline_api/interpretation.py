@@ -65,6 +65,28 @@ def _scoped(project_id: str, user: dict[str, Any]) -> str:
     return scoped_project(project_id, user)
 
 
+# Scoping the *project* is not scoping the object. A route that checks the
+# caller may see `project_id` and then reads `enquiry_id` or `finding_id` by id
+# alone answers for any project: pair your own project with someone else's id
+# and it served their ledger, rendered their finding, or recorded a look into
+# their line of enquiry — changing their multiple-comparison correction (T161).
+# Answered 404, the same as an id that does not exist, so a caller cannot use
+# the difference to confirm another project's ids.
+
+def _enquiry_in_project(cur, project_id: str, enquiry_id: str) -> None:
+    cur.execute("SELECT id FROM enquiries WHERE id = %s AND project_id = %s",
+                (enquiry_id, project_id))
+    if not cur.fetchone():
+        raise HTTPException(404, "no such line of enquiry")
+
+
+def _finding_in_project(cur, project_id: str, finding_id: str) -> None:
+    cur.execute("SELECT id FROM findings WHERE id = %s AND project_id = %s",
+                (finding_id, project_id))
+    if not cur.fetchone():
+        raise HTTPException(404, "No such finding in this project.")
+
+
 # ---------------------------------------------------------------------------
 # The exploration ledger
 # ---------------------------------------------------------------------------
@@ -152,6 +174,8 @@ def record_test(project_id: str, body: RecordedTest,
     """
     _scoped(project_id, user)
     with transaction() as cur:
+        if body.enquiry_id:
+            _enquiry_in_project(cur, project_id, body.enquiry_id)
         try:
             family = body.enquiry_id or enquiry.current(
                 cur, project_id=project_id)["id"]
@@ -260,6 +284,7 @@ def read_ledger(project_id: str, enquiry_id: str,
                 user: dict = Depends(signed_in)) -> dict[str, Any]:
     _scoped(project_id, user)
     with transaction() as cur:
+        _enquiry_in_project(cur, project_id, enquiry_id)
         return exploration.ledger(cur, enquiry_id)
 
 
@@ -360,6 +385,9 @@ def preview_note(project_id: str, finding_id: str,
     """
     _scoped(project_id, user)
     with transaction() as cur:
+        _finding_in_project(cur, project_id, finding_id)
+        if enquiry_id:
+            _enquiry_in_project(cur, project_id, enquiry_id)
         # Resolved here rather than asked of the caller. The interface used to
         # pass a family id it had invented; the count in an exported note is a
         # claim about how often the data was questioned, and it should come from
@@ -386,6 +414,12 @@ def write_note(project_id: str, finding_id: str, body: LibraryExport,
     _scoped(project_id, user)
 
     with transaction() as cur:
+        # The preview beside this was scoped in T161 and this was not, and this
+        # is the one that sends the note out of the system — to the library
+        # named in the request, which is the caller's (T162).
+        _finding_in_project(cur, project_id, finding_id)
+        if body.enquiry_id:
+            _enquiry_in_project(cur, project_id, body.enquiry_id)
         try:
             family = body.enquiry_id or enquiry.current(
                 cur, project_id=project_id)["id"]

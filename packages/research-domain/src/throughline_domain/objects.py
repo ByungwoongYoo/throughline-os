@@ -223,6 +223,13 @@ def create_object(
             inputs=list(derived_from),
             lineage_type=lineage_type,
         )
+    # A link written before this evidence existed now finds it. Only a note
+    # arriving used to close that loop, so planning notes stayed unresolved
+    # after the upload they were waiting for (T155). Imported here rather than
+    # at the top: `notebook` is a reader of objects, not a dependency of them.
+    from .notebook import adopt_orphans_for_object
+    adopt_orphans_for_object(cur, project_id=project_id, object_id=object_id,
+                             title=title)
     emit(cur, project_id=project_id, event_type="ResearchObjectCreated",
          payload={"object_id": object_id, "object_type": str(object_type)})
     audit(cur, project_id=project_id, actor=actor, action="create",

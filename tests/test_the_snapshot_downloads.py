@@ -11,13 +11,13 @@ from __future__ import annotations
 
 import io
 import json
-import uuid
 import zipfile
 
 import pytest
 from fastapi.testclient import TestClient
 from throughline_domain.db import connection, transaction
 from throughline_domain.ids import new_id
+from conftest import sign_in
 
 
 @pytest.fixture()
@@ -37,12 +37,7 @@ def clean_users():
 
 
 def _account(client) -> None:
-    status = client.get("/api/auth/status").json()
-    endpoint = "/api/auth/setup" if status["needs_setup"] else "/api/auth/login"
-    assert client.post(endpoint, json={
-        "email": f"snap-{uuid.uuid4().hex[:8]}@lab.local",
-        "display_name": "Lead", "password": "correct-horse-battery",
-    }).status_code == 200
+    sign_in(client, email="snap@lab.local", display_name="Lead")
 
 
 def _connection_in(project_id: str, marker: str) -> None:

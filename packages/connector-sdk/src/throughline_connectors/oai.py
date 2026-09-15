@@ -48,11 +48,13 @@ response is size-capped before it reaches the parser.
 from __future__ import annotations
 
 import urllib.parse
+import urllib.request
 import xml.etree.ElementTree as ET
 from typing import Any, Iterator
 
 from .base import (Connector, ConnectorError, SourceRecord, clean_doi,
                    clean_text, year_of)
+from .papers import _PublicOnlyHTTP, _PublicOnlyHTTPS, _is_public
 
 OAI = "{http://www.openarchives.org/OAI/2.0/}"
 DC = "{http://purl.org/dc/elements/1.1/}"
@@ -108,6 +110,22 @@ def _text(node: ET.Element | None) -> str:
     return clean_text(node.text) if node is not None and node.text else ""
 
 
+def _refuse_unless_public(url: str) -> None:
+    host = urllib.parse.urlsplit(url).hostname or ""
+    if not _is_public(host):
+        # The paper fetcher's message, for its reason: one sentence for "private"
+        # and "does not resolve", so this cannot be used to map internal hosts.
+        raise ConnectorError(f"{host} is not a public address this can fetch from.")
+
+
+class _PublicRedirects(urllib.request.HTTPRedirectHandler):
+    """Follows redirects — repositories do redirect — re-checking every hop."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D102
+        _refuse_unless_public(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 class OAIRepository(Connector):
     """
     One OAI-PMH endpoint.
@@ -134,6 +152,21 @@ class OAIRepository(Connector):
                 "is the endpoint itself, e.g. "
                 "https://export.arxiv.org/oai2")
         self.base_url = base_url.rstrip("?&")
+
+    def _open(self, request):
+        """
+        The base URL is whatever the caller typed, and it was fetched unchecked:
+        only its scheme was looked at, and `urllib` followed redirects wherever
+        they led, so a signed-in caller could harvest this machine's own
+        services from the server's network position (T165). Checked here, at
+        fetch time rather than in `__init__`, so building a repository does no
+        network lookup — the name is resolved when it is used. The connection's
+        actual peer is checked as well, for the reason `papers` gives.
+        """
+        _refuse_unless_public(request.full_url)
+        opener = urllib.request.build_opener(_PublicRedirects, _PublicOnlyHTTP,
+                                             _PublicOnlyHTTPS)
+        return opener.open(request, timeout=self.timeout)
 
     # -- protocol ----------------------------------------------------------
 

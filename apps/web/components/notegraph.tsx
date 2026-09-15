@@ -45,6 +45,22 @@ type ResearchGraph = {
   edges: Array<{ id: string; source_object_id: string;
                  target_object_id: string; relationship_type: string;
                  confidence: number | null; edge_kind: string }>;
+  /**
+   * Whether this is the whole graph, and the server's own sentence saying so.
+   *
+   * `graphs.py` caps the node count and computes all three of these — its
+   * comment is "say when the view is partial rather than implying
+   * completeness" — including a finished sentence: "Showing 200 of 412
+   * objects. Expand from a node to load more."
+   *
+   * This declaration named none of them, so all three were dropped on arrival
+   * and a truncated graph rendered as if it were the project. The work of
+   * being honest about it had already been done one layer down; nothing
+   * carried it to the screen.
+   */
+  truncated: boolean;
+  total_objects: number;
+  note: string | null;
 };
 
 type Lens = "asserted" | "computed" | "both";
@@ -182,6 +198,12 @@ export function NoteGraph({ projectId }: { projectId: string }) {
             </tbody>
           </table>
         </details>
+
+        {/* Above the counts, not among them: that a view is partial changes
+            how every number under it should be read. */}
+        {research?.truncated && research.note && (
+          <p className="ng-partial" role="status">{research.note}</p>
+        )}
 
         <p className="pat-foot">
           {notes?.note}{" "}

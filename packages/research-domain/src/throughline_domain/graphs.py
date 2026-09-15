@@ -204,13 +204,35 @@ def evidence_graph(cur, *, finding_id: str) -> dict[str, Any]:
         )
         analyses = list(cur.fetchall())
 
+        # A connection is reached through the run that tested it, not through
+        # an object of its own: `connections.object_id` exists but no writer
+        # sets it, so joining lineage to it matched nothing and this list was
+        # empty for every finding ever recorded — including one recorded *from*
+        # a tested connection, which then read "No tested connection to write a
+        # report from" on its own page. The walk below is the one
+        # `findings.validation_checks` already uses.
+        #
+        # The row shape is the one `discovery.list_connections` returns — the
+        # whole row plus the dataset it came from and the run's object —
+        # because the client types this list as `Connection[]` and a second,
+        # narrower shape under the same name is the drift that guard exists to
+        # catch. It also carries `analysis_run_id`, which is exactly the
+        # client's rule for offering a report (`canDraftReport`); sending the
+        # list without it would move the dead branch rather than remove it.
         cur.execute(
             """
-            SELECT c.id, c.left_variable, c.right_variable, c.method, c.lifecycle_status,
-                   c.estimate, c.p_value, c.q_value, c.effect_size, c.evidence_quality
+            SELECT DISTINCT c.*, dr.dataset_version_id,
+                   r.object_id AS analysis_object_id,
+                   ds.name AS dataset_name, dv.version AS dataset_version
             FROM artifact_lineage_edges e
-            JOIN connections c ON c.object_id = e.source_artifact_id
+            JOIN research_objects o ON o.id = e.source_artifact_id
+            JOIN analysis_runs r ON r.object_id = o.id
+            JOIN connections c ON c.analysis_run_id = r.id
+            LEFT JOIN discovery_runs dr ON dr.id = c.discovery_run_id
+            LEFT JOIN dataset_versions dv ON dv.id = dr.dataset_version_id
+            LEFT JOIN datasets ds ON ds.id = dv.dataset_id
             WHERE e.target_artifact_id = %s
+            ORDER BY c.rank_score DESC, c.created_at DESC
             """,
             (finding["object_id"],),
         )
@@ -368,7 +390,7 @@ def discovery_map(cur, *, project_id: str) -> dict[str, Any]:
     # One ladder, read once. The sentence a person reads and the step a screen
     # acts on are chosen by the same rung, so a control can never open
     # somewhere other than where the sentence above it says to go.
-    step, action = _recommendation(
+    step, action, rung = _recommendation(
         counts, findings_by_status, connections_by_status,
         candidates_without_evidence=candidates_without_evidence,
         never_challenged=never_challenged,
@@ -381,6 +403,10 @@ def discovery_map(cur, *, project_id: str) -> dict[str, Any]:
         "top_connections": top_connections,
         "recommended_next_action": action,
         "recommended_step": step,
+        # What the step's control should open, chosen on the same rung as the
+        # sentence. Null where the rung is about a whole screen, or where its
+        # object no longer exists.
+        "recommended_target": _target_for(cur, project_id, rung),
     }
 
 
@@ -395,6 +421,72 @@ def _recommend(counts: dict[str, Any], findings: dict[str, int],
         in_flight=in_flight)[1]
 
 
+#: The one object each acting rung is about: (kind, verb, query). The ladder
+#: picks the rung; this only resolves it to a row. Looked up directly rather
+#: than taken from the ranked top ten, because a project with ten stronger
+#: connections would otherwise have none to name under a sentence counting it.
+_RUNG_TARGETS: dict[str, tuple[str, str, str]] = {
+    # Nothing has been run against it, which is the rung's own condition
+    # (`never_challenged`). Picking any exploratory connection by rank would
+    # open one that was validated and honestly did not hold, under a sentence
+    # saying it is still awaiting validation — the second-ladder defect this
+    # table exists to prevent, arriving by the two branches merging.
+    "awaiting_validation": (
+        "connection", "validate",
+        "SELECT c.id, c.left_variable, c.right_variable FROM connections c "
+        "WHERE c.project_id = %s AND c.lifecycle_status = 'exploratory' "
+        "AND NOT EXISTS (SELECT 1 FROM validation_reports v "
+        "WHERE v.connection_id = c.id AND v.status = 'complete') "
+        "ORDER BY c.rank_score DESC, c.id LIMIT 1"),
+    "ready_to_record": (
+        "connection", "record",
+        "SELECT id, left_variable, right_variable FROM connections "
+        "WHERE project_id = %s AND lifecycle_status IN ('validated', 'replicated') "
+        "ORDER BY rank_score DESC, id LIMIT 1"),
+    # The newest, which is the one a researcher is most likely in the middle
+    # of; the evidence condition is the count's own, so the two cannot differ.
+    "needs_evidence": (
+        "finding", "evidence",
+        "SELECT f.id, f.title FROM findings f "
+        "WHERE f.project_id = %s AND f.lifecycle_status = 'candidate' "
+        "AND NOT EXISTS (SELECT 1 FROM finding_claims fc "
+        "JOIN evidence e ON e.claim_id = fc.claim_id WHERE fc.finding_id = f.id) "
+        "ORDER BY f.created_at DESC, f.id LIMIT 1"),
+    "ready_to_promote": (
+        "finding", "promote",
+        "SELECT f.id, f.title FROM findings f "
+        "WHERE f.project_id = %s AND f.lifecycle_status = 'candidate' "
+        "AND EXISTS (SELECT 1 FROM finding_claims fc "
+        "JOIN evidence e ON e.claim_id = fc.claim_id WHERE fc.finding_id = f.id) "
+        "ORDER BY f.created_at DESC, f.id LIMIT 1"),
+    # One nobody has challenged yet, before one that has been.
+    "to_challenge": (
+        "finding", "challenge",
+        "SELECT f.id, f.title FROM findings f "
+        "WHERE f.project_id = %s AND f.lifecycle_status = 'validated' "
+        "ORDER BY EXISTS (SELECT 1 FROM challenges ch WHERE ch.finding_id = f.id), "
+        "f.updated_at DESC, f.id LIMIT 1"),
+}
+
+
+def _target_for(cur, project_id: str, rung: str | None) -> dict[str, Any] | None:
+    """The object a rung is about, as the interface opens it."""
+    if rung is None:
+        return None
+    kind, verb, query = _RUNG_TARGETS[rung]
+    cur.execute(query, (project_id,))
+    row = cur.fetchone()
+    if not row:
+        return None
+    target: dict[str, Any] = {"kind": kind, "id": row["id"], "verb": verb}
+    if kind == "connection":
+        target["left_variable"] = row["left_variable"]
+        target["right_variable"] = row["right_variable"]
+    else:
+        target["title"] = row["title"]
+    return target
+
+
 def _recommendation(counts: dict[str, Any], findings: dict[str, int],
                     connections: dict[str, int], *,
                     candidates_without_evidence: int = 0,
@@ -403,8 +495,9 @@ def _recommendation(counts: dict[str, Any], findings: dict[str, int],
                     #: so an older caller that does not compute it keeps its
                     #: behaviour rather than silently skipping step 4.
                     never_challenged: int | None = None,
-                    in_flight: int = 0) -> tuple[str | None, str]:
-    """The next step twice over: which loop step it is, and how to say it.
+                    in_flight: int = 0) -> tuple[str | None, str, str | None]:
+    """The next step three times over: which loop step it is, how to say it,
+    and which rung said it.
 
     The sentence is what the overview reads out. The step is the same advice
     in the vocabulary the interface can act on — the six steps of the research
@@ -417,6 +510,13 @@ def _recommendation(counts: dict[str, Any], findings: dict[str, int],
     is a button that opens somewhere the sentence above it did not send
     anybody, and this file's argument throughout is that advice which is wrong
     is worse than no advice at all.
+
+    **The rung's key is the third answer.** The object a control opens was
+    chosen somewhere else — by `lib/loop.ts`, from the ranked list — which is
+    the second ladder this docstring warns about, and on three rungs it opened
+    a connection under a sentence about findings. So the rung now names what it
+    is about, and `_target_for` only resolves that name to a row: the object can
+    never be chosen by anything but the rung that wrote the sentence.
     """
     # Above every other rung, because a project whose work is still running has
     # not finished telling this function what its state is. Read mid-pipeline,
@@ -430,19 +530,19 @@ def _recommendation(counts: dict[str, Any], findings: dict[str, int],
     if in_flight:
         return None, (f"{counted(in_flight, 'step')} {plural(in_flight, 'is', 'are')} "
                       "still running in the background — this screen updates as each "
-                      "one finishes.")
+                      "one finishes."), None
     if not counts["sources"]:
-        return "sources", "Add sources: upload papers or a dataset to begin."
+        return "sources", "Add sources: upload papers or a dataset to begin.", None
     if not counts["datasets"]:
         # `profile`, not `sources`. The dataset is a step of its own even though
         # it is taken on the Sources screen, and it is the one whose control
         # says "Add a dataset" rather than the one that says "Add sources" —
         # which is the difference this sentence is drawing.
         return "profile", ("Add a dataset — discovery needs tabular data to test "
-                           "relationships.")
+                           "relationships."), None
     if not counts["analyses"]:
         return "discover", ("Run discovery on a dataset to generate candidate "
-                            "relationships.")
+                            "relationships."), None
     untried = (connections.get("exploratory", 0) if never_challenged is None
                else never_challenged)
     if untried:
@@ -454,17 +554,18 @@ def _recommendation(counts: dict[str, Any], findings: dict[str, int],
         return "validate", (
             f"{counted(untried, 'exploratory connection')} "
             f"{'is' if untried == 1 else 'are'} awaiting "
-            "robustness validation. Supply candidate confounders and validate them.")
+            "robustness validation. Supply candidate confounders and validate them."), \
+            "awaiting_validation"
     if connections.get("validated") and not findings:
         return "record", ("Validated connections exist but no findings have been recorded. "
-                          "Turn the strongest into a finding with its evidence.")
+                          "Turn the strongest into a finding with its evidence."), "ready_to_record"
     if candidates_without_evidence:
         # `record`, rather than a step of its own, because recording is how a
         # finding gets evidence: it is recorded *from* a result, which is why
         # the control lives on the connection and not on the findings list
         # (`recordfinding.tsx`). "Go and add evidence" names no other place.
         return "record", (f"{counted(candidates_without_evidence, 'finding')} still need "
-                          "evidence before promotion.")
+                          "evidence before promotion."), "needs_evidence"
     if findings.get("candidate"):
         # Has its evidence and has not moved. Telling this researcher to go
         # and find evidence sends them looking for something they already
@@ -477,7 +578,8 @@ def _recommendation(counts: dict[str, Any], findings: dict[str, int],
         return "record", (
             f"{counted(n, 'finding')} {'has its' if n == 1 else 'have their'} "
             f"evidence recorded. Promote "
-            f"{'it if it holds' if n == 1 else 'the ones that hold'} to exploratory.")
+            f"{'it if it holds' if n == 1 else 'the ones that hold'} to exploratory."), \
+            "ready_to_promote"
     if findings.get("validated"):
         # `validate` — the loop's step for trying to destroy what survived. A
         # challenge is that test aimed at a finding rather than at a
@@ -488,7 +590,7 @@ def _recommendation(counts: dict[str, Any], findings: dict[str, int],
         # challenge is done, and naming no step is no better here, because the
         # client then falls through to its own first-unfinished step, which at
         # this point in the loop is the report being withheld.
-        return "validate", "Challenge the validated findings before communicating them."
+        return "validate", "Challenge the validated findings before communicating them.", "to_challenge"
     # --- the sixth step ----------------------------------------------------
     #
     # `communicate` was in the loop's vocabulary, in its six labels and in the
@@ -508,15 +610,19 @@ def _recommendation(counts: dict[str, Any], findings: dict[str, int],
     # conflicts with another, or that has been withdrawn, is not work to write
     # up, and offering to draft a report from one would be the product's worst
     # possible suggestion.
+    #
+    # No object: the report is drafted on the Reports screen, and a rung about a
+    # whole screen names none (`recommended_target` is null for it), so the
+    # client's own control — "Draft a report", to Reports — is the one shown.
     holding = sum(n for status, n in findings.items()
                   if status in {"exploratory", "replicated"})
     if holding and not counts.get("reports"):
         return "communicate", (
             f"{counted(holding, 'finding')} "
             f"{'has' if holding == 1 else 'have'} been promoted and nothing has "
-            "been written up. Draft a report from what holds.")
+            "been written up. Draft a report from what holds."), None
     # No step. Nothing in the loop is outstanding; this rung is a look back over
     # the project rather than one of the six, and contradictions and gaps are
     # read across everything rather than taken on a screen. A step here would
     # attach a confident button to the vaguest sentence the ladder can produce.
-    return None, "Review the project's contradictions and gaps."
+    return None, "Review the project's contradictions and gaps.", None

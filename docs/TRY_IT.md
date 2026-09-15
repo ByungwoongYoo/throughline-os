@@ -100,8 +100,12 @@ this machine without anything further. Sign-up is deliberately allowed from
 `127.0.0.1`, `::1` and `localhost` only: a laptop holding somebody's corpus also
 joins café wifi, and an open registration endpoint there would let anyone on the
 network make themselves an account next to unpublished data. To allow it from
-elsewhere, turn on **open registration** in Settings — a deliberate act, off by
-default.
+elsewhere, the administrator turns on **Sign-up from the network** in Settings —
+a deliberate act, off by default, and one only the administrator can take.
+
+The administrator is also the only account that can install feature packs,
+change the model or its key, add people, and add the desktop menu entry: those
+change the machine for everyone on it, not one researcher's projects.
 
 The only rule on the password is that it is at least twelve characters. There is
 no email verification, no invite code and no network call, so nothing about

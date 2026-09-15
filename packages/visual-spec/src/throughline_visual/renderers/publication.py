@@ -35,7 +35,11 @@ PUBLICATION_STYLE: dict[str, Any] = {
     "axes.spines.top": False,
     "axes.spines.right": False,
     "axes.grid": True,
-    "grid.alpha": 0.25,
+    # Solid, not transparent: `#ebebeb` is what `#b0b0b0` at 25% made over
+    # white. EPS has no transparency, so an alpha grid came out at full
+    # strength there — visibly heavier than the same figure as PNG or PDF.
+    "grid.color": "#ebebeb",
+    "grid.alpha": 1.0,
     "grid.linewidth": 0.5,
     "legend.frameon": False,
     "savefig.bbox": "tight",
@@ -102,6 +106,15 @@ def warn_about_format(fmt: str, *, has_photograph: bool = False) -> str | None:
             "compression will ring around glyph edges and thin rules, and there "
             "is no transparency. PNG is exact and usually smaller for this kind "
             "of image; SVG or PDF is what most journals ask for.")
+    if fmt == "eps":
+        # PostScript has no transparency at all. The band and the grid are
+        # drawn solid so they survive it; overlapping points cannot be,
+        # because their transparency is what shows where the data are dense.
+        return (
+            "EPS has no transparency. The confidence band and grid are drawn "
+            "in solid colours so they look the same, but overlapping points are "
+            "drawn fully solid, so crowded regions will not look denser than "
+            "sparse ones. PDF and SVG keep transparency.")
     if fmt in VECTOR_FORMATS:
         return None
     return None
@@ -182,8 +195,17 @@ def render(
     return path
 
 
-def _draw(spec: ResearchVisualSpec, data: VisualData, axes) -> None:
-    drawers = {
+def _drawers() -> dict[VisualType, Any]:
+    """
+    Every kind of figure this renderer draws. One table, read by `_draw` and by
+    `can_render`, so what the renderer does and what the interface is told it
+    does cannot drift apart.
+
+    Built when asked rather than at import: the drawers are defined further
+    down this module, and a module-level table naming them stopped the whole
+    package from importing — which is how it was first written.
+    """
+    return {
         VisualType.SCATTER: _scatter,
         VisualType.FOREST: _forest,
         VisualType.BOX: _box,
@@ -192,7 +214,25 @@ def _draw(spec: ResearchVisualSpec, data: VisualData, axes) -> None:
         VisualType.HEATMAP: _heatmap,
         VisualType.HEXBIN: _hexbin,
     }
-    drawer = drawers.get(spec.visual_type)
+
+
+def can_render(visual_type: VisualType | str) -> bool:
+    """
+    Whether a publication export exists for this kind of figure at all.
+
+    Asked by the interface before it offers a format picker. The picker used
+    to be shown for every figure, so a fitted surface — which this renderer
+    has never drawn — offered PDF, SVG and PNG, and a Download that failed
+    every time it was pressed.
+    """
+    try:
+        return VisualType(visual_type) in _drawers()
+    except ValueError:
+        return False
+
+
+def _draw(spec: ResearchVisualSpec, data: VisualData, axes) -> None:
+    drawer = _drawers().get(spec.visual_type)
     if drawer is None:
         raise RenderError(f"No publication renderer for {spec.visual_type}")
     drawer(spec, data, axes)
@@ -277,8 +317,16 @@ def _scatter(spec, data: VisualData, axes) -> None:
             residual = ys - (slope * xs + intercept)
             spread = float(np.std(residual, ddof=1)) if len(xs) > 2 else 0.0
             fitted = slope * line_x + intercept
+            # Solid, and beneath the points. It was `#333333` at 8% alpha, drawn
+            # after the points at the same z-order — so on top of them — and
+            # EPS has no transparency: exported as EPS, this band became a
+            # solid dark slab over nearly every point and the fitted line, on
+            # the recommender's default figure for any correlation. `#efefef`
+            # is the colour the 8% wash made over white, so every other format
+            # looks as it did, and z-order 0.5 puts it under the points (1)
+            # and the grid (1.5) rather than relying on drawing order.
             axes.fill_between(line_x, fitted - 1.96 * spread, fitted + 1.96 * spread,
-                              color="#333333", alpha=0.08, linewidth=0)
+                              color="#efefef", linewidth=0, zorder=0.5)
 
 
 def _forest(spec, data: VisualData, axes) -> None:

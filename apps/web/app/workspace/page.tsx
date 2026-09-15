@@ -537,7 +537,9 @@ function Workspace({ user }: { user: SignedInUser }) {
     && (target.item ? place.item === target.item : true);
   const takeStep = () => {
     if (!target) return;
-    if (target.item) open("connection", target.item);
+    // As the kind the target is: a finding the rung is about opens as a
+    // finding. This was hard-coded to "connection" (T153).
+    if (target.item) open(target.kind ?? "connection", target.item);
     else goSection(target.section);
   };
   const strip = loopMap ? (
@@ -987,7 +989,12 @@ function Workspace({ user }: { user: SignedInUser }) {
               )}
           </>
         )}
-        {section === "settings" && <Settings projectId={project.id} />}
+        {/* The activity log is the Record's second reading (`section=activity`
+            redirects there), so `main`'s separate render for it has nowhere to
+            appear; Settings takes `main`'s admin flag. */}
+        {section === "settings" && (
+          <Settings projectId={project.id} isAdmin={user.is_admin === true} />
+        )}
         {section === "graph" && (
           /*
            * `replace`, not push: a graph is browsed by clicking node after

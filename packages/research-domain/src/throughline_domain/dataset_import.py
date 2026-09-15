@@ -463,7 +463,12 @@ def _fetch_over_http(url: str) -> Fetched:
         "User-Agent": USER_AGENT.format(mailto="unknown"),
         "Accept": "text/csv,application/json,*/*",
     })
-    opener = urllib.request.build_opener(_NoRedirects)
+    # With the paper fetcher's peer check as well as its name check: the name is
+    # resolved again to connect, and the address actually reached is the one
+    # that has to be public (T165).
+    from throughline_connectors.papers import (
+        PaperFetchError, _PublicOnlyHTTP, _PublicOnlyHTTPS)
+    opener = urllib.request.build_opener(_NoRedirects, _PublicOnlyHTTP, _PublicOnlyHTTPS)
     try:
         with opener.open(request, timeout=TIMEOUT) as response:
             return Fetched(status=response.status,
@@ -474,6 +479,10 @@ def _fetch_over_http(url: str) -> Fetched:
         # A redirect arrives here once `_NoRedirects` declines to follow it, so
         # it is a response to hand back rather than a failure.
         return Fetched(status=exc.code, headers=dict(exc.headers.items()))
+    except PaperFetchError as exc:
+        # The peer check's refusal, in this module's own terms, so the route
+        # answers it as the refusal it is rather than as a server error.
+        raise DatasetImportRefused(str(exc)) from exc
     except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
         raise DatasetImportUnreachable(
             f"That file could not be downloaded ({exc}).") from exc
