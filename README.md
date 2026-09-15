@@ -142,12 +142,38 @@ Agreement is required to floating-point noise rather than to a few decimal
 places, since two implementations of one closed form should differ only in
 rounding.
 
+Agreeing with scipy is necessary and not sufficient: a number can be computed
+correctly and then be labelled, paired or judged wrongly. The latest wave found
+several of those:
+- A rank-biserial correlation had its sign reversed.
+- Kruskal–Wallis reported eta-squared-H under the name epsilon-squared.
+- A proportion of variance explained was judged on the correlation scale.
+- A regression's headline p-value belonged to the whole model while the
+  estimate beside it belonged to one predictor.
+- Cramér's V was taken from the continuity-corrected statistic.
+
+Each result's headline numbers now describe the same thing, and each effect
+size is judged on its own scale.
+
+**A corrected result gets one verdict everywhere.** A discovery run's
+false-discovery rate is the researcher's to set, and whether a q-value survived
+is decided by one rule, `discovery.survived_correction`, at the rate its own run
+was corrected at. Before that, the correction promoted a result at 0.10 and
+eight later readers each re-derived the verdict with `q < 0.05`, including:
+- the patterns screen;
+- the claim test, which called the promoted discovery a null;
+- validation;
+- the figures and the result card.
+
+The interface now shows the server's verdict rather than computing its own, and
+a source scan fails any new comparison of a q-value with a fixed number.
+
 **Nothing here is a placeholder presented as working functionality.** That is
 the standard the project sells itself on, so it is also the thing most worth
 checking: `tests/test_packaging.py` and the primitive registry exist to make
 drift between what is claimed and what runs visible in CI rather than in a demo.
 
-The current suite is **2598 backend tests and 3482 web tests**.
+The current suite is **2840 backend tests and 3571 web tests**.
 
 How many of those skip depends on which optional extras a machine has
 installed, so the number is not fixed and is not claimed as one: on a checkout
@@ -257,6 +283,33 @@ export ANTHROPIC_API_KEY=...
 The hosted client is an optional extra (`pip install 'throughline-model[anthropic]'`);
 a workspace without it reports the provider unavailable rather than failing to
 import.
+
+## Accounts and the administrator
+
+The first account created on an installation is its **administrator**, and
+nobody after it is. The role is enforced on the server, not only hidden in the
+interface. Only the administrator can:
+- add people;
+- install feature packs;
+- choose the model and save or clear its key;
+- install the desktop entry;
+- open sign-up to the network.
+
+Those act on the machine for everyone who uses it rather than on one
+researcher's projects, so anyone else gets a 403 and sees the setting and who
+can change it, not a button that fails.
+
+**Sign-up from the network is off by default.** Accounts can be created at the
+machine itself; opening registration to other machines is a switch in Settings,
+behind a confirmation. It is off by default because a laptop joins café wifi.
+
+Every account's work stays its own. An id is checked against the project it
+arrives with, whether it comes in the path or in the request body, and an id
+from another project answers 404, the same as one that does not exist. Fetches
+the server makes on a caller's behalf — a paper, a dataset, a repository
+harvest — refuse addresses on this machine or its network, and check again
+after DNS resolves and on every redirect. Rate limits count once per request,
+against the route that was actually matched.
 
 ## Requirements
 
