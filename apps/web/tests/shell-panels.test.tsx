@@ -1,15 +1,17 @@
 /**
  * The edges of the shell belong to the researcher.
  *
- * The rail and the inspector were fixed at 232px and 360px. A long research
- * question in the rail, or a dense evidence panel in the inspector, had nowhere
- * to go — and there was no control anywhere in the product to give it room.
+ * The inspector was fixed at 360px. A dense evidence panel in it had nowhere to
+ * go, and there was no control anywhere in the product to give it room.
+ *
+ * The rail was the other resizable edge until it became a header row, which is
+ * why only two shares are left below.
  *
  * What these guard is the part that is easy to get wrong rather than the part
  * that is easy to see. A divider that only answers a mouse is a §30/Rule 5
  * violation of exactly the kind the project switcher was just fixed for. A
  * stored width that survives across versions of the app is untrusted input, and
- * a bad one could restore a rail of zero width and leave the navigation
+ * a bad one could restore a panel of zero width and leave part of the shell
  * unreachable with nothing to drag. And the 1101px threshold now lives in two
  * places — `Shell.tsx` and `globals.css` — which have to agree.
  */
@@ -17,7 +19,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { Shell } from "@/components/Shell";
-import { INSPECTOR, RAIL, WORKSPACE, readLayout, writeLayout } from "@/lib/layout";
+import { INSPECTOR, WORKSPACE, readLayout, writeLayout } from "@/lib/layout";
 
 /**
  * What the library actually stores: percentage shares that sum to 100.
@@ -30,7 +32,16 @@ import { INSPECTOR, RAIL, WORKSPACE, readLayout, writeLayout } from "@/lib/layou
  * silently reset to their defaults on every reload. The suite was green
  * throughout; it took opening the page in a browser.
  */
-const REAL = { [RAIL]: 27.143, [WORKSPACE]: 47.143, [INSPECTOR]: 25.714 };
+const REAL = { [WORKSPACE]: 74.286, [INSPECTOR]: 25.714 };
+
+/**
+ * A panel id an older build wrote and this one no longer has.
+ *
+ * Not hypothetical: `rail` is what every layout stored before the navigation
+ * moved into the header carries, which is why the storage key was bumped. It
+ * stands in below for any share allocated to a panel that is not on screen.
+ */
+const GONE = "rail";
 
 /** Drive the breakpoint, since happy-dom has no real viewport to resize. */
 function viewport(wide: boolean) {
@@ -70,19 +81,20 @@ function shell() {
 }
 
 describe("the shell edges can be moved", () => {
-  it("offers a divider for each edge, named for what it moves", () => {
+  it("names its divider for what it moves", () => {
     /**
      * "Separator" is what the role says; it is not what a person needs to hear.
-     * Two unlabelled dividers are indistinguishable to a screen reader.
+     * There is one draggable edge left — the navigation stopped being a column
+     * a person could widen when it became a row — and it still has to say what
+     * it moves rather than announcing itself as "separator".
      */
     shell();
-    expect(screen.getByRole("separator", { name: /Resize the navigation/i }))
-      .toBeInTheDocument();
     expect(screen.getByRole("separator", { name: /Resize the context panel/i }))
       .toBeInTheDocument();
+    expect(screen.getAllByRole("separator")).toHaveLength(1);
   });
 
-  it("puts the dividers in the tab order", () => {
+  it("puts every divider in the tab order", () => {
     /**
      * §30 and Rule 5. The library implements arrow-key resizing, but only for a
      * divider a keyboard can reach in the first place.
@@ -93,10 +105,16 @@ describe("the shell edges can be moved", () => {
     }
   });
 
-  it("still renders the rail, the workspace and the inspector", () => {
-    /** The restructure must not lose a panel. */
+  it("still renders the navigation, the workspace and the inspector", () => {
+    /**
+     * The restructure must not lose a region. The navigation is two rows now
+     * rather than one column: the groups, whose name is fixed, and the open
+     * group's sections, which are named for the group so a screen reader
+     * hearing the landmark also hears which stage it is in.
+     */
     shell();
-    expect(screen.getByRole("navigation", { name: "Sections" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Areas" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "The project" })).toBeInTheDocument();
     expect(screen.getByRole("main")).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "Context inspector" }))
       .toBeInTheDocument();
@@ -104,7 +122,7 @@ describe("the shell edges can be moved", () => {
 });
 
 describe("below the breakpoint the inspector is dropped, not crushed", () => {
-  it("renders no inspector and no second divider on a narrow window", () => {
+  it("renders no inspector and no divider on a narrow window", () => {
     /**
      * §117. This used to be `display: none` in a media query, which a flex
      * panel group cannot use — a hidden panel keeps its share of the width and
@@ -116,13 +134,15 @@ describe("below the breakpoint the inspector is dropped, not crushed", () => {
 
     expect(screen.queryByRole("complementary", { name: "Context inspector" }))
       .not.toBeInTheDocument();
-    expect(screen.getAllByRole("separator")).toHaveLength(1);
+    // The inspector's was the only draggable edge, so dropping it leaves none.
+    expect(screen.queryAllByRole("separator")).toHaveLength(0);
   });
 
   it("keeps the navigation and the work itself", () => {
     viewport(false);
     shell();
-    expect(screen.getByRole("navigation", { name: "Sections" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Areas" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "The project" })).toBeInTheDocument();
     expect(screen.getByRole("main")).toBeInTheDocument();
   });
 });
@@ -145,13 +165,13 @@ describe("a width the researcher chose is remembered", () => {
      * `maxSize` on the panels themselves, which is the only place that can know
      * the viewport.
      */
-    writeLayout({ [RAIL]: 0, [WORKSPACE]: 74.286, [INSPECTOR]: 25.714 });
+    writeLayout({ [GONE]: 0, [WORKSPACE]: 74.286, [INSPECTOR]: 25.714 });
     expect(readLayout()).toBeUndefined();
 
-    writeLayout({ [RAIL]: -27, [WORKSPACE]: 101.286, [INSPECTOR]: 25.714 });
+    writeLayout({ [GONE]: -27, [WORKSPACE]: 101.286, [INSPECTOR]: 25.714 });
     expect(readLayout()).toBeUndefined();
 
-    writeLayout({ [RAIL]: Number.NaN, [WORKSPACE]: 47, [INSPECTOR]: 25 });
+    writeLayout({ [GONE]: Number.NaN, [WORKSPACE]: 47, [INSPECTOR]: 25 });
     expect(readLayout()).toBeUndefined();
   });
 
@@ -161,13 +181,13 @@ describe("a width the researcher chose is remembered", () => {
      * what a layout written by an older build with different panels looks
      * like — plausible, well-formed, and wrong.
      */
-    writeLayout({ [RAIL]: 20, [WORKSPACE]: 20 });
+    writeLayout({ [GONE]: 20, [WORKSPACE]: 20 });
     expect(readLayout()).toBeUndefined();
   });
 
   it("tolerates the library's own rounding", () => {
     /** 27.143 + 47.143 + 25.714 is 100.000 only to three places. */
-    writeLayout({ [RAIL]: 27.143, [WORKSPACE]: 47.143, [INSPECTOR]: 25.714 });
+    writeLayout({ [GONE]: 27.143, [WORKSPACE]: 47.143, [INSPECTOR]: 25.714 });
     expect(readLayout()).toBeDefined();
   });
 

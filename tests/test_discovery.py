@@ -300,6 +300,64 @@ def test_validation_runs_real_analyses_and_links_each_one(signal_project):
     assert bootstrap["method"] == "bootstrap_correlation"
 
 
+def test_a_model_that_could_not_be_fitted_is_not_a_failed_association(signal_project):
+    """
+    "Did not survive adjustment" and "no model could be fitted" are different facts.
+
+    Measured on a live project before this existed. The confounder picker
+    offered the dataset's site column, a researcher chose the most natural
+    confounder there is, and the run came back **violated** — which reads as a
+    scientific result. What actually happened is that adjustment fits a linear
+    regression, a text column coerces to nothing, every row was dropped, and
+    the fit raised "0 complete rows cannot fit 2 predictors". Nothing had been
+    tested at all.
+
+    It is the same conflation D354 found between a report's status and its
+    verdict, and it mattered more here: this is the check that gates the rest
+    of the loop, so a false negative on it stops the whole journey.
+
+    The check still does not pass — an unfitted model has established nothing —
+    but what is recorded about it is what happened.
+    """
+    project_id, version_id = signal_project
+    _discover(project_id, version_id)
+    with connection() as conn, conn.cursor() as cur:
+        target = next(c for c in discovery.list_connections(
+            cur, project_id=project_id, status="exploratory")
+            if c["left_variable"] == "consumption_ddd")
+
+    # `country` is text. The regression cannot use it without indicator coding.
+    report = _validate(project_id, target["id"], confounders=["country"])
+    check = {c["name"]: c for c in report["check_details"]}["confounder_adjustment"]
+
+    assert check["outcome"] == "not_tested", check["detail"]
+    assert not report["passed"]
+    assert "could not be fitted" in check["detail"]
+    # And it says what was asked for, so the researcher knows which column.
+    assert "country" in check["detail"]
+
+
+def test_a_fitted_model_that_kills_the_association_is_still_violated(signal_project):
+    """The distinction must not swallow the real negative it was carved out of.
+
+    A model that fits and shows the association does not survive is a result,
+    and has to stay `violated` — otherwise the fix above would quietly turn
+    every failed adjustment into "untested" and nothing would ever be refused.
+    """
+    project_id, version_id = signal_project
+    _discover(project_id, version_id)
+    with connection() as conn, conn.cursor() as cur:
+        target = next(c for c in discovery.list_connections(
+            cur, project_id=project_id, status="exploratory")
+            if c["left_variable"] == "consumption_ddd")
+
+    # A numeric confounder the model can actually use.
+    report = _validate(project_id, target["id"], confounders=["gdp_per_capita"])
+    check = {c["name"]: c for c in report["check_details"]}["confounder_adjustment"]
+    assert check["outcome"] in {"passed", "violated"}
+    assert "could not be fitted" not in check["detail"]
+
+
 def test_a_surviving_connection_is_promoted_to_validated(signal_project):
     project_id, version_id = signal_project
     _discover(project_id, version_id)

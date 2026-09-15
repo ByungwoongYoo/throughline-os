@@ -175,10 +175,13 @@ class TestEachRungNamesItsStep:
         _source_and_dataset(cur, project)
         _a_finding_with_its_evidence(cur, project)
 
+        # Singular. "1 finding have their evidence recorded" is what a
+        # researcher was reading at step 5 of a loop we are asking them to
+        # trust; the sentences on this ladder are the product's voice.
         assert _recommendation(cur, project) == (
             "record",
-            "1 finding have their evidence recorded. "
-            "Promote the ones that hold to exploratory.")
+            "1 finding has its evidence recorded. "
+            "Promote it if it holds to exploratory.")
 
     def test_a_validated_finding_is_sent_to_be_challenged_not_written_up(
             self, cur, project):
@@ -196,18 +199,69 @@ class TestEachRungNamesItsStep:
             "validate",
             "Challenge the validated findings before communicating them.")
 
+    def test_a_promoted_finding_with_nothing_written_up_is_sent_to_communicate(
+            self, cur, project):
+        """The sixth step, which this ladder could not reach.
+
+        `communicate` is in the loop's six labels and in the strip a researcher
+        reads on every screen, and no rung here ever returned it. Walked end to
+        end on a real project: sources, profile, discover, validate and record
+        all arrived, the finding was promoted, and the next sentence was
+        "Review the project's contradictions and gaps" with no step and
+        therefore no button. The loop's last step could not be reached by
+        following the loop.
+
+        It sits below the two rungs that withhold it — a candidate has not been
+        judged fit to promote, a validated finding has not been challenged, and
+        both of those sentences say so. What is left is a finding that survived
+        promotion, which is the thing a report is written from.
+        """
+        _source_and_dataset(cur, project)
+        _move_to(cur, _a_finding_with_its_evidence(cur, project), "exploratory")
+
+        assert _recommendation(cur, project) == (
+            "communicate",
+            "1 finding has been promoted and nothing has been written up. "
+            "Draft a report from what holds.")
+
     def test_the_last_rung_names_no_step(self, cur, project):
         """Nothing in the loop is outstanding, so no loop step is honest.
 
         The rung reviews the project rather than advancing it. Naming one of
         the six would hand the vaguest sentence the ladder produces the most
         confident control on the screen.
+
+        Reached now by writing the report the rung above asks for — which is
+        the point: this is the end of the loop, and it is only the end once the
+        last step has actually been taken.
         """
         _source_and_dataset(cur, project)
         _move_to(cur, _a_finding_with_its_evidence(cur, project), "exploratory")
+        cur.execute(
+            "INSERT INTO communication_artifacts (id, project_id, artifact_type, "
+            "title, status) VALUES (%s, %s, 'report', 'What we found', 'draft')",
+            (new_id("art"), project))
 
         assert _recommendation(cur, project) == (
             None, "Review the project's contradictions and gaps.")
+
+    def test_a_conflicted_finding_is_not_something_to_write_up(self, cur, project):
+        """The exclusion, which matters more than the rung.
+
+        A finding that conflicts with another, or that has been withdrawn, is
+        not work to communicate — and "draft a report from this" would be the
+        worst suggestion the product could make about it.
+        """
+        _source_and_dataset(cur, project)
+        _move_to(cur, _a_finding_with_its_evidence(cur, project), "exploratory")
+        finding = _a_finding_with_its_evidence(cur, project)
+        _move_to(cur, finding, "exploratory")
+        _move_to(cur, finding, "conflicted")
+
+        step, sentence = _recommendation(cur, project)
+        assert step == "communicate"
+        # One, not two: the conflicted one is not counted among what holds.
+        assert sentence.startswith("1 finding has been promoted")
 
 
 class TestTheStepIsUsableByTheScreenThatAsked:

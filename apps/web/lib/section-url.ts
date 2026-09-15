@@ -52,6 +52,32 @@ export const DEFAULT_SECTION: Section = "overview";
 
 const KEY = "section";
 
+/**
+ * Sections that became views of the screen that owns them, and where they went.
+ *
+ * Eight entries left the rail: searching the library, finding papers, finding
+ * data and digitising a figure are views of Sources; the chart catalogue is a
+ * view of Figures; the activity log is the second reading of the Record; and
+ * the pattern sweep and the embedding space are two more readings of this
+ * project's analyses. Each one still has a place, so every link anybody has
+ * ever copied, and every reference in the ledger and the docs, still lands on
+ * the thing it named.
+ *
+ * A redirect rather than a removal. Deleting them from `SECTION_IDS` would make
+ * `?section=literature` fall back to Overview, which is the silent wrong answer
+ * — a researcher following an old link would conclude the feature was gone.
+ */
+export const MOVED_TO: Partial<Record<Section, { section: Section; view: View }>> = {
+  search: { section: "sources", view: "search" },
+  literature: { section: "sources", view: "papers" },
+  datasearch: { section: "sources", view: "data" },
+  readfigure: { section: "sources", view: "figure" },
+  gallery: { section: "figures", view: "primitives" },
+  activity: { section: "journal", view: "done" },
+  patterns: { section: "analyses", view: "patterns" },
+  embedding: { section: "analyses", view: "embedding" },
+};
+
 export function isSection(value: string | null | undefined): value is Section {
   return !!value && (SECTION_IDS as readonly string[]).includes(value);
 }
@@ -141,7 +167,16 @@ export function projectFromSearch(search: string): string | null {
 
 /** The section and item a URL asks for, with the same fallbacks as each. */
 export function placeFromSearch(search: string): Place {
-  return { section: sectionFromSearch(search), item: itemFromSearch(search) };
+  const named = sectionFromSearch(search);
+  // A section that has become a view resolves to the screen that owns it, so
+  // an old link lands on the thing it named rather than on the front door.
+  const moved = MOVED_TO[named];
+  return { section: moved?.section ?? named, item: itemFromSearch(search) };
+}
+
+/** The view an old section's address resolves to, if it named one. */
+export function viewForMovedSection(search: string): View | null {
+  return MOVED_TO[sectionFromSearch(search)]?.view ?? null;
 }
 
 /**
@@ -171,6 +206,126 @@ export function searchForProject(projectId: string | null, search: string): stri
   const params = new URLSearchParams(search);
   if (projectId) params.set(PROJECT_KEY, projectId);
   else params.delete(PROJECT_KEY);
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+/*
+ * A section's sub-view, for the one section that has more than one way of
+ * reading the same objects.
+ *
+ * Research graph shows the project's objects twice: as a force-directed canvas
+ * where proximity means similarity, and as the river, where the same objects
+ * sit in six recorded stages with their derivations drawn. §08 is explicit
+ * that the river is "a proposed lineage view, with a contextual entrance from
+ * Overview and Research graph" and not a sixth primary group — so it is a view
+ * of a section rather than a section of its own, and the secondary navigation
+ * row stays the eight items the master shows.
+ *
+ * It goes in the address for the same four reasons the section did (D196): a
+ * researcher reading the lineage can send that link, a reload comes back to
+ * it, Back leaves it, and the Overview's entrance can name it. Validated
+ * against a vocabulary for the same reason `isSection` is — the value is typed
+ * by a stranger and chooses what renders.
+ */
+/**
+ * Every sub-view a section can show.
+ *
+ * One vocabulary rather than one per section, for the reason `SECTION_IDS` is
+ * one list: the value is typed by a stranger and decides what renders, so it
+ * has to be checkable. A view that means nothing on the current section simply
+ * falls back to that section's default, the same way an `item` that belongs to
+ * another kind resolves to nothing.
+ *
+ * These exist because the product had twenty-three sections and a researcher
+ * meeting five groups of them could not tell what any of it was for. A way of
+ * getting a paper into the library is not a peer of the library; a catalogue of
+ * chart kinds is not a peer of this project's figures. They are views of the
+ * screen that owns them, and this is the list of them.
+ */
+export const VIEW_IDS = [
+  // Research graph
+  "graph", "river",
+  // Sources: the library, and the four ways of getting something into it.
+  "library", "search", "papers", "data", "figure",
+  // Figures: the project's own — one lens per question a figure answers — and
+  // the catalogue of what can be drawn at all.
+  "saved", "matrix", "spread", "one", "map", "primitives",
+  // Analyses: one run, and the two readings of all of them.
+  "runs", "patterns", "embedding",
+  // The project's record, written and done.
+  "written", "done",
+] as const;
+
+export type View = (typeof VIEW_IDS)[number];
+
+/**
+ * Which view a section shows when the address names none, and which views it
+ * will accept at all.
+ *
+ * Per section rather than one global default, because the views belong to the
+ * screens that own them: `river` means something on Research graph and nothing
+ * on Sources, and a link carrying one into the other should land on that
+ * section's own front rather than on a blank. A section absent from this map
+ * has no views.
+ */
+export const VIEWS_OF: Partial<Record<Section, readonly View[]>> = {
+  graph: ["graph", "river"],
+  sources: ["library", "search", "papers", "data", "figure"],
+  /*
+   * The five lenses of the figure builder, plus the catalogue.
+   *
+   * The builder held its lens in `useState`, so "How it all relates" could not
+   * be linked to, did not survive a reload, and — the reason this changed —
+   * could not be *arrived at*: the chart catalogue shows fourteen primitives
+   * and had no way to say "draw my data this way", because there was no
+   * address for the lens that would draw it.
+   *
+   * `saved` stays first and keeps its name so every existing link still lands:
+   * it is the builder on its own default lens, everything the project tested.
+   */
+  figures: ["saved", "matrix", "spread", "one", "map", "primitives"],
+  analyses: ["runs", "patterns", "embedding"],
+  journal: ["written", "done"],
+};
+
+/** The first view of a section is the one it opens on. */
+export function defaultView(section: Section): View | null {
+  return VIEWS_OF[section]?.[0] ?? null;
+}
+
+const VIEW_KEY = "view";
+
+export function isView(value: string | null | undefined): value is View {
+  return !!value && (VIEW_IDS as readonly string[]).includes(value);
+}
+
+/**
+ * The view a URL asks for, for a given section.
+ *
+ * A view the section does not own falls back to its default, for the same
+ * reason `sectionFromSearch` falls back rather than throwing: the value is
+ * typed by a stranger, and a stale link should land somewhere real.
+ */
+export function viewFromSearch(search: string, section: Section): View | null {
+  const value = new URLSearchParams(search).get(VIEW_KEY);
+  const allowed = VIEWS_OF[section];
+  if (!allowed) return null;
+  return isView(value) && allowed.includes(value) ? value : allowed[0];
+}
+
+/**
+ * The address for a view, preserving everything else already in the URL.
+ *
+ * A section's own default is left out, so the ordinary address of every screen
+ * keeps the shape it has always had and nobody's existing link grows a
+ * parameter it did not need.
+ */
+export function searchForView(view: View | null, section: Section,
+                              search: string): string {
+  const params = new URLSearchParams(search);
+  if (!view || view === defaultView(section)) params.delete(VIEW_KEY);
+  else params.set(VIEW_KEY, view);
   const query = params.toString();
   return query ? `?${query}` : "";
 }

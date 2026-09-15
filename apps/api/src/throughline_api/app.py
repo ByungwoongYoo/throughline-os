@@ -541,6 +541,43 @@ def create_project(payload: ProjectCreate, user: dict = Depends(current_user)) -
 
 
 
+@app.post("/api/projects/{project_id}/advance", status_code=202)
+def advance_project(project_id: str,
+                    user: dict = Depends(current_user)) -> dict[str, Any]:
+    """Take this project's data as far as the machine honestly can, in one act.
+
+    Discovery over the profiled columns, every pair tested and corrected for
+    how many tests ran, and the strongest survivor recorded as a finding that
+    keeps the line back to the analysis behind it.
+
+    **Why this route exists.** The loop was six screens, each with its own
+    button, each able to fail on its own, and nobody walks all six to find out
+    whether their data says anything — the seeded example was the only project
+    in this product that ever arrived with work in it. The work is the
+    machine's; the judging is the researcher's.
+
+    **Why it is a press and not automatic.** Queuing it when ingestion finishes
+    was tried. The project then holds a discovery run nobody asked for, so the
+    researcher's own *Discover connections* either doubles every connection or
+    is refused as a repeat of something they never started — and spending
+    compute on somebody's data unasked is its own objection.
+
+    202 with the run id: this returns as soon as the work is queued. The
+    workspace already knows how to show a project assembling itself, and
+    watching it is a better introduction to the pipeline than a spinner.
+    """
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        run_id = workflow.enqueue(
+            cur, workflow_name="project.advance", project_id=project_id,
+            payload={"project_id": project_id},
+            # One walk in flight per project. Pressing twice while it runs is
+            # the same request, not a second discovery.
+            idempotency_key=f"advance:{project_id}",
+            max_attempts=3)
+    return {"workflow_run_id": run_id, "project_id": project_id}
+
+
 @app.post("/api/projects/example", status_code=201)
 def create_example_project(user: dict = Depends(current_user)) -> dict[str, Any]:
     """Seed the worked example (Part B6).
@@ -784,7 +821,48 @@ def list_sources(project_id: str, user: dict = Depends(current_user)) -> list[di
         # Both are always present as keys, null when absent, so a caller
         # never has to distinguish "no dataset" from "this endpoint does
         # not report datasets".
+        # The research object each source has in the graph, in two queries
+        # rather than two per source.
+        #
+        # This is the handle every provenance route actually takes. The journal,
+        # the note and the version history are all addressed by research-object
+        # id, and a screen holding only a source id cannot reach any of them —
+        # D213 records exactly that dead end for the finding, source and
+        # analysis details. Sending it with the source ends the class of
+        # problem for every screen that lists sources.
+        #
+        # Two queries because a source reaches its node by two different roads,
+        # and taking only the first road is what made this look finished while
+        # returning null for every dataset. A paper's object points back at the
+        # source (`research_objects.source_id`), and a dataset's is named by
+        # the dataset row (`datasets.object_id`) — the same split `claim_test`
+        # navigates when it looks up the two halves of a pair.
+        #
+        # Null when the source has no object yet, which is an ordinary state
+        # while ingestion is still running. A caller must be able to tell "not
+        # yet" from "this endpoint does not report it", so the key is always
+        # present.
+        source_ids = [s["id"] for s in sources]
+        cur.execute(
+            "SELECT source_id, id FROM research_objects "
+            "WHERE project_id = %s AND source_id = ANY(%s) "
+            # Oldest first, so a source that has grown several objects resolves
+            # to the same one on every request rather than to whichever row the
+            # planner happened to return.
+            "ORDER BY created_at",
+            (project_id, source_ids))
+        object_of = {row["source_id"]: row["id"] for row in cur.fetchall()}
+
+        cur.execute(
+            "SELECT source_id, object_id FROM datasets "
+            "WHERE project_id = %s AND source_id = ANY(%s) "
+            "  AND object_id IS NOT NULL",
+            (project_id, source_ids))
+        for row in cur.fetchall():
+            object_of.setdefault(row["source_id"], row["object_id"])
+
         for source in sources:
+            source["object_id"] = object_of.get(source["id"])
             source["paper"] = None
             source["dataset"] = None
 
@@ -4284,7 +4362,6 @@ def stored_claims(source_id: str, project_id: str = Query(...),
 
 @app.post("/api/sources/{source_id}/claims", status_code=201)
 def locate_claims(source_id: str, project_id: str = Query(...),
-                  force: bool = Query(False),
                   user: dict = Depends(current_user)) -> dict[str, Any]:
     """
     Read a paper and record the empirical claims a dataset could test.
@@ -4293,12 +4370,19 @@ def locate_claims(source_id: str, project_id: str = Query(...),
     only location — quoting what the paper asserts and naming its constructs.
     Whether those constructs exist in any dataset, and whether the design can
     carry them, are decided afterwards without a model.
+
+    **There is no `force`.** This route took one and handed it to
+    `claim_test.locate_claims`, which has never accepted it — so every call
+    raised `TypeError` and the researcher got a 500 where the paper's claims
+    should have been. It was also redundant by construction: reading the record
+    and re-reading the paper are different acts on different routes, and a POST
+    here *is* the re-read. Nothing in the interface or the tests ever passed it.
     """
     scoped_project(project_id, user)
     with transaction() as cur:
         try:
             return claim_test.locate_claims(
-                cur, project_id=project_id, source_id=source_id, force=force)
+                cur, project_id=project_id, source_id=source_id)
         except claim_test.ClaimTestError as exc:
             raise HTTPException(400, str(exc)) from exc
 

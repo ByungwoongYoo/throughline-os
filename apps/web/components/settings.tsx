@@ -171,7 +171,7 @@ export function Accounts({ isAdmin = true }: { isAdmin?: boolean } = {}) {
 
   return (
     <>
-      <section className="set-section">
+      <section className="set-section" id="set-password">
         <h2>Your password</h2>
         <p className="set-sub">
           At least 12 characters — this protects a whole research corpus and you
@@ -198,7 +198,7 @@ export function Accounts({ isAdmin = true }: { isAdmin?: boolean } = {}) {
         </div>
       </section>
 
-      <section className="set-section">
+      <section className="set-section" id="set-people">
         <h2>People</h2>
         <p className="set-sub">
           Everyone with an account on this installation. The administrator adds
@@ -501,7 +501,7 @@ export function FeaturePacks({ isAdmin = true }: { isAdmin?: boolean } = {}) {
   const absent = entries.filter(([, pack]) => !pack.installed);
 
   return (
-    <section className="set-section">
+    <section className="set-section" id="set-packs">
       <h2>Feature packs</h2>
       <p className="set-sub">
         {absent.length === 0
@@ -638,7 +638,7 @@ export function VersionPanel() {
   if (!version) return null;
 
   return (
-    <section className="set-section">
+    <section className="set-section" id="set-version">
       <h2>Version</h2>
       <p className="set-sub">
         Which version produced a result is part of that result. `main` on Tuesday
@@ -774,7 +774,7 @@ export function StartingPanel({ isAdmin = true }: { isAdmin?: boolean } = {}) {
   if (!launcher) return null;
 
   return (
-    <section className="set-section">
+    <section className="set-section" id="set-start">
       <h2>Starting Throughline</h2>
 
       {!launcher.supported && (
@@ -1040,10 +1040,33 @@ export function Settings({ projectId, isAdmin = true }: {
   if (loading && !models) return <Loading rows={4} label="Asking what this machine has" />;
 
   return (
-    <>
+    <div className="set-shell">
+      {/*
+        * §08's settings family: "local settings navigation and grouped form
+        * sections with readiness states".
+        *
+        * This screen is 3,800px of single column, and the thing a person came
+        * to change is as likely to be at the bottom as the top — the model, the
+        * packs, the version, the launcher, the account. A column that long
+        * needs a contents, and the contents is what turns a scroll into a
+        * place. Anchors rather than tabs: every section stays on one page, so
+        * Ctrl+F still finds anything and a link into a section survives.
+        */}
+      <nav className="set-nav" aria-label="Settings sections">
+        <a href="#set-model">Model</a>
+        <a href="#set-packs">Feature packs</a>
+        <a href="#set-graph">Graph queries</a>
+        <a href="#set-start">Starting Throughline</a>
+        <a href="#set-password">Your password</a>
+        <a href="#set-people">People</a>
+        <a href="#set-version">Version</a>
+        <a href="#set-changes">Changes</a>
+      </nav>
+
+      <div className="set-body">
       <h1>Settings</h1>
 
-      <section className="set-section">
+      <section className="set-section" id="set-model">
         <h2>Model</h2>
         <p className="lede">
           Throughline runs against whichever model you point it at. It reads
@@ -1272,7 +1295,7 @@ export function Settings({ projectId, isAdmin = true }: {
           queries when it is there. Absence is a reduced feature set, never a
           broken record, and the wording has to make that unmistakable. */}
       {projection && (
-        <section className="set-section">
+        <section className="set-section" id="set-graph">
           <h2>Graph queries</h2>
           <p className="set-sub">
             Provenance, evidence graphs and search are answered from PostgreSQL,
@@ -1394,7 +1417,7 @@ export function Settings({ projectId, isAdmin = true }: {
       <RegistrationPanel />
 
       {models && models.history.length > 0 && (
-        <section className="set-section">
+        <section className="set-section" id="set-changes">
           <h2>Changes</h2>
           <p className="set-sub">
             Swapping the model changes what the system writes, so the swaps are
@@ -1416,6 +1439,7 @@ export function Settings({ projectId, isAdmin = true }: {
           </ol>
         </section>
       )}
-    </>
+      </div>
+    </div>
   );
 }

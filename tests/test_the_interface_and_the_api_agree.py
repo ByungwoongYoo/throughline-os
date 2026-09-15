@@ -184,9 +184,50 @@ def _declaration_for(name: str, source: Path,
 
 @pytest.fixture(scope="module")
 def populated():
-    from throughline_api.app import app
+    from unittest.mock import patch
 
-    with TestClient(app) as client:
+    from throughline_api.app import app
+    import throughline_model.ollama as ollama
+
+    # Ollama's tag listing, answered here, so `Models.installed` is judged.
+    #
+    # Whatever models a machine has is a fact about the machine, not about the
+    # worked example, and no CI runner has a model server: the list came back
+    # empty on every run, `main`'s included, so the guard's "stopped checking"
+    # assertion failed on every push since T150 reached `settings.tsx`. Excusing
+    # it in `KNOWN_UNJUDGED` would have left the shape unchecked everywhere.
+    # Answering the one HTTP call instead lets `OllamaProvider.installed()` run
+    # its real parsing — the fields it builds are what is compared against the
+    # interface's `Installed` type — and a cloud-tagged entry exercises
+    # `runs_here`. Every other URL goes to the real `urlopen`.
+    tags = {"models": [
+        {"name": "llama3.1:8b", "size": 4_920_000_000,
+         "details": {"parameter_size": "8.0B", "quantization_level": "Q4_K_M",
+                     "family": "llama"}},
+        {"name": "gpt-oss:120b-cloud", "size": 384,
+         "details": {"parameter_size": "116.8B", "quantization_level": "MXFP4",
+                     "family": "gptoss"}},
+    ]}
+    real_urlopen = ollama.urllib.request.urlopen
+
+    class _Answer:
+        def __init__(self, body: bytes):
+            self._body = body
+        def read(self) -> bytes:
+            return self._body
+        def __enter__(self):
+            return self
+        def __exit__(self, *exc):
+            return False
+
+    def urlopen(request, *args, **kwargs):
+        url = request if isinstance(request, str) else request.full_url
+        if url.endswith("/api/tags"):
+            import json
+            return _Answer(json.dumps(tags).encode("utf-8"))
+        return real_urlopen(request, *args, **kwargs)
+
+    with patch.object(ollama.urllib.request, "urlopen", urlopen), TestClient(app) as client:
         # Signed in through the shared helper, which asserts that it worked.
         # This branched on `needs_setup` and then logged in with a fresh random
         # address — so a user row left behind by any earlier file sent it down
@@ -250,6 +291,20 @@ def populated():
                 "body": "Drives [[Shape check: resistance]]."})
             assert second.status_code == 201, second.text
             ids["id"] = first.json()["id"]
+
+            # A note on an object, so the journal's notes are judged rather than
+            # listed as empty: the reasoning master reads that journal, and a
+            # nested list the worked example never fills is a shape nothing
+            # checks (see `KNOWN_UNJUDGED`).
+            if "objectId" in ids:
+                with connection() as conn, conn.cursor() as cur:
+                    cur.execute("SELECT object_type FROM research_objects WHERE id=%s",
+                                (ids["objectId"],))
+                    kind = cur.fetchone()["object_type"]
+                noted = client.post(
+                    f"/api/projects/{project_id}/objects/{ids['objectId']}/journal",
+                    json={"object_type": kind, "body": "Shape check: a note on the object."})
+                assert noted.status_code == 201, noted.text
 
             if "connectionId" in ids:
                 recorded = client.post(f"/api/projects/{project_id}/findings", json={
@@ -523,6 +578,11 @@ def _declared(body: str) -> list[str]:
 #: silently — a *new* unread field is a new field somebody added to a response
 #: that no screen can read, which is the moment to notice, not months later.
 UNREAD: dict[str, set[str]] = {
+    # The reasoning master reads the notes on the paper — the human half of the
+    # screen. What the paper was derived from and what used it is lineage, and
+    # the river is where that is shown; repeating it beside the claim would put
+    # a second provenance panel on a screen whose subject is one sentence.
+    "JournalContext in components/claimtest.tsx": {"derived_from", "used_by"},
     # Housekeeping: identity, ownership, timing and the spec's own columns.
     # Appears only when the worker has finished the run this fixture queues, so
     # the staleness check below tolerates its absence rather than demanding it.
@@ -561,9 +621,29 @@ UNREAD: dict[str, set[str]] = {
     # four provenance fields are read on the Sources list (D211) and have
     # nowhere to sit here: this screen is about a dataset's columns, not about
     # where the dataset came from.
+    # The river declares a deliberately narrow view of a connection: an id, the
+    # two variables it links, its lifecycle and the run that produced it. That
+    # is a card on a lineage canvas, not the connection's detail screen —
+    # `Connection in lib/api.ts` is where the estimate, the effect size and the
+    # ranking are read. Placing connections there at all is D360; carrying the
+    # whole row onto the canvas would invite the column to render whatever
+    # happened to be in it.
+    # `analysis_object_id` left this set when the river began drawing the
+    # line from each connection to the analysis that produced it (D399): it is
+    # the research object of that run, and so the ribbon's far end.
+    "ConnectionRow in components/river.tsx": {
+        "created_at", "dataset_name", "dataset_version",
+        "dataset_version_id", "discovery_run_id", "effect_size",
+        "effect_size_name", "estimate", "evidence_quality", "method",
+        "object_id", "p_value", "project_id", "q_value", "rank_components",
+        "rank_score", "relationship_type", "sample_size", "updated_at",
+    },
+    # `object_id` joined them under D358: it is the handle every provenance
+    # route takes, read by the screens that open a journal or a version
+    # history, and this one maps columns to roles.
     "Source in components/variables.tsx": {
         "connector_id", "content_hash", "created_at", "ingestion_detail",
-        "ingestion_status", "licence", "original_uri", "paper",
+        "ingestion_status", "licence", "object_id", "original_uri", "paper",
         "passage_count", "repository", "source_type", "trust_level",
     },
     # `connector_id` and `original_uri` left this set under D211: the Sources

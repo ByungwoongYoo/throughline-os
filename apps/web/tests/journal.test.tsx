@@ -199,3 +199,48 @@ describe("when there is nothing", () => {
       .toBeTruthy();
   });
 });
+
+/**
+ * The Record reads; the Notebook writes.
+ *
+ * They are the same `notes` table — `journal.recent` filters on the project and
+ * not on `note_kind`, so a notebook page, a daily page and a note left beside
+ * an analysis all arrive on this screen. What was missing was the way back: a
+ * researcher who had written nothing read a screen describing a feature it
+ * gave them no way to reach, which is an empty state that explains instead of
+ * helping.
+ *
+ * A second composer here was the other option and is the wrong one, for the
+ * reason `AnalysisContext` gives about validation: two implementations of
+ * writing would drift over links, titles and daily pages.
+ */
+describe("where writing happens", () => {
+  it("offers the Notebook when there is nothing written", async () => {
+    serve([]);
+    const onWrite = vi.fn();
+    render(<Journal projectId="prj_1" onWrite={onWrite} />);
+    await userEvent.click(await screen.findByRole("button",
+      { name: /Open the Notebook/ }));
+    expect(onWrite).toHaveBeenCalled();
+  });
+
+  it("still offers it once there is something to read", async () => {
+    // "Where do I write" is not a question that stops being asked once the
+    // first note exists.
+    serve([entry()]);
+    const onWrite = vi.fn();
+    render(<Journal projectId="prj_1" onWrite={onWrite} />);
+    await userEvent.click(await screen.findByRole("button",
+      { name: /Write in the Notebook/ }));
+    expect(onWrite).toHaveBeenCalled();
+  });
+
+  it("says nothing about writing when there is nowhere to go", async () => {
+    // The door is optional, and a button that leads nowhere is worse than no
+    // button: it reads as a broken feature rather than as an absent one.
+    serve([]);
+    render(<Journal projectId="prj_1" />);
+    await screen.findByText(/Nothing written yet/);
+    expect(screen.queryByRole("button", { name: /Notebook/ })).toBeNull();
+  });
+});

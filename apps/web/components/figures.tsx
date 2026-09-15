@@ -154,14 +154,38 @@ function transformOf(scale?: string): string | undefined {
 }
 
 
-export function Figures({ projectId, runs, focusId = null }: {
+/** The five questions this screen can draw, as they appear in the address. */
+export type FigureLens = "all" | "matrix" | "spread" | "one" | "map";
+
+export function Figures({ projectId, runs, focusId = null,
+                          lens = null, onLens }: {
   projectId: string;
   runs: ApiState<AnalysisRunRow[]>;
   /** A saved figure to land on — the one the palette or the address named. */
   focusId?: string | null;
+  /**
+   * Which question to draw, when the address names one.
+   *
+   * It was `useState` alone, which is D196's argument one level down: "How it
+   * all relates" could not be linked to and did not survive a reload. What
+   * forced the change is that it could not be *arrived at* either — the chart
+   * catalogue lists fourteen primitives and could not offer "draw my data this
+   * way", because the lens that would draw it had no address to send anybody
+   * to. Null means this screen is uncontrolled and keeps its own.
+   */
+  lens?: FigureLens | null;
+  /** Where a lens change goes, when the address is carrying it. */
+  onLens?: (next: FigureLens) => void;
 }) {
   const [chosen, setChosen] = useState<string | null>(null);
-  const [view, setView] = useState<"one" | "all" | "matrix" | "spread" | "map">("all");
+  const [ownView, setOwnView] = useState<FigureLens>("all");
+  // Controlled by the address where there is one, uncontrolled otherwise, so
+  // the component is still renderable on its own in a test or a story.
+  const view = lens ?? ownView;
+  const setView = (next: FigureLens) => {
+    if (onLens) onLens(next);
+    else setOwnView(next);
+  };
   const [column, setColumn] = useState<string | null>(null);
   const matrix = useApi<{ cells: Cell[]; variables: string[]; note: string }>(
     `/api/projects/${projectId}/correlation-matrix`);
@@ -227,7 +251,10 @@ export function Figures({ projectId, runs, focusId = null }: {
       {/* Two lenses on the same run: everything that was tested, or one
           relationship in detail. The overview is the default because the
           honest summary of a discovery run is how much of it was noise. */}
-      <div className="fig-picker" style={{ marginBottom: 10 }}>
+      {/* The five questions as one segmented control, like every other set of
+          readings in the product; it was loose pills with a gold edge, the one
+          place a choice between views still looked like a row of buttons. */}
+      <div className="fig-picker fig-lenses" style={{ marginBottom: 10 }}>
         <button className="btn" aria-current={view === "all"}
                 onClick={() => setView("all")}>
           Everything tested
@@ -267,7 +294,23 @@ export function Figures({ projectId, runs, focusId = null }: {
       )}
 
       {view === "map" && (
-        <MapView versionId={versionId} columns={columns.data ?? []} />
+        placeColumn
+          ? <MapView versionId={versionId} columns={columns.data ?? []} />
+          : (
+            /*
+             * The lens is in the address now, so it can be arrived at from
+             * somewhere that could not know whether this dataset has anywhere
+             * to draw — the chart catalogue's own door, for one. The button
+             * above is still hidden in that case; a lens that renders an empty
+             * map instead of saying why would be the same dead end the
+             * catalogue's door was built to remove.
+             */
+            <p className="note">
+              Nothing in this dataset was profiled as a place, so there is
+              nowhere to draw. A column of countries, regions or coordinates is
+              what this lens needs.
+            </p>
+          )
       )}
 
       {view === "one" && (

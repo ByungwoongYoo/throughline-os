@@ -9,6 +9,7 @@
  */
 
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AnalysisDetail } from "@/components/views";
 import { api } from "@/lib/api";
@@ -49,20 +50,37 @@ function view(over: Record<string, unknown> = {}) {
 
 describe("reading one analysis", () => {
   it("names the method in words", async () => {
+    /*
+     * More than once now, and deliberately: the cockpit's header names the
+     * method as provenance under the relationship, and the Result view's
+     * recorded-specification panel names it again as the thing that was run.
+     * §09 asks the Result view to co-locate the specification with the result,
+     * so both are the method appearing where a reader needs it — what this
+     * test guards is that it is never the raw `pearson_correlation` enum.
+     */
     view();
-    expect(await screen.findByText(/pearson correlation/i)).toBeTruthy();
+    const named = await screen.findAllByText(/pearson correlation/i);
+    expect(named.length).toBeGreaterThan(0);
+    expect(screen.queryByText(/pearson_correlation/)).toBeNull();
   });
 
   it("keeps the four judgements apart", async () => {
     /** §47: an estimate is not a p-value is not a sample size is not a grade,
      *  and collapsing any two of them is how a result gets overstated. */
     view();
-    await screen.findByText(/pearson correlation/i);
-    expect(screen.getByText("0.6234")).toBeTruthy();
-    expect(screen.getByText(/1\.20e-3/)).toBeTruthy();
+    await screen.findAllByText(/pearson correlation/i);
+    /*
+     * The formats are reporting convention — two decimals for an estimate, a
+     * p-value to three places — and the exact estimate stays on the element,
+     * so a reader who needs 0.6234 still has it. What this test holds is the
+     * property in its name: four separate figures, none folded into another.
+     */
+    const estimate = screen.getByText("0.62");
+    expect(estimate.getAttribute("data-exact")).toBe("0.6234");
+    expect(screen.getByText("0.001")).toBeTruthy();        // p = 0.0012
     expect(screen.getByText("120")).toBeTruthy();
-    expect(screen.getByText("moderate")).toBeTruthy();   // evidence quality
-    expect(screen.getByText("small")).toBeTruthy();      // practical, not the same
+    expect(screen.getByText("Moderate")).toBeTruthy();     // evidence quality
+    expect(screen.getByText("Small")).toBeTruthy();        // practical, not the same
   });
 
   it("shows the limitations the run recorded", async () => {
@@ -70,9 +88,26 @@ describe("reading one analysis", () => {
     expect(await screen.findByText(/cannot establish direction/)).toBeTruthy();
   });
 
-  it("says why the method was chosen", async () => {
+  it("says why the method was chosen, under Specification", async () => {
+    /*
+     * The rationale moved when the run became five readings rather than one
+     * scroll: it answers "what was asked for", not "what was found", which is
+     * where §09 puts it. So this now says which reading it is under, and
+     * opening that reading is part of the claim — a rationale filed somewhere
+     * a reader would not look for it is not much better than one missing.
+     */
+    const user = userEvent.setup();
     view();
+    await user.click(await screen.findByRole("tab", { name: /Specification/ }));
     expect(await screen.findByText(/Both variables are continuous/)).toBeTruthy();
+  });
+
+  it("keeps the estimate and the interpretation on the reading it opens with",
+     async () => {
+    /** Whatever else moved, what the run FOUND is what a reader meets first. */
+    view();
+    const estimate = await screen.findByText("0.62");
+    expect(estimate.getAttribute("data-exact")).toBe("0.6234");
   });
 
   it("says a failed run failed instead of showing a blank result", async () => {

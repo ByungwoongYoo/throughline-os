@@ -33,7 +33,7 @@ import { join } from "node:path";
  */
 const STYLESHEETS = [
   "app/globals.css", "app/density.css", "app/sky.css",
-  "app/landing.css", "app/fonts.css",
+  "app/entrance.css", "app/fonts.css",
 ];
 
 /**

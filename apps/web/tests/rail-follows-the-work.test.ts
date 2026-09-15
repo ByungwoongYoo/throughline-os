@@ -21,7 +21,16 @@ const positionOf = (id: string) => SECTIONS.findIndex((s) => s.id === id);
 
 describe("the order of the rail is the order of the work", () => {
   it("finds the sections, so a broken scan cannot pass", () => {
-    expect(SECTIONS.length).toBeGreaterThan(15);
+    /*
+     * A floor against a dead scan, not a claim about how long the rail is.
+     * The rail shrinks as sections are absorbed into the screens that own them
+     * — twenty-three became fifteen — and a guard that tracks the current
+     * count would have to be edited by every one of those folds, which trains
+     * the next person to edit it without reading it. Ten is low enough to
+     * survive the folds still to come and high enough that an empty or
+     * one-element scan, which is what breakage looks like, still fails here.
+     */
+    expect(SECTIONS.length).toBeGreaterThan(10);
     for (const id of ["analyses", "connections", "findings"]) {
       expect(positionOf(id), id).toBeGreaterThanOrEqual(0);
     }

@@ -139,6 +139,33 @@ export const IconTrash = (p: IconProps) => (
 export const IconChevronDown = (p: IconProps) => (
   <Svg {...p}><path d="m6 9 6 6 6-6" /></Svg>
 );
+/** The affordance for "this row opens something", per UI_02's linked objects. */
+export const IconChevronRight = (p: IconProps) => (
+  <Svg {...p}><path d="m9 6 6 6-6 6" /></Svg>
+);
+/** Provenance: what a thing was computed from. */
+export const IconLink = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" />
+    <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" />
+  </Svg>
+);
+/** A dataset, as distinct from a paper: UI_02 marks the two differently. */
+export const IconDataset = (p: IconProps) => (
+  <Svg {...p}>
+    <ellipse cx="12" cy="5" rx="8" ry="3" />
+    <path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5" />
+    <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
+  </Svg>
+);
+/** A written note, human or model, in the inspector's journal. */
+export const IconNote = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M5 3h9l5 5v13H5z" /><path d="M14 3v5h5" />
+    <path d="M9 13h6M9 17h4" />
+  </Svg>
+);
+
 export const IconCheck = (p: IconProps) => (
   <Svg {...p}><path d="m5 13 4 4L19 7" /></Svg>
 );

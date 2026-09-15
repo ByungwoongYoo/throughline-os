@@ -46,10 +46,20 @@ describe("TRY_IT.md §2b", () => {
     expect(text).not.toMatch(/^\s*[1-5]\.\s+\*\*/m);
   });
 
-  it("explains the two placements the loop cannot", () => {
+  it("explains the placements the loop's order cannot", () => {
+    /*
+     * Two things in this product are not steps of the loop, and a reader who
+     * meets them in the rail has no way to work out why they are where they
+     * are. The doc has to say.
+     *
+     * "This machine" is no longer one of them. It held the chart catalogue,
+     * which needed explaining because a catalogue of chart kinds filed beside
+     * Settings is a puzzle; the catalogue is a view of Figures now, and the
+     * group is Settings alone, which explains itself.
+     */
     const text = section2b();
     expect(text).toMatch(/Workboard/);
     expect(text).toMatch(/Chart primitives/);
-    expect(text).toMatch(/This machine/);
+    expect(text).toMatch(/Figures/);
   });
 });

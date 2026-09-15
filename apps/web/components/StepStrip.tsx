@@ -27,10 +27,26 @@
  */
 
 import type { LoopStep } from "@/lib/loop";
+import type { Section } from "./Shell";
 
 export function StepStrip({
-  step, index, total, here, actionLabel, onAction, onShowLoop, working,
+  steps, step, index, total, here, actionLabel, onAction, onGo, onShowLoop, working,
 }: {
+  /**
+   * Every step, with what the project has actually done.
+   *
+   * The strip used to carry one: "Step 4 of 6 · Try to destroy what survived",
+   * which names a position without showing a path. A researcher opening this
+   * product meets five navigation groups and twenty-three sections and no
+   * sense of a journey through them — the product knows the journey, and this
+   * was the one place it could have said so and did not.
+   *
+   * Six ticks cost one line, the line the strip already spends. Done, here and
+   * ahead are told apart by mark and by label, never by colour alone.
+   */
+  steps: ReadonlyArray<LoopStep & { done: boolean }>;
+  /** Go to a step's own screen. The spine is navigation, not decoration. */
+  onGo: (section: Section) => void;
   /** The step the project is on; null when every step is done. */
   step: LoopStep | null;
   /** 1-based position of `step` in the loop, for "step 4 of 6". */
@@ -85,11 +101,47 @@ export function StepStrip({
 
   return (
     <div className="step-strip">
+      {/*
+        * The loop, as a spine rather than as a sentence about one step.
+        *
+        * Each tick is the step's own screen, so this is the shortest path from
+        * anywhere in the product to any part of the work — which is the thing
+        * twenty-three sections in five groups does not give you.
+        */}
+      <ol className="step-spine" aria-label={`The loop: step ${index} of ${total}`}>
+        {steps.map((s, i) => {
+          const state = s.done ? "done" : i === index - 1 ? "here" : "ahead";
+          return (
+            <li key={s.id} data-state={state}>
+              <button type="button" onClick={() => onGo(s.go)}
+                      aria-current={state === "here" ? "step" : undefined}
+                      title={`Step ${i + 1} of ${total}: ${s.label}`}>
+                <span className="step-spine-tick" aria-hidden>
+                  {s.done ? "✓" : i + 1}
+                </span>
+                <span className="step-spine-name">{s.label}</span>
+                {/*
+                  * Done and ahead need saying; "here" does not. `aria-current`
+                  * already announces the current step, and spelling it out as
+                  * well put "you are here" on the line twice — once for a
+                  * screen reader on the tick and once in the strip's own label.
+                  */}
+                {state !== "here" && (
+                  <span className="sr-only">
+                    {state === "done" ? " — done" : " — not yet"}
+                  </span>
+                )}
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+
       <button type="button" className="step-strip-where" onClick={onShowLoop}
               title={sentence}>
         {here
-          ? <><b>You are here</b> · step {index} of {total}: {step.label}</>
-          : <><b>Step {index} of {total}</b> · {step.label}</>}
+          ? <><b>You are here</b></>
+          : <><b>Step {index} of {total}</b></>}
       </button>
       {/*
         The one filled control on the screen. `.btn` is a piece of text you can

@@ -72,6 +72,20 @@ export type CartesianProps = {
    */
   densityColour?: boolean;
   /**
+   * How density is coloured, when it is. `"viridis"` is the product's default
+   * sequential ramp and stays so wherever hue helps. `"ink"` is one hue whose
+   * darkness grows with crowding, taken from the theme's `--density-sparse`
+   * and `--density-dense`.
+   *
+   * It exists because viridis's densest end is its lightest, bright yellow, and
+   * on a white panel that is the least visible colour there is: the busiest
+   * part of a cloud carried the least ink, which inverts how a reader expects
+   * density to read on paper. Lightness is still monotonic with density — the
+   * property `sequential.ts` exists to guarantee — only in the direction the
+   * ground asks for, and the theme reverses it on a dark ground.
+   */
+  densityRamp?: "viridis" | "ink";
+  /**
    * The transform each axis is drawn on, when it is not the identity.
    *
    * Stated on the axis rather than in a caption, and this is not a
@@ -118,7 +132,7 @@ const M = { top: 12, right: 16, bottom: 44, left: 56 };
 export function Cartesian({
   data, mark, xLabel, yLabel, xUnit, yUnit, title, caption,
   width = 620, height = 360, fit = null, zeroBaseline,
-  densityColour = false, totalPoints, xTransform, yTransform, linkKey,
+  densityColour = false, densityRamp = "viridis", totalPoints, xTransform, yTransform, linkKey,
   onRecordRegion,
 }: CartesianProps) {
   const clipId = useId();
@@ -376,7 +390,9 @@ export function Cartesian({
                   // Density where it was asked for; the group's colour
                   // otherwise. Never both — see `densityColour`.
                   fill: density
-                    ? sequential(density.levels[index])
+                    ? (densityRamp === "ink"
+                        ? `color-mix(in oklab, var(--density-dense) ${Math.round(density.levels[index] * 100)}%, var(--density-sparse))`
+                        : sequential(density.levels[index]))
                     : colourOf(d.group),
                   // Two reasons a mark dims: the pointer is on another
                   // one, or a selection elsewhere excludes it. The lower wins,

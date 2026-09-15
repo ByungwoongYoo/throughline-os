@@ -241,7 +241,15 @@ class TLLayers {
       this._paint(0, 0, 0, 0, 0, true);
       return;
     }
-    var T = (t > 600) ? t * 0.001 : t;         // accept seconds or ms
+    // Seconds, and not a guess (D215).
+    //
+    // This read the unit off the magnitude: over 600 meant milliseconds. The
+    // two readings agree nowhere except by coincidence, so a seconds clock
+    // that runs past ten minutes crosses 600 and is divided by a thousand —
+    // time jumps from 600 to 0.6 and every mote and twinkle pops, on a page
+    // nobody has touched. The caller knows which unit it is holding and this
+    // cannot; a caller with milliseconds multiplies by 0.001 itself.
+    var T = t;
     this._paint(T || 0, scrollY || 0, p || 0, mx || 0, my || 0, false);
   }
 

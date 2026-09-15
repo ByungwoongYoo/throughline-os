@@ -9,13 +9,15 @@
  * the analysis that produced it.
  */
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
-  AnalysisRun, ApiError, Connection, DatasetColumn, DiscoveryMap, EvidenceGraph,
+  AnalysisRun, AnalysisRunRow, ApiError, Connection, DatasetColumn, DiscoveryMap, EvidenceGraph,
   Finding, objectTypeName,
   INGESTION_STAGES, Provenance, SearchResult, Source, ValidationReport, api,
   ingestionStep, isIngesting,
 } from "@/lib/api";
+import { Tabs } from "./Tabs";
+import { Cartesian, type CartesianMark } from "./charts/Cartesian";
 import { columnNotices } from "@/lib/column-notices";
 import { DatasetFormats, extrasNote, uploadAccept } from "@/lib/formats";
 import { ApiState, useApi } from "@/lib/useApi";
@@ -23,7 +25,7 @@ import { ObjectKind, useObjectId } from "@/lib/useObjectId";
 import { ObjectHistory } from "./objecthistory";
 import { SECTIONS, Section } from "./Shell";
 import { PlainSummary, ResultCard } from "./ResultCard";
-import { Empty, Failure, Fold, Loading, Num, Stat, Status, Totals } from "./primitives";
+import { Empty, Failure, Fold, Loading, Num, Stat, StateMark, Status, Totals } from "./primitives";
 import { Fragility } from "./fragility";
 import { DatabaseTables } from "./databasetables";
 import { CohortTree } from "./cohorts";
@@ -40,7 +42,8 @@ import { Term } from "./term";
 // Overview (§70)
 // ---------------------------------------------------------------------------
 
-export function Overview({ project, map, onGo, onOpen, onAddSources, labels }: {
+export function Overview({ project, map, onGo, onOpen, onAddSources, onLineage,
+                           onAdvance, advancing = false, labels }: {
   project: { name: string; research_question: string };
   map: DiscoveryMap | null;
   onGo: (section: Section) => void;
@@ -59,6 +62,20 @@ export function Overview({ project, map, onGo, onOpen, onAddSources, labels }: {
    * taken from the screen that asks for it rather than after a rail hop.
    */
   onAddSources?: (files: FileList | null) => void;
+  /**
+   * Open the project's lineage — the river — from here.
+   *
+   * §08 gives the river a contextual entrance from Overview and Research
+   * graph and refuses it a place in the navigation, on the grounds that it is
+   * a way of reading the project rather than another room in it. This is that
+   * entrance. Optional, so the Overview still renders wherever no navigator
+   * has been wired up.
+   */
+  onLineage?: () => void;
+  /** Run the whole loop on this project's data, in one act. */
+  onAdvance?: () => void;
+  /** Whether that run is in flight, so the control can say so. */
+  advancing?: boolean;
   /** Approved display names by raw column, so the control names a connection
    *  the way the strip above it does (Part C: no raw names outside Variables). */
   labels?: Record<string, string>;
@@ -120,6 +137,47 @@ export function Overview({ project, map, onGo, onOpen, onAddSources, labels }: {
         [map.counts.contradictions, "contradictions", "contradiction"],
       ]} />
 
+      {/*
+        * One press instead of six screens.
+        *
+        * A project with a profiled dataset and nothing promoted is a project
+        * whose whole loop the machine can run: discovery over the real
+        * columns, every pair corrected for how many tests ran, the strongest
+        * survivor written down with the analysis behind it. Six buttons found
+        * in order, each able to fail alone, is a marathon nobody walks — the
+        * seeded example was the only project in this product that ever arrived
+        * with work in it.
+        *
+        * Offered rather than done on upload. Running it unasked leaves a
+        * discovery the researcher did not start, so their own press either
+        * doubles every connection or is refused as a repeat of something they
+        * never began; and compute spent on somebody's data without asking is
+        * its own objection. It says what it will do before it does it.
+        */}
+      {onAdvance && (map.counts.datasets ?? 0) > 0 && findings === 0 && (
+        <div className="card ov-advance">
+          <h2>Take it from here</h2>
+          <p>
+            {advancing
+              ? "Working. Discovery is running over the profiled columns; this "
+                + "screen updates as each step finishes."
+              : "Your dataset is profiled. Throughline can run the rest of the "
+                + "loop on it: test every pair, correct for how many tests ran, "
+                + "and write down the strongest survivor with the analysis "
+                + "behind it."}
+          </p>
+          <button className="btn btn-primary" type="button"
+                  disabled={advancing} onClick={onAdvance}>
+            {advancing ? "Working…" : "Run the loop →"}
+          </button>
+          <p className="note">
+            Nothing is promoted past candidate and nothing is validated. The
+            machine does the work; the judging stays yours.
+          </p>
+        </div>
+      )}
+
+      <div className="ov-grid">
       <div className="card">
         <h2>The loop</h2>
         <ol className="steps">
@@ -229,8 +287,108 @@ export function Overview({ project, map, onGo, onOpen, onAddSources, labels }: {
         </Fold>
       </div>
 
-      <LifecycleBreakdown title="Connections" counts={map.connections} />
-      <LifecycleBreakdown title="Findings" counts={map.findings} />
+      {/*
+        * The project's actual state, beside the loop rather than under it.
+        *
+        * §09 asks the Overview for "current question, actual project state,
+        * recent work, unresolved items, next supported actions" and warns off
+        * a radial dashboard. Stacked in one column these read as an appendix
+        * to the checklist; beside it they are what the checklist is about, and
+        * the screen stops being 40% content in a 1586px frame.
+        */}
+      <div className="ov-state">
+        {/*
+          * What the project has actually found, on the screen that opens it.
+          *
+          * §09 asks the Overview for "current question, actual project state,
+          * **recent work**, unresolved items, next supported actions", and
+          * recent work was the one of those five that was missing entirely.
+          * The column held two collapsed folds of counts, so two thirds of the
+          * product's front door was empty and a researcher coming back after a
+          * week was told how many connections there were and not one of them.
+          *
+          * Ranked by the server, strongest first, which is the same order
+          * `stepTarget` reads — so the thing the loop is about to act on is
+          * visible here rather than only discoverable by pressing.
+          *
+          * Four, not ten. §09 warns off a radial dashboard, and a front door
+          * that lists everything is a list screen wearing a summary's name;
+          * the rest are one press away in Connections.
+          */}
+        {(map.top_connections?.length ?? 0) > 0 && (
+          <section className="card">
+            <h2>
+              What this project has found
+              <span className="note">
+                strongest first · {map.top_connections.length} ranked
+              </span>
+            </h2>
+            <ul className="ov-found">
+              {map.top_connections.slice(0, 4).map((c) => (
+                <li key={c.id}>
+                  <button type="button" className="ov-found-row"
+                          onClick={() => onOpen?.("connection", c.id)}>
+                    <span className="ov-found-pair">
+                      {(labels?.[c.left_variable] ?? c.left_variable)}
+                      <span aria-hidden> ↔ </span>
+                      {(labels?.[c.right_variable] ?? c.right_variable)}
+                    </span>
+                    <span className="ov-found-meta">
+                      {/* The mark, not the pill: `Status` says "Checked —
+                          survived the robustness checks", which in a four-row
+                          summary is longer than the pair it describes and
+                          pushed that pair into an ellipsis. */}
+                      <StateMark value={c.lifecycle_status} />
+                      {/* The effect, because a list of pairs with no size is a
+                          list of names. Absent rather than zero where the
+                          method records none. */}
+                      {/* Named from the method, and only where that name is
+                          certain. This read `effect_size_name`, which the
+                          ranked list has never carried — `main`'s tightened
+                          `TopConnection` type is what caught it — so every row
+                          printed the fallback word "effect". A correlation's
+                          effect is its coefficient; anything else keeps the
+                          plain word rather than a symbol that might be wrong. */}
+                      {c.effect_size != null && (
+                        <span className="numeric">
+                          {/^(pearson|spearman|kendall)/.test(c.method)
+                            ? estimateSymbol(c.method) : "effect"}{" "}
+                          {c.effect_size.toFixed(2)}
+                        </span>
+                      )}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {map.top_connections.length > 4 && (
+              <button className="btn-text" type="button"
+                      onClick={() => onGo("connections")}>
+                All {map.top_connections.length} connections &rarr;
+              </button>
+            )}
+          </section>
+        )}
+        <LifecycleBreakdown title="Connections" counts={map.connections} />
+        <LifecycleBreakdown title="Findings" counts={map.findings} />
+      </div>
+      </div>
+
+      {/*
+        * The way into the lineage, offered where a reader has just been shown
+        * counts and might reasonably ask how any of it was arrived at. One
+        * sentence and one control: this is the Overview §09 asks for, "a
+        * restrained overview, not a radial dashboard".
+        */}
+      {onLineage && (
+        <p className="note">
+          To see what was derived from what, and the branches that were tried and
+          set aside,{" "}
+          <button className="btn-text" type="button" onClick={onLineage}>
+            follow the project&rsquo;s lineage
+          </button>.
+        </p>
+      )}
     </>
   );
 }
@@ -1448,8 +1606,12 @@ export function Discover({ projectId, sources, onSelectConnection, startWith,
         <Empty title="No dataset to search" hint="Discovery needs tabular data. Add a CSV or spreadsheet." />
       )}
 
+      {/* Label beside its box. `.row` spreads its children to either end,
+          which put the checkbox at the left edge of the column and the
+          sentence that names it at the right — a control and its label a
+          page apart. */}
       {datasets.length > 0 && (
-        <label className="row" style={{ gap: "0.5rem", alignItems: "center" }}>
+        <label className="row" style={{ gap: "0.5rem", alignItems: "center", justifyContent: "flex-start" }}>
           <input
             type="checkbox"
             checked={hold}
@@ -1599,12 +1761,12 @@ export function ConnectionsTable({ connections, error, loading, reload, onSelect
               <td style={{ color: "var(--ink-soft)" }}>
                 {c.dataset_name ?? "—"}
               </td>
-              <td className="mono">{c.method.replace(/_/g, " ")}</td>
+              <td>{humanMethod(c.method)}</td>
               <td className="numeric" style={{ textAlign: "right" }}><Num value={c.estimate} /></td>
               <td className="numeric" style={{ textAlign: "right" }}><Num value={c.q_value} digits={3} /></td>
               <td className="numeric" style={{ textAlign: "right" }}>{c.sample_size ?? "—"}</td>
-              <td style={{ color: "var(--ink-soft)" }}>{c.evidence_quality}</td>
-              <td><Status value={c.lifecycle_status} /></td>
+              <td style={{ color: "var(--ink-soft)" }}>{c.evidence_quality ? sentenceCase(c.evidence_quality) : "—"}</td>
+              <td><Status value={c.lifecycle_status} compact /></td>
             </tr>
           ))}
         </tbody>
@@ -1654,8 +1816,24 @@ export function Findings({ projectId, onSelect }: {
 }) {
   const { data, error, reload } = useApi<DiscoveryMap>(`/api/projects/${projectId}/discovery-map`);
   const findings = useApi<Finding[]>(`/api/projects/${projectId}/findings`);
+  /**
+   * Which lifecycle states are on screen.
+   *
+   * §09 asks this screen for "lifecycle filters and finding detail", and it
+   * had neither — every finding the project has ever held, in one list, with
+   * no way to separate what still stands from what was set aside. Derived from
+   * what is actually recorded rather than from the enum, so a state the
+   * project has none of does not offer a filter that empties the screen.
+   */
+  const [standing, setStanding] = useState<string>("all");
 
   if (error) return <Failure error={error} retry={reload} />;
+
+  const all = findings.data ?? [];
+  const states = [...new Set(all.map((f) => f.lifecycle_status))].sort();
+  const shown = standing === "all"
+    ? all : all.filter((f) => f.lifecycle_status === standing);
+
   return (
     <>
       <h1>Findings</h1>
@@ -1670,18 +1848,43 @@ export function Findings({ projectId, onSelect }: {
       </p>
       {findings.loading && <Loading rows={3} label="Reading findings" />}
       {findings.error && <Failure error={findings.error} retry={findings.reload} />}
-      {findings.data?.length === 0 && (
+      {all.length === 0 && !findings.loading && (
         <Empty title="No findings recorded" hint="Validate a connection, then record what it shows as a finding." />
       )}
-      {findings.data?.map((finding) => (
+
+      {states.length > 1 && (
+        <div className="fd-filters" role="group" aria-labelledby="fd-standing">
+          {/* Named in the open, for the reason the chart's forms are: the
+              label was `aria-label` and nothing else, so the only reader told
+              what these buttons do was the one who could not see them. */}
+          <span className="ckpt-form-label" id="fd-standing">Show</span>
+          <button className="btn" type="button" aria-pressed={standing === "all"}
+                  onClick={() => setStanding("all")}>
+            All ({all.length})
+          </button>
+          {states.map((state) => (
+            <button key={state} className="btn" type="button"
+                    aria-pressed={standing === state}
+                    onClick={() => setStanding(state)}>
+              {state.replace(/_/g, " ")}{" "}
+              ({all.filter((f) => f.lifecycle_status === state).length})
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* A grid, so a project with a dozen findings reads as a collection
+          rather than as a column of full-width banners. */}
+      <div className="fd-grid">
+      {shown.map((finding) => (
         <div className="card" key={finding.id} {...activatable(() => onSelect(finding.id))}>
           <div className="row">
             <div style={{ fontWeight: 560 }}>{finding.title}</div>
             <Status value={finding.lifecycle_status} />
           </div>
           {finding.statement && <p style={{ margin: "6px 0 0" }}>{finding.statement}</p>}
-          <div className="mono" style={{ color: "var(--ink-faint)", marginTop: 6 }}>
-            {finding.finding_type} · causal status: {finding.causal_status.replace(/_/g, " ")}
+          <div className="fd-meta">
+            {sentenceCase(finding.finding_type.replace(/_/g, " "))} · Causal status: {finding.causal_status.replace(/_/g, " ")}
             {/*
               * That the claim carries caveats, where the claims are scanned.
               *
@@ -1699,6 +1902,7 @@ export function Findings({ projectId, onSelect }: {
           </div>
         </div>
       ))}
+      </div>
       {data && <LifecycleBreakdown title="Findings" counts={data.findings} />}
     </>
   );
@@ -1936,6 +2140,19 @@ export function EvidenceGraphView({ findingId, onOpenAnalysis, onLoaded }: {
  * to agree, so this unions them rather than trusting either — an older run
  * where only one was populated still says what it knew.
  */
+/**
+ * What the Assumptions tab says before anybody opens it.
+ *
+ * A count alone would answer the wrong question. What decides whether that tab
+ * is worth opening is whether anything FAILED, and a run with eight passing
+ * checks and one violation is the case that matters — the number 9 hides it.
+ */
+export function assumptionNote(checks: AnalysisRun["assumption_checks"]): string | undefined {
+  if (checks.length === 0) return "none";
+  const failed = checks.filter((c) => /violat|fail/i.test(c.outcome)).length;
+  return failed > 0 ? `${failed} of ${checks.length} failed` : String(checks.length);
+}
+
 function ResultWarnings({ run }: { run: AnalysisRun }) {
   const fromRun = (run as { warnings?: string[] }).warnings ?? [];
   const fromResult = run.result?.warnings ?? [];
@@ -1959,7 +2176,435 @@ function ResultWarnings({ run }: { run: AnalysisRun }) {
   );
 }
 
-export function AnalysisDetail({ runId, projectId, onMethod, onOpenObject }: {
+/**
+ * Assumption checks, with a family of per-group checks reported as one.
+ *
+ * An ANOVA over 120 groups records `normality[group0]` … `normality[group8]`,
+ * and printing each as its own row gave the cockpit nine near-identical lines
+ * saying "Consistent with a normal distribution" — the panel that is supposed
+ * to tell a reader what to worry about instead buried the one group that
+ * failed among eight that did not.
+ *
+ * So a family collapses to its name, and what it reports is the count and the
+ * exceptions: "8 of 9 passed · group6 violated". Nothing is hidden — the
+ * Assumptions tab still lists every check individually — and the summary
+ * cannot claim a clean sweep it did not have, because the failures are named.
+ */
+function assumptionFamilies(checks: Array<{
+  name: string; outcome: string; detail: string; severity: string;
+}>) {
+  const families = new Map<string, {
+    name: string; members: typeof checks; failed: typeof checks;
+  }>();
+  for (const check of checks) {
+    // `normality[group6]` is a member of the `normality` family; a name with
+    // no bracket is its own family of one.
+    const family = check.name.replace(/\[.*\]$/, "");
+    const entry = families.get(family)
+      ?? { name: family, members: [], failed: [] };
+    entry.members.push(check);
+    if (check.outcome !== "passed") entry.failed.push(check);
+    families.set(family, entry);
+  }
+  return [...families.values()].map((f) => ({
+    name: f.name,
+    /* The state the mark is coloured by. `outcome` can be a sentence — "0 of 2
+       passed" — and a sentence has no tone, so the family rendered hollow, the
+       mark for *nothing recorded*, on exactly the row that failed. */
+    tone: f.failed.length === 0 ? "passed" : f.failed[0].outcome,
+    outcome: f.failed.length === 0 ? "passed"
+      : f.members.length === 1 ? f.failed[0].outcome
+      : `${f.members.length - f.failed.length} of ${f.members.length} passed`,
+    severity: f.failed.length
+      ? f.failed[0].severity : f.members[0].severity,
+    detail: f.members.length === 1
+      ? f.members[0].detail
+      : f.failed.length === 0
+        ? f.members[0].detail
+        : `${f.failed.map((c) => c.name.replace(/^.*\[(.*)\]$/, "$1")).join(", ")}`
+          + ` — ${f.failed[0].detail}`,
+  }));
+}
+
+/**
+ * The run's own scatter, in the cockpit where a reader looks for it.
+ *
+ * UI_02 puts "Observed association" beside the recorded result, and a reader
+ * judging an estimate looks at the cloud before they read the number: a
+ * correlation of 0.24 means one thing over a straight band and another over
+ * two clusters. The endpoint (`/analyses/{id}/points`) and the renderer
+ * (`Cartesian`) both already existed and were wired only into Figures, so the
+ * cockpit showed every number about a relationship and no picture of it.
+ *
+ * Deliberately plain here: no export button, no region recording, no
+ * recommendation prose. Figures owns all of that, and a second full figure
+ * builder inside the cockpit would be the duplicate this codebase keeps
+ * removing. This is the reading, and Figures is where a figure is made.
+ */
+/**
+ * The forms this panel can draw the same values in.
+ *
+ * Not every form the product has — Figures owns the builder and the catalogue,
+ * and a second full one here would be the duplicate this codebase keeps
+ * removing. These are the four a paired x and y can honestly take: the cloud,
+ * the trend, the filled trend, and the binned version. Choosing one changes
+ * how the same numbers are drawn and nothing about the numbers.
+ */
+const FORMS: ReadonlyArray<[CartesianMark, string]> = [
+  ["point", "Points"],
+  ["line", "Line"],
+  ["area", "Area"],
+  ["rect", "Bars"],
+];
+
+function ObservedAssociation({ runId, onOpenFigures, estimate = null,
+                               estimateName = null, variables = {} }: {
+  runId: string;
+  /** The full builder, where a figure is made rather than read. */
+  onOpenFigures?: () => void;
+  /** The run's own estimate, set on the plot the way the master sets it. */
+  estimate?: number | null;
+  estimateName?: string | null;
+  /**
+   * The run's recorded variables, which is where the axes get their names.
+   *
+   * The points endpoint carries the values and not the column names, so the
+   * axes were titled "x" and "y" — a scatter of two unnamed quantities, on the
+   * screen whose whole job is saying what was measured against what.
+   */
+  variables?: Record<string, unknown>;
+}) {
+  /*
+   * The plot is drawn at the width of its panel, measured.
+   *
+   * The renderer draws into a viewBox, and at its default 620 units in a
+   * panel some 430px wide every tick label was scaled down to about eight
+   * pixels — below anything §08 allows. Measuring the panel lets text render
+   * at the size the stylesheet gives it.
+   */
+  const frame = useRef<HTMLDivElement | null>(null);
+  const [frameWidth, setFrameWidth] = useState(460);
+  useEffect(() => {
+    const el = frame.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      const w = Math.round(entry.contentRect.width);
+      if (w > 200) setFrameWidth(w);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const named = (keys: string[], fallback: number): string | null => {
+    for (const k of keys) if (variables[k] != null) return String(variables[k]);
+    const values = Object.values(variables);
+    return values[fallback] != null ? String(values[fallback]) : null;
+  };
+  const xName = named(["x", "exposure", "predictor", "factor", "group"], 0);
+  const yName = named(["y", "outcome", "response", "measure"], 1);
+  /*
+   * The form is the reader's, and it is remembered for as long as they are on
+   * the run. A researcher who switches to the line to see the trend and then
+   * opens a tab should not have to switch back.
+   */
+  const [mark, setMark] = useState<CartesianMark>("point");
+  const points = useApi<{
+    x: number[]; y: number[]; x_label?: string; y_label?: string;
+    sample_size?: number; note?: string | null;
+  }>(`/api/analyses/${runId}/points`, [runId]);
+
+  const data = useMemo(() => {
+    const p = points.data;
+    if (!p?.x?.length) return [];
+    return p.x.map((x, i) => ({ id: String(i), x, y: p.y[i] }));
+  }, [points.data]);
+
+  if (points.loading) return <Loading rows={3} label="Reading the points" />;
+  /*
+   * A method with nothing to plot says so rather than leaving a hole. Not
+   * every analysis has a two-column cloud behind it, and an empty frame reads
+   * as a chart that failed to draw.
+   */
+  if (points.error != null || data.length === 0) {
+    return (
+      <p className="note">
+        {points.data?.note
+          || "This method records no paired values to plot."}
+      </p>
+    );
+  }
+
+  const symbol = estimateName ? estimateSymbol(estimateName) : null;
+
+  return (
+    <>
+      <div className="ckpt-plot" ref={frame}>
+        {estimate != null && symbol && (
+          /* The estimate on the plot, where the eye already is. Not a fitted
+             line: a correlation fits no model, and this renderer draws a line
+             only when one was fitted (Law 2) — the master's trend line on a
+             Pearson correlation is the one thing here not copied from it. */
+          <span className="ckpt-plot-estimate numeric">
+            {symbol} = {estimate.toFixed(2)}
+          </span>
+        )}
+        <Cartesian
+          data={data}
+          mark={mark}
+          xLabel={points.data?.x_label ?? xName ?? "x"}
+          yLabel={points.data?.y_label ?? yName ?? "y"}
+          /*
+            Density colour belongs to the cloud. On a line or a filled area it
+            would colour a shape by a crowding that shape has already hidden.
+          */
+          densityColour={mark === "point"}
+          densityRamp="ink"
+          width={frameWidth}
+          height={250}
+        />
+      </div>
+      {/*
+        * The figure's own controls, beside the figure.
+        *
+        * This panel used to draw one form and stop, and changing how a result
+        * was drawn meant leaving the analysis for the Figures section — which
+        * is the shape of the whole product's problem: twenty-three sections,
+        * and the thing you want is always in another one. The forms are here;
+        * the builder is still Figures, and the way there is a sentence rather
+        * than a second builder.
+        */}
+      <div className="ckpt-forms">
+        {/*
+          * The label was `aria-label` and nothing else, so a screen reader was
+          * told what these four buttons are for and a sighted reader was not —
+          * the wrong way round, and the shape of the worry that "someone will
+          * never know what is being done". Four bare words under a chart are
+          * only obviously a chart control once you already know. It is said in
+          * the open now, and the accessible name comes from the same words
+          * rather than from a second string that can drift from them.
+          */}
+        <span className="ckpt-form-label" id="ckpt-draw-as">Draw as</span>
+        <div className="ckpt-form-set" role="group" aria-labelledby="ckpt-draw-as">
+          {FORMS.map(([id, label]) => (
+            <button key={id} className="btn" type="button"
+                    aria-pressed={mark === id} onClick={() => setMark(id)}>
+              {label}
+            </button>
+          ))}
+        </div>
+        {onOpenFigures && (
+          <button className="btn-text" type="button" onClick={onOpenFigures}>
+            Build a figure from this run →
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
+/**
+ * A p-value as a reader reports it.
+ *
+ * Below a thousandth the convention is `<0.001`, and the cockpit printed
+ * `4.46e-19` — exact, and unreadable at a glance. Above it, three decimals.
+ * The exact value is kept on the element's title, so nothing is rounded away.
+ */
+export function formatP(p: number | null | undefined): string {
+  if (p == null || Number.isNaN(p)) return "—";
+  if (p < 0.001) return "<0.001";
+  return p.toFixed(3);
+}
+
+/**
+ * An estimate's conventional symbol: `pearson_r` is r, `spearman_rho` is ρ.
+ *
+ * Stripping everything after the underscore turned `pearson_r` into "pearson",
+ * which names the method and not the quantity — the one word in the
+ * measurement row that is not a measurement.
+ */
+export function estimateSymbol(name: string | null | undefined): string {
+  const n = (name ?? "").toLowerCase();
+  if (n.startsWith("pearson")) return "r";
+  if (n.startsWith("spearman")) return "ρ";
+  if (n.startsWith("kendall")) return "τ";
+  if (n === "r_squared" || n === "r2") return "R²";
+  if (n.includes("cohen")) return "Cohen’s d";
+  // Before η²: "beta" contains "eta", which labelled every regression
+  // coefficient as an effect size it is not.
+  const coefficient = /^beta\[(.+)\]$/.exec(n);
+  if (coefficient) return `β(${coefficient[1]})`;
+  if (n.startsWith("beta") || n.includes("slope") || n.includes("coefficient")) return "β";
+  if (/^eta(_squared|2|²)?$|^partial_eta/.test(n)) return "η²";
+  if (n.includes("odds")) return "Odds ratio";
+  return n ? sentenceCase(n.replace(/_/g, " ")) : "Estimate";
+}
+
+/** `pearson_correlation` → "Pearson correlation". Names, not identifiers. */
+export function humanMethod(method: string): string {
+  const words = method.replace(/_/g, " ").trim();
+  // The methods that are named by their initials are written that way.
+  const acronyms: Record<string, string> = {
+    anova: "ANOVA", ancova: "ANCOVA", manova: "MANOVA", ols: "OLS", glm: "GLM",
+    pca: "PCA", "t test": "t-test", "chi square": "Chi-square",
+  };
+  const lowered = words.toLowerCase();
+  for (const [key, value] of Object.entries(acronyms)) {
+    if (lowered === key) return value;
+    if (lowered.startsWith(key + " ")) return value + words.slice(key.length);
+  }
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** The first letter up, the rest untouched — "large" → "Large", "p-value" stays. */
+export function sentenceCase(text: string): string {
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+}
+
+/**
+ * A recorded variable role, named for a reader.
+ *
+ * Only relabelled where the run's own vocabulary is a symbol: a correlation
+ * records `x` and `y`, which are positions and not roles, so they read as the
+ * first and second variable. Every other role — factor, measure, exposure,
+ * outcome — is already a word and is printed as the run recorded it, because
+ * relabelling a factor "exposure" would be a small lie about what was run.
+ */
+export function roleLabel(role: string): string {
+  if (role === "x") return "First variable";
+  if (role === "y") return "Second variable";
+  return sentenceCase(role.replace(/_/g, " "));
+}
+
+/**
+ * The same question asked other ways: the run family, as UI_02's table.
+ *
+ * This panel was one sentence explaining what a sensitivity family would be.
+ * The project already holds one for any pair that has been validated — the
+ * robustness suite re-runs the pair as a bootstrap and as a regression with the
+ * other measured columns — and those runs sat in the list with nothing saying
+ * they were the same question. The family is the runs whose variables are this
+ * run's pair: a correlation of the same two columns in either order, or a
+ * regression of one on the other with anything else beside it.
+ *
+ * **The estimates are not made comparable, because they are not.** A
+ * correlation is r and a regression coefficient is in the outcome's units, so
+ * each is printed with its own name and no column pretends they line up.
+ */
+export function RunFamily({ projectId, run, onOpenRun }: {
+  /** Optional because the detail can be rendered without a project, in which
+   *  case there is no list of runs to find a family in. */
+  projectId?: string;
+  run: AnalysisRun;
+  onOpenRun?: (runId: string) => void;
+}) {
+  const runs = useApi<AnalysisRunRow[]>(
+    projectId ? `/api/projects/${projectId}/analyses` : null, [projectId]);
+  const pair = pairOf(run.variables);
+  if (!pair) {
+    return (
+      <p className="note" style={{ margin: 0 }}>
+        This method does not name a pair of variables, so there is no family of
+        runs asking the same question.
+      </p>
+    );
+  }
+  const family = (Array.isArray(runs.data) ? runs.data : [])
+    .map((r) => ({ r, change: changeFrom(r, pair, run.id) }))
+    .filter((x): x is { r: AnalysisRunRow; change: string } => x.change !== null)
+    // The run on screen leads, as the master's table does; the rest follow.
+    .sort((x, y) => Number(y.r.id === run.id) - Number(x.r.id === run.id));
+
+  if (runs.loading && !runs.data) return <Loading rows={2} label="Reading the run family" />;
+  if (family.length <= 1) {
+    return (
+      <p className="note" style={{ margin: 0 }}>
+        Only this run asks this question so far. Validating the connection it
+        produced re-runs it resampled and adjusted, and those runs appear here.
+      </p>
+    );
+  }
+  return (
+    <table className="ckpt-family">
+      <thead>
+        <tr><th>Run</th><th>Change</th><th>Status</th><th className="num">Estimate</th></tr>
+      </thead>
+      <tbody>
+        {family.map(({ r, change }) => (
+          <tr key={r.id} data-current={r.id === run.id || undefined}>
+            <td>
+              {r.id === run.id || !onOpenRun
+                ? <span className="mono">{runHandle(r.id)}</span>
+                : <button type="button" className="btn-text mono" onClick={() => onOpenRun(r.id)}>
+                    {runHandle(r.id)}
+                  </button>}
+            </td>
+            <td>{change}</td>
+            <td><StateMark value={r.status} label={sentenceCase(r.status)} /></td>
+            <td className="num">
+              {r.estimate != null
+                ? <>{r.estimate.toFixed(2)} <span className="ckpt-family-name">{estimateSymbol(r.estimate_name)}</span></>
+                : "—"}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** A run's short handle, the way the river names it. */
+function runHandle(id: string): string {
+  return `AN-${id.replace(/^[a-z]+_/, "").slice(0, 4)}`;
+}
+
+/** The two variables a run is about, if it names exactly a pair. */
+function pairOf(variables: Record<string, unknown>): [string, string] | null {
+  const x = variables?.x, y = variables?.y;
+  if (typeof x === "string" && typeof y === "string") return [x, y];
+  return null;
+}
+
+/**
+ * How a run differs from the question, or null when it is not the same question.
+ *
+ * A regression belongs to the family only when the coefficient it reports is
+ * the other variable of the pair. The robustness suite regresses the outcome on
+ * the focal variable *and* the confounders, so the same regression names every
+ * column as a predictor — and matching on "is it among the predictors" filed a
+ * rainfall regression in the fertiliser family, where its rainfall coefficient
+ * of 0.00 read as "fertiliser has no effect once adjusted". The estimate's own
+ * name (`beta[rainfall_mm]`) says which coefficient it is, so that decides.
+ */
+function changeFrom(r: AnalysisRunRow, [a, b]: [string, string], currentId: string): string | null {
+  const v = r.variables ?? {};
+  const sameCorrelation = typeof v.x === "string" && typeof v.y === "string"
+    && new Set([v.x, v.y, a, b]).size === 2;
+  if (sameCorrelation) {
+    if (r.id === currentId) return "This run";
+    if (r.method.startsWith("bootstrap")) return "Resampled (bootstrap)";
+    if (r.method.startsWith("spearman")) return "Rank-based (Spearman)";
+    if (r.method.startsWith("kendall")) return "Rank-based (Kendall)";
+    // Nothing recorded why it was run; saying so beats inventing a reason.
+    return r.fork_reason ? sentenceCase(r.fork_reason)
+      : `${humanMethod(r.method)} · no reason recorded`;
+  }
+  const outcome = v.outcome;
+  const predictors = Array.isArray(v.predictors) ? v.predictors.map(String) : [];
+  const focal = /^beta\[(.+)\]$/.exec(r.estimate_name ?? "")?.[1];
+  if (typeof outcome === "string" && [a, b].includes(outcome) && focal) {
+    const other = outcome === a ? b : a;
+    if (focal === other) {
+      const rest = predictors.filter((p) => p !== other);
+      return rest.length ? `Adjusted for ${rest.join(", ")}` : "Regression";
+    }
+  }
+  return null;
+}
+
+export function AnalysisDetail({ runId, projectId, onMethod, onVariables,
+                                onOpenObject, onOpenFigures, onOpenRun }: {
+  /** Open another run of the family, from the sensitivity table. */
+  onOpenRun?: (runId: string) => void;
   runId: string;
   /**
    * Which project this run belongs to (D213).
@@ -1978,12 +2623,30 @@ export function AnalysisDetail({ runId, projectId, onMethod, onOpenObject }: {
    * be a second copy of this run that can drift from the one on screen.
    */
   onMethod?: (method: string) => void;
+  /*
+   * The recorded variable roles, reported upward for the same reason the method
+   * is: the cockpit's left column shows them beside the result, and a second
+   * hook on `/api/analyses/{id}` would be a second copy of this run that can
+   * drift from the one on screen.
+   */
+  onVariables?: (variables: Record<string, unknown>) => void;
   /** Follow a lineage link in this run's history. See `SourceDetail`. */
   onOpenObject?: (objectId: string) => void;
+  /**
+   * Open the figure builder on this run.
+   *
+   * The cockpit draws the run's own figure and offers the forms it can take;
+   * Figures is where a figure is configured, captioned and published. Handing
+   * the way there rather than growing a second builder is what keeps the two
+   * from becoming the same screen twice.
+   */
+  onOpenFigures?: () => void;
 }) {
   const { data, error, loading, reload } = useApi<AnalysisRun>(`/api/analyses/${runId}`);
   const method = data?.method;
+  const variables = data?.variables;
   useEffect(() => { if (method) onMethod?.(method); }, [method, onMethod]);
+  useEffect(() => { if (variables) onVariables?.(variables); }, [variables, onVariables]);
   if (error) return <Failure error={error} retry={reload} />;
   if (loading || !data) return <Loading rows={5} label="Reading the analysis" />;
 
@@ -1991,8 +2654,44 @@ export function AnalysisDetail({ runId, projectId, onMethod, onOpenObject }: {
   const r = data.result;
   return (
     <>
-      <h1>{data.method.replace(/_/g, " ")}</h1>
-      {data.research_question && <p className="lede serif">{data.research_question}</p>}
+      {/*
+        * The relationship is the title; the method is provenance.
+        *
+        * UI_02 heads this screen with what was examined — "Night-time heat ↔
+        * anxiety symptoms" — and puts "Pearson correlation · researcher-
+        * specified · dataset v2" under it in small type. Ours led with the bare
+        * method name, so the largest word on a screen about a relationship was
+        * "anova", and the relationship itself was the subtitle.
+        */}
+      <header className="ckpt-head">
+        <div>
+          <h1 className="ckpt-title">
+            {data.research_question || data.method.replace(/_/g, " ")}
+          </h1>
+          <p className="ckpt-sub">
+            <span>{humanMethod(data.method)}</span>
+            <span aria-hidden> · </span>
+            <span>{data.method_rationale ? "Researcher-specified" : "Recorded"}</span>
+            {data.duration_ms != null && (
+              <>
+                <span aria-hidden> · </span>
+                <span className="numeric">{data.duration_ms} ms</span>
+              </>
+            )}
+          </p>
+        </div>
+        <div className="ckpt-head-side">
+          {/* The run's state, as a state rather than as an absence of error.
+              A mark with a tick in it, as the master sets it, so "completed"
+              is a thing the eye finds and not a word it reads. */}
+          <p className="ckpt-state" data-state={data.status}>
+            <span className="ckpt-state-dot" aria-hidden>
+              {data.status === "completed" ? "✓" : data.status === "failed" ? "!" : ""}
+            </span>
+            {data.status === "completed" ? "Run completed" : `Run ${data.status}`}
+          </p>
+        </div>
+      </header>
       {data.status !== "completed" && (
         <>
           <div className="error">{data.error ?? `This run is ${data.status}.`}</div>
@@ -2019,85 +2718,343 @@ export function AnalysisDetail({ runId, projectId, onMethod, onOpenObject }: {
       )}
 
       {data.status === "completed" && r && (
+        /*
+         * Five readings of one run, which is what the cockpit master is.
+         *
+         * Nothing here is new: this is the same content the screen already
+         * carried, in the order §09 names — Result, Specification, Assumptions,
+         * Sensitivity, Reproducibility. What changes is that it stops being one
+         * long scroll. A researcher comparing two runs reads the specification
+         * of both, then the assumptions of both; scrolling past an interpretation
+         * to reach a seed is the friction the master removes.
+         *
+         * The warnings stay OUTSIDE the tabs, above everything. They say the
+         * estimate may not stand at all, and a reader must not have to open a
+         * panel to find that out.
+         */
         <>
-          {/*
-            * Above the estimate, and that placement is the point.
-            *
-            * A run carries `warnings` and the screen showed only
-            * `limitations`, so two things were computed and thrown away. The
-            * first is the method itself: "Normality is violated. Spearman
-            * correlation is the appropriate alternative." — the system knew
-            * the test was the wrong one, said so, and the researcher read a
-            * Pearson coefficient with nothing beside it. The second is
-            * whatever the statistics library said during the fit, captured by
-            * the runtime: a `ConvergenceWarning` means the estimate below may
-            * be meaningless, and it was being discarded.
-            *
-            * Both change how the number should be read, so they sit before it
-            * rather than under it. `limitations` stays where it is: a
-            * limitation qualifies a result that stands, and a warning
-            * questions whether it stands at all.
-            */}
           <ResultWarnings run={data} />
 
-          {/* §47 — four separate judgements, shown separately. */}
-          <div className="grid-2" style={{ marginBottom: 14 }}>
-            <Stat label={r.estimate_name ?? "estimate"} value={r.estimate?.toFixed(4) ?? "—"} />
-            <Stat label="p-value" value={r.p_value != null ? r.p_value.toExponential(2) : "—"} />
-            <Stat label="sample size" value={r.sample_size ?? "—"} />
-            <Stat label="evidence quality" value={r.evidence_quality} />
-          </div>
+          <Tabs
+            label="Readings of this run"
+            tabs={[
+              {
+                id: "result",
+                label: "Result",
+                /*
+                 * The Result view CO-LOCATES; it is not a summary card.
+                 *
+                 * §09: "The Result view co-locates specification summary,
+                 * method-appropriate output, observed chart, assumption checks,
+                 * interpretation, reproducibility and sensitivity family." The
+                 * other four tabs are deeper readings of the same run, not the
+                 * only place those things live — a researcher judging a result
+                 * needs the specification it came from and the assumptions it
+                 * rests on in the same glance, and this screen made them click
+                 * through five tabs to assemble one judgement.
+                 *
+                 * 07_ACCEPTANCE names the two failures this fixes as blocking:
+                 * "cockpit reduced to oversized tiles" and "hiding assumptions,
+                 * provenance or context at reference width". It was both. Four
+                 * tiles at 30px each is a dashboard, and a dashboard is what
+                 * §08 calls the wrong answer for work.
+                 */
+                panel: () => (
+                  <div className="ckpt-grid">
+                    {/*
+                      * Paired as UI_02 pairs them, row by row: what was asked
+                      * beside what came back; the picture beside the checks
+                      * that qualify it; the reading beside what it would take
+                      * to reproduce it. The previous order put Interpretation
+                      * beside the chart and left Assumption checks alone on a
+                      * row, so the two things a reader compares — the scatter
+                      * and whether its assumptions held — were a screen apart.
+                      */}
+                    <section className="ckpt-panel">
+                      <h2 className="ckpt-panel-name">Recorded specification</h2>
+                      <dl className="ckpt-kv">
+                        <dt>Method</dt><dd>{humanMethod(data.method)}</dd>
+                        {Object.entries(data.variables ?? {}).map(([role, name]) => (
+                          <Fragment key={role}>
+                            <dt>{roleLabel(role)}</dt>
+                            <dd>{String(name)}</dd>
+                          </Fragment>
+                        ))}
+                        <dt>Rationale</dt>
+                        <dd>{data.method_rationale || "Not recorded."}</dd>
+                      </dl>
+                    </section>
 
-          <div className="card">
-            <h2>Interpretation</h2>
-            <p style={{ color: "var(--ink)" }}>{r.interpretation}</p>
-            <div className="kv" style={{ marginTop: 10 }}>
-              <dt>Statistically significant</dt><dd>{String(r.statistically_significant)}</dd>
-              <dt>Practical significance</dt><dd>{r.practical_significance}</dd>
-              <dt>Method chosen because</dt><dd>{data.method_rationale || "—"}</dd>
-            </div>
-            {r.limitations.length > 0 && (
-              <ul style={{ margin: "10px 0 0", paddingLeft: 18, color: "var(--ink-soft)" }}>
-                {r.limitations.map((l, i) => <li key={i}>{l}</li>)}
-              </ul>
-            )}
-          </div>
+                    <section className="ckpt-panel">
+                      <h2 className="ckpt-panel-name">Recorded result</h2>
+                      {/*
+                        * A measurement row, as the master sets it: the name
+                        * above, the number below, a rule between each. The
+                        * previous row put a 10px uppercase caption under each
+                        * figure and printed p as `4.46e-19` — correct, and
+                        * unreadable at a glance; reporting convention is `<0.001`
+                        * below a thousandth, with the exact value one hover away.
+                        */}
+                      <div className="ckpt-measures">
+                        <span>
+                          <em>{estimateSymbol(r.effect_size?.name ?? r.estimate_name)}</em>
+                          {/* Two decimals to read, as reporting convention has it;
+                              the full value on the element, so nothing is lost. */}
+                          <b className="numeric"
+                             title={r.estimate != null ? String(r.estimate) : undefined}
+                             data-exact={r.estimate != null ? r.estimate.toFixed(4) : undefined}>
+                            {r.estimate != null ? r.estimate.toFixed(2) : "—"}
+                          </b>
+                        </span>
+                        {r.ci_low != null && r.ci_high != null && (
+                          <span>
+                            <em>{Math.round((r.confidence_level ?? 0.95) * 100)}% CI</em>
+                            <b className="numeric">[{r.ci_low.toFixed(2)}, {r.ci_high.toFixed(2)}]</b>
+                          </span>
+                        )}
+                        <span title={r.p_value != null ? `p = ${r.p_value.toExponential(3)}` : undefined}>
+                          <em>p-value</em>
+                          <b className="numeric">{formatP(r.p_value)}</b>
+                        </span>
+                        <span>
+                          {/* n, the conventional name, rather than "Observations":
+                              the label was wider than every number in the row and
+                              pushed the sample size onto a line of its own. */}
+                          <em>n</em>
+                          <b className="numeric">{r.sample_size != null ? r.sample_size.toLocaleString() : "—"}</b>
+                        </span>
+                      </div>
+                      <dl className="ckpt-kv">
+                        <dt>Statistical significance</dt>
+                        {/*
+                          * `String(null)` is "null", and that is what this
+                          * printed — the literal word, on the cockpit, beside
+                          * a real result. §08 asks for an absent value shown
+                          * honestly, which is a sentence and not a JavaScript
+                          * primitive leaking onto the screen.
+                          */}
+                        <dd>
+                          <StateMark
+                            value={r.statistically_significant}
+                            label={r.statistically_significant == null
+                              ? "not recorded"
+                              : r.statistically_significant ? "Yes" : "No"}
+                          />
+                        </dd>
+                        <dt>Practical significance</dt>
+                        <dd>{r.practical_significance ? sentenceCase(r.practical_significance) : <span className="note">not recorded</span>}</dd>
+                        <dt>Evidence quality</dt>
+                        <dd>{r.evidence_quality ? sentenceCase(r.evidence_quality) : <span className="note">not recorded</span>}</dd>
+                      </dl>
+                    </section>
 
-          <div className="card">
-            <h2>Assumption checks</h2>
-            <table>
-              <thead><tr><th>Check</th><th>Outcome</th><th>Detail</th></tr></thead>
-              <tbody>
-                {data.assumption_checks.map((c) => (
-                  <tr key={c.name}>
-                    <td className="mono">{c.name}</td>
-                    <td><Status value={c.outcome} /></td>
-                    <td style={{ color: "var(--ink-soft)" }}>{c.detail}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    {/*
+                      * The observed association, in the cockpit rather than
+                      * only on Figures. The endpoint and the renderer both
+                      * already existed; the master's centre had no picture in
+                      * it, which is the one thing a reader looks at first.
+                      */}
+                    <section className="ckpt-panel">
+                      <h2 className="ckpt-panel-name">Observed association</h2>
+                      <ObservedAssociation runId={runId} onOpenFigures={onOpenFigures}
+                                           estimate={r.estimate}
+                                           estimateName={r.effect_size?.name ?? r.estimate_name}
+                                           variables={data.variables ?? {}} />
+                    </section>
 
-          {/* §44 — everything needed to reproduce the number. */}
-          <div className="card">
-            <h2>Reproducibility</h2>
-            <div className="kv">
-              <dt>Random seed</dt><dd>{data.random_seed}</dd>
-              <dt>Duration</dt><dd>{data.duration_ms} ms</dd>
-              <dt>Dependencies</dt>
-              <dd className="mono">
-                {Object.entries(data.dependency_versions).map(([k, v]) => `${k} ${v}`).join(" · ")}
-              </dd>
-              <dt>Dataset hash</dt><dd className="mono">{data.input_hashes.dataset_content_hash?.slice(0, 16)}…</dd>
-              <dt>Spec hash</dt><dd className="mono">{data.input_hashes.spec_content_hash?.slice(0, 16)}…</dd>
-              <dt>Isolation</dt>
-              <dd className="mono">
-                {data.sandbox_policy.enforced?.separate_process ? "separate process" : "—"};
-                network {data.sandbox_policy.best_effort?.network_egress_disabled ?? "—"}
-              </dd>
-            </div>
-          </div>
+                    <section className="ckpt-panel">
+                      <h2 className="ckpt-panel-name">Assumption checks</h2>
+                      {data.assumption_checks.length === 0 ? (
+                        <p className="note">This method declared no assumptions to check.</p>
+                      ) : (
+                        <>
+                          <table className="ckpt-checks">
+                            <thead>
+                              <tr><th>Check</th><th>Outcome</th><th>Detail</th></tr>
+                            </thead>
+                            <tbody>
+                              {assumptionFamilies(data.assumption_checks).map((c) => (
+                                <tr key={c.name} data-severity={c.severity}>
+                                  <td>{sentenceCase(c.name.replace(/_/g, " "))}</td>
+                                  <td><StateMark value={c.tone} label={sentenceCase(c.outcome)} /></td>
+                                  <td>{c.detail}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          {/*
+                            * The consequence, stated where the failure is.
+                            * UI_02 closes this panel with "Review assumptions
+                            * before promoting this result" when a check needs
+                            * review, and a table of outcomes with no sentence
+                            * after it leaves the reader to decide whether a
+                            * violated check matters. Said only when one did
+                            * not pass — a warning on every run is wallpaper.
+                            */}
+                          {data.assumption_checks.some((c) => c.outcome !== "passed") && (
+                            <p className="ckpt-caution" role="note">
+                              <span className="ckpt-caution-mark" aria-hidden>!</span>
+                              Review these assumptions before promoting this result.
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </section>
+
+                    <section className="ckpt-panel">
+                      <h2 className="ckpt-panel-name">Interpretation</h2>
+                      <p className="ckpt-read">{r.interpretation}</p>
+                      {r.limitations.length > 0 && (
+                        <ul className="ckpt-limits">
+                          {r.limitations.map((l, i) => <li key={i}>{l}</li>)}
+                        </ul>
+                      )}
+                    </section>
+
+                    <section className="ckpt-panel">
+                      <h2 className="ckpt-panel-name">Reproducibility</h2>
+                      <dl className="ckpt-kv">
+                        <dt>Random seed</dt><dd className="numeric">{data.random_seed}</dd>
+                        <dt>Duration</dt>
+                        <dd className="numeric">
+                          {data.duration_ms != null ? `${data.duration_ms} ms` : "—"}
+                        </dd>
+                        {/* Hashes are identifiers, so these two keep the
+                            monospace face every other value gave up. */}
+                        <dt>Dataset hash</dt>
+                        <dd className="mono ckpt-hash">
+                          {data.input_hashes.dataset_content_hash?.slice(0, 10) ?? "—"}…
+                        </dd>
+                        <dt>Spec hash</dt>
+                        <dd className="mono ckpt-hash">
+                          {data.input_hashes.spec_content_hash?.slice(0, 10) ?? "—"}…
+                        </dd>
+                      </dl>
+                    </section>
+
+                    <section className="ckpt-panel ckpt-wide">
+                      <h2 className="ckpt-panel-name">Sensitivity · run family</h2>
+                      {/*
+                        * Full width and last, as the master has it: the family
+                        * is a table of runs and a two-column cell would wrap
+                        * every row.
+                        */}
+                      <RunFamily projectId={projectId} run={data} onOpenRun={onOpenRun} />
+                    </section>
+                  </div>
+                ),
+              },
+              {
+                id: "specification",
+                label: "Specification",
+                panel: () => (
+                  <div className="card">
+                    <h2>What was asked for</h2>
+                    <div className="kv">
+                      <dt>Method</dt><dd className="mono">{data.method}</dd>
+                      <dt>Question</dt><dd>{data.research_question || "—"}</dd>
+                      <dt>Method chosen because</dt><dd>{data.method_rationale || "—"}</dd>
+                    </div>
+                    {/*
+                      * The variables as the run recorded them, not as a fixed
+                      * exposure/outcome pair. §09: do not force every method
+                      * into one schema — an ANOVA has a factor and a measure,
+                      * a correlation has two continuous columns, and printing
+                      * "exposure" over a factor would be a small lie about
+                      * what was run.
+                      */}
+                    <h3 className="eyebrow" style={{ marginTop: 14 }}>Variables</h3>
+                    {Object.keys(data.variables ?? {}).length === 0 ? (
+                      <p className="note">This run recorded no variable roles.</p>
+                    ) : (
+                      <div className="kv">
+                        {Object.entries(data.variables).map(([role, value]) => (
+                          <Fragment key={role}>
+                            <dt>{role.replace(/_/g, " ")}</dt>
+                            <dd className="mono">{String(value)}</dd>
+                          </Fragment>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ),
+              },
+              {
+                id: "assumptions",
+                label: "Assumptions",
+                note: assumptionNote(data.assumption_checks),
+                panel: () => (
+                  <div className="card">
+                    <h2>Assumption checks</h2>
+                    {data.assumption_checks.length === 0 ? (
+                      <p className="note">This method declared no assumptions to check.</p>
+                    ) : (
+                      <table>
+                        <thead><tr><th>Check</th><th>Outcome</th><th>Detail</th></tr></thead>
+                        <tbody>
+                          {data.assumption_checks.map((c) => (
+                            <tr key={c.name}>
+                              <td className="mono">{c.name}</td>
+                              <td><Status value={c.outcome} /></td>
+                              <td style={{ color: "var(--ink-soft)" }}>{c.detail}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                ),
+              },
+              {
+                id: "sensitivity",
+                label: "Sensitivity",
+                panel: () => (
+                  <div className="card">
+                    <h2>Does it survive another approach</h2>
+                    {/*
+                      * Stated rather than faked. The run family — forking this
+                      * specification and comparing the branches — is a real
+                      * capability of this product, and it is offered by the
+                      * panel below this object rather than from inside this
+                      * tab. §09 forbids retaining a control with no backing
+                      * contract, so this says where the capability is instead
+                      * of growing a button that would not work.
+                      */}
+                    <p className="note">
+                      A sensitivity family is built by forking this run’s recorded
+                      specification and comparing the branches. This run’s forks and
+                      their lineage are listed with the run below.
+                    </p>
+                  </div>
+                ),
+              },
+              {
+                id: "reproducibility",
+                label: "Reproducibility",
+                panel: () => (
+                  /* §44 — everything needed to reproduce the number. */
+                  <div className="card">
+                    <h2>Reproducibility</h2>
+                    <div className="kv">
+                      <dt>Random seed</dt><dd>{data.random_seed}</dd>
+                      <dt>Duration</dt><dd>{data.duration_ms} ms</dd>
+                      <dt>Dependencies</dt>
+                      <dd className="mono">
+                        {Object.entries(data.dependency_versions).map(([k, v]) => `${k} ${v}`).join(" · ")}
+                      </dd>
+                      <dt>Dataset hash</dt><dd className="mono">{data.input_hashes.dataset_content_hash?.slice(0, 16)}…</dd>
+                      <dt>Spec hash</dt><dd className="mono">{data.input_hashes.spec_content_hash?.slice(0, 16)}…</dd>
+                      <dt>Isolation</dt>
+                      <dd className="mono">
+                        {data.sandbox_policy.enforced?.separate_process ? "separate process" : "—"};
+                        network {data.sandbox_policy.best_effort?.network_egress_disabled ?? "—"}
+                      </dd>
+                    </div>
+                  </div>
+                ),
+              },
+            ]}
+          />
         </>
       )}
 
@@ -2407,6 +3364,23 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding,
   const recordCard = useRef<HTMLDivElement | null>(null);
   /** The path panel, so the band can move to it rather than repeat it. */
   const pathCard = useRef<HTMLDivElement | null>(null);
+  /** The report history, so the outcome line can move a reader to the evidence. */
+  const reportsCard = useRef<HTMLDivElement | null>(null);
+
+  /*
+   * The newest validation, which is the one the Validate button just produced.
+   * Newest-first from the server (`list_validations` orders by `created_at`
+   * descending), so this is the head and not a scan.
+   */
+  const latestReport = (reports.data ?? [])[0] ?? null;
+
+  /** Move to the evidence already on this page rather than repeating it. */
+  function onSeeReport() {
+    const card = reportsCard.current;
+    if (!card) return;
+    card.scrollIntoView({ behavior: "smooth", block: "start" });
+    card.focus({ preventScroll: true });
+  }
 
   /** The report drafted from this connection, if one has been drafted here. */
   const [drafted, setDrafted] = useState<string | null>(null);
@@ -2481,9 +3455,29 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding,
 
   // Adjusting a variable for itself is not a confounder test; it is a mistake
   // the interface should make impossible rather than report afterwards.
-  const candidates = (columns.data ?? []).filter(
+  const others = (columns.data ?? []).filter(
     (c) => c.name !== connection.left_variable && c.name !== connection.right_variable,
   );
+  /*
+   * Only the columns the adjusted model can actually use.
+   *
+   * Adjustment fits a linear regression with the confounders as predictors,
+   * and a text column coerces to nothing — every row is dropped and the fit
+   * raises "0 complete rows cannot fit 2 predictors". Measured, not reasoned
+   * about: on a real dataset the picker offered the site column, a researcher
+   * chose the most natural confounder there is, and the run came back
+   * *violated* — which reads as "the association did not survive" when nothing
+   * had been fitted at all. It was the step that gates the rest of the loop.
+   *
+   * Offered by what the model needs rather than hidden, because a column that
+   * silently vanishes from a list is indistinguishable from a column the
+   * dataset does not have.
+   */
+  const numeric = (c: DatasetColumn) =>
+    c.physical_type === "number" || c.physical_type === "integer"
+    || c.physical_type === "float" || c.semantic_type === "continuous";
+  const candidates = others.filter(numeric);
+  const notAdjustable = others.filter((c) => !numeric(c));
 
   function toggle(name: string) {
     setChosen((current) =>
@@ -2641,9 +3635,15 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding,
       <div className="card" id="connection-validate" tabIndex={-1} ref={validateCard}>
         <h2>Try to destroy it</h2>
         <Fold summary="What the robustness suite runs" count={4}>
+          {/* "Naming no confounders is recorded as not tested — not as
+              clean" used to close this paragraph. It is now the line beside
+              the button, said out loud instead of folded away, because it is
+              what decides the outcome of the press a reader is about to make.
+              Kept in one place: this screen is at its word cap, and the cap is
+              what noticed the duplication. */}
           <p style={{ marginTop: 0 }}>
-            Bootstrap stability, sensitivity to outliers, missingness, and adjustment for
-            confounders. Naming no confounders is recorded as <b>not tested</b> — not as clean.
+            Bootstrap stability, sensitivity to outliers, missingness, and
+            adjustment for confounders.
           </p>
         </Fold>
 
@@ -2664,6 +3664,27 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding,
           <p className="note">
             This connection is not linked to a discovery run, so its dataset schema
             cannot be resolved. Validation can still run without adjustment.
+          </p>
+        )}
+
+        {/*
+          * The columns that exist and cannot be used, named.
+          *
+          * Silently dropping them would leave a researcher looking for the
+          * site column and concluding the profile had missed it. Adjusting for
+          * a categorical variable is a real thing to want — it needs the model
+          * to code it as indicator columns, which it does not do yet — so this
+          * says what is missing rather than implying the column is unsuitable.
+          */}
+        {notAdjustable.length > 0 && (
+          <p className="note">
+            {notAdjustable.length === 1 ? "One column is" : `${notAdjustable.length} columns are`}
+            {" "}not offered here
+            {" ("}{notAdjustable.map((c) =>
+              (variables.data?.labels ?? {})[c.name] ?? c.name).join(", ")}
+            {"): "}
+            adjustment fits a regression, and a categorical column would have to
+            be coded as indicators first, which this model does not do yet.
           </p>
         )}
 
@@ -2695,8 +3716,20 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding,
 
         <div className="row" style={{ marginTop: 14 }}>
           <span className="note one-line" style={{ margin: 0 }}>
+            {/*
+              * What the press will do, not a hint that it might matter.
+              *
+              * This read "No adjustment — the report will say so", which is
+              * true and understates it to the point of being misleading. The
+              * suite's fourth check is `confounder_adjustment`, and naming no
+              * columns records it as **not tested**, which is a fail: the run
+              * cannot pass, and the researcher who pressed the product's own
+              * recommended control learns that only from a summary line a
+              * screen further down. The outcome of the default press is
+              * knowable before the press, so it is said before the press.
+              */}
             {chosen.length === 0
-              ? "No adjustment — the report will say so."
+              ? "No adjustment is untested, so this cannot pass."
               : `Adjusting for ${chosen.join(", ")}.`}
           </span>
           <button className="btn btn-primary" onClick={validate} disabled={validating}
@@ -2710,6 +3743,46 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding,
           <div style={{ marginTop: 12 }}>
             <Loading rows={2} label="Running robustness checks in the sandbox" />
           </div>
+        )}
+
+        {/*
+          * The outcome, beside the control that produced it.
+          *
+          * The full report is rendered at the bottom of this screen, which is
+          * about a thousand pixels below this button — so pressing Validate
+          * changed nothing a reader could see, and the card immediately under
+          * it went on saying "this connection has not survived a validation
+          * run yet" with no sign that one had been run at all. A control whose
+          * result appears off-screen is indistinguishable from one that does
+          * nothing, which is the specific way a person decides a product is
+          * broken and stops.
+          *
+          * One line, not a second copy of the report: the verdict, the check
+          * that decided it, and a way down to the evidence that is already on
+          * the page. `reports` is newest-first from the server.
+          */}
+        {!validating && latestReport && (
+          <p className="note vr-latest" data-passed={latestReport.passed === true}
+             style={{ marginTop: 12 }}>
+            {/* The same two words the report card below uses, and not
+                "validated": a validation report that passed is not the same
+                fact as the connection being validated, and this file already
+                calls the space beside this button the easiest place in the
+                product to overclaim. `passed` is null while a run is still
+                going, which is the report's own status, not a verdict. */}
+            <Status value={latestReport.passed === null ? latestReport.status
+                           : latestReport.passed ? "passed" : "violated"} />
+            {" "}
+            {/* The pill already says the verdict; the server's summary opens
+                by repeating it ("Did not pass: confounder_adjustment"). What
+                the reader does not have is which check decided it, so that is
+                what is left after the prefix the pill has already covered. */}
+            {latestReport.summary.replace(/^Did not pass:\s*/, "")}
+            {" "}
+            <button className="btn-text" type="button" onClick={onSeeReport}>
+              What each check found &darr;
+            </button>
+          </p>
         )}
       </div>
 
@@ -2769,7 +3842,11 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding,
         take for none of it to matter.
       */}
       <Fragility connectionId={connectionId} />
-      <ValidationReports reports={reports} />
+      {/* `tabIndex={-1}` so the outcome line above can put the keyboard here,
+          the same way the actions band reaches the Validate control. */}
+      <div id="connection-reports" tabIndex={-1} ref={reportsCard}>
+        <ValidationReports reports={reports} />
+      </div>
     </>
   );
 }

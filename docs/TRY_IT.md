@@ -203,13 +203,14 @@ in a sentence.
 
 Two things the loop cannot tell you:
 
-- **Workboard** is first in the rail because the brief calls it the central
+- **Workboard** sits beside Overview because the brief calls it the central
   operating surface: it is where the project's objects are arranged, not a step.
-- **Chart primitives**, under *This machine*, draws every chart the product has
-  against illustrative data. It needs no project, which is why it is filed with
-  the hand-tracking pages rather than beside Figures.
+- The chart catalogue is a view of **Figures** — *Chart primitives* beside *This
+  project*. It draws every chart the product has against illustrative data and
+  needs no project of its own, but the question it answers is "what could I draw
+  this as", which you have while making a figure.
 
-The rail's five groups are kinds of screen, in the order the work happens: the
+The rail's groups are kinds of screen, in the order the work happens: the
 project itself, gathering, discovering and testing, communicating, and this
 machine. Nothing in it is a step; the strip is where the numbering lives.
 
@@ -227,9 +228,9 @@ puts the tracker's own numbers on screen, so you can test tracking here, or on a
 colleague's laptop, without making anybody an account. It also lists the
 specific things worth judging, which are repeated below.
 
-Inside the workspace the same control sits on **Chart primitives → P13** (a 3D
-scatter) and on **Embedding space**, on your real corpus, if it has been
-embedded.
+Inside the workspace the same control sits on **Figures** → *Chart primitives* →
+P13 (a 3D scatter) and on **Analyses** → *Embedding space*, on your real corpus,
+if it has been embedded.
 
 ### The first time you turn the camera on
 

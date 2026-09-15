@@ -5,7 +5,8 @@ the Docker image and the running product need no network for typography, and so
 that no visitor's address is handed to a third party on first paint.
 
 Each file is the Latin or Latin-Extended subset of the upstream **variable**
-font, taken from the Google Fonts API on 2026-08-14. Variable means one file
+font, taken from the Google Fonts API on 2026-08-14, except the two Source
+Serif 4 *italic* subsets, taken the same way on 2026-09-10. Variable means one file
 covers every weight the interface uses; the subsets mean a page downloads
 Latin-Extended only when a glyph actually needs it.
 
@@ -15,6 +16,8 @@ Latin-Extended only when a glyph actually needs it.
 | `inter-latin-ext.woff2` | Inter | `wght` 100–900 | 85,068 |
 | `source-serif-4-latin.woff2` | Source Serif 4 | `opsz` 8–60, `wght` 200–900 | 122,360 |
 | `source-serif-4-latin-ext.woff2` | Source Serif 4 | `opsz` 8–60, `wght` 200–900 | 100,872 |
+| `source-serif-4-italic-latin.woff2` | Source Serif 4 *italic* | `opsz` 8–60, `wght` 200–900 | 130,188 |
+| `source-serif-4-italic-latin-ext.woff2` | Source Serif 4 *italic* | `opsz` 8–60, `wght` 200–900 | 110,324 |
 | `jetbrains-mono-latin.woff2` | JetBrains Mono | `wght` 100–800 | 40,404 |
 | `jetbrains-mono-latin-ext.woff2` | JetBrains Mono | `wght` 100–800 | 15,196 |
 

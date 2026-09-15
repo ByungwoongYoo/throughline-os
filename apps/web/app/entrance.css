@@ -1,0 +1,765 @@
+/*
+ * The entrance — chapters 1A to 1D over one ring.
+ *
+ * Deliberately not wired to the workspace theme tokens. §01 fixes this page as
+ * dark and §08 forbids dragging that decision into the signed-in product, so
+ * the palette here is stated outright rather than inherited: a reader who keeps
+ * the workspace light still meets the same entrance, and nothing here can move
+ * when the workspace palette changes.
+ *
+ * Values are the handoff's homepage scope, unchanged.
+ */
+
+.entrance-scope,
+body:has(.entrance-header) {
+  --e-bg: #06070a;
+  --e-text: #f4f2ee;
+  --e-muted: #b9b9b4;
+  --e-line: #4d4d49;
+  --e-gold: #e8b76a;
+  --e-silver: #bac5d6;
+  --e-rust: #d48b63;
+  --e-focus: #afc8ff;
+  --e-action: #f4f2ee;
+  --e-action-text: #101216;
+  --e-header: 84px;
+  --e-gutter: clamp(24px, 4vw, 64px);
+}
+
+body:has(.entrance-header) {
+  background: var(--e-bg);
+  color: var(--e-text);
+  /* The runway is the only thing that scrolls; nothing may scroll sideways. */
+  overflow-x: hidden;
+}
+
+/* ---------------------------------------------------------------- header - */
+
+.skip {
+  position: fixed;
+  top: -100px;
+  left: 16px;
+  z-index: 200;
+  padding: 10px 16px;
+  border-radius: 6px;
+  background: var(--e-action);
+  color: var(--e-action-text);
+  font: 500 14px/1 Inter, system-ui, sans-serif;
+  transition: top 120ms ease;
+}
+.skip:focus-visible { top: 16px; }
+
+.entrance-header {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 100;
+  height: var(--e-header);
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  padding: 0 var(--e-gutter);
+  /* Near-opaque rather than a blur: the ring passes behind this band at every
+     camera position, and a translucent header would let a bright filament
+     cross the wordmark. */
+  background: rgba(6, 7, 10, 0.94);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--e-text);
+  text-decoration: none;
+  margin-right: auto;
+}
+/* The mark sizes itself from its own aspect; this only keeps it from
+   being squeezed by the flex row. Renamed off `.brand-mark`, which the
+   workspace header also used for a different thing — the collision is why
+   the front page's logo rendered inside a second ellipse. */
+.entrance-mark { flex: none; }
+.brand-word { font: 500 28px/1 Inter, system-ui, sans-serif; letter-spacing: -0.01em; }
+
+.entrance-nav { display: flex; gap: 40px; }
+.entrance-nav a {
+  position: relative;
+  color: var(--e-text);
+  text-decoration: none;
+  font: 400 16px/1 Inter, system-ui, sans-serif;
+  padding: 6px 0;
+}
+/* A fine underline marks the current section. A filled tab would read as a
+   control that changes state, which these anchors do not. */
+.entrance-nav a::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 1px;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+.entrance-nav a:hover::after { opacity: 0.5; }
+.entrance-nav a[aria-current]::after { opacity: 1; }
+
+.enter {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 190px;
+  height: 48px;
+  padding: 0 22px;
+  border-radius: 6px;
+  background: var(--e-action);
+  color: var(--e-action-text);
+  font: 500 16px/1 Inter, system-ui, sans-serif;
+  text-decoration: none;
+  justify-content: center;
+  transition: transform 140ms ease, background 140ms ease;
+}
+.enter:hover { background: #fff; }
+.enter:active { transform: translateY(1px); }
+
+:where(.entrance-header, .panel, .motion-toggle) :focus-visible,
+.skip:focus-visible {
+  outline: 2px solid var(--e-focus);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+/* ----------------------------------------------------------------- stage - */
+
+.runway { position: relative; }
+
+.stage {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Fixed, because it is the page's ground rather than one section's backdrop.
+   Inside the runway it stopped with the chapters and the tour below it sat on
+   flat black, which is what made the page read as two sites. */
+.ring {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background: var(--e-bg);
+  pointer-events: none;
+}
+.ring-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.panel {
+  position: absolute;
+  inset: var(--e-header) 0 0 0;
+  z-index: 1;
+  padding: clamp(24px, 5vh, 72px) var(--e-gutter) clamp(24px, 6vh, 64px);
+  opacity: var(--o, 0);
+  /* Only transform and opacity animate. Nothing here triggers layout. */
+  transform: translate3d(0, calc((1 - var(--o, 0)) * 34px), 0);
+  will-change: opacity, transform;
+  pointer-events: none;
+}
+/*
+ * A chapter that has left must actually leave.
+ *
+ * The controller sets the `hidden` attribute, whose UA rule is `display: none`
+ * — but `.panel-a` sets `display: flex`, and an author rule beats the UA sheet.
+ * So chapter A stayed laid out under three invisible layers with its Explore
+ * link still in the tab order: a keyboard reached a control nobody could see,
+ * which is the trap §03 names. Found by the browser check, not by reading.
+ */
+.panel[hidden] { display: none !important; }
+
+/* The panel is inert scenery except where it holds something operable. */
+.panel a,
+.panel button { pointer-events: auto; }
+
+/* ------------------------------------------------------------- editorial - */
+
+.display {
+  margin: 0;
+  font-family: "Source Serif 4", Georgia, serif;
+  font-weight: 400;
+  line-height: 1.04;
+  letter-spacing: -0.015em;
+  color: var(--e-text);
+  text-wrap: balance;
+}
+.panel-a .display { font-size: clamp(44px, min(5.3vw, 8.5vh), 84px); }
+.panel-b .display,
+.panel-c .display,
+.trace-head .display,
+/* The tour's own heading is a chapter heading too — without it, `.display`
+   sets only the family and the colour and the size falls back to the browser's
+   h2, which left the section title smaller than the sentence under it. */
+.tour-head .display,
+.panel-d .display { font-size: clamp(34px, 4.4vw, 68px); }
+/* The italic continuation is the design's central typographic device. It is a
+   real face, not a synthesised slant — see fonts.css. */
+.display em { font-style: italic; }
+
+.lede {
+  margin: 26px 0 0;
+  max-width: 62ch;
+  font: 400 clamp(17px, 1.25vw, 21px) / 1.5 Inter, system-ui, sans-serif;
+  color: var(--e-text);
+}
+
+.eyebrow,
+.qualifier,
+.fragment-label,
+.station-label,
+.scroll-hint,
+.marks-qualifier {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--e-muted);
+}
+
+.quiet-link {
+  display: inline-block;
+  margin-top: 34px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--e-line);
+  color: var(--e-text);
+  text-decoration: none;
+  font: 400 16px/1 Inter, system-ui, sans-serif;
+}
+.quiet-link:hover { border-bottom-color: var(--e-text); }
+
+/* ---------------------------------------------------------- A · entrance - */
+
+/* Flow, not a grid. The title block sits at the top and the scroll hint is
+   pushed to the base by the free space between them; a grid row assignment put
+   the lede at the bottom of the viewport the first time this rendered. */
+.panel-a { display: flex; flex-direction: column; align-items: flex-start; }
+.panel-a .display { max-width: 710px; }
+.panel-a .lede { max-width: 620px; }
+
+/* The three words sit where the ring is brightest, so they carry a mask.
+   §02 allows one behind a text region and forbids giving every paragraph a
+   glass card; this is the region that needs it. It runs to the viewport edge
+   and fades out leftwards, so it reads as the ring falling into shadow rather
+   than as a panel laid on top of it. */
+.words {
+  position: absolute;
+  right: 0;
+  top: 52%;
+  margin: 0;
+  padding: 30px var(--e-gutter) 30px 130px;
+  list-style: none;
+  display: grid;
+  gap: 30px;
+  text-align: right;
+  background: linear-gradient(
+    to left,
+    rgba(6, 7, 10, 0.9) 0%,
+    rgba(6, 7, 10, 0.82) 40%,
+    rgba(6, 7, 10, 0) 100%
+  );
+}
+.words li {
+  font-family: "Source Serif 4", Georgia, serif;
+  font-style: italic;
+  font-size: clamp(20px, 1.7vw, 27px);
+  color: var(--e-text);
+}
+.words li::before {
+  content: "";
+  display: inline-block;
+  width: 26px;
+  height: 1px;
+  margin-right: 18px;
+  vertical-align: middle;
+  background: var(--e-gold);
+}
+
+.scroll-hint { margin: auto auto 0; align-self: center; }
+
+/* -------------------------------------------------- B · question/evidence - */
+
+.panel-b { text-align: center; }
+.panel-b .display { max-width: 20ch; margin: 0 auto; }
+.panel-b .lede { margin-left: auto; margin-right: auto; text-align: center; }
+
+.fragments {
+  position: absolute;
+  inset: auto var(--e-gutter) 14% var(--e-gutter);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: clamp(24px, 5vw, 90px);
+  align-items: start;
+  text-align: left;
+}
+.fragment { margin: 0; }
+.fragment blockquote {
+  margin: 12px 0 0;
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: clamp(22px, 2vw, 33px);
+  line-height: 1.25;
+  color: var(--e-text);
+}
+.fragment-label { display: flex; align-items: center; gap: 14px; }
+.fragment-label::before {
+  content: "";
+  width: 22px;
+  height: 1px;
+  background: currentColor;
+}
+.fragment-human .fragment-label { color: var(--e-gold); }
+.fragment-model { border-left: 1px solid var(--e-line); padding-left: 22px; }
+.fragment-model .fragment-label { color: var(--e-silver); }
+.fragment-model .fragment-label::before { display: none; }
+.fragment-origin {
+  margin: 12px 0 0;
+  font: 400 13px/1.4 Inter, system-ui, sans-serif;
+  color: var(--e-muted);
+}
+.fragment-working {
+  grid-column: 1 / -1;
+  justify-self: center;
+  text-align: center;
+}
+.fragment-working .fragment-label { justify-content: center; color: var(--e-gold); }
+.fragment-working blockquote { font-size: clamp(24px, 2.3vw, 38px); }
+
+.qualifier { position: absolute; left: var(--e-gutter); bottom: 4%; margin: 0; }
+
+/* ------------------------------------------------------ C · test and trace - */
+
+.panel-c .display { max-width: 16ch; }
+
+.stations {
+  position: absolute;
+  inset: auto auto 12% var(--e-gutter);
+  width: min(62%, 780px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: clamp(18px, 3.4vh, 44px);
+}
+/* Staggered, so the three sit at different depths along the curve without any
+   of them tilting: §02 keeps station text upright and at full opacity. */
+.station:nth-child(1) { margin-left: 8%; }
+.station:nth-child(2) { margin-left: 34%; }
+.station:nth-child(3) { margin-left: 58%; }
+.station-label { display: flex; align-items: center; gap: 14px; }
+.station-label::before { content: ""; width: 26px; height: 1px; background: var(--e-gold); }
+.station-question {
+  margin: 10px 0 0;
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: clamp(20px, 1.85vw, 31px);
+  line-height: 1.22;
+}
+.rejected {
+  position: absolute;
+  right: var(--e-gutter);
+  bottom: 20%;
+  max-width: 22ch;
+  margin: 0;
+  font-family: "Source Serif 4", Georgia, serif;
+  font-style: italic;
+  font-size: clamp(15px, 1.15vw, 19px);
+  line-height: 1.4;
+  color: var(--e-rust);
+  text-align: right;
+}
+.rejected::before {
+  content: "";
+  display: inline-block;
+  width: 26px;
+  height: 1px;
+  margin-right: 14px;
+  vertical-align: middle;
+  background: currentColor;
+}
+
+/* ------------------------------------------------------------- D · marks - */
+
+.panel-d {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-content: start;
+  justify-items: start;
+  padding-left: clamp(24px, 22vw, 340px);
+}
+.panel-d .display { max-width: 18ch; }
+
+/* Capped in viewport height, not just width. At 993px the closing invitation
+   was falling off the bottom of the chapter, and a closing line you cannot
+   read is not a close. */
+.marks { width: min(100%, 760px); margin-top: clamp(8px, 2vh, 26px); }
+.marks-chart { width: 100%; height: clamp(140px, 24vh, 270px); display: block; }
+.marks-axis { stroke: var(--e-line); stroke-width: 1; }
+/* The group is the unit of identity: one <g> per value, kept for the life of
+   the page so a reader can follow a single observation through all four forms.
+   It owns the paint, and the four child marks inherit it, so the colour of a
+   mark is set in one place rather than four. */
+.mark { color: var(--e-text); }
+.mark-bar { fill: currentColor; }
+.mark-violin { fill: currentColor; opacity: 0; }
+.mark-spine { stroke: currentColor; stroke-width: 1.4; }
+.mark-dot { fill: currentColor; }
+
+/* Wraps. `space-between` with a non-shrinking row of forms pushed the
+   qualifier clean past the right edge at 320px — 92px of page-wide sideways
+   scroll, which §04 forbids outright. Wrapping is also the honest reading: the
+   qualifier is a sentence, and a sentence with nowhere to go belongs on its own
+   line rather than off the page. */
+.marks-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px 24px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--e-line);
+}
+.marks-forms { display: flex; flex-wrap: wrap; gap: 12px 30px; }
+.marks-qualifier { min-width: 0; }
+.marks-form {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 4px 0 8px;
+  color: var(--e-muted);
+  font: 400 16px/1 Inter, system-ui, sans-serif;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  /* "Dot plot" is two words and must never become two lines: these four read
+     as one row of alternatives, and a wrapped one reads as two. */
+  white-space: nowrap;
+}
+.marks-form:hover { color: var(--e-text); }
+/* Weight as well as colour, so the pressed form is not carried by hue alone. */
+.marks-form[aria-pressed="true"] {
+  color: var(--e-gold);
+  font-weight: 500;
+  border-bottom-color: var(--e-gold);
+}
+.marks-qualifier { text-transform: none; letter-spacing: 0.04em; text-align: right; }
+
+.capabilities {
+  display: flex;
+  gap: 46px;
+  margin: clamp(10px, 2vh, 26px) 0 0;
+  padding: 0;
+  list-style: none;
+  font: 400 15px/1 Inter, system-ui, sans-serif;
+  color: var(--e-text);
+}
+.capabilities li::before {
+  content: "";
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 12px;
+  vertical-align: -2px;
+  border: 1px solid var(--e-gold);
+  border-radius: 2px;
+}
+
+.closing {
+  margin: clamp(12px, 3vh, 38px) 0 0;
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: clamp(24px, 2.4vw, 38px);
+  color: var(--e-text);
+}
+
+/* ------------------------------------------------------- motion control - */
+
+/* Reachable without scrolling to the end, and out of the way of the reading.
+   §02 allows a small fixed corner control; it is an accessibility affordance,
+   not a second call to action, so it never competes with Open workspace. */
+.motion-toggle {
+  position: fixed;
+  /* Bottom RIGHT, not left. §02 only asks for a small fixed lower-corner
+     control, and the left corner is where Next's development indicator sits —
+     it covered this button, which made it unclickable for anybody running the
+     app locally, which is everybody this page is for. */
+  right: 20px;
+  bottom: 18px;
+  z-index: 100;
+  appearance: none;
+  padding: 8px 14px;
+  border: 1px solid var(--e-line);
+  border-radius: 999px;
+  background: rgba(6, 7, 10, 0.8);
+  color: var(--e-muted);
+  font: 400 12px/1 Inter, system-ui, sans-serif;
+  cursor: pointer;
+}
+.motion-toggle:hover { color: var(--e-text); border-color: var(--e-muted); }
+
+/* ------------------------------------------------------------- adaptation - */
+
+/* Short or narrow windows stop pinning and read as an ordinary document. The
+   artwork is worth less than the words, so the words win. */
+/* Reflow to 320px. §02 asks for every action to survive and no page-wide
+   sideways scroll; it does not ask for a mobile design. So the header gives up
+   its section anchors — they are duplicated by the document order below — and
+   the entry button keeps its label while losing its minimum width. */
+@media (max-width: 620px) {
+  .entrance-header { gap: 12px; padding: 0 16px; }
+  .entrance-nav { display: none; }
+  .entrance-mark { width: 44px; height: 30px; }
+  .brand-word { font-size: 19px; }
+  .enter { min-width: 0; height: 40px; padding: 0 12px; font-size: 14px; }
+  .motion-toggle { right: 10px; bottom: 10px; }
+  .marks-foot { flex-direction: column; align-items: flex-start; }
+  .marks-qualifier { text-align: left; }
+  body:has(.entrance-header) { --e-header: 64px; }
+}
+
+@media (max-width: 900px), (max-height: 620px) {
+  .runway { height: auto !important; }
+  .stage { position: static; height: auto; overflow: visible; }
+  .ring { position: fixed; }
+  .panel {
+    position: static;
+    opacity: 1 !important;
+    transform: none !important;
+    min-height: 100vh;
+    display: block;
+    padding-top: calc(var(--e-header) + 32px);
+  }
+  .words,
+  .fragments,
+  .qualifier,
+  .stations,
+  .rejected { position: static; inset: auto; width: auto; text-align: left; }
+  .fragments { grid-template-columns: 1fr; margin-top: 32px; }
+  .station { margin-left: 0 !important; }
+  .words { margin-top: 40px; text-align: left; }
+  .panel-b { text-align: left; }
+  .panel-d { padding-left: var(--e-gutter); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .runway { height: auto !important; }
+  .stage { position: static; height: auto; overflow: visible; }
+  .ring { position: fixed; }
+  .panel {
+    position: static;
+    opacity: 1 !important;
+    transform: none !important;
+    min-height: 100vh;
+    padding-top: calc(var(--e-header) + 32px);
+  }
+  .skip { transition: none; }
+}
+
+/*
+ * A ground for the fragments, because the ring is behind them.
+ *
+ * Measured rather than judged: with the type hidden and the band sampled
+ * underneath it, "The study reports an association" sat at 3.78:1 against
+ * white BEFORE the disk was widened, and 2.66:1 after. Both are under the
+ * 4.5:1 normal text needs, and nothing in the suite asks — happy-dom applies
+ * no CSS and renders no WebGL, so the one thing that can fail here is the one
+ * thing no test can see.
+ *
+ * A scrim rather than a smaller ring. The alternative is composing the disk so
+ * it never passes behind this block, and the disk is a live render whose
+ * position moves with the viewport and the scroll — a composition that holds
+ * at 1584x993 and fails at 1280 is not a fix. This is local, it is soft enough
+ * that the band still reads through it, and it scales with the block.
+ *
+ * `radial-gradient` rather than a flat panel: a rectangle of tint over a
+ * luminous band reads as a card sitting on the artwork, which is exactly the
+ * "screenshot used as content" the acceptance list refuses.
+ */
+.fragment {
+  position: relative;
+  isolation: isolate;
+}
+.fragment::before {
+  content: "";
+  position: absolute;
+  /* Generous, because the gradient has to reach zero well INSIDE this box.
+     A first attempt sized it to the text and the falloff was still opaque at
+     the edges, so the scrim read as a rectangle laid on the artwork — the
+     "card sitting on the picture" the acceptance list refuses. */
+  inset: -52px -74px -56px -66px;
+  z-index: -1;
+  background: radial-gradient(64% 66% at 42% 50%,
+    rgb(6 7 10 / 0.95) 0%,
+    rgb(6 7 10 / 0.82) 42%,
+    rgb(6 7 10 / 0.34) 66%,
+    rgb(6 7 10 / 0) 84%);
+  /* And blurred, so no stop of the gradient can show as a ring. */
+  filter: blur(14px);
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------------------
+   The traced chain.
+
+   One stroke down the page with four stops on it, scrubbed by scroll. The
+   stroke is the product's sentence drawn — "follow every finding back to its
+   source" — so it is grown rather than revealed, and nothing on it fades back
+   out: a reader looking at the analysis should still be able to read the
+   finding it answers.
+
+   It sits on the ring like everything else. No panel, no slab, no card the
+   width of the page: the site is one site.
+   --------------------------------------------------------------------------- */
+
+.trace-runway { position: relative; }
+.trace-stage {
+  position: sticky;
+  top: 0;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+.trace-section {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 40px 40px 56px;
+  display: grid;
+  grid-template-columns: minmax(0, 420px) minmax(0, 1fr);
+  gap: 72px;
+  align-items: center;
+}
+.trace-head .display { margin: 14px 0 18px; }
+.trace-head .lede { max-width: 40ch; }
+
+.trace { position: relative; padding-left: 34px; }
+
+/* The stroke. Drawn with a gradient stop rather than a dash offset, because it
+   has to grow from a fixed top edge whatever the chain's height turns out to
+   be — a dash array would need the length measured first. */
+.trace-line {
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  overflow: visible;
+}
+.trace-line line {
+  stroke: url(#none);
+  stroke-width: 2;
+  /* The visible part, set by the controller. */
+  stroke: var(--e-accent, #c8a45c);
+  opacity: 0.55;
+  clip-path: inset(0 0 calc(100% - var(--drawn, 0%)) 0);
+}
+
+.trace-stops { list-style: none; margin: 0; padding: 0; }
+.trace-stop {
+  position: relative;
+  margin-bottom: 26px;
+  /* Arrives, then stays. */
+  opacity: calc(0.12 + 0.88 * var(--in, 0));
+  transform: translateY(calc((1 - var(--in, 0)) * 14px));
+}
+.trace-stop:last-child { margin-bottom: 0; }
+
+.trace-dot {
+  position: absolute;
+  left: -34px;
+  top: 15px;
+  width: 9px;
+  height: 9px;
+  margin-left: -3.5px;
+  border-radius: 50%;
+  background: var(--e-bg, #06070a);
+  border: 1.5px solid var(--e-accent, #c8a45c);
+  opacity: calc(0.3 + 0.7 * var(--in, 0));
+}
+
+.trace-card {
+  padding: 14px 18px;
+  border: 1px solid rgb(244 242 238 / 0.12);
+  border-radius: 10px;
+  /* Barely there: the ring has to keep running behind it, or the section
+     becomes a row of panels laid on the artwork. */
+  background: rgb(6 7 10 / 0.55);
+  backdrop-filter: blur(6px);
+}
+
+.trace-kind {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 8px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--e-muted);
+}
+.trace-id { color: var(--e-accent, #c8a45c); }
+.trace-chip {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgb(200 164 92 / 0.14);
+  color: var(--e-accent, #c8a45c);
+  letter-spacing: 0.06em;
+}
+
+.trace-title {
+  margin: 0;
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: 19px;
+  line-height: 1.4;
+  color: var(--e-text);
+}
+
+.trace-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  margin: 12px 0 0;
+}
+.trace-facts div { display: flex; flex-direction: column; gap: 1px; }
+.trace-facts dt {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--e-muted);
+}
+.trace-facts dd {
+  margin: 0;
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+  color: var(--e-text);
+}
+
+.trace-note {
+  margin: 10px 0 0;
+  font: 400 13px/1.5 Inter, system-ui, sans-serif;
+  color: var(--e-muted);
+}
+
+@media (max-width: 1000px) {
+  .trace-section {
+    grid-template-columns: 1fr;
+    gap: 32px;
+    padding: 32px 20px 40px;
+  }
+  .trace-stage { position: static; min-height: 0; }
+  .trace-runway { height: auto !important; }
+  /* Unpinned, nothing scrubs, so every stop is simply present. */
+  .trace-stop, .trace-dot { opacity: 1; transform: none; }
+}

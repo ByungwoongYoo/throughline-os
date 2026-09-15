@@ -103,10 +103,19 @@ def knowledge_graph(
     # Lineage carries no confidence or evidence: it is recorded fact, not an
     # assertion that could be wrong, so those come back null rather than
     # invented.
+    #
+    # `edge_kind` names which arm a row came from, and it is not decoration.
+    # Two readers already branch on it and neither could: the graph canvas
+    # weights a lineage edge harder than a semantic one, and the river draws
+    # recorded lineage solid and related context dotted. The column was never
+    # selected, so every edge arrived as neither — the canvas fell back to the
+    # semantic weight for all of them and the distinction this UNION exists to
+    # preserve was lost between the query and the screen. `notebook.py` sends
+    # its own `edge_kind`, which is why the note graph was unaffected.
     cur.execute(
         f"""
         SELECT e.id, e.source_object_id, e.target_object_id, e.relationship_type,
-               e.confidence, e.status, e.evidence_id
+               e.confidence, e.status, e.evidence_id, 'semantic' AS edge_kind
         FROM research_edges e
         WHERE {where} AND e.source_object_id = ANY(%s) AND e.target_object_id = ANY(%s)
 
@@ -117,7 +126,8 @@ def knowledge_graph(
                l.lineage_type AS relationship_type,
                NULL::double precision AS confidence,
                'recorded' AS status,
-               NULL::text AS evidence_id
+               NULL::text AS evidence_id,
+               'lineage' AS edge_kind
         FROM artifact_lineage_edges l
         WHERE l.project_id = %s
           AND l.source_artifact_id = ANY(%s) AND l.target_artifact_id = ANY(%s)
@@ -281,6 +291,12 @@ def discovery_map(cur, *, project_id: str) -> dict[str, Any]:
                      "AND status = 'completed'"),
         ("contradictions", "SELECT COUNT(*) AS n FROM contradictions "
                            "WHERE project_id = %s AND status = 'open'"),
+        # Whether anything has been written up, which the sixth rung needs and
+        # nothing here counted. `counts` carried no `reports` key at all, so a
+        # condition asking for one was always true — the way a rung fires
+        # forever and nobody notices, because the sentence still reads sensibly.
+        ("reports", "SELECT COUNT(*) AS n FROM communication_artifacts "
+                    "WHERE project_id = %s"),
     ):
         cur.execute(query, (project_id,))
         counts[label] = int(cur.fetchone()["n"])
@@ -316,6 +332,34 @@ def discovery_map(cur, *, project_id: str) -> dict[str, Any]:
     )
     connections_by_status = {row["lifecycle_status"]: int(row["n"]) for row in cur.fetchall()}
 
+    # Exploratory connections nobody has tried to destroy yet.
+    #
+    # A connection that fails validation **stays exploratory**, deliberately:
+    # failing a robustness check is information, not a verdict. But this ladder
+    # counted every exploratory connection as "awaiting robustness validation",
+    # so one association that honestly does not survive adjustment pinned the
+    # project on step 4 for good, and steps 5 and 6 were never offered at all.
+    #
+    # Walked on a real project before this existed: three connections
+    # validated, one did not survive (p = 0.054 controlling for rainfall, which
+    # is a result and not a fault), and the loop went on saying "1 exploratory
+    # connection is awaiting robustness validation" with nothing past it. Most
+    # real projects contain at least one such association, so this was the
+    # journey's dead end rather than an edge case.
+    #
+    # Having been challenged is the fact this rung needs, not having survived.
+    cur.execute(
+        """
+        SELECT COUNT(*) AS n FROM connections c
+        WHERE c.project_id = %s AND c.lifecycle_status = 'exploratory'
+          AND NOT EXISTS (
+            SELECT 1 FROM validation_reports v
+            WHERE v.connection_id = c.id AND v.status = 'complete')
+        """,
+        (project_id,),
+    )
+    never_challenged = int(cur.fetchone()["n"])
+
     # Candidates that have nothing behind them yet, which is a different
     # problem from a candidate waiting to be promoted. Every finding starts as
     # CANDIDATE, and one recorded from its connections now carries the analyses
@@ -349,6 +393,7 @@ def discovery_map(cur, *, project_id: str) -> dict[str, Any]:
     step, action, rung = _recommendation(
         counts, findings_by_status, connections_by_status,
         candidates_without_evidence=candidates_without_evidence,
+        never_challenged=never_challenged,
         in_flight=counts["in_flight"])
 
     return {
@@ -381,11 +426,18 @@ def _recommend(counts: dict[str, Any], findings: dict[str, int],
 #: than taken from the ranked top ten, because a project with ten stronger
 #: connections would otherwise have none to name under a sentence counting it.
 _RUNG_TARGETS: dict[str, tuple[str, str, str]] = {
+    # Nothing has been run against it, which is the rung's own condition
+    # (`never_challenged`). Picking any exploratory connection by rank would
+    # open one that was validated and honestly did not hold, under a sentence
+    # saying it is still awaiting validation — the second-ladder defect this
+    # table exists to prevent, arriving by the two branches merging.
     "awaiting_validation": (
         "connection", "validate",
-        "SELECT id, left_variable, right_variable FROM connections "
-        "WHERE project_id = %s AND lifecycle_status = 'exploratory' "
-        "ORDER BY rank_score DESC, id LIMIT 1"),
+        "SELECT c.id, c.left_variable, c.right_variable FROM connections c "
+        "WHERE c.project_id = %s AND c.lifecycle_status = 'exploratory' "
+        "AND NOT EXISTS (SELECT 1 FROM validation_reports v "
+        "WHERE v.connection_id = c.id AND v.status = 'complete') "
+        "ORDER BY c.rank_score DESC, c.id LIMIT 1"),
     "ready_to_record": (
         "connection", "record",
         "SELECT id, left_variable, right_variable FROM connections "
@@ -438,6 +490,11 @@ def _target_for(cur, project_id: str, rung: str | None) -> dict[str, Any] | None
 def _recommendation(counts: dict[str, Any], findings: dict[str, int],
                     connections: dict[str, int], *,
                     candidates_without_evidence: int = 0,
+                    #: Exploratory connections nothing has been run against.
+                    #: Defaults to `None`, meaning "use the exploratory count",
+                    #: so an older caller that does not compute it keeps its
+                    #: behaviour rather than silently skipping step 4.
+                    never_challenged: int | None = None,
                     in_flight: int = 0) -> tuple[str | None, str, str | None]:
     """The next step three times over: which loop step it is, how to say it,
     and which rung said it.
@@ -486,11 +543,19 @@ def _recommendation(counts: dict[str, Any], findings: dict[str, int],
     if not counts["analyses"]:
         return "discover", ("Run discovery on a dataset to generate candidate "
                             "relationships."), None
-    if connections.get("exploratory"):
+    untried = (connections.get("exploratory", 0) if never_challenged is None
+               else never_challenged)
+    if untried:
+        # Counted by what has not been *tried*, not by what has not survived.
+        # A connection that was validated and did not hold stays exploratory on
+        # purpose — that is information, not a verdict — and calling it
+        # "awaiting validation" pinned the whole loop on this rung for any
+        # project containing one honest negative, which is most of them.
         return "validate", (
-            f"{counted(connections['exploratory'], 'exploratory connection')} "
-            f"{'is' if connections['exploratory'] == 1 else 'are'} awaiting "
-            "robustness validation. Supply candidate confounders and validate them."), "awaiting_validation"
+            f"{counted(untried, 'exploratory connection')} "
+            f"{'is' if untried == 1 else 'are'} awaiting "
+            "robustness validation. Supply candidate confounders and validate them."), \
+            "awaiting_validation"
     if connections.get("validated") and not findings:
         return "record", ("Validated connections exist but no findings have been recorded. "
                           "Turn the strongest into a finding with its evidence."), "ready_to_record"
@@ -509,8 +574,12 @@ def _recommendation(counts: dict[str, Any], findings: dict[str, int],
         # Still `record`: what moves is the finding, and the finding is that
         # step's object. `communicate` would offer to draft a report out of a
         # result this very sentence has not yet judged fit to promote.
-        return "record", (f"{counted(findings['candidate'], 'finding')} have their "
-                          "evidence recorded. Promote the ones that hold to exploratory."), "ready_to_promote"
+        n = findings["candidate"]
+        return "record", (
+            f"{counted(n, 'finding')} {'has its' if n == 1 else 'have their'} "
+            f"evidence recorded. Promote "
+            f"{'it if it holds' if n == 1 else 'the ones that hold'} to exploratory."), \
+            "ready_to_promote"
     if findings.get("validated"):
         # `validate` — the loop's step for trying to destroy what survived. A
         # challenge is that test aimed at a finding rather than at a
@@ -522,6 +591,36 @@ def _recommendation(counts: dict[str, Any], findings: dict[str, int],
         # client then falls through to its own first-unfinished step, which at
         # this point in the loop is the report being withheld.
         return "validate", "Challenge the validated findings before communicating them.", "to_challenge"
+    # --- the sixth step ----------------------------------------------------
+    #
+    # `communicate` was in the loop's vocabulary, in its six labels and in the
+    # strip a researcher reads on every screen, and **this ladder never
+    # returned it**. Walked end to end on a real project: sources, profile,
+    # discover, validate and record all arrived, the finding was promoted, and
+    # the next sentence was "Review the project's contradictions and gaps" with
+    # no step and therefore no button. The loop's last step could not be
+    # reached by following the loop.
+    #
+    # It belongs *here*, below the two rungs that withhold it. A candidate has
+    # not been judged fit to promote and a validated finding has not been
+    # challenged, and both of those sentences say so. What is left is a finding
+    # that survived promotion — which is the thing a report is written from.
+    #
+    # `conflicted` and `deprecated` are excluded deliberately: a finding that
+    # conflicts with another, or that has been withdrawn, is not work to write
+    # up, and offering to draft a report from one would be the product's worst
+    # possible suggestion.
+    #
+    # No object: the report is drafted on the Reports screen, and a rung about a
+    # whole screen names none (`recommended_target` is null for it), so the
+    # client's own control — "Draft a report", to Reports — is the one shown.
+    holding = sum(n for status, n in findings.items()
+                  if status in {"exploratory", "replicated"})
+    if holding and not counts.get("reports"):
+        return "communicate", (
+            f"{counted(holding, 'finding')} "
+            f"{'has' if holding == 1 else 'have'} been promoted and nothing has "
+            "been written up. Draft a report from what holds."), None
     # No step. Nothing in the loop is outstanding; this rung is a look back over
     # the project rather than one of the six, and contradictions and gaps are
     # read across everything rather than taken on a screen. A step here would

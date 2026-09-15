@@ -11,9 +11,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useApi } from "@/lib/useApi";
+import type { View } from "@/lib/section-url";
 import { Empty, Failure, Loading } from "./primitives";
 import { GraphEdge, GraphNode, KnowledgeGraph } from "./KnowledgeGraph";
 import { NodeJournal } from "./NodeJournal";
+import { River } from "./river";
 
 /**
  * The API's shape, which is not the renderer's.
@@ -41,7 +43,72 @@ type GraphPayload = {
   note?: string | null;
 };
 
-export function GraphView({ projectId, onSelect, focus = null }: {
+/**
+ * The section: two readings of the same objects, and the strip that chooses.
+ *
+ * §08 puts the river here rather than in the navigation — "a proposed lineage
+ * view, with a contextual entrance from Overview and Research graph", and not
+ * a sixth primary group — so this is one section with two views and the
+ * secondary row keeps the eight items the master shows.
+ *
+ * They answer different questions and the strip says so. The canvas is "what
+ * is this near?", laid out by similarity, with coordinates that mean nothing
+ * scientific. The river is "what came from what?", laid out in recorded
+ * stages, where every line is an edge somebody or something wrote down. A
+ * researcher who cannot tell which one they are looking at will read a
+ * generated layout as provenance, which is the confusion both this strip and
+ * the river's own caveat exist to prevent.
+ */
+export function GraphView({ projectId, onSelect, focus = null, view = "graph", onView }: {
+  projectId: string;
+  onSelect: (id: string) => void;
+  focus?: string | null;
+  /** Which reading is open. Carried in the address by the workspace. */
+  view?: View | null;
+  onView?: (next: View) => void;
+}) {
+  return (
+    <>
+      {/*
+        * A breadcrumb, not a second row of tabs.
+        *
+        * The master shows "Research graph / Project lineage" as one quiet line
+        * above the title, and the way back is the first crumb. A pill strip
+        * here cost a whole row of a 992px screen and read as a third level of
+        * navigation under two that already exist — the exact "second permanent
+        * vertical app navigation" §08 refuses, turned on its side.
+        */}
+      {onView && view === "river" && (
+        <p className="crumbs">
+          <button className="btn-text" type="button" onClick={() => onView("graph")}>
+            Research graph
+          </button>
+          <span aria-hidden> / </span>
+          <span aria-current="page">Project lineage</span>
+        </p>
+      )}
+      {view === "river"
+        ? <River projectId={projectId} focus={focus} onOpenObject={onSelect} />
+        : (
+          <>
+            <GraphCanvas projectId={projectId} focus={focus} onSelect={onSelect} />
+            {onView && (
+              /* The contextual entrance §08 asks for, at the foot of the
+                 canvas rather than competing with it. */
+              <p className="note">
+                To follow what was derived from what, in recorded stages,{" "}
+                <button className="btn-text" type="button" onClick={() => onView("river")}>
+                  open the project&rsquo;s lineage
+                </button>.
+              </p>
+            )}
+          </>
+        )}
+    </>
+  );
+}
+
+function GraphCanvas({ projectId, onSelect, focus = null }: {
   projectId: string;
   onSelect: (id: string) => void;
   /**

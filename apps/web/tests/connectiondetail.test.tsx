@@ -19,7 +19,7 @@
  * calls the single easiest place in the product to overclaim.
  */
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectionDetail, settled } from "@/components/views";
 import type { ValidationReport } from "@/lib/api";
@@ -115,11 +115,19 @@ describe("whether the result survived", () => {
     /*
      * The half that was already right. Pinned so the two halves cannot drift
      * apart again in the other direction.
+     *
+     * Scoped to the report history, because the verdict is now said twice on
+     * purpose — once beside the button that ran the suite, and once here where
+     * the evidence is. Two matches is the intended shape, so this asks the
+     * list specifically rather than asking the page and getting both.
      */
     serve([report({ passed: false, summary: "Did not pass: bootstrap_stability" })]);
     render(<ConnectionDetail connectionId="conn_1" projectId="prj_1" />);
 
-    await waitFor(() => expect(screen.getByText(/violated/)).toBeTruthy());
+    await waitFor(() => {
+      const list = document.querySelector("#connection-reports")!;
+      expect(within(list as HTMLElement).getByText(/violated/)).toBeTruthy();
+    });
   });
 });
 
@@ -247,5 +255,77 @@ describe("the explanation behind an evidence grade", () => {
     await waitFor(() =>
       expect(screen.getByText(/Why the evidence is graded/)).toBeTruthy());
     expect(screen.getByText(/residuals are not normal/)).toBeTruthy();
+  });
+});
+
+/**
+ * The outcome sits beside the control that produced it.
+ *
+ * Measured on the running stack, not reasoned about: pressing *Validate* on a
+ * real connection ran the suite, the suite honestly reported "Did not pass:
+ * confounder_adjustment", and the card containing the button was pixel for
+ * pixel what it had been before the press. The full report is rendered about a
+ * thousand pixels below, at the bottom of the column, and the card immediately
+ * beneath the button went on saying the connection had not survived a
+ * validation run — true, and indistinguishable from nothing having been tried.
+ *
+ * A control whose result appears off-screen is a control that looks broken,
+ * which is the specific way a person decides a product does not work and
+ * stops using it.
+ */
+describe("the verdict is beside the button that asked for it", () => {
+  it("says what the last run found, in the card that ran it", async () => {
+    serve([report({ passed: false, summary: "Did not pass: confounder_adjustment" })]);
+    render(<ConnectionDetail connectionId="conn_1" projectId="prj_1" />);
+
+    // In the card with the button, not only in the report history below it.
+    // The summary appears in both, which is the point: asking the page would
+    // pass on the report history alone.
+    await screen.findByRole("button", { name: /What each check found/ });
+    const card = document.querySelector("#connection-validate")!;
+    // The check that decided it. The "Did not pass:" the server prefixes is
+    // what the pill beside it already says, so the line does not repeat it.
+    expect(within(card as HTMLElement)
+      .getByText(/confounder_adjustment/)).toBeTruthy();
+    expect(within(card as HTMLElement).getByText(/violated/i)).toBeTruthy();
+  });
+
+  it("says a passing run passed, without calling the connection validated", async () => {
+    // `validated` is a lifecycle state of the connection; a report that passed
+    // is a different fact, and this is the easiest place in the product to
+    // conflate them.
+    serve([report({ passed: true })]);
+    render(<ConnectionDetail connectionId="conn_1" projectId="prj_1" />);
+
+    await screen.findByRole("button", { name: /Record a finding/ });
+    const card = document.querySelector("#connection-validate")!;
+    expect(card.textContent).toMatch(/passed/i);
+    expect(card.textContent).not.toMatch(/has been validated/);
+  });
+
+  it("shows no verdict before anything has been run", async () => {
+    // A verdict line with nothing behind it would be worse than none: it reads
+    // as a result rather than as an absence.
+    serve([]);
+    render(<ConnectionDetail connectionId="conn_1" projectId="prj_1" />);
+
+    await screen.findByRole("button", { name: /^Validate$/ });
+    expect(screen.queryByRole("button", { name: /What each check found/ }))
+      .toBeNull();
+  });
+
+  it("says the default press cannot pass, before it is pressed", async () => {
+    /*
+     * The suite's fourth check is `confounder_adjustment`, and naming no
+     * columns records it as *not tested*, which is a fail. The line read "No
+     * adjustment — the report will say so", which is true and understates it
+     * to the point of being misleading: the outcome of the default press is
+     * knowable before the press, so it is said before the press.
+     */
+    serve([]);
+    render(<ConnectionDetail connectionId="conn_1" projectId="prj_1" />);
+
+    await screen.findByRole("button", { name: /^Validate$/ });
+    expect(screen.getByText(/so this cannot pass/)).toBeTruthy();
   });
 });

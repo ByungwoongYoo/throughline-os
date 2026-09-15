@@ -21,7 +21,7 @@ import { PAGES, SECTIONS, Section, Shell } from "@/components/Shell";
 afterEach(cleanup);
 
 const HEADINGS = [
-  "The project", "Gather", "Discover and test", "Communicate", "This machine",
+  "The project", "Evidence", "Analysis", "Lineage", "Communicate", "This machine",
 ];
 
 function shell(section: Section = "overview", onSection = vi.fn()) {
@@ -43,29 +43,38 @@ function heading(label: string): HTMLElement {
 
 /** The rows that are actually on screen, as their labels. */
 function visibleEntries(container: HTMLElement): string[] {
-  return [...container.querySelectorAll(".rail-entries:not([hidden]) .rail-item")]
-    .map((row) => row.querySelector("span:not(.rail-icon)")?.firstChild?.textContent ?? "");
+  return [...container.querySelectorAll(".sectionbar-item")]
+    .map((row) => row.querySelector("span:not(.sectionbar-icon)")?.firstChild?.textContent ?? "");
 }
 
 describe("one group is expanded, and it is the one holding the current section", () => {
-  it("names all five groups whatever is open, with a count on each", () => {
+  it("names every group whatever is open, with a count on each", () => {
     /** A collapsed group that did not say how many entries it held would be a
      *  menu, which is the thing this product does not do. */
     const { container } = shell("connections");
-    const names = [...container.querySelectorAll(".rail-heading")]
+    const names = [...container.querySelectorAll(".groupbar-tab")]
       .map((h) => h.textContent);
     expect(names).toEqual(
-      ["The project2", "Gather6", "Discover and test8", "Communicate5",
-       "This machine5"]);
-    // 23 sections plus the three machine pages: nothing has been dropped.
-    expect(SECTIONS.length + PAGES.length).toBe(26);
+      ["The project2", "Evidence3", "Analysis2", "Lineage3", "Communicate4",
+       "This machine4"]);
+    /*
+     * Fifteen sections plus the three machine pages.
+     *
+     * It was twenty-three. Eight were absorbed into the screen that owns them
+     * — searching the library, finding papers, finding data and digitising a
+     * figure are views of Sources; the chart catalogue is a view of Figures;
+     * the activity log is the second reading of the Record; the pattern sweep
+     * and the embedding space are two more readings of this project's
+     * analyses. Every one of them is still reachable, as a view rather than as
+     * a peer of the thing it serves.
+     */
+    expect(SECTIONS.length + PAGES.length).toBe(18);
   });
 
   it("shows only the current section's group", () => {
     const { container } = shell("connections");
     expect(visibleEntries(container)).toEqual([
-      "Discovery", "Compare", "Patterns", "Analyses", "Connections", "Findings",
-      "Research graph", "Embedding space",
+      "Connections", "Findings", "Research graph",
     ]);
     // And the entries of every other group are not merely hidden — they are
     // not built, so a screen reader walking the rail meets five headings.
@@ -79,12 +88,12 @@ describe("one group is expanded, and it is the one holding the current section",
     const { container } = shell("reports");
     expect(visibleEntries(container)).toContain("Reports");
     expect(heading("Communicate")).toHaveAttribute("aria-expanded", "true");
-    expect(heading("Gather")).toHaveAttribute("aria-expanded", "false");
+    expect(heading("Evidence")).toHaveAttribute("aria-expanded", "false");
   });
 
   it("marks the current entry, which is inside the open group", () => {
     const { container } = shell("findings");
-    const current = container.querySelector(".rail-item[aria-current='true']");
+    const current = container.querySelector(".sectionbar-item[aria-current='true']");
     expect(current?.textContent).toMatch(/^Findings/);
   });
 });
@@ -94,15 +103,17 @@ describe("a heading press expands its group and collapses the rest", () => {
     const { container } = shell("overview");
     expect(heading("The project")).toHaveAttribute("aria-expanded", "true");
 
-    fireEvent.click(heading("Gather"));
+    fireEvent.click(heading("Evidence"));
 
-    expect(heading("Gather")).toHaveAttribute("aria-expanded", "true");
-    for (const other of HEADINGS.filter((h) => h !== "Gather")) {
+    expect(heading("Evidence")).toHaveAttribute("aria-expanded", "true");
+    for (const other of HEADINGS.filter((h) => h !== "Evidence")) {
       expect(heading(other), other).toHaveAttribute("aria-expanded", "false");
     }
     expect(visibleEntries(container)).toEqual([
-      "Sources", "Variables", "Search sources", "Find papers", "Find data",
-      "Read a figure",
+      // Three, not six: searching the library, finding papers, finding data
+      // and digitising a figure are views of Sources now rather than peers of
+      // it, and Compare joined what it compares.
+      "Sources", "Variables", "Compare",
     ]);
   });
 
@@ -111,7 +122,7 @@ describe("a heading press expands its group and collapses the rest", () => {
      *  there; `Enter` and `Space` are the button contract, and the headings are
      *  real buttons so they get it without a handler of our own. */
     shell("overview");
-    const gather = heading("Gather");
+    const gather = heading("Evidence");
     expect(gather.tagName).toBe("BUTTON");
     expect(gather.tabIndex).toBeGreaterThanOrEqual(0);
     gather.focus();
@@ -122,7 +133,7 @@ describe("a heading press expands its group and collapses the rest", () => {
 
   it("names the region it opens", () => {
     const { container } = shell("overview");
-    const controls = heading("Gather").getAttribute("aria-controls")!;
+    const controls = heading("Evidence").getAttribute("aria-controls")!;
     expect(container.querySelector(`#${controls}`)).not.toBeNull();
   });
 
@@ -135,8 +146,10 @@ describe("a heading press expands its group and collapses the rest", () => {
     const { container } = shell("overview");
     fireEvent.click(heading("The project"));
     expect(heading("The project")).toHaveAttribute("aria-expanded", "true");
-    expect(visibleEntries(container)).toEqual(["Workboard", "Overview"]);
-    expect(container.querySelector('.rail [aria-current="true"]')?.textContent)
+    // Overview first: it is where a researcher lands and what the loop card
+    // is on, and the workboard is where objects are arranged afterwards.
+    expect(visibleEntries(container)).toEqual(["Overview", "Workboard"]);
+    expect(container.querySelector('.sectionbar [aria-current="true"]')?.textContent)
       .toMatch(/^Overview/);
   });
 
@@ -145,8 +158,8 @@ describe("a heading press expands its group and collapses the rest", () => {
      *  override of it. An override that outlived the screen it was made on
      *  would leave the rail pointing somewhere the researcher no longer is. */
     const { rerender } = shell("overview");
-    fireEvent.click(heading("Gather"));
-    expect(heading("Gather")).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(heading("Evidence"));
+    expect(heading("Evidence")).toHaveAttribute("aria-expanded", "true");
 
     rerender(
       <Shell section="reports" onSection={vi.fn()} map={null} inspector={null}
@@ -157,7 +170,7 @@ describe("a heading press expands its group and collapses the rest", () => {
     );
 
     expect(heading("Communicate")).toHaveAttribute("aria-expanded", "true");
-    expect(heading("Gather")).toHaveAttribute("aria-expanded", "false");
+    expect(heading("Evidence")).toHaveAttribute("aria-expanded", "false");
   });
 });
 
@@ -176,7 +189,7 @@ describe("every one of the twenty-six entries is still reachable", () => {
       // press is skipped only to keep the count of presses honest at two.
       const head = heading(section.group);
       if (head.getAttribute("aria-expanded") === "false") fireEvent.click(head);
-      const rail = container.querySelector(".rail-entries:not([hidden])")!;
+      const rail = container.querySelector(".sectionbar")!;
       const row = within(rail as HTMLElement).getByRole("button",
         { name: (name) => name.startsWith(section.label) });
       fireEvent.click(row);

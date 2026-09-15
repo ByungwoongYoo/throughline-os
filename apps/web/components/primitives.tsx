@@ -124,8 +124,69 @@ export function Failure({ error, retry }: { error: unknown; retry?: () => void }
  * happen to share this pill (`globals.css` says so at `.status-passed`), and
  * they are printed as they arrive.
  */
-export function Status({ value, raw = false }: {
-  value: string;
+/**
+ * A state said twice: a coloured mark and the word for it.
+ *
+ * §08 gives the colours their meanings — "gold marks a research focus, blue
+ * marks data selection, green marks actual successful states, amber review,
+ * red/rust failure or rejected path" — and then the rule that matters most:
+ * **add a label/icon for every meaningful state**. Colour alone fails anybody
+ * who cannot separate the hues, and a bare word is what the internal screens
+ * had: "passed", "violated" and "noted" set in the same grey as the sentence
+ * beside them, so a table of checks read as a table of prose.
+ *
+ * The mark is decorative in the accessibility tree because the word is right
+ * there; two announcements of one state is noise, not redundancy.
+ *
+ * Deliberately not `Status`. That renders a *lifecycle* pill and knows the
+ * vocabulary of findings and connections. This is for the smaller judgements
+ * that appear inside a panel — a check's outcome, whether a result reached
+ * significance — where a pill would shout and a lifecycle label would lie.
+ */
+const MARK: Record<string, string> = {
+  passed: "ok", yes: "ok", true: "ok", completed: "ok", survived: "ok",
+  violated: "bad", failed: "bad", no: "bad", false: "bad", refused: "bad",
+  noted: "review", review: "review", queued: "review", running: "review",
+  not_tested: "unknown", unknown: "unknown", null: "unknown",
+  /*
+   * The lifecycle vocabulary too, for the compact case.
+   *
+   * `Status` renders the phrase a reader needs when the state *is* the
+   * subject — "Checked — survived the robustness checks". In a four-row
+   * summary that phrase is longer than the thing it describes, and it pushed
+   * the variable pair it belongs to into an ellipsis. Same meanings, one word.
+   */
+  validated: "ok", replicated: "ok",
+  exploratory: "review", candidate: "review",
+  conflicted: "bad", deprecated: "bad",
+};
+
+export function StateMark({ value, label }: {
+  /** The state itself, in whatever vocabulary the caller speaks. */
+  value: string | boolean | null | undefined;
+  /** What to print, when the state's own spelling is not what a reader wants. */
+  label?: string;
+}) {
+  const raw = value === null || value === undefined ? "null" : String(value);
+  const tone = MARK[raw.toLowerCase()] ?? "unknown";
+  return (
+    <span className="statemark" data-tone={tone}>
+      <span className="statemark-dot" aria-hidden />
+      {label ?? raw.replace(/_/g, " ")}
+    </span>
+  );
+}
+
+export function Status({ value, raw = false, compact = false }: {
+  /**
+   * The state. Optional because a payload can omit it — an older server, a
+   * ranked list that carries identity and effect and not lifecycle — and a
+   * pill is a *display* of a state, so the one thing it must never do is take
+   * the screen down when the state is absent. It crashed on `undefined`
+   * (`value.replace` on nothing), which turned a missing field into a blank
+   * page for everything beside it.
+   */
+  value: string | null | undefined;
   /**
    * Print `value` verbatim even if it collides with a lifecycle state.
    *
@@ -135,9 +196,33 @@ export function Status({ value, raw = false }: {
    * check "has been replicated".
    */
   raw?: boolean;
+  /**
+   * The row form: a mark and the phrase, with the machine word on hover.
+   *
+   * The machine word beside the phrase is kept on purpose — it is the word the
+   * API, the ledger and a support thread use for the same state. Repeated in
+   * every row of a ten-row table it was most of what the State column said:
+   * "Checked — survived the robustness checks validated", ten times, beside
+   * the numbers the table exists to compare. A table asks for the phrase; the
+   * word is one hover away, and the full pill stays wherever one object is
+   * the subject.
+   */
+  compact?: boolean;
 }) {
+  // Absent is a state a reader can act on; blank is not.
+  if (value == null || value === "") {
+    return <span className="status status-unknown">not recorded</span>;
+  }
   const known = raw ? undefined : LIFECYCLE[value];
   const word = value.replace(/_/g, " ");
+  if (compact) {
+    return (
+      <span className={`status-row status-${value}`} title={word}>
+        <span className="status-row-dot" aria-hidden />
+        {known ? known.label : word}
+      </span>
+    );
+  }
   return (
     <span className={`status status-${value}`}>
       {/* The pill's own rule is upper-case single words; a phrase set in caps

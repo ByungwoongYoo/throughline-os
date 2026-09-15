@@ -17,7 +17,8 @@ import { join } from "node:path";
 import {
   DEFAULT_SECTION, SECTION_IDS, isSection, itemFromSearch, placeFromSearch,
   projectFromSearch, searchForPlace, searchForProject, searchForSection,
-  sectionFromSearch,
+  defaultView, searchForView, sectionFromSearch, viewForMovedSection,
+  viewFromSearch,
 } from "@/lib/section-url";
 
 describe("a URL names a section", () => {
@@ -172,5 +173,131 @@ describe("a URL names a place: project, section and item (D196)", () => {
     search = searchForProject("prj_8", search);
     expect(placeFromSearch(search)).toEqual({ section: "analyses", item: "arun_2" });
     expect(projectFromSearch(search)).toBe("prj_8");
+  });
+});
+
+/**
+ * The Research graph's two readings.
+ *
+ * The river is a view of a section rather than a section of its own (§08
+ * refuses it a place in the navigation), so it needs its own parameter — and
+ * that parameter has to behave like the others: validated against a
+ * vocabulary, absent when it is the default, and incapable of disturbing
+ * anything already in the address.
+ */
+describe("a section that became a view", () => {
+  /*
+   * Eight sections were absorbed into the screen that owns them, and every link
+   * anybody copied while they were sections still exists — in somebody's tabs,
+   * in the ledger, in the walkthrough. Each one lands on the thing it named.
+   */
+  it("lands on the screen that absorbed it, on the right view", () => {
+    expect(placeFromSearch("?section=literature"))
+      .toEqual({ section: "sources", item: null });
+    expect(viewForMovedSection("?section=literature")).toBe("papers");
+
+    expect(placeFromSearch("?section=gallery"))
+      .toEqual({ section: "figures", item: null });
+    expect(viewForMovedSection("?section=gallery")).toBe("primitives");
+
+    expect(placeFromSearch("?section=activity"))
+      .toEqual({ section: "journal", item: null });
+    expect(viewForMovedSection("?section=activity")).toBe("done");
+
+    expect(placeFromSearch("?section=patterns"))
+      .toEqual({ section: "analyses", item: null });
+    expect(viewForMovedSection("?section=patterns")).toBe("patterns");
+
+    expect(placeFromSearch("?section=embedding"))
+      .toEqual({ section: "analyses", item: null });
+    expect(viewForMovedSection("?section=embedding")).toBe("embedding");
+  });
+
+  /*
+   * A redirect that carries the object with it.
+   *
+   * Both of the absorbed sections were reachable with an `item` in the address
+   * — a run open in the sweep, a point open in the embedding — and dropping it
+   * on the way would land the researcher on a list, which is the silent wrong
+   * answer a redirect is supposed to avoid.
+   */
+  it("keeps the object a moved link named", () => {
+    expect(placeFromSearch("?section=patterns&item=anl_1234"))
+      .toEqual({ section: "analyses", item: "anl_1234" });
+  });
+
+  it("leaves a section that did not move alone", () => {
+    expect(placeFromSearch("?section=findings"))
+      .toEqual({ section: "findings", item: null });
+    expect(viewForMovedSection("?section=findings")).toBeNull();
+  });
+});
+
+describe("the view in the address", () => {
+  it("falls back to the section's own first view, including for a stranger's value", () => {
+    expect(viewFromSearch("", "graph")).toBe("graph");
+    expect(viewFromSearch("?view=lagoon", "graph")).toBe("graph");
+    expect(viewFromSearch("?view=<script>", "graph")).toBe("graph");
+    // A view that belongs to another section is not this section's view.
+    expect(viewFromSearch("?view=river", "sources")).toBe("library");
+  });
+
+  it("reads a section's own view back", () => {
+    expect(viewFromSearch("?view=river", "graph")).toBe("river");
+    expect(viewFromSearch("?view=papers", "sources")).toBe("papers");
+  });
+
+  /*
+   * The figure builder's five questions.
+   *
+   * They lived in `useState`, which is D196's argument one level down: "How it
+   * all relates" could not be linked to and did not survive a reload. What
+   * forced the change is that it could not be *arrived at* — the chart
+   * catalogue lists fourteen primitives and could not offer "draw my data this
+   * way", because the lens that would draw it had no address.
+   */
+  it("carries the figure builder's lens", () => {
+    expect(viewFromSearch("?view=matrix", "figures")).toBe("matrix");
+    expect(viewFromSearch("?view=one", "figures")).toBe("one");
+    expect(viewFromSearch("?view=map", "figures")).toBe("map");
+    // The catalogue is a peer of the lenses, not one of them.
+    expect(viewFromSearch("?view=primitives", "figures")).toBe("primitives");
+  });
+
+  it("keeps `saved` as the builder's front door", () => {
+    // Renaming it would break every link already copied, and `saved` is what
+    // the builder opens on: its own default lens, everything the project
+    // tested. So it stays first, which is what makes it the default.
+    expect(defaultView("figures")).toBe("saved");
+    expect(viewFromSearch("", "figures")).toBe("saved");
+    expect(searchForView("saved", "figures", "")).toBe("");
+    // A lens the section does not own still falls back to its front door.
+    expect(viewFromSearch("?view=river", "figures")).toBe("saved");
+  });
+
+  it("answers null for a section that has no views", () => {
+    /** Most sections are one screen. Asking them for a view should say so
+     *  rather than inventing a default nothing renders. */
+    expect(viewFromSearch("?view=river", "settings")).toBeNull();
+    expect(defaultView("settings")).toBeNull();
+  });
+
+  it("keeps a section's default out of the address", () => {
+    expect(searchForView("graph", "graph", "")).toBe("");
+    expect(searchForView("river", "graph", "")).toBe("?view=river");
+    expect(searchForView("graph", "graph", "?view=river")).toBe("");
+    // And a section whose default is not "graph" behaves the same way.
+    expect(searchForView("library", "sources", "")).toBe("");
+    expect(searchForView("papers", "sources", "")).toBe("?view=papers");
+  });
+
+  it("leaves the section, item and project where it found them", () => {
+    let search = searchForProject("prj_7", "");
+    search = searchForPlace({ section: "graph", item: "obj_1" }, search);
+    search = searchForView("river", "graph", search);
+
+    expect(projectFromSearch(search)).toBe("prj_7");
+    expect(placeFromSearch(search)).toEqual({ section: "graph", item: "obj_1" });
+    expect(viewFromSearch(search, "graph")).toBe("river");
   });
 });

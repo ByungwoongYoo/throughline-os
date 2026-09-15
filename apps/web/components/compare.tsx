@@ -61,9 +61,20 @@ const TONE: Record<string, string> = {
   DIRECTLY_COMPARABLE: "positive",
 };
 
-export function Compare({ projectId, sources }: {
+/** The eight things this screen can compare. Named once, so the strip and the
+ *  master's own chooser cannot come to offer different sets. */
+type Verb = "datasets" | "claim" | "papers" | "many" | "manydata" | "images"
+          | "findings" | "scans";
+
+export function Compare({ projectId, sources, onOpenSource, onFindPapers, onAddData }: {
   projectId: string;
   sources: ApiState<Source[]>;
+  /** Where the reasoning master sends a project that has no paper yet. */
+  onFindPapers?: () => void;
+  /** Where it sends a project that has no dataset yet. */
+  onAddData?: () => void;
+  /** Open one of the compared sources, keeping the browser's way back. */
+  onOpenSource?: (sourceId: string) => void;
 }) {
   /*
    * Part I's six verbs, all of them wired, plus two this product added:
@@ -76,9 +87,22 @@ export function Compare({ projectId, sources }: {
    * This comment said "two are built" for a long time after six were, which is
    * the ordinary fate of a count kept in prose beside the thing it counts.
    */
-  const [verb, setVerb] =
-    useState<"datasets" | "claim" | "papers" | "many" | "manydata" | "images"
-             | "findings" | "scans">("datasets");
+  /*
+   * Opens on the reasoning master unless the project can only use the other.
+   *
+   * This opened on Dataset ↔ dataset for every project, and most projects have
+   * one dataset — so the first thing Compare showed was "Two datasets are
+   * needed" in an otherwise empty page. Paper ↔ dataset is UI_01, the screen
+   * this section exists to be, and it waits well without a paper. A project
+   * holding two or more datasets and no paper opens where it can act.
+   */
+  const initialVerb: Verb = (() => {
+    const all = sources.data ?? [];
+    const datasetCount = all.filter((s) => s.dataset).length;
+    const paperCount = all.filter((s) => !s.dataset).length;
+    return datasetCount >= 2 && paperCount === 0 ? "datasets" : "claim";
+  })();
+  const [verb, setVerb] = useState<Verb>(initialVerb);
   const [left, setLeft] = useState<string | null>(null);
   const [right, setRight] = useState<string | null>(null);
   const [assessment, setAssessment] = useState<Assessment | null>(null);
@@ -156,13 +180,44 @@ export function Compare({ projectId, sources }: {
   }
 
   if (verb === "claim") {
+    /*
+     * The one verb that wears a master, and it brings its own chrome.
+     *
+     * UI_01 replaces the screen title and the eight-tab strip with a breadcrumb
+     * and a "Comparison type" chooser at the right, because the master's own
+     * title is the question — "Can this claim be tested here?" — and a second
+     * heading above it plus a row of eight tabs pushed that question, the
+     * source pair and the step sequence a third of the way down a 992px screen.
+     * The other seven verbs keep the strip: they are a set of peers, and this
+     * one is a place.
+     */
     return (
       <>
-        <h1>Compare</h1>
-        {tabs}
-        <TabPanel name="compare" value={verb}>
-          <ClaimTest projectId={projectId} sources={sources.data ?? []} />
-        </TabPanel>
+        <div className="cmp-master-head">
+          <p className="crumbs">
+            <button className="btn-text" type="button" onClick={() => setVerb("datasets")}>
+              Compare
+            </button>
+            <span aria-hidden> / </span>
+            <span aria-current="page">Paper ↔ dataset</span>
+          </p>
+          <label className="cmp-type">
+            <span>Comparison type:</span>
+            <select value={verb} onChange={(e) => setVerb(e.target.value as Verb)}>
+              <option value="datasets">Dataset ↔ dataset</option>
+              <option value="claim">Paper ↔ dataset</option>
+              <option value="papers">Paper ↔ paper</option>
+              <option value="many">Several papers</option>
+              <option value="manydata">Several datasets</option>
+              <option value="images">Figures</option>
+              <option value="findings">Finding ↔ finding</option>
+              <option value="scans">Scan ↔ scan</option>
+            </select>
+          </label>
+        </div>
+        <ClaimTest projectId={projectId} sources={sources.data ?? []}
+                   onOpenSource={onOpenSource}
+                   onFindPapers={onFindPapers} onAddData={onAddData} />
       </>
     );
   }

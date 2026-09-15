@@ -7,18 +7,22 @@ import {
 } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import {
-  DEFAULT_SECTION, Place, placeFromSearch, projectFromSearch, searchForPlace,
-  searchForProject,
+  DEFAULT_SECTION, Place, View, defaultView, placeFromSearch, projectFromSearch,
+  searchForPlace, searchForProject, searchForView, viewForMovedSection,
+  viewFromSearch,
 } from "@/lib/section-url";
 import {
   Kind, lastProject, placeFor, rememberProject, selectionAt,
 } from "@/lib/place";
 import { currentStep, loopSteps, stepTarget } from "@/lib/loop";
 import { StepStrip } from "@/components/StepStrip";
+import { AnalysisContext } from "@/components/AnalysisContext";
+import { ViewTabs } from "@/components/ViewTabs";
 import { Centered, Failure, Fold, Loading } from "@/components/primitives";
 import { Crumb, PAGES, SECTIONS, Section, Shell } from "@/components/Shell";
 import { CommandPalette, buildCommands } from "@/components/CommandPalette";
-import {
+import { AnalysisRail } from "@/components/AnalysisRail";
+import { humanMethod,
   AnalysisDetail, ConnectionDetail, ConnectionsTable, Discover, EvidenceGraphView,
   EvidenceGraphSummary, Findings, ObjectHistoryFor, Overview, Search, SourceDetail,
   Sources,
@@ -29,7 +33,7 @@ import { GraphStats } from "@/components/graphstats";
 import { Preregister } from "@/components/preregister";
 import { ReportDetail, Reports } from "@/components/reports";
 import { GraphView } from "@/components/graphview";
-import { Figures } from "@/components/figures";
+import { Figures, type FigureLens } from "@/components/figures";
 import { Gallery } from "@/components/gallery";
 import { EmbeddingSpace } from "@/components/embeddingspace";
 import { ProjectMenu } from "@/components/ProjectMenu";
@@ -138,12 +142,30 @@ function Workspace({ user }: { user: SignedInUser }) {
       ? null
       : projectFromSearch(window.location.search) ?? lastProject(user.id));
 
+  /*
+   * Which of the Research graph's two readings is open.
+   *
+   * In the address rather than in the graph component's own state, so the
+   * river can be linked to, survives a reload, and is what Back leaves — the
+   * same argument `section-url.ts` makes for the section itself. The Overview
+   * relies on it too: its entrance into the lineage is a place, not a message
+   * passed sideways into a component.
+   */
+  const [view, setViewState] = useState<View | null>(() =>
+    typeof window === "undefined"
+      ? null
+      : viewForMovedSection(window.location.search)
+        ?? viewFromSearch(window.location.search,
+                          placeFromSearch(window.location.search).section));
+
   // Read by callbacks that must see the current value without being
   // recreated on every navigation.
   const placeRef = useRef(place);
   placeRef.current = place;
   const projectRef = useRef(projectId);
   projectRef.current = projectId;
+  const viewRef = useRef(view);
+  viewRef.current = view;
 
   const project = projects.data?.find((p) => p.id === projectId) ?? null;
   const activeId = project?.id ?? null;
@@ -157,16 +179,41 @@ function Workspace({ user }: { user: SignedInUser }) {
    * The project goes into the address on every navigation, so that anything
    * copied or reloaded from here on comes back to the same project.
    */
-  const go = useCallback((next: Place, options: { project?: string; replace?: boolean } = {}) => {
+  const go = useCallback((next: Place,
+                         options: { project?: string; replace?: boolean; view?: View } = {}) => {
     setPlaceState(next);
+    /*
+     * The view belongs to one section, so it leaves the address with it.
+     * Carrying `view=river` onto Findings would put a parameter in every link
+     * copied from there that means nothing on arrival — and would quietly
+     * reopen the river the next time the graph was visited, which is not where
+     * the researcher left it.
+     */
+    /*
+     * A view belongs to the section that owns it, so it survives a move only
+     * when the section does not change. Carrying `river` onto Sources would
+     * put a parameter in every link copied from there that means nothing on
+     * arrival, and would quietly reopen a view the researcher had left.
+     */
+    const nextView = options.view
+      ?? (next.section === placeRef.current.section
+          ? viewRef.current : defaultView(next.section));
+    setViewState(nextView);
     if (typeof window === "undefined") return;
     const search = searchForProject(
       options.project ?? projectRef.current,
-      searchForPlace(next, window.location.search));
+      searchForView(nextView, next.section,
+                    searchForPlace(next, window.location.search)));
     const url = `${window.location.pathname}${search}${window.location.hash}`;
     if (options.replace) window.history.replaceState(null, "", url);
     else window.history.pushState(null, "", url);
   }, []);
+
+  /** Switch the current section's view, leaving a history entry. */
+  const goView = useCallback((next: View) => {
+    go({ section: placeRef.current.section, item: placeRef.current.item },
+       { view: next });
+  }, [go]);
 
   /**
    * Open a thing of a kind, in the section that shows it (D195).
@@ -237,6 +284,9 @@ function Workspace({ user }: { user: SignedInUser }) {
   useEffect(() => {
     const onPop = () => {
       setPlaceState(placeFromSearch(window.location.search));
+      setViewState(viewForMovedSection(window.location.search)
+        ?? viewFromSearch(window.location.search,
+                          placeFromSearch(window.location.search).section));
       const named = projectFromSearch(window.location.search);
       if (named) setProjectIdState(named);
     };
@@ -261,6 +311,8 @@ function Workspace({ user }: { user: SignedInUser }) {
    * fetched again, so both panels describe the same run.
    */
   const [runMethod, setRunMethod] = useState<string | null>(null);
+  /** The open run's recorded roles, for the cockpit's left column. */
+  const [runVariables, setRunVariables] = useState<Record<string, unknown>>({});
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [pendingDiscovery, setPendingDiscovery] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -325,6 +377,31 @@ function Workspace({ user }: { user: SignedInUser }) {
   const inFlight = map.data?.counts.in_flight ?? 0;
   const wasBusy = useRef(false);
   const { reload: reloadMap } = map;
+
+  /**
+   * Run the whole loop on this project, in one act.
+   *
+   * Queues `project.advance` and leaves the workspace to show the work
+   * arriving — the step strip already says how many jobs are in flight, and
+   * watching a project assemble itself is a better answer than a spinner over
+   * a screen that then changes underneath you.
+   */
+  const [advancing, setAdvancing] = useState(false);
+  const runTheLoop = useCallback(async () => {
+    if (!projectRef.current) return;
+    setAdvancing(true);
+    try {
+      await api.post(`/api/projects/${projectRef.current}/advance`, {});
+      reloadMap();
+    } catch {
+      // The map reload is what surfaces the result; a failure to queue leaves
+      // the control pressable again rather than reporting a second error over
+      // a screen that has not changed.
+    } finally {
+      setAdvancing(false);
+    }
+  }, [reloadMap]);
+
   const { reload: reloadSources } = sources;
   const { reload: reloadAnalyses } = analyses;
   const { reload: reloadConnections } = connections;
@@ -436,8 +513,10 @@ function Workspace({ user }: { user: SignedInUser }) {
                 // The method, as the detail's own heading spells it; a run id
                 // in a breadcrumb tells the researcher nothing about where
                 // they are.
-                ? analyses.data?.find((a) => a.id === selection.id)?.method
-                    .replace(/_/g, " ")
+                ? (() => {
+                    const method = analyses.data?.find((a) => a.id === selection.id)?.method;
+                    return method ? humanMethod(method) : undefined;
+                  })()
                 : undefined;
     crumbs.push({ label: named ?? selection.id });
   }
@@ -465,6 +544,8 @@ function Workspace({ user }: { user: SignedInUser }) {
   };
   const strip = loopMap ? (
     <StepStrip
+      steps={steps}
+      onGo={goSection}
       step={step}
       index={step ? steps.findIndex((s) => s.id === step.id) + 1 : 0}
       total={steps.length}
@@ -517,8 +598,39 @@ function Workspace({ user }: { user: SignedInUser }) {
           // No selection, no panel: a column saying "Nothing is selected" beside
           // every list is chrome, not context (T139). The installation readout
           // it carried stays one press away wherever an object is open.
-          selection
-            ? <Inspector selection={selection} capabilities={capabilities.data} />
+          /*
+            The cockpit gets the column §09 asks it for; everything else keeps
+            the generic one. A run is the only object in this product that is
+            joined to a connection, a dataset and a validation state at once,
+            and those three were in three other sections.
+          */
+          section === "analyses" && selection?.kind === "analysis"
+            ? <AnalysisContext
+                projectId={project.id}
+                runId={selection.id}
+                onOpenConnection={(id) => open("connection", id)}
+                onOpenSource={(id) => open("source", id)}
+                onOpenLineage={(objectId) =>
+                  go({ section: "graph", item: objectId }, { view: "river" })}
+              />
+            : selection
+              ? <Inspector selection={selection} capabilities={capabilities.data} />
+              : null
+        }
+        rail={
+          /*
+            The cockpit's left column, and only the cockpit's.
+            §08's dense workbench puts the working material on the left —
+            sources, variable roles, the run family — and that is a real thing
+            to show in front of a result. Every other screen has no such thing,
+            and a left column that said "nothing here" beside a collection list
+            would be the chrome T139 removed. So it renders where it means
+            something and nowhere else, and the width goes back to the work.
+          */
+          section === "analyses" && selection?.kind === "analysis"
+            ? <AnalysisRail projectId={project.id} runId={selection.id}
+                            variables={runVariables}
+                            onOpenRun={select("analysis")} />
             : null
         }
       >
@@ -535,6 +647,10 @@ function Workspace({ user }: { user: SignedInUser }) {
           <>
             <Overview project={project} map={map.data} onGo={goSection}
                       onOpen={(kind, id) => open(kind, id)} onAddSources={upload}
+                      onLineage={() => go({ section: "graph", item: null },
+                                          { view: "river" })}
+                      onAdvance={runTheLoop}
+                      advancing={advancing}
                       labels={variables.data?.labels} />
             {/*
               Directly under the meters, because the Contradictions meter is
@@ -572,17 +688,68 @@ function Workspace({ user }: { user: SignedInUser }) {
                   When nothing is withdrawn this renders a single quiet line.
                 */}
                 <WithdrawnSources projectId={project.id} />
-                <Sources
-                  sources={sources} onSelect={select("source")}
-                  upload={upload} uploading={uploading} uploadError={uploadError}
-                  formats={capabilities.data?.formats ?? null}
+                {/*
+                  * The library, and the four ways of getting something into it.
+                  *
+                  * Searching this project's sources, finding a paper, finding a
+                  * dataset and digitising a figure were four sections of their
+                  * own, listed beside the library as though each were a peer of
+                  * it. They are not: every one of them ends in a source landing
+                  * here, and a researcher looking for "where do I add a paper"
+                  * had to already know which of five entries meant that. They
+                  * are views of the library now, and the nav is four shorter.
+                  */}
+                <ViewTabs
+                  name="sources-view"
+                  label="The library, and the ways into it"
+                  value={(view ?? "library") as string}
+                  onChange={(v: string) => goView(v as View)}
+                  options={[["library", "Library"], ["search", "Search these"],
+                            ["papers", "Find papers"], ["data", "Find data"],
+                            ["figure", "Read a figure"]] as const}
                 />
+                {(view ?? "library") === "library" && (
+                  <Sources
+                    sources={sources} onSelect={select("source")}
+                    upload={upload} uploading={uploading} uploadError={uploadError}
+                    formats={capabilities.data?.formats ?? null}
+                  />
+                )}
+                {view === "search" && (
+                  <Search projectId={project.id} onOpenSource={select("source")} />
+                )}
+                {view === "papers" && (
+                  <>
+                    <Literature projectId={project.id} />
+                    {/*
+                      Beneath search, not instead of it. Searching four databases
+                      and harvesting one repository are different acts — one asks
+                      a question, the other takes a copy — and a researcher
+                      arrives wanting the first far more often than the second.
+                    */}
+                    <Harvest projectId={project.id} />
+                  </>
+                )}
+                {view === "data" && (
+                  /* A found dataset comes in through the same door a dropped
+                     file uses, and the researcher goes with it to watch it
+                     being profiled. */
+                  <DataSearch projectId={project.id}
+                              onImported={(id) => { reloadSources(); reloadMap(); open("source", id); }} />
+                )}
+                {view === "figure" && (
+                  /*
+                   * The digitised points go in as a dataset, and the researcher
+                   * goes with them: the new source's screen shows it being
+                   * profiled, the same way a recorded finding is shown rather
+                   * than announced.
+                   */
+                  <ReadFigure projectId={project.id}
+                              onAdded={(id) => { reloadSources(); reloadMap(); open("source", id); }} />
+                )}
               </>
         )}
         {section === "variables" && <Variables projectId={project.id} />}
-        {section === "search" && (
-          <Search projectId={project.id} onOpenSource={select("source")} />
-        )}
         {section === "discover" && (
           selection?.kind === "connection"
             ? <ConnectionDetail connectionId={selection.id} projectId={project.id}
@@ -695,8 +862,12 @@ function Workspace({ user }: { user: SignedInUser }) {
           selection?.kind === "analysis"
             ? <>
                 <AnalysisDetail runId={selection.id} projectId={project.id}
+                                onOpenRun={select("analysis")}
                                 onMethod={setRunMethod}
-                                onOpenObject={select("object")} />
+                                onVariables={setRunVariables}
+                                onOpenObject={select("object")}
+                                onOpenFigures={() =>
+                                  go({ section: "figures", item: selection.id })} />
                 {/*
                   §75. Beside the run, because "how was this computed" is
                   asked while looking at the number.
@@ -718,7 +889,43 @@ function Workspace({ user }: { user: SignedInUser }) {
                              method={runMethod}
                              onOpen={select("analysis")} />
               </>
-            : <AnalysisList projectId={project.id} onSelect={select("analysis")} />
+            : <>
+                {/*
+                  * One screen, three readings of the same runs.
+                  *
+                  * The pattern sweep and the embedding space were sections of
+                  * their own in the rail, and both are questions about *this
+                  * project's analyses*: which pairs a sweep proposed, and how
+                  * the runs sit relative to one another. Listed beside
+                  * Analyses they read as separate features, and a researcher
+                  * looking for either had to already know that "Patterns" did
+                  * not mean the patterns in their data.
+                  */}
+                <ViewTabs
+                  name="analyses-view"
+                  label="This project's analyses, three ways"
+                  value={(view ?? "runs") as string}
+                  onChange={(v: string) => goView(v as View)}
+                  options={[["runs", "Runs"], ["patterns", "Pattern sweep"],
+                            ["embedding", "Embedding space"]] as const}
+                />
+                {(view ?? "runs") === "runs" && (
+                  <AnalysisList projectId={project.id}
+                                onSelect={select("analysis")} />
+                )}
+                {view === "patterns" && (
+                  <Patterns
+                    projectId={project.id}
+                    datasetVersionId={
+                      (sources.data ?? []).find((s) => s.dataset)?.dataset
+                        ?.dataset_version_id ?? null}
+                    columns={Object.keys(variables.data?.labels ?? {})}
+                  />
+                )}
+                {view === "embedding" && (
+                  <EmbeddingSpace projectId={project.id} />
+                )}
+              </>
         )}
         {section === "reports" && (
           selection?.kind === "artifact"
@@ -740,41 +947,51 @@ function Workspace({ user }: { user: SignedInUser }) {
               </>
         )}
         {section === "compare" && (
-          <Compare projectId={project.id} sources={sources} />
-        )}
-        {section === "patterns" && (
-          <Patterns
-            projectId={project.id}
-            datasetVersionId={
-              (sources.data ?? []).find((s) => s.dataset)?.dataset
-                ?.dataset_version_id ?? null}
-            columns={Object.keys(variables.data?.labels ?? {})}
-          />
-        )}
-        {section === "literature" && (
-          <>
-            <Literature projectId={project.id} />
-            {/*
-              Beneath search, not instead of it. Searching four databases and
-              harvesting one repository are different acts — one asks a
-              question, the other takes a copy — and a researcher arrives here
-              wanting the first far more often than the second.
-            */}
-            <Harvest projectId={project.id} />
-          </>
+          <Compare projectId={project.id} sources={sources}
+                   onOpenSource={(id) => open("source", id)}
+                   onFindPapers={() => go({ section: "sources", item: null }, { view: "papers" })}
+                   onAddData={() => go({ section: "sources", item: null }, { view: "library" })} />
         )}
         {section === "notebook" && <Notebook projectId={project.id} />}
         {section === "journal" && (
-          /*
-           * An entry is about a research object, and the place that shows one
-           * is the research graph, with the object's own journal open beside
-           * it. This used to hand the id to the analysis detail, which reads
-           * run ids, and to leave the section on Journal — so the link changed
-           * the breadcrumb and nothing else (D195).
-           */
-          <Journal projectId={project.id} onOpenObject={select("object")} />
+          <>
+            {/*
+              * One record, two readings.
+              *
+              * The journal and the activity log were two entries in the rail
+              * answering one question — what has happened in this project —
+              * and a researcher wanting "what did I decide last week" had to
+              * know that decisions are written and imports are done. They are
+              * the same record read two ways.
+              */}
+            <ViewTabs
+              name="record-view"
+              label="What has happened in this project"
+              value={(view ?? "written") as string}
+              onChange={(v: string) => goView(v as View)}
+              options={[["written", "Written"], ["done", "Done"]] as const}
+            />
+            {(view ?? "written") === "written"
+              ? (
+                /*
+                 * An entry is about a research object, and the place that shows
+                 * one is the research graph, with the object's own journal open
+                 * beside it. This used to hand the id to the analysis detail,
+                 * which reads run ids, and to leave the section on Journal — so
+                 * the link changed the breadcrumb and nothing else (D195).
+                 */
+                <Journal projectId={project.id} onOpenObject={select("object")}
+                         onWrite={() => goSection("notebook")} />
+              )
+              : (
+                <ProjectActivity projectId={project.id}
+                                 onOpenObject={select("object")} />
+              )}
+          </>
         )}
-        {section === "activity" && <ProjectActivity projectId={project.id} />}
+        {/* The activity log is the Record's second reading (`section=activity`
+            redirects there), so `main`'s separate render for it has nowhere to
+            appear; Settings takes `main`'s admin flag. */}
         {section === "settings" && (
           <Settings projectId={project.id} isAdmin={user.is_admin === true} />
         )}
@@ -787,30 +1004,57 @@ function Workspace({ user }: { user: SignedInUser }) {
            * it.
            */
           <GraphView projectId={project.id}
+                     view={view}
+                     onView={goView}
                      focus={selection?.kind === "object" ? selection.id : null}
                      onSelect={(id) => open("object", id, { replace: true })} />
         )}
-        {section === "embedding" && <EmbeddingSpace projectId={project.id} />}
-        {section === "gallery" && <Gallery />}
-        {section === "datasearch" && (
-          /* A found dataset comes in through the same door a dropped file uses,
-             and the researcher goes with it to watch it being profiled. */
-          <DataSearch projectId={project.id}
-                      onImported={(id) => { reloadSources(); reloadMap(); open("source", id); }} />
-        )}
-        {section === "readfigure" && (
-          /*
-           * The digitised points go in as a dataset, and the researcher goes
-           * with them: the new source's screen shows it being profiled, the
-           * same way a recorded finding is shown rather than announced.
-           */
-          <ReadFigure projectId={project.id}
-                      onAdded={(id) => { reloadSources(); reloadMap(); open("source", id); }} />
-        )}
-
         {section === "figures" && (
-          <Figures projectId={project.id} runs={analyses}
-                   focusId={section === "figures" ? place.item : null} />
+          <>
+            {/*
+              * This project's figures, and the catalogue of what can be drawn.
+              *
+              * "Chart primitives" sat in *This machine*, beside Settings, as
+              * though a catalogue of chart kinds were a property of the
+              * installation. It is the answer to "what could I draw this as",
+              * which is a question you have while making a figure — so it is a
+              * view of Figures, and This machine is down to Settings alone.
+              */}
+            <ViewTabs
+              name="figures-view"
+              label="Figures, and what can be drawn"
+              value={(view ?? "saved") as string}
+              onChange={(v: string) => goView(v as View)}
+              options={[["saved", "This project"],
+                        ["primitives", "Chart primitives"]] as const}
+            />
+            {view === "primitives"
+              ? (
+                /*
+                 * The catalogue hands the lens it would be drawn with. It used
+                 * to be fourteen charts a researcher could look at and not
+                 * use: "if they click on that graph, they can change what
+                 * graph they need" is the whole point of having a catalogue
+                 * inside the product rather than in the documentation.
+                 */
+                <Gallery
+                  onDraw={(lens) => goView(lens as View)}
+                  onGo={(target) => go({ section: target.section as Section,
+                                         item: null },
+                                       { view: target.view as View })}
+                />
+              )
+              : (
+                <Figures projectId={project.id} runs={analyses}
+                         focusId={place.item}
+                         /* `saved` is the builder on its default lens, kept by
+                            that name so every link already copied still lands. */
+                         lens={(view === null || view === "saved")
+                               ? "all" : (view as FigureLens)}
+                         onLens={(next) =>
+                           goView((next === "all" ? "saved" : next) as View)} />
+              )}
+          </>
         )}
       </Shell>
 
