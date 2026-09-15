@@ -144,6 +144,10 @@ def candidates(cur, *, project_id: str, phrase: str, limit: int = 3
     return scored[:limit]
 
 
+class AliasRefused(ValueError):
+    """A proposal that would give a phrase two meanings."""
+
+
 def suggest(cur, *, project_id: str, phrase: str, canonical_variable_id: str,
             origin: str = "paper", origin_ref: str | None = None,
             created_by: str = "system") -> dict[str, Any] | None:
@@ -155,6 +159,29 @@ def suggest(cur, *, project_id: str, phrase: str, canonical_variable_id: str,
     that happens to use the word.
     """
     key = normalise(phrase)
+
+    # A phrase that is already the name or label of a *different* variable is
+    # refused, not queued. `resolve` refuses a phrase that names two variables
+    # (T156), so approving this would silently break a lookup that works today
+    # — and the proposal is the only moment a person is there to be told why.
+    # Its own exception rather than `None`: the route turns `None` into "already
+    # has a ruling ... a rejected term is not re-proposed", which would be false
+    # here (T158).
+    cur.execute(
+        "SELECT id, name, display_label FROM canonical_variables "
+        "WHERE project_id = %s AND id <> %s "
+        "  AND (lower(replace(name, '_', ' ')) = %s OR lower(display_label) = %s) "
+        "ORDER BY name LIMIT 1",
+        (project_id, canonical_variable_id, key, key))
+    taken = cur.fetchone()
+    if taken:
+        shown = taken["display_label"] or taken["name"]
+        raise AliasRefused(
+            f"{phrase.strip()!r} already names the variable {shown!r} "
+            f"({taken['name']}) in this project, so it cannot also mean another "
+            "one — a phrase with two meanings resolves to neither. Choose a more "
+            "specific phrase, or map the column to that variable instead.")
+
     cur.execute(
         "SELECT id, status FROM variable_aliases "
         "WHERE project_id = %s AND lower(replace(alias, '_', ' ')) = %s",

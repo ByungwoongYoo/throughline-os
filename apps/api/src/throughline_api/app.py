@@ -2942,11 +2942,16 @@ def suggest_alias(project_id: str, payload: AliasSuggestion,
     """Propose that a phrase names a canonical variable. Resolves nothing yet."""
     scoped_project(project_id, user)
     with transaction() as cur:
-        suggested = vocabulary.suggest(
-            cur, project_id=project_id, phrase=payload.phrase,
-            canonical_variable_id=payload.canonical_variable_id,
-            origin=payload.origin, origin_ref=payload.origin_ref,
-            created_by=user["id"])
+        try:
+            suggested = vocabulary.suggest(
+                cur, project_id=project_id, phrase=payload.phrase,
+                canonical_variable_id=payload.canonical_variable_id,
+                origin=payload.origin, origin_ref=payload.origin_ref,
+                created_by=user["id"])
+        except vocabulary.AliasRefused as exc:
+            # The domain's own sentence: it names the variable the phrase
+            # already belongs to, which the generic refusal below cannot.
+            raise HTTPException(409, str(exc)) from exc
         if suggested is None:
             raise HTTPException(409, (
                 f"{payload.phrase!r} already has a ruling in this project. A "
