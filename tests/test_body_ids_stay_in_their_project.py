@@ -54,7 +54,14 @@ def client():
 
 @pytest.fixture()
 def theirs():
-    """Another account's project, with a paper, a finding and an enquiry."""
+    """
+    Another account's project, with a paper, a finding, an enquiry and a note.
+
+    Cleans up after itself. It used to rely on the `client` fixture's teardown
+    to delete the user it made, and every test that used it happened to use
+    that too — until one did not, left an account behind, and
+    `test_deletion_is_recorded` found first-run setup already closed.
+    """
     from throughline_domain import enquiry
 
     user_id, project_id = new_id("usr"), new_id("prj")
@@ -93,7 +100,9 @@ def theirs():
         ids["note"] = journal.write(cur, project_id=project_id, object_id=ids["object"],
                                     object_type="dataset", body="Their own reading.",
                                     author=user_id)["id"]
-    return ids
+    yield ids
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM users")
 
 
 def _signed_in_project(client) -> str:
