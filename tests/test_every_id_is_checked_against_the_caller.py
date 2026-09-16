@@ -383,6 +383,26 @@ def request_for(method: str, route: APIRoute, mine: dict[str, str],
 PASSWORD = "correct-horse-battery"
 
 
+@pytest.fixture(autouse=True)
+def nothing_touches_the_machine(monkeypatch):
+    """
+    The sweep calls routes it did not choose, so nothing it calls may install.
+
+    An early version of this sweep called the feature-pack install route, which
+    ran a real `pip install` of pyarrow into the development environment; with
+    pyarrow present pandas stores text differently, and an unrelated memory
+    test began to fail. The pack routes are no longer swept, and this makes
+    sure a route that reaches the machine fails the test instead of acting.
+    """
+    from throughline_domain import extras, launchers
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("a machine-level action ran during the id sweep")
+
+    monkeypatch.setattr(extras, "install_in_background", refuse)
+    monkeypatch.setattr(launchers, "install_desktop_entry", refuse)
+
+
 @pytest.fixture(scope="module")
 def signed_in():
     """Two accounts, and a client signed in as the first."""
