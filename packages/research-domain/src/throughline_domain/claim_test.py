@@ -977,7 +977,8 @@ def locate_claims(cur, *, project_id: str, source_id: str,
     from throughline_model import ModelUnavailable, prompt, provider
     from throughline_model.schemas import TestableClaims
 
-    cur.execute("SELECT project_id, title FROM sources WHERE id = %s", (source_id,))
+    cur.execute("SELECT project_id, title, file_id, metadata FROM sources "
+                "WHERE id = %s", (source_id,))
     source = cur.fetchone()
     if not source:
         raise ClaimTestError(f"No such source: {source_id}")
@@ -989,6 +990,16 @@ def locate_claims(cur, *, project_id: str, source_id: str,
         "ORDER BY ordinal LIMIT %s", (source_id, limit))
     passages = list(cur.fetchall())
     if not passages:
+        if source["file_id"] is None:
+            # A citation, not a document: added from a search, with no text to
+            # read. Say how to get the text rather than guess at ingestion (D410).
+            has_copy = bool((source["metadata"] or {}).get("pdf_url"))
+            raise ClaimTestError(
+                f"{source['title']!r} has no indexed passages: only its citation is "
+                "in the project. "
+                + ("Its open-access text can be read in with Add and read the full "
+                   "text, in Find papers." if has_copy else
+                   "No open-access copy is recorded; upload the PDF to Sources."))
         raise ClaimTestError(
             f"{source['title']!r} has no indexed passages. It may still be "
             "ingesting, or it may not be a document with readable text.")

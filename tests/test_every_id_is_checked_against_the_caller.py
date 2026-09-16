@@ -96,7 +96,10 @@ def build(cur, *, user_id: str, project_id: str) -> dict[str, str]:
            "title": "Panel", "created_by": user_id}, "obj")
     for suffix in ("", "2"):
         insert("source" + suffix, "sources", {"project_id": project_id, "source_type": "paper",
-               "title": "Paper" + suffix, "ingestion_status": "ready"}, "src")
+               "title": "Paper" + suffix, "ingestion_status": "ready",
+               # An open-access copy on record, so the full-text route can act.
+               "metadata": json.dumps({"pdf_url": "https://arxiv.org/pdf/2401.00001"})},
+               "src")
         for ordinal in range(3):
             cur.execute(
                 "INSERT INTO passages(id, project_id, source_id, ordinal, kind, locator, "
@@ -401,6 +404,11 @@ def nothing_touches_the_machine(monkeypatch):
 
     monkeypatch.setattr(extras, "install_in_background", refuse)
     monkeypatch.setattr(launchers, "install_desktop_entry", refuse)
+
+    # Nor the network: a route that fetches a paper gets a stand-in document.
+    from throughline_connectors import papers
+
+    monkeypatch.setattr(papers, "fetch_pdf", lambda url, **_: b"%PDF-1.4 sweep stand-in")
 
 
 @pytest.fixture(scope="module")

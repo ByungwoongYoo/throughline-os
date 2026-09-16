@@ -12,6 +12,7 @@ import io
 import logging
 import os
 import pathlib
+import re
 import tempfile
 
 from contextlib import asynccontextmanager
@@ -2731,6 +2732,82 @@ def import_record(project_id: str, payload: ImportRequest,
                     "field_provenance": payload.provenance})))
         return {"source_id": source_id, "title": payload.title,
                 "already_present": False}
+
+
+@app.post("/api/projects/{project_id}/sources/{source_id}/full-text",
+          status_code=202)
+def read_full_text(project_id: str, source_id: str,
+                   user: dict = Depends(current_user)) -> dict[str, Any]:
+    """
+    Fetch a found paper's open-access text into the source, and read it (D410).
+
+    The import above records a citation and deliberately never follows the
+    open-access link on its own. This is the explicit act it defers to, and
+    until it existed a paper that arrived by search had no passages, no pages
+    and no research object: locating its claims answered "has no indexed
+    passages" every time.
+
+    The address is the one the import recorded, never one this request brings:
+    a client-chosen URL fetched by the server is the hole
+    `throughline_connectors.papers` is arranged to close, and there is no need
+    to open it. The bytes go through the same guarded fetcher *Read* uses, are
+    attached to this same source — the citation and the text are one paper —
+    and ingestion is queued as for any upload.
+    """
+    from throughline_connectors import papers
+
+    scoped_project(project_id, user)
+    with transaction() as cur:
+        cur.execute(
+            "SELECT id, title, file_id, source_type, metadata FROM sources "
+            "WHERE id = %s AND project_id = %s", (source_id, project_id))
+        source = cur.fetchone()
+    if source is None:
+        raise HTTPException(404, "No such paper in this project.")
+    if source["file_id"]:
+        raise HTTPException(409, f"{source['title']!r} already has its text; "
+                                 "nothing was fetched.")
+    pdf_url = ((source["metadata"] or {}).get("pdf_url") or "").strip()
+    if not pdf_url:
+        raise HTTPException(409, (
+            f"{source['title']!r} has no open-access copy recorded, so there is "
+            "nothing this can fetch. If you have the PDF, upload it to Sources."))
+
+    try:
+        data = papers.fetch_pdf(pdf_url)
+    except papers.PaperFetchError as exc:
+        # 400, as for Read: a paywall or a refused address is the researcher's
+        # to act on, not this server failing.
+        raise HTTPException(400, str(exc)) from exc
+
+    stem = re.sub(r"[^A-Za-z0-9]+", "-", source["title"]).strip("-")[:80] or "paper"
+    with transaction() as cur:
+        record = storage.register_file(
+            cur, project_id=project_id, filename=f"{stem}.pdf",
+            stream=io.BytesIO(data), media_type="application/pdf")
+        # Guarded on file_id still being empty: two presses in flight must not
+        # attach two files or queue two readings of one paper.
+        cur.execute(
+            "UPDATE sources SET file_id = %s, content_hash = %s, "
+            "ingestion_status = 'uploaded', updated_at = now(), "
+            "metadata = metadata || %s "
+            "WHERE id = %s AND file_id IS NULL RETURNING id",
+            (record["id"], record["content_hash"],
+             jsonb({"full_text_from": pdf_url}), source_id))
+        if cur.fetchone() is None:
+            raise HTTPException(409, f"{source['title']!r} already has its text; "
+                                     "nothing was fetched.")
+        run_id = workflow.enqueue(
+            cur, workflow_name="ingest.source", project_id=project_id,
+            payload={"source_id": source_id},
+            idempotency_key=f"ingest:{source_id}")
+        events.audit(cur, project_id=project_id, actor=user["id"],
+                     action="fetched_full_text", object_type="source",
+                     object_id=source_id, detail={"url": pdf_url})
+    return {"source_id": source_id, "workflow_run_id": run_id,
+            "ingestion_status": "uploaded",
+            "note": f"{source['title']} is being read. Its passages will appear "
+                    "in Sources when it is done."}
 
 
 class DatasetSetRequest(BaseModel):
