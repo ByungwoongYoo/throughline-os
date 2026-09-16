@@ -403,7 +403,7 @@ DATASET_CONNECTORS: dict[str, type[DatasetConnector]] = {
 
 def search_datasets(query: str, *, sources: list[str] | None = None,
                     limit: int = 20,
-                    mailto: str = "") -> dict[str, Any]:
+                    mailto: str = "", timeout: float = 25) -> dict[str, Any]:
     """
     Fan out across dataset repositories.
 
@@ -413,8 +413,6 @@ def search_datasets(query: str, *, sources: list[str] | None = None,
     two places is genuinely two records with different licences, files and
     versions, and collapsing them would hide the difference that matters.
     """
-    import concurrent.futures
-
     names = [n for n in (sources or list(DATASET_CONNECTORS))
              if n in DATASET_CONNECTORS]
     status: dict[str, dict[str, Any]] = {}
@@ -427,13 +425,21 @@ def search_datasets(query: str, *, sources: list[str] | None = None,
         except Exception as exc:                      # noqa: BLE001
             return name, exc
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-        for name, outcome in pool.map(run, names):
-            if isinstance(outcome, Exception):
-                status[name] = {"ok": False, "count": 0, "note": str(outcome)}
-            else:
-                status[name] = {"ok": True, "count": len(outcome), "note": None}
-                found.extend(outcome)
+    # No deadline here at all, before: `pool.map` waited for the slowest
+    # repository however long it took (D409).
+    from .fanout import fan_out, late_note
+
+    finished, late = fan_out(names, run, deadline=timeout)
+    for name in names:
+        if name in late:
+            status[name] = {"ok": False, "count": 0, "note": late_note(timeout)}
+            continue
+        outcome = finished[name][1]
+        if isinstance(outcome, Exception):
+            status[name] = {"ok": False, "count": 0, "note": str(outcome)}
+        else:
+            status[name] = {"ok": True, "count": len(outcome), "note": None}
+            found.extend(outcome)
 
     usable = [d for d in found if d.usability()["usable"]]
     return {
