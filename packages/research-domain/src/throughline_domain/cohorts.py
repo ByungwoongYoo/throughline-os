@@ -172,6 +172,15 @@ def define(cur, *, project_id: str, dataset_version_id: str, name: str,
     if not label:
         raise CohortError("A subset needs a name somebody can quote.")
 
+    # One name per dataset version is the table's rule; said here in words, so
+    # a repeated name is a refusal the researcher can act on rather than a
+    # database error surfacing as a 500 (T185).
+    cur.execute("SELECT 1 FROM cohorts WHERE dataset_version_id = %s AND name = %s",
+                (dataset_version_id, label))
+    if cur.fetchone():
+        raise CohortError(f"There is already a subset called {label!r} of this dataset "
+                          "version. Choose another name.")
+
     ancestors: list[dict[str, Any]] = []
     if parent_id:
         ancestors = chain(cur, parent_id)

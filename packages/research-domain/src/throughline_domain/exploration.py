@@ -130,10 +130,14 @@ def preregister(cur, *, project_id: str, hypothesis: str,
     }
 
 
-def _registration(cur, registration_id: str) -> dict[str, Any] | None:
+def _registration(cur, registration_id: str, project_id: str) -> dict[str, Any] | None:
+    # In this project only. Looked up by id alone, another account's valid
+    # registration made a look in your project confirmatory — exempt from the
+    # correction on the strength of a plan somebody else wrote (T185).
     cur.execute(
         "SELECT id, hypothesis, predicted_direction, locked_hash, sequence "
-        "FROM preregistrations WHERE id = %s", (registration_id,))
+        "FROM preregistrations WHERE id = %s AND project_id = %s",
+        (registration_id, project_id))
     return cur.fetchone()
 
 
@@ -187,7 +191,7 @@ def record(cur, *, enquiry_id: str, project_id: str, verb: str,
     # that was never registered has already been told so in `why`.
     claimed = None
     if preregistration_id:
-        registration = _registration(cur, preregistration_id)
+        registration = _registration(cur, preregistration_id, project_id)
         if registration is None:
             why = "No such pre-registration; counted as exploratory."
         elif registration["locked_hash"] != _hash(registration["hypothesis"]):
