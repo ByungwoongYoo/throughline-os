@@ -5289,9 +5289,14 @@ def _sample_columns(
     columns: list[str] = []
     seen = 0
 
+    # `object`, not `str`. Under pandas 3, `str` means pyarrow-backed strings
+    # whenever the `parquet` pack has installed pyarrow, and every chunk was
+    # then converted back to Python objects below — so the same figure cost
+    # 45MB with the pack and 23MB without it (T187). Python strings are what
+    # the reservoir keeps either way.
     reader = pd.read_csv(
         path, sep=separator, usecols=lambda name: name in set(fields),
-        dtype=str, keep_default_na=False, encoding="utf-8",
+        dtype=object, keep_default_na=False, encoding="utf-8",
         encoding_errors="replace", chunksize=SAMPLE_CHUNK_ROWS,
         low_memory=False,
     )
