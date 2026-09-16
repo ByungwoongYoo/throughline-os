@@ -33,9 +33,11 @@ const USABLE = {
   title: "Global AMR surveillance", repository: "Zenodo",
   authors: ["WHO"], year: 2024, doi: "10.5281/zenodo.1",
   description: "Panel of national resistance rates.",
-  url: "https://zenodo.org/records/1/files/amr.csv",
+  // The record's page, as the search returns it — HTML, not the data (D411).
+  url: "https://zenodo.org/records/1",
   licence: "CC-BY-4.0",
-  files: [{ name: "amr.csv", format: "csv", bytes: 2048 }],
+  files: [{ name: "amr.csv", format: "csv", bytes: 2048, readable: true,
+            url: "https://zenodo.org/api/records/1/files/amr.csv/content" }],
   files_listed: true, variables: ["resistance_pct"], rows: 120,
   embargoed: false, curated: true, related_paper_doi: null,
   usability: { usable: true, blockers: [], unknown: [], readable_files: 1 },
@@ -45,7 +47,8 @@ const UNUSABLE = {
   ...USABLE,
   title: "Supplementary tables (PDF)", doi: "10.5281/zenodo.2",
   url: "https://zenodo.org/records/2",
-  files: [{ name: "s1.pdf", format: "pdf", bytes: 900 }],
+  files: [{ name: "s1.pdf", format: "pdf", bytes: 900, readable: false,
+            url: "https://zenodo.org/api/records/2/files/s1.pdf/content" }],
   usability: {
     usable: false,
     blockers: ["the only files are PDF, which cannot be read as a table"],
@@ -102,7 +105,9 @@ describe("adding a dataset to the project", () => {
 
     await waitFor(() => expect(post).toHaveBeenCalledWith(
       "/api/projects/prj_1/datasets/import", {
-        url: USABLE.url,
+        // The file's own address. The record's page was sent before, and
+        // the importer refused it as "not tabular" (D411).
+        url: "https://zenodo.org/api/records/1/files/amr.csv/content",
         title: USABLE.title,
         repository: USABLE.repository,
         licence: "CC-BY-4.0",
@@ -245,3 +250,44 @@ describe("when it cannot be added", () => {
       .toBeNull();
   });
 });
+
+
+describe("which file is imported (D411)", () => {
+  it("offers each readable file of a record that holds several", async () => {
+    const post = await search([{
+      ...USABLE,
+      files: [
+        { name: "2023.csv", format: "csv", bytes: 10, readable: true,
+          url: "https://zenodo.org/api/records/1/files/2023.csv/content" },
+        { name: "2024.xlsx", format: "xlsx", bytes: 10, readable: true,
+          url: "https://zenodo.org/api/records/1/files/2024.xlsx/content" },
+        { name: "codebook.pdf", format: "pdf", bytes: 10, readable: false,
+          url: "https://zenodo.org/api/records/1/files/codebook.pdf/content" },
+      ],
+      usability: { ...USABLE.usability, readable_files: 2 },
+    }]);
+
+    expect(screen.queryByRole("button", { name: /add codebook\.pdf/i })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /add 2024\.xlsx/i }));
+
+    await waitFor(() => expect(post).toHaveBeenCalledWith(
+      "/api/projects/prj_1/datasets/import", expect.objectContaining({
+        url: "https://zenodo.org/api/records/1/files/2024.xlsx/content",
+        title: `${USABLE.title} — 2024.xlsx`,
+      })));
+  });
+
+  it("says how to get the data when no file address was given", async () => {
+    await search([{
+      ...USABLE, repository: "dryad", files: [], files_listed: false,
+      usability: { usable: true, blockers: [],
+                   unknown: ["this repository does not list files in search results"],
+                   readable_files: 0 },
+    }]);
+
+    expect(screen.queryByRole("button", { name: /add/i })).toBeNull();
+    expect(screen.getByText(/does not list its files in search/i)).toBeTruthy();
+    expect(screen.getByText(/upload it to\s+Sources/i)).toBeTruthy();
+  });
+});
+

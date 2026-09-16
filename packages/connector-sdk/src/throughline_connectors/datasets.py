@@ -95,8 +95,14 @@ class DatasetRecord:
     #: SPDX identifier or the repository's own string. Empty means the
     #: repository did not state one — which is not the same as "open".
     licence: str = ""
-    #: [{"name": ..., "format": "csv", "bytes": 1234}]
+    #: [{"name": ..., "format": "csv", "bytes": 1234, "url": ...}] — `url` is
+    #: the file's own download address where the repository gives one, and
+    #: absent where it does not. The record's page is not a substitute: it is
+    #: HTML, and importing it was refused as "not tabular" (D411).
     files: list[dict[str, Any]] = field(default_factory=list)
+    #: Whether this repository lists files in search results at all. Dryad and
+    #: Figshare do not, so an empty `files` there is unchecked, not empty.
+    files_listed: bool = True
     #: Variables, where the repository publishes them. Rare outside Dataverse.
     variables: list[str] = field(default_factory=list)
     rows: int | None = None
@@ -121,6 +127,7 @@ class DatasetRecord:
         is a 4GB image archive" are both unusable and need different responses.
         """
         blockers: list[str] = []
+        unknown: list[str] = []
         if self.embargoed:
             blockers.append("under embargo — the record is public, the data is not")
         if self.files and not self.readable_files():
@@ -128,13 +135,18 @@ class DatasetRecord:
                               for f in self.files})
             blockers.append(
                 f"no tabular file: contains {', '.join(formats[:6])}")
-        if not self.files:
+        if not self.files_listed:
+            # Not "there are none": this repository's search does not say, and
+            # reading silence as absence marked every such record unusable (D411).
+            unknown.append("this repository does not list files in search "
+                           "results — open the record to see what it holds")
+        elif not self.files:
             blockers.append("the repository lists no files for this record")
         if not self.licence:
             blockers.append(
                 "no licence stated, which is not the same as permissive — "
                 "check before relying on it")
-        return {"usable": not blockers, "blockers": blockers,
+        return {"usable": not blockers, "blockers": blockers, "unknown": unknown,
                 "readable_files": len(self.readable_files())}
 
     def to_dict(self) -> dict[str, Any]:
@@ -142,7 +154,10 @@ class DatasetRecord:
             "title": self.title, "repository": self.repository,
             "authors": self.authors, "year": self.year, "doi": self.doi,
             "description": self.description, "url": self.url,
-            "licence": self.licence, "files": self.files,
+            "licence": self.licence,
+            "files": [{**f, "url": f.get("url") or None,
+                       "readable": f in self.readable_files()} for f in self.files],
+            "files_listed": self.files_listed,
             "variables": self.variables, "rows": self.rows,
             "embargoed": self.embargoed, "curated": self.curated,
             "related_paper_doi": self.related_paper_doi,
@@ -206,7 +221,8 @@ class Zenodo(DatasetConnector):
         access = (meta.get("access_right") or "").lower()
         files = [{"name": f.get("key", ""),
                   "format": _extension(f.get("key", "")),
-                  "bytes": f.get("size")}
+                  "bytes": f.get("size"),
+                  "url": (f.get("links") or {}).get("self") or None}
                  for f in (hit.get("files") or [])]
         related = None
         for rel in meta.get("related_identifiers") or []:
@@ -279,6 +295,7 @@ class Dryad(DatasetConnector):
             # repository rather than of the record.
             licence=row.get("license") or "CC0-1.0",
             files=[],
+            files_listed=False,
             embargoed=(row.get("curationStatus") or "").lower() == "embargoed",
             curated=self.curated,
             related_paper_doi=related,
@@ -332,7 +349,10 @@ class Dataverse(DatasetConnector):
             licence=(row.get("license") or ""),
             files=[{"name": f.get("name", ""),
                     "format": _extension(f.get("name", "")),
-                    "bytes": f.get("size")}
+                    "bytes": f.get("size"),
+                    "url": (f"{self.host}/api/access/datafile/{file_id}"
+                            if (file_id := (f.get("dataFile") or {}).get("id")
+                                or f.get("id")) else None)}
                    for f in (row.get("fileMetadatas") or [])],
             embargoed=False,
             curated=self.curated,
@@ -387,6 +407,7 @@ class Figshare(DatasetConnector):
             url=row.get("url_public_html") or row.get("url") or "",
             licence=((row.get("license") or {}).get("name") or ""),
             files=[],
+            files_listed=False,
             embargoed=bool(row.get("is_embargoed")),
             curated=self.curated,
             provenance={"title": self.name, "authors": self.name},
@@ -442,12 +463,14 @@ def search_datasets(query: str, *, sources: list[str] | None = None,
             found.extend(outcome)
 
     usable = [d for d in found if d.usability()["usable"]]
+    unchecked = [d for d in found if d.usability()["unknown"]]
     return {
         "query": query,
         "results": [d.to_dict() for d in found],
         "sources": status,
         "found": len(found),
         "usable": len(usable),
+        "unchecked": len(unchecked),
         "note": (
             f"{len(usable)} of {len(found)} records are usable here — the rest "
             "are embargoed, carry no tabular file, or state no licence. "
