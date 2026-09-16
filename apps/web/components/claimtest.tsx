@@ -291,9 +291,14 @@ function needsModel(error: unknown): boolean {
 }
 
 export function ClaimTest({ projectId, sources, onOpenSource, onFindPapers, onAddData,
-                            onConnectModel }: {
+                            onConnectModel, onFindData }: {
   projectId: string;
   sources: Source[];
+  /**
+   * Find data for a claim, with its constructs as the search (D413). Offered
+   * when a paper has been read and the project has no dataset to test it on.
+   */
+  onFindData?: (query: string) => void;
   /**
    * Where a model is chosen: Settings (D412). Reading a paper for its claims is
    * the one step of the claim test that needs one, and the refusal used to be
@@ -405,6 +410,34 @@ export function ClaimTest({ projectId, sources, onOpenSource, onFindPapers, onAd
     } catch (err) { setError(err); } finally { setBusy(null); }
   }
 
+  /*
+   * A refusal, said the same way whether or not a dataset exists yet: a model
+   * that is not connected gets the way to connect one (D412); anything else is
+   * the server's own sentence.
+   */
+  const problem = needsModel(error) ? (
+    <section className="notice" role="alert" aria-label="A model is needed">
+      <p>
+        <b>Reading this paper for its claims needs a model, and none is
+        connected.</b> Everything else here works without one — a claim
+        already recorded can still be tested against a dataset.
+      </p>
+      <p className="note">{(error as Error).message}</p>
+      <p className="note">
+        On this machine, install Ollama and run{" "}
+        <code className="mono">ollama pull qwen2.5:7b-instruct</code>; it runs
+        locally and nothing leaves the computer. Or choose a model in
+        Settings — a hosted one sends the paper&apos;s text off this machine,
+        and Settings says so before it is chosen.
+      </p>
+      {onConnectModel && (
+        <button className="btn btn-primary" onClick={onConnectModel}>
+          Choose a model in Settings
+        </button>
+      )}
+    </section>
+  ) : error ? <Failure error={error} /> : null;
+
   if (papers.length === 0 || datasets.length === 0) {
     /*
      * The master, waiting — not a dashed box on an empty page.
@@ -503,6 +536,18 @@ export function ClaimTest({ projectId, sources, onOpenSource, onFindPapers, onAd
                     Find a paper
                   </button>
                 )}
+                {/*
+                  * Starting from a paper (D413): its claims can be read now,
+                  * and a claim is what says which data to look for. Offered
+                  * for the paper the slot above names.
+                  */}
+                {!paperMissing && (
+                  <button type="button" className="btn"
+                          disabled={busy !== null}
+                          onClick={() => void locate(papers[0].id)}>
+                    Read the claims in {papers[0].title}
+                  </button>
+                )}
                 {!paperMissing && onAddData && (
                   <button type="button" className="btn" onClick={onAddData}>
                     Add a dataset
@@ -511,6 +556,31 @@ export function ClaimTest({ projectId, sources, onOpenSource, onFindPapers, onAd
               </div>
               <p className="rsn-waiting-note">Nothing is analysed until you choose a claim.</p>
             </article>
+            {problem}
+            {busy && <Loading rows={2} label={busy} />}
+            {!paperMissing && located && located.claims.length === 0 && (
+              <Empty title="No testable claim found" hint={located.note} />
+            )}
+            {!paperMissing && located && located.claims.map((c, i) => (
+              <article key={c.claim_id ?? i} className="rsn-claim">
+                {/* The paper's words, quoted (LAW 4). */}
+                <blockquote>{c.statement}</blockquote>
+                <p className="rsn-constructs">
+                  <span className="rsn-role">Exposure</span>
+                  <b className="mono">{c.exposure.replace(/_/g, " ")}</b>
+                  <span aria-hidden> → </span>
+                  <span className="rsn-role">Outcome</span>
+                  <b className="mono">{c.outcome.replace(/_/g, " ")}</b>
+                </p>
+                {onFindData && (
+                  <button className="btn" type="button"
+                          onClick={() => onFindData(
+                            `${c.exposure} ${c.outcome}`.replace(/_/g, " "))}>
+                    Find data for this claim
+                  </button>
+                )}
+              </article>
+            ))}
           </section>
           <section className="rsn-reading" aria-labelledby="rsn-wait-reading">
             <h2 id="rsn-wait-reading" className="rsn-col-title">Throughline&rsquo;s reading</h2>
@@ -612,28 +682,7 @@ export function ClaimTest({ projectId, sources, onOpenSource, onFindPapers, onAd
         ))}
       </ol>
 
-      {needsModel(error) ? (
-        <section className="notice" role="alert" aria-label="A model is needed">
-          <p>
-            <b>Reading this paper for its claims needs a model, and none is
-            connected.</b> Everything else here works without one — a claim
-            already recorded can still be tested against a dataset.
-          </p>
-          <p className="note">{(error as Error).message}</p>
-          <p className="note">
-            On this machine, install Ollama and run{" "}
-            <code className="mono">ollama pull qwen2.5:7b-instruct</code>; it runs
-            locally and nothing leaves the computer. Or choose a model in
-            Settings — a hosted one sends the paper&apos;s text off this machine,
-            and Settings says so before it is chosen.
-          </p>
-          {onConnectModel && (
-            <button className="btn btn-primary" onClick={onConnectModel}>
-              Choose a model in Settings
-            </button>
-          )}
-        </section>
-      ) : error ? <Failure error={error} /> : null}
+      {problem}
       {busy && <Loading rows={2} label={busy} />}
 
       {located && located.claims.length === 0 && (

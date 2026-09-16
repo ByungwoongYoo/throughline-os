@@ -98,7 +98,13 @@ type Imported = {
   ingestion_status: string;
 };
 
-export function DataSearch({ projectId, onImported }: {
+export function DataSearch({ projectId, onImported, initialQuery }: {
+  /**
+   * What to search for, when the screen is opened from a claim (D413). Filled
+   * in, not run: searching reaches four repositories, which is the
+   * researcher's to start.
+   */
+  initialQuery?: string;
   /**
    * The project a record would be added to.
    *
@@ -116,7 +122,7 @@ export function DataSearch({ projectId, onImported }: {
    */
   onImported?: (sourceId: string) => void;
 }) {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery ?? "");
   const [repositories, setRepositories] = useState<Repository[] | null>(null);
   const [results, setResults] = useState<Results | null>(null);
   const [busy, setBusy] = useState(false);

@@ -67,7 +67,7 @@ type Verb = "datasets" | "claim" | "papers" | "many" | "manydata" | "images"
           | "findings" | "scans";
 
 export function Compare({ projectId, sources, onOpenSource, onFindPapers, onAddData,
-                          onConnectModel }: {
+                          onConnectModel, onFindData }: {
   projectId: string;
   sources: ApiState<Source[]>;
   /** Where the reasoning master sends a project that has no paper yet. */
@@ -76,6 +76,8 @@ export function Compare({ projectId, sources, onOpenSource, onFindPapers, onAddD
   onAddData?: () => void;
   /** Where a model is chosen, when reading a paper needs one: Settings. */
   onConnectModel?: () => void;
+  /** Where data for a claim is searched for: Sources → Find data (D413). */
+  onFindData?: (query: string) => void;
   /** Open one of the compared sources, keeping the browser's way back. */
   onOpenSource?: (sourceId: string) => void;
 }) {
@@ -221,7 +223,7 @@ export function Compare({ projectId, sources, onOpenSource, onFindPapers, onAddD
         <ClaimTest projectId={projectId} sources={sources.data ?? []}
                    onOpenSource={onOpenSource}
                    onFindPapers={onFindPapers} onAddData={onAddData}
-                   onConnectModel={onConnectModel} />
+                   onConnectModel={onConnectModel} onFindData={onFindData} />
       </>
     );
   }
