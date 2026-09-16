@@ -36,7 +36,8 @@ import { currentStep, loopSteps, stepTarget } from "@/lib/loop";
 import { ObjectAction, ObjectActions } from "./objectactions";
 import { Limitations } from "./limitations";
 import { canDraftReport, draftReport } from "./reports";
-import { Term } from "./term";
+import { Term, TermList, methodTerms } from "./term";
+import { PlainReading, readingOf } from "./plainreading";
 
 // ---------------------------------------------------------------------------
 // Overview (§70)
@@ -361,6 +362,11 @@ export function Overview({ project, map, onGo, onOpen, onAddSources, onLineage,
                 </li>
               ))}
             </ul>
+            {/* The overview is the first screen of the product, and until now
+                the first number on it was a bare `r 0.60` beside a word like
+                "exploratory" (T187). Both are named here, once, under the
+                list they label. */}
+            <TermList ids={["r", "lifecycle state"]} />
             {map.top_connections.length > 4 && (
               <button className="btn-text" type="button"
                       onClick={() => onGo("connections")}>
@@ -511,7 +517,15 @@ export function Sources({ sources, onSelect, upload, uploading, uploadError,
       <div className="row" style={{ marginBottom: 14 }}>
         <div>
           <h1>Sources</h1>
-          <p style={{ margin: 0 }}>Papers and datasets. Everything here is treated as untrusted until parsed.</p>
+          {/* "treated as untrusted until parsed" is a security property said
+              in the vocabulary of the people who built it (T187). What it
+              means for the reader is that a file cannot do anything to this
+              machine, which is worth saying in those words. */}
+          <p style={{ margin: 0 }}>
+            Papers and datasets. A file you add is opened in a sealed reader
+            first: nothing inside it runs, and nothing it says is believed until
+            it has been read out into the project.
+          </p>
         </div>
         <label className={`btn${(sources.data?.length ?? 0) === 0 ? " btn-primary" : ""}`}
                style={{ display: "inline-block" }}>
@@ -552,6 +566,7 @@ export function Sources({ sources, onSelect, upload, uploading, uploadError,
       )}
 
       {data && data.length > 0 && (
+        <>
         <table>
           <thead>
             <tr>
@@ -645,6 +660,12 @@ export function Sources({ sources, onSelect, upload, uploading, uploadError,
             ))}
           </tbody>
         </table>
+          {/* "upload · untrusted" is a value in this table, not a warning
+              (T187): every source starts untrusted and stays so until it has
+              been parsed, which is the security property said in the reader's
+              vocabulary rather than the builder's. */}
+          <TermList ids={["untrusted"]} />
+        </>
       )}
     </>
   );
@@ -976,7 +997,9 @@ export function SourceDetail({ projectId, sourceId, onDiscover, onOpenSource,
 
           <div className="card">
             <div className="row" style={{ marginBottom: 8 }}>
-              <h2 style={{ margin: 0 }}>Profiled schema</h2>
+              <h2 style={{ margin: 0 }}>
+                Profiled <Term id="schema" />
+              </h2>
               <button
                 className="btn btn-primary"
                 onClick={() => onDiscover(data.dataset!.dataset_version_id)}
@@ -1564,9 +1587,14 @@ export function Discover({ projectId, sources, onSelectConnection, startWith,
   return (
     <>
       <h1>Discovery</h1>
+      {/* The one sentence naming this screen used two words a first-timer has
+          not met — "profiled schema" and "sandbox" — to explain a third,
+          "candidate" (T187). Every pair of columns is tried, which is the part
+          that makes the correction below necessary, so it is said here. */}
       <p className="lede">
-        Candidate relationships are generated from the profiled schema and tested
-        in the sandbox.
+        Every pair of columns in the dataset is tried against every other, and
+        each pair that is worth testing is tested in the{" "}
+        <Term id="sandbox" />.
       </p>
       <Fold summary="What happens to a candidate here" count={2}>
         <p className="note" style={{ marginTop: 0 }}>
@@ -1771,6 +1799,20 @@ export function ConnectionsTable({ connections, error, loading, reload, onSelect
           ))}
         </tbody>
       </table>
+      {/* Eight headings, four of which are two or three characters wide, and a
+          reader arriving on this screen has not necessarily met any of them.
+          A clause inside a heading would set the column width, so the words go
+          underneath in the order the columns run (T187). */}
+      <TermList
+        lead="What the columns say"
+        ids={[
+          "estimate", "q-value", "n",
+          ["evidence quality", "Evidence"], ["lifecycle state", "State"],
+          // Only the methods this table actually used: naming ANOVA under a
+          // table with no ANOVA on it is one more thing to read.
+          ...methodTerms(connections.map((c) => c.method)),
+        ]}
+      />
     </div>
   );
 }
@@ -1844,7 +1886,7 @@ export function Findings({ projectId, onSelect }: {
             evidence in both directions. A researcher reading the stricter
             version would go looking for a contradiction to manufacture. */}
         A finding must link to evidence — supporting, contradicting, or both —
-        before it can be promoted past candidate.
+        before it can be promoted past <Term id="candidate" />.
       </p>
       {findings.loading && <Loading rows={3} label="Reading findings" />}
       {findings.error && <Failure error={findings.error} retry={findings.reload} />}
@@ -2524,6 +2566,7 @@ export function RunFamily({ projectId, run, onOpenRun }: {
     );
   }
   return (
+    <>
     <table className="ckpt-family">
       <thead>
         <tr><th>Run</th><th>Change</th><th>Status</th><th className="num">Estimate</th></tr>
@@ -2549,6 +2592,10 @@ export function RunFamily({ projectId, run, onOpenRun }: {
         ))}
       </tbody>
     </table>
+    {/* The Estimate column is a number and a symbol, and the symbol changes
+        per row: a correlation's r beside a regression's β (T187). */}
+    <TermList ids={["r", "β"]} />
+    </>
   );
 }
 
@@ -2783,6 +2830,13 @@ export function AnalysisDetail({ runId, projectId, onMethod, onVariables,
                         <dt>Rationale</dt>
                         <dd>{data.method_rationale || "Not recorded."}</dd>
                       </dl>
+                      {/* Method plus variables is exactly the estimand, and
+                          the panel that holds both never said the word (T187). */}
+                      <p className="note" style={{ marginBottom: 0 }}>
+                        Taken together these are the <Term id="estimand" />: fix
+                        them before the run, and the result is an answer to a
+                        question rather than the best of several.
+                      </p>
                     </section>
 
                     <section className="ckpt-panel">
@@ -2849,6 +2903,50 @@ export function AnalysisDetail({ runId, projectId, onMethod, onVariables,
                     </section>
 
                     {/*
+                      * The same four numbers in words, built from the result
+                      * itself (T187). The row above is the densest thing on the
+                      * screen and, to a reader who has not met r, the least
+                      * legible; this is a reading of it, not a summary.
+                      *
+                      * Full width and directly beneath, rather than inside the
+                      * result panel: in a half-width column the sentences ran
+                      * to eight lines and left the specification panel beside
+                      * them half empty.
+                      */}
+                    {readingOf({
+                      method: data.method,
+                      estimateName: r.effect_size?.name ?? r.estimate_name,
+                      estimate: r.estimate, pValue: r.p_value,
+                      sampleSize: r.sample_size, variables: data.variables,
+                    }).length > 0 && (
+                    <section className="ckpt-panel ckpt-wide">
+                      <h2 className="ckpt-panel-name">What that says</h2>
+                      <PlainReading
+                        lead="In plain words"
+                        method={data.method}
+                        estimateName={r.effect_size?.name ?? r.estimate_name}
+                        estimate={r.estimate}
+                        ciLow={r.ci_low}
+                        ciHigh={r.ci_high}
+                        confidenceLevel={r.confidence_level}
+                        pValue={r.p_value}
+                        sampleSize={r.sample_size}
+                        practicalSignificance={r.practical_significance}
+                        variables={data.variables}
+                      />
+                      {/* The three graded words in the panel above, which are
+                          easy to read as three names for one thing (T187).
+                          They are here rather than under that panel because a
+                          half-width column turned three clauses into nine
+                          lines. */}
+                      <TermList
+                        lead="The three grades above"
+                        ids={["statistical significance", "practical significance", "evidence quality"]}
+                      />
+                    </section>
+                    )}
+
+                    {/*
                       * The observed association, in the cockpit rather than
                       * only on Figures. The endpoint and the renderer both
                       * already existed; the master's centre had no picture in
@@ -2882,6 +2980,10 @@ export function AnalysisDetail({ runId, projectId, onMethod, onVariables,
                               ))}
                             </tbody>
                           </table>
+                          {/* "2 points beyond 1.5×IQR" is the detail column's
+                              own wording, and IQR appears nowhere else in the
+                              product (T187). */}
+                          <TermList ids={["assumption check", "IQR"]} />
                           {/*
                             * The consequence, stated where the failure is.
                             * UI_02 closes this panel with "Review assumptions
@@ -2930,6 +3032,17 @@ export function AnalysisDetail({ runId, projectId, onMethod, onVariables,
                           {data.input_hashes.spec_content_hash?.slice(0, 10) ?? "—"}…
                         </dd>
                       </dl>
+                      {/* Four values with no statement of what having them is
+                          worth (T187). The seed and the two hashes are the
+                          whole reproducibility claim, and the claim was the
+                          one thing the panel did not make. */}
+                      <p className="note" style={{ marginBottom: 0 }}>
+                        Together these are enough to get this exact number
+                        again: the <Term id="random seed" />, and a fingerprint
+                        each of the data that went in and of the settings it was
+                        run with. If either fingerprint differs from a re-run,
+                        the inputs were not the same.
+                      </p>
                     </section>
 
                     <section className="ckpt-panel ckpt-wide">
@@ -3634,6 +3747,9 @@ export function ConnectionDetail({ connectionId, projectId, onRecordFinding,
           while the Validate control is still loading its schema. */}
       <div className="card" id="connection-validate" tabIndex={-1} ref={validateCard}>
         <h2>Try to destroy it</h2>
+        <p className="note" style={{ marginTop: 0 }}>
+          This is <Term id="validation" />.
+        </p>
         <Fold summary="What the robustness suite runs" count={4}>
           {/* "Naming no confounders is recorded as not tested — not as
               clean" used to close this paragraph. It is now the line beside

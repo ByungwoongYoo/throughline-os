@@ -35,10 +35,18 @@ function shell(section: Section = "overview", onSection = vi.fn()) {
   return { ...result, onSection };
 }
 
-/** The heading button for a group, by the name it starts with. */
+/**
+ * The heading button for a group, by the name it starts with.
+ *
+ * The name ends "3 screens" rather than "3" since T187: a bare digit beside a
+ * group heading reads as a count of the things in the project — "Evidence 3"
+ * as three sources — when it counts the screens behind the heading. The digit
+ * is still what this matches on, because the point of the assertion is that
+ * the count travels in the accessible name at all.
+ */
 function heading(label: string): HTMLElement {
   return screen.getByRole("button",
-    { name: (name) => name.startsWith(label) && /\d$/.test(name) });
+    { name: (name) => name.startsWith(label) && /\d( screens)?$/.test(name) });
 }
 
 /** The rows that are actually on screen, as their labels. */

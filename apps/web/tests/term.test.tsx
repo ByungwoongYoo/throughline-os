@@ -8,7 +8,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { GLOSSES, Term } from "@/components/term";
+import { GLOSSES, Term, TermList } from "@/components/term";
 
 afterEach(cleanup);
 
@@ -32,5 +32,23 @@ describe("a glossed term", () => {
       expect(gloss.split(" ").length, word).toBeLessThanOrEqual(20);
       expect(gloss, word).not.toMatch(/\.\s/);
     }
+  });
+});
+
+describe("a legend of terms", () => {
+  it("prints every word with its meaning, in the order the columns run", () => {
+    render(<TermList lead="What the columns say" ids={["estimate", "q-value", "n"]} />);
+    expect(screen.getByText(/What the columns say/)).toBeInTheDocument();
+    for (const id of ["estimate", "q-value", "n"] as const) {
+      expect(screen.getByText(id)).toBeInTheDocument();
+      expect(screen.getByText(new RegExp(GLOSSES[id]))).toBeInTheDocument();
+    }
+    // Same rule as the inline form: no definition behind a hover.
+    expect(document.querySelector("[title]")).toBeNull();
+  });
+
+  it("keeps the separator away from a screen reader", () => {
+    const { container } = render(<TermList ids={["r", "n"]} />);
+    expect(container.querySelector(".term-legend-sep")).toHaveAttribute("aria-hidden", "true");
   });
 });

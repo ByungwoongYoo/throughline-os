@@ -23,6 +23,7 @@ import { useApi } from "@/lib/useApi";
 import type { Connection } from "@/lib/api";
 import { Fold, Loading } from "./primitives";
 import { StateMark, Status } from "./primitives";
+import { Term } from "./term";
 import {
   IconChevronRight, IconConnections, IconDataset, IconLink, IconNote,
 } from "./icons";
@@ -157,8 +158,8 @@ export function AnalysisContext({ projectId, runId, onOpenConnection,
               ? "Open the connection" : "Validate this connection →"}
           </button>
           <p className="note" style={{ marginTop: 8 }}>
-            Adjusting for a confounder is chosen against the dataset&rsquo;s
-            columns, which are listed with the connection.
+            Adjusting for a <Term id="confounder" /> is chosen against the
+            dataset&rsquo;s columns, which are listed with the connection.
           </p>
         </section>
       )}

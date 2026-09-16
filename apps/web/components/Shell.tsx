@@ -549,7 +549,15 @@ export function Shell({
             onClick={() => openTheGroup(group.label)}
           >
             <span>{group.label}</span>
-            <span className="groupbar-count">{ENTRY_COUNT[group.label]}</span>
+            {/* The bare number beside a group reads as a count of the things
+                inside the project — "Evidence 3" as three sources — when it
+                counts the screens behind the heading (T187). The digit stays,
+                because the row has no space for a word; what it counts is
+                said to a screen reader, and by the sentence under the rail. */}
+            <span className="groupbar-count"
+                  aria-label={`${ENTRY_COUNT[group.label]} screens`}>
+              {ENTRY_COUNT[group.label]}
+            </span>
           </button>
         ))}
       </nav>
@@ -568,7 +576,9 @@ export function Shell({
             </span>
             <span>{item.label}</span>
             {item.count && counts[item.count] > 0 && (
-              <span className="sectionbar-count">{counts[item.count]}</span>
+              <span className="sectionbar-count"
+                    aria-label={`${counts[item.count]} ${item.label.toLowerCase()}`}>
+                {counts[item.count]}</span>
             )}
           </button>
         ))}

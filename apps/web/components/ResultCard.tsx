@@ -26,6 +26,7 @@
 
 import { useState } from "react";
 import { Connection } from "@/lib/api";
+import { TermList } from "./term";
 
 /**
  * Internal lifecycle states are ours; these are the words a researcher uses.
@@ -253,6 +254,12 @@ export function ResultCard({
           <dd>{summary?.design?.description?.split("—")[0].trim() ?? "not recorded"}</dd>
         </div>
       </dl>
+
+      {/* The labels are words, which is half of it; the values under them are
+          not. "survived correction at a false-discovery rate of 0.05" and
+          "(pearson r = 0.60)" are the two phrases on this card that assume a
+          reader who has met them before (T187). */}
+      <TermList ids={["effect size", "false-discovery rate"]} />
 
       {showWhy && (
         <div className="rc-why-panel">
