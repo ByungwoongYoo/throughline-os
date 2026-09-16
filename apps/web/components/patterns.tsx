@@ -25,6 +25,7 @@ import { Empty, Failure, Fold, Loading } from "./primitives";
 import { VerdictBody, VerdictCard } from "./Verdict";
 import { SpecificationCurve } from "./speccurve";
 import { Diagnostics } from "./diagnostics";
+import { Term } from "./term";
 
 type Pattern = {
   kind: string;
@@ -235,8 +236,12 @@ export function Patterns({ projectId, datasetVersionId, columns }: {
 
             <p className="pat-foot">
               {detected.connections_examined.toLocaleString()} results examined,{" "}
-              {detected.canonical_coverage.toLocaleString()} of them in confirmed
-              canonical variables. {detected.note}{" "}
+              {detected.canonical_coverage.toLocaleString()} of them in confirmed{" "}
+              {/* The last word D207 listed that no screen explained: a count
+                  qualified by a term the reader has not met is a count they
+                  cannot use (T187). */}
+              <Term id="canonical variable">canonical variables</Term>.{" "}
+              {detected.note}{" "}
               <span className="cmp-method">
                 {detected.method} — computed from the recorded results, not
                 inferred

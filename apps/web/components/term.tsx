@@ -75,6 +75,7 @@ export const GLOSSES = {
   "dangling": "cited here, but pointing at nothing this project holds",
   "supported": "the cited source was read, and it does say what the sentence says",
   "unsupported": "the cited source was read, and it does not say what the sentence says",
+  "canonical variable": "one column confirmed to be the same measured thing across datasets that spell it differently",
 } as const;
 
 export type TermId = keyof typeof GLOSSES;
