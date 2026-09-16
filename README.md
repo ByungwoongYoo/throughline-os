@@ -45,15 +45,21 @@ Three workspaces carry the work:
 discovery, corrected tests, a finding with its lineage, validation and a report
 all follow from buttons the product offers.
 
-**Does not yet: starting from a topic or a single paper.** Walked on
-2026-09-15 and recorded rather than smoothed over:
-- *Find papers* fails entirely when one database hangs (D409).
-- A paper added from a search keeps only its metadata, so its claims cannot be
-  located (D410).
-- Importing a found dataset sends the repository page instead of the file (D411).
-- A paper-first project stops at claims when no model is connected, without
-  saying how to connect one (D412).
-- The loop has no route from a paper's claim to data that could test it (D413).
+**Joined, not yet re-walked: starting from a topic or a single paper.** The
+five breaks found by walking that route on 2026-09-15 were fixed on
+2026-09-16, each with tests; the route has not yet been walked again end to end
+on a fresh stack, so it is described rather than claimed:
+- *Find papers* keeps whatever answered when one database hangs, and names the
+  one that did not (D409).
+- *Add and read the full text* fetches an open-access paper's PDF into the
+  project, so its claims can be located (D410).
+- *Find data* imports the tabular file itself, not the repository page, and
+  shows results the server actually sends (D411; not re-checked against live
+  Zenodo, which was down when tried).
+- Reading a paper with no model connected says what is needed and opens
+  Settings (D412).
+- A paper's claim leads to *Find data* with the claim's terms filled in, and
+  the overview names that route for a project with papers and no data (D413).
 
 **The AI model is optional.** Statistics, validation, provenance and reports all
 work without one. Locating a paper's claims and model-written readings need one;
