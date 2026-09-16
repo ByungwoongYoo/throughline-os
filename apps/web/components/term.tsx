@@ -70,6 +70,11 @@ export const GLOSSES = {
   "statistical significance": "the pattern is stronger than the noise this test tolerates, nothing more",
   "practical significance": "whether the effect is large enough to matter, separately from whether it is certain",
   "evidence quality": "a grade from the sample size, the effect size and which assumptions held",
+
+  // The reports screen's citation row, which is six integers and six words.
+  "dangling": "cited here, but pointing at nothing this project holds",
+  "supported": "the cited source was read, and it does say what the sentence says",
+  "unsupported": "the cited source was read, and it does not say what the sentence says",
 } as const;
 
 export type TermId = keyof typeof GLOSSES;
