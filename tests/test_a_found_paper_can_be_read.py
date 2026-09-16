@@ -136,3 +136,30 @@ def test_locating_claims_on_a_citation_says_how_to_get_its_text(client, fetched)
     assert "only its citation" in answer.json()["detail"]
     assert "Add and read the full text" in answer.json()["detail"]
 
+
+
+def test_reading_a_paper_with_no_model_answers_503(client, monkeypatch):
+    """
+    D412. Nothing about the request is wrong; a service it needs is not
+    connected, and the claim test offers the way to connect one on this status.
+    """
+    import throughline_model
+    from throughline_model.provider import ModelUnavailable
+
+    class _NoModel:
+        def generate_structured(self, **_):
+            raise ModelUnavailable("No model provider is configured.")
+
+    project_id, source_id = _imported(client)
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("UPDATE sources SET file_id = NULL WHERE id = %s", (source_id,))
+        cur.execute(
+            "INSERT INTO passages(id, project_id, source_id, ordinal, kind, locator, "
+            "section, content, metadata) VALUES ('psg_d412', %s, %s, 0, 'paragraph', "
+            "'p. 1', 'Results', 'Consumption rose with resistance.', '{}')",
+            (project_id, source_id))
+    monkeypatch.setattr(throughline_model, "provider", _NoModel)
+
+    answer = client.post(f"/api/sources/{source_id}/claims", params={"project_id": project_id})
+    assert answer.status_code == 503, answer.text
+    assert "needs a model" in answer.json()["detail"]

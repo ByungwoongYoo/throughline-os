@@ -4470,6 +4470,11 @@ def locate_claims(source_id: str, project_id: str = Query(...),
         try:
             return claim_test.locate_claims(
                 cur, project_id=project_id, source_id=source_id)
+        except claim_test.ClaimTestNeedsModel as exc:
+            # 503, not 400: nothing about the request is wrong; a service it
+            # needs is not connected, and the screen offers the way to connect
+            # one on this status (D412).
+            raise HTTPException(503, str(exc)) from exc
         except claim_test.ClaimTestError as exc:
             raise HTTPException(400, str(exc)) from exc
 

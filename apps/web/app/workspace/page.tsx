@@ -950,7 +950,8 @@ function Workspace({ user }: { user: SignedInUser }) {
           <Compare projectId={project.id} sources={sources}
                    onOpenSource={(id) => open("source", id)}
                    onFindPapers={() => go({ section: "sources", item: null }, { view: "papers" })}
-                   onAddData={() => go({ section: "sources", item: null }, { view: "library" })} />
+                   onAddData={() => go({ section: "sources", item: null }, { view: "library" })}
+                   onConnectModel={() => go({ section: "settings", item: null })} />
         )}
         {section === "notebook" && <Notebook projectId={project.id} />}
         {section === "journal" && (

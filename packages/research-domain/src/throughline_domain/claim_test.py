@@ -42,6 +42,14 @@ class ClaimTestError(RuntimeError):
     """A claim could not be located or adjudicated."""
 
 
+class ClaimTestNeedsModel(ClaimTestError):
+    """Locating claims needs a model and none is connected (D412).
+
+    Its own class so a caller can offer the way to connect one, rather than
+    showing the same red sentence as a paper with no text.
+    """
+
+
 # ---------------------------------------------------------------------------
 # P7 — circularity, checked before anything else
 # ---------------------------------------------------------------------------
@@ -1014,7 +1022,7 @@ def locate_claims(cur, *, project_id: str, source_id: str,
             prompt_name=template.name, prompt_version=template.version,
         )
     except ModelUnavailable as exc:
-        raise ClaimTestError(
+        raise ClaimTestNeedsModel(
             f"{exc} Locating claims is the one step of the claim test that needs a "
             "model; a claim already recorded can still be adjudicated without one."
         ) from exc

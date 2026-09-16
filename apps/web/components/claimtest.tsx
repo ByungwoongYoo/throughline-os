@@ -284,9 +284,22 @@ function Filaments() {
   );
 }
 
-export function ClaimTest({ projectId, sources, onOpenSource, onFindPapers, onAddData }: {
+/** A 503 from reading a paper: a model is needed and none is connected (D412). */
+function needsModel(error: unknown): boolean {
+  return typeof error === "object" && error !== null
+    && (error as { status?: unknown }).status === 503;
+}
+
+export function ClaimTest({ projectId, sources, onOpenSource, onFindPapers, onAddData,
+                            onConnectModel }: {
   projectId: string;
   sources: Source[];
+  /**
+   * Where a model is chosen: Settings (D412). Reading a paper for its claims is
+   * the one step of the claim test that needs one, and the refusal used to be
+   * a red sentence with nowhere to go.
+   */
+  onConnectModel?: () => void;
   /** Where a paper comes from, when the project has none: Sources → Find papers. */
   onFindPapers?: () => void;
   /** Where a dataset comes from, when the project has none: the library. */
@@ -599,7 +612,28 @@ export function ClaimTest({ projectId, sources, onOpenSource, onFindPapers, onAd
         ))}
       </ol>
 
-      {error ? <Failure error={error} /> : null}
+      {needsModel(error) ? (
+        <section className="notice" role="alert" aria-label="A model is needed">
+          <p>
+            <b>Reading this paper for its claims needs a model, and none is
+            connected.</b> Everything else here works without one — a claim
+            already recorded can still be tested against a dataset.
+          </p>
+          <p className="note">{(error as Error).message}</p>
+          <p className="note">
+            On this machine, install Ollama and run{" "}
+            <code className="mono">ollama pull qwen2.5:7b-instruct</code>; it runs
+            locally and nothing leaves the computer. Or choose a model in
+            Settings — a hosted one sends the paper&apos;s text off this machine,
+            and Settings says so before it is chosen.
+          </p>
+          {onConnectModel && (
+            <button className="btn btn-primary" onClick={onConnectModel}>
+              Choose a model in Settings
+            </button>
+          )}
+        </section>
+      ) : error ? <Failure error={error} /> : null}
       {busy && <Loading rows={2} label={busy} />}
 
       {located && located.claims.length === 0 && (
