@@ -6173,6 +6173,39 @@ button.step-strip-where:hover b { color: var(--accent); }
 .term-word { font-weight: 560; }
 .term-gloss { color: var(--ink-soft); }
 
+/* The legend form, for tables whose headings are three characters wide
+   (T188). It sits under the table it names and wraps at any width; the
+   separator is decorative, so it is hidden from a screen reader, which reads
+   each word-and-meaning pair as its own phrase. */
+.term-legend {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--ink-soft);
+}
+.term-legend-lead { color: var(--ink); font-weight: 560; }
+.term-legend-item { display: inline; }
+.term-legend-sep { color: var(--ink-faint); padding: 0 2px; }
+.term-legend .term-word { color: var(--ink); }
+/* Inside the result card the legend follows a stat grid with no rule under
+   it, so it needs its own or it reads as a fifth statistic. */
+.rc .term-legend { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+
+/* The measurement row read out loud (T188): one sentence built from the
+   numbers above it, so the row is legible to a reader who has never met r.
+   Set as prose, not as a note — it is the row's meaning, not an aside. */
+.plain-reading {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.62;
+  color: var(--ink);
+  /* Long enough to be prose, short enough that the eye finds the next line:
+     the panel it sits in is the full width of the cockpit. */
+  max-width: 92ch;
+}
+.plain-reading b { font-weight: 580; }
+.plain-reading .plain-caveat { color: var(--ink-soft); }
+
 /* Notebook lint: each finding kind is a named block, its detail a sentence.
    (The findings used to be a row of collapsed <details>; they are open now,
    because a check whose results are folded away is a check nobody reads.) */

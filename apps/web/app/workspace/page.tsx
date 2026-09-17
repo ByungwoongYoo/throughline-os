@@ -67,6 +67,7 @@ import { Variables } from "@/components/variables";
 import { AnalysisList, PlainReading } from "@/components/analyses";
 
 import { AuthStatus, Gate } from "@/components/Gate";
+import { Term } from "@/components/term";
 
 export default function Home() {
   const auth = useApi<AuthStatus>("/api/auth/status");
@@ -1095,7 +1096,8 @@ function ConnectionList({ projectId, onSelect, total }: {
     <>
       <h1>Connections</h1>
       <p className="lede">
-        Every candidate that was tested, with its corrected q-value and lifecycle state.
+        Every candidate that was tested. Each row is an{" "}
+        <Term id="association" />.
       </p>
       <ConnectionsTable connections={data} error={error} loading={loading} reload={reload}
                         onSelect={onSelect} total={total} />

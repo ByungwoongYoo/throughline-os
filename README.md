@@ -419,7 +419,7 @@ in-flight work to fix nothing. Only an unreachable database answers 503.
 
 ## Tests
 
-The suite is at least **2828 backend tests and 3697 web tests** — the backend
+The suite is at least **2828 backend tests and 3712 web tests** — the backend
 number is what a base install collects; a machine with optional extras
 installed collects more, so the smaller figure is the one that is true
 everywhere.

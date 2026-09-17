@@ -26,6 +26,7 @@ import {
 } from "@/lib/api";
 import { ApiState, useApi } from "@/lib/useApi";
 import { Empty, Failure, Fold, Loading, Status, Totals } from "./primitives";
+import { TermList } from "./term";
 import {
   BibliographyPanel, ResultsTable, SnapshotPanel,
 } from "./bibliography";
@@ -238,6 +239,10 @@ function CitationHealth({ state }: { state: ApiState<CitationReport> }) {
         [report.by_entailment.unsupported ?? 0, "unsupported", "unsupported"],
         [unchecked, "unchecked", "unchecked"],
       ]} />
+      {/* Three of those six words are the report's own vocabulary and mean
+          nothing to a reader who has not met them (T188). The other three —
+          citations, resolve, unchecked — say what they are. */}
+      <TermList ids={["dangling", "supported", "unsupported"]} />
       {/* The server's paragraph on what these numbers can and cannot mean.
           It does not change between visits, so it is not on screen at rest. */}
       <Fold summary="What these counts do and do not prove" count={1}>
