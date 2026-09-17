@@ -239,7 +239,7 @@ export function Patterns({ projectId, datasetVersionId, columns }: {
               {detected.canonical_coverage.toLocaleString()} of them in confirmed{" "}
               {/* The last word D207 listed that no screen explained: a count
                   qualified by a term the reader has not met is a count they
-                  cannot use (T187). */}
+                  cannot use (T188). */}
               <Term id="canonical variable">canonical variables</Term>.{" "}
               {detected.note}{" "}
               <span className="cmp-method">

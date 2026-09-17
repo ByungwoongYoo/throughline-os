@@ -1,5 +1,5 @@
 /**
- * The cockpit's measurement row, said in words (T187, D207).
+ * The cockpit's measurement row, said in words (T188, D207).
  *
  * The three assertions that matter are not about wording but about what the
  * sentence is allowed to claim: a p-value is not the probability that the

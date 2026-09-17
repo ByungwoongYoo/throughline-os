@@ -1,5 +1,5 @@
 /**
- * The glossary is a table of words on screens, not a dictionary (D207, T187).
+ * The glossary is a table of words on screens, not a dictionary (D207, T188).
  *
  * The failure this guards against has already happened once here: `estimand`
  * sat in `GLOSSES` from the day the table was written and no screen ever

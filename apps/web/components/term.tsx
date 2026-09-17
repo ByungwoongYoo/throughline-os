@@ -18,7 +18,7 @@
  * word two ways, and each is one clause: what the word means for the number
  * next to it, not a textbook entry.
  *
- * T187 widened the table from six words to the whole vocabulary a first-timer
+ * T188 widened the table from six words to the whole vocabulary a first-timer
  * actually hits, which was measured rather than guessed: the rendered text of
  * nine populated screens was read back, and every word on them that the screen
  * did not explain is here. The six that were here already are unchanged, so no

@@ -73,6 +73,15 @@ describe("first-run setup", () => {
     expect(hint).toMatch(/font-weight:\s*400/);
   });
 
+  it("keeps each sign-in choice on one line, stacking the pair instead (T183)", () => {
+    // At a 1024px window both labels wrapped inside their buttons.
+    expect(rule(globals, ".gate-modes")).toMatch(/flex-wrap:\s*wrap/);
+    const buttons = rule(globals, ".gate-modes > .btn");
+    expect(buttons).toMatch(/white-space:\s*nowrap/);
+    expect(buttons).toMatch(/flex:\s*1 1 auto/);
+    expect(globals).toMatch(/@media \(pointer: coarse\) \{ \.gate-modes > \.btn \{ min-height: 44px; \} \}/);
+  });
+
   it("sets its small text at an ink that measured 4.5:1 or better", () => {
     // 42% measured 3.79:1 and 25% measured 2.15:1 on this ground; 56% is 5.8:1.
     for (const selector of [".gate-field > span", ".gate-field input::placeholder",

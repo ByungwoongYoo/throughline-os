@@ -364,7 +364,7 @@ export function Overview({ project, map, onGo, onOpen, onAddSources, onLineage,
             </ul>
             {/* The overview is the first screen of the product, and until now
                 the first number on it was a bare `r 0.60` beside a word like
-                "exploratory" (T187). Both are named here, once, under the
+                "exploratory" (T188). Both are named here, once, under the
                 list they label. */}
             <TermList ids={["r", "lifecycle state"]} />
             {map.top_connections.length > 4 && (
@@ -518,7 +518,7 @@ export function Sources({ sources, onSelect, upload, uploading, uploadError,
         <div>
           <h1>Sources</h1>
           {/* "treated as untrusted until parsed" is a security property said
-              in the vocabulary of the people who built it (T187). What it
+              in the vocabulary of the people who built it (T188). What it
               means for the reader is that a file cannot do anything to this
               machine, which is worth saying in those words. */}
           <p style={{ margin: 0 }}>
@@ -661,7 +661,7 @@ export function Sources({ sources, onSelect, upload, uploading, uploadError,
           </tbody>
         </table>
           {/* "upload · untrusted" is a value in this table, not a warning
-              (T187): every source starts untrusted and stays so until it has
+              (T188): every source starts untrusted and stays so until it has
               been parsed, which is the security property said in the reader's
               vocabulary rather than the builder's. */}
           <TermList ids={["untrusted"]} />
@@ -1589,7 +1589,7 @@ export function Discover({ projectId, sources, onSelectConnection, startWith,
       <h1>Discovery</h1>
       {/* The one sentence naming this screen used two words a first-timer has
           not met — "profiled schema" and "sandbox" — to explain a third,
-          "candidate" (T187). Every pair of columns is tried, which is the part
+          "candidate" (T188). Every pair of columns is tried, which is the part
           that makes the correction below necessary, so it is said here. */}
       <p className="lede">
         Every pair of columns in the dataset is tried against every other, and
@@ -1802,7 +1802,7 @@ export function ConnectionsTable({ connections, error, loading, reload, onSelect
       {/* Eight headings, four of which are two or three characters wide, and a
           reader arriving on this screen has not necessarily met any of them.
           A clause inside a heading would set the column width, so the words go
-          underneath in the order the columns run (T187). */}
+          underneath in the order the columns run (T188). */}
       <TermList
         lead="What the columns say"
         ids={[
@@ -2593,7 +2593,7 @@ export function RunFamily({ projectId, run, onOpenRun }: {
       </tbody>
     </table>
     {/* The Estimate column is a number and a symbol, and the symbol changes
-        per row: a correlation's r beside a regression's β (T187). */}
+        per row: a correlation's r beside a regression's β (T188). */}
     <TermList ids={["r", "β"]} />
     </>
   );
@@ -2831,7 +2831,7 @@ export function AnalysisDetail({ runId, projectId, onMethod, onVariables,
                         <dd>{data.method_rationale || "Not recorded."}</dd>
                       </dl>
                       {/* Method plus variables is exactly the estimand, and
-                          the panel that holds both never said the word (T187). */}
+                          the panel that holds both never said the word (T188). */}
                       <p className="note" style={{ marginBottom: 0 }}>
                         Taken together these are the <Term id="estimand" />: fix
                         them before the run, and the result is an answer to a
@@ -2904,7 +2904,7 @@ export function AnalysisDetail({ runId, projectId, onMethod, onVariables,
 
                     {/*
                       * The same four numbers in words, built from the result
-                      * itself (T187). The row above is the densest thing on the
+                      * itself (T188). The row above is the densest thing on the
                       * screen and, to a reader who has not met r, the least
                       * legible; this is a reading of it, not a summary.
                       *
@@ -2935,7 +2935,7 @@ export function AnalysisDetail({ runId, projectId, onMethod, onVariables,
                         variables={data.variables}
                       />
                       {/* The three graded words in the panel above, which are
-                          easy to read as three names for one thing (T187).
+                          easy to read as three names for one thing (T188).
                           They are here rather than under that panel because a
                           half-width column turned three clauses into nine
                           lines. */}
@@ -2982,7 +2982,7 @@ export function AnalysisDetail({ runId, projectId, onMethod, onVariables,
                           </table>
                           {/* "2 points beyond 1.5×IQR" is the detail column's
                               own wording, and IQR appears nowhere else in the
-                              product (T187). */}
+                              product (T188). */}
                           <TermList ids={["assumption check", "IQR"]} />
                           {/*
                             * The consequence, stated where the failure is.
@@ -3033,7 +3033,7 @@ export function AnalysisDetail({ runId, projectId, onMethod, onVariables,
                         </dd>
                       </dl>
                       {/* Four values with no statement of what having them is
-                          worth (T187). The seed and the two hashes are the
+                          worth (T188). The seed and the two hashes are the
                           whole reproducibility claim, and the claim was the
                           one thing the panel did not make. */}
                       <p className="note" style={{ marginBottom: 0 }}>

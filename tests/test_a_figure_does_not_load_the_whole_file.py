@@ -38,6 +38,28 @@ from throughline_api.app import (  # noqa: E402
 LIMIT = 500
 
 
+def _string_storages() -> list[str]:
+    """
+    Every text backend this machine can run pandas with (T187).
+
+    pandas 3 stores `str` columns through pyarrow whenever pyarrow is installed
+    — which the `parquet` feature pack does, from Settings — and the bound
+    failed only there: 46MB against 40. CI bootstraps without extras, so the
+    configuration a researcher who installed the pack runs was never measured.
+    Listed rather than skipped: a machine without pyarrow runs one variant, not
+    a skip CI would have to excuse.
+    """
+    import importlib.util
+
+    return ["python"] + (["pyarrow"] if importlib.util.find_spec("pyarrow") else [])
+
+
+@pytest.fixture(params=_string_storages())
+def string_storage(request):
+    with pd.option_context("mode.string_storage", request.param):
+        yield request.param
+
+
 @pytest.fixture(scope="module")
 def big(tmp_path_factory) -> Path:
     """Large enough that loading it all is visible in a memory measurement."""
@@ -56,7 +78,7 @@ def big(tmp_path_factory) -> Path:
 
 
 class TestItStaysBounded:
-    def test_it_does_not_hold_the_file_in_memory(self, big):
+    def test_it_does_not_hold_the_file_in_memory(self, big, string_storage):
         tracemalloc.start()
         try:
             sample, account = _sample_columns(
@@ -77,7 +99,7 @@ class TestItStaysBounded:
         assert set(sample) == {"consumption"}
 
 
-    def test_a_wide_file_costs_only_the_columns_asked_for(self, tmp_path):
+    def test_a_wide_file_costs_only_the_columns_asked_for(self, tmp_path, string_storage):
         """
         The case a researcher actually has. Forty columns is ordinary, and the
         thirty-eight a scatter plot does not draw were being read, converted to
@@ -97,9 +119,14 @@ class TestItStaysBounded:
         wide = tmp_path / "wide.csv"
         pd.DataFrame(columns).to_csv(wide, index=False)
 
+        # The baseline is the whole file read as Python strings — what the
+        # sampler replaced, and what `tracemalloc` can see. Under pyarrow the
+        # whole read's buffers are Arrow's, invisible here, and the comparison
+        # would say "43MB against 43MB" about a read it could not measure.
         tracemalloc.start()
         try:
-            frame, _ = read_dataset(wide)
+            with pd.option_context("mode.string_storage", "python"):
+                frame, _ = read_dataset(wide)
             _, whole_peak = tracemalloc.get_traced_memory()
             del frame
         finally:

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * The measurement row, read out loud (T187).
+ * The measurement row, read out loud (T188).
  *
  * The cockpit's result panel is four symbols and four numbers: `r 0.60`,
  * `95% CI [0.50, 0.69]`, `p-value <0.001`, `n 180`. To a reader who has met

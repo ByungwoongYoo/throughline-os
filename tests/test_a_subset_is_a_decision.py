@@ -214,11 +214,16 @@ def test_a_parent_from_another_dataset_is_refused(cur, project, dataset):
 
 
 def test_two_subsets_of_one_dataset_cannot_share_a_name(cur, project, dataset):
-    """A reader has to be able to say which subset a number came from."""
-    import psycopg
+    """
+    A reader has to be able to say which subset a number came from.
 
+    Refused in words. This used to be pinned as the database's unique violation,
+    which is exactly what reached the route as a 500 carrying a constraint name,
+    for a mistake the researcher fixes by choosing another name (T185). The
+    constraint stays underneath, for two requests that race.
+    """
     _define(cur, project, dataset, "Adults", ADULTS)
-    with pytest.raises(psycopg.errors.UniqueViolation):
+    with pytest.raises(cohorts.CohortError, match="already a subset called 'Adults'"):
         _define(cur, project, dataset, "Adults", HIGH)
 
 

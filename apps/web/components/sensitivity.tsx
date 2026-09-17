@@ -262,7 +262,7 @@ export function CompareBranches({ projectId, runIds }: {
               </tbody>
             </table>
           </div>
-          {/* Four of the seven headings are symbols (T187). The branch column
+          {/* Four of the seven headings are symbols (T188). The branch column
               is already prose, so only the numeric ones need naming. */}
           <TermList ids={["estimate", "95% CI", "p-value", "n"]} />
         </section>

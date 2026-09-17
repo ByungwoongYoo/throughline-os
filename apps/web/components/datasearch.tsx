@@ -53,7 +53,14 @@ type Dataset = {
   description: string;
   url: string;
   licence: string;
-  files: Array<{ name: string; format: string; bytes: number | null }>;
+  /**
+   * `url` is the file's own download address, where the repository gives one
+   * (D411). The record's `url` is its landing page — HTML — and importing that
+   * was refused as "not tabular". `readable` says whether this workspace can
+   * open the format.
+   */
+  files: Array<{ name: string; format: string; bytes: number | null;
+                 url: string | null; readable: boolean }>;
   files_listed: boolean;
   variables: string[];
   rows: number | null;
@@ -91,7 +98,13 @@ type Imported = {
   ingestion_status: string;
 };
 
-export function DataSearch({ projectId, onImported }: {
+export function DataSearch({ projectId, onImported, initialQuery }: {
+  /**
+   * What to search for, when the screen is opened from a claim (D413). Filled
+   * in, not run: searching reaches four repositories, which is the
+   * researcher's to start.
+   */
+  initialQuery?: string;
   /**
    * The project a record would be added to.
    *
@@ -109,7 +122,7 @@ export function DataSearch({ projectId, onImported }: {
    */
   onImported?: (sourceId: string) => void;
 }) {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery ?? "");
   const [repositories, setRepositories] = useState<Repository[] | null>(null);
   const [results, setResults] = useState<Results | null>(null);
   const [busy, setBusy] = useState(false);
@@ -134,7 +147,8 @@ export function DataSearch({ projectId, onImported }: {
    * shows, because this browser cannot know which hosts the installation
    * searches.
    */
-  async function add(key: string, record: Dataset) {
+  async function add(key: string, record: Dataset, file: Dataset["files"][number],
+                     several: boolean) {
     if (!projectId) return;
     setAdding(key);
     setRefused((current) => {
@@ -145,8 +159,10 @@ export function DataSearch({ projectId, onImported }: {
     try {
       const result = await api.post<Imported>(
         `/api/projects/${projectId}/datasets/import`, {
-          url: record.url,
-          title: record.title,
+          // The file, not the record's page (D411).
+          url: file.url,
+          // With several files in one record, each import needs its own name.
+          title: several ? `${record.title} — ${file.name}` : record.title,
           repository: record.repository,
           // Not `|| null` on a falsy string only: "not stated" is a real fact
           // about the record, and the empty string the search returns for it
@@ -258,7 +274,17 @@ export function DataSearch({ projectId, onImported }: {
                   // The same key the list is drawn with, so what was added and
                   // what was refused stay attached to the row they belong to.
                   const key = `${record.repository}-${record.doi ?? index}`;
-                  const added = imported.get(key);
+                  // What can actually be brought in: a file this workspace
+                  // reads, at an address the repository gave for it.
+                  const importable = record.files.filter((f) => f.readable && f.url);
+                  const fileKey = (name: string) => `${key}::${name}`;
+                  const addedFiles = importable
+                    .map((f) => imported.get(fileKey(f.name)))
+                    .filter((a): a is Imported => a !== undefined);
+                  const added = addedFiles[0];
+                  const refusals = importable
+                    .map((f) => refused.get(fileKey(f.name)))
+                    .filter((r): r is string => Boolean(r));
                   return (
                     <li key={key}>
                       {/* Unusable records stay visible and dimmed. Filtering
@@ -372,17 +398,25 @@ export function DataSearch({ projectId, onImported }: {
                             repository, and "Add" beside it read as "add to a
                             list on this screen".
                           */}
-                          {projectId && use.usable && (
-                            <button
-                              className="btn"
-                              disabled={added !== undefined || adding === key}
-                              onClick={() => void add(key, record)}
-                            >
-                              {added !== undefined ? "In this project"
-                                : adding === key ? "Adding…"
-                                : "Add to this project"}
-                            </button>
-                          )}
+                          {projectId && use.usable && importable.map((file) => {
+                            const k = fileKey(file.name);
+                            const done = imported.has(k);
+                            const several = importable.length > 1;
+                            return (
+                              <button
+                                key={k}
+                                className="btn"
+                                disabled={done || adding === k}
+                                onClick={() => void add(k, record, file, several)}
+                              >
+                                {done ? (several ? `${file.name} is in this project`
+                                                 : "In this project")
+                                  : adding === k ? "Adding…"
+                                  : several ? `Add ${file.name}`
+                                  : "Add to this project"}
+                              </button>
+                            );
+                          })}
                         </footer>
 
                         {/*
@@ -401,12 +435,24 @@ export function DataSearch({ projectId, onImported }: {
                           </p>
                         )}
 
-                        {refused.get(key) && (
+                        {refusals.map((reason) => (
                           // The server's sentence, in place, as a sentence —
                           // never a disabled button and never a toast.
-                          <p className="ds-blocked" role="alert"
+                          <p key={reason} className="ds-blocked" role="alert"
                              style={{ margin: "6px 0 0" }}>
-                            Not added: {refused.get(key)}
+                            Not added: {reason}
+                          </p>
+                        ))}
+
+                        {projectId && use.usable && importable.length === 0 && (
+                          // Said rather than offered and refused: nothing here
+                          // gave a file address to import from.
+                          <p className="ds-unknown" style={{ margin: "6px 0 0" }}>
+                            {record.files_listed
+                              ? "The repository gave no download address for its files. "
+                              : "This repository does not list its files in search. "}
+                            Open the record, download the file, and upload it to
+                            Sources.
                           </p>
                         )}
                       </article>

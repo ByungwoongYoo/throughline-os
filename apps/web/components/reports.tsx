@@ -240,7 +240,7 @@ function CitationHealth({ state }: { state: ApiState<CitationReport> }) {
         [unchecked, "unchecked", "unchecked"],
       ]} />
       {/* Three of those six words are the report's own vocabulary and mean
-          nothing to a reader who has not met them (T187). The other three —
+          nothing to a reader who has not met them (T188). The other three —
           citations, resolve, unchecked — say what they are. */}
       <TermList ids={["dangling", "supported", "unsupported"]} />
       {/* The server's paragraph on what these numbers can and cannot mean.

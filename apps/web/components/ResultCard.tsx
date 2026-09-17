@@ -258,7 +258,7 @@ export function ResultCard({
       {/* The labels are words, which is half of it; the values under them are
           not. "survived correction at a false-discovery rate of 0.05" and
           "(pearson r = 0.60)" are the two phrases on this card that assume a
-          reader who has met them before (T187). */}
+          reader who has met them before (T188). */}
       <TermList ids={["effect size", "false-discovery rate"]} />
 
       {showWhy && (

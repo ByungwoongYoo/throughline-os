@@ -23,7 +23,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 import { Empty, Failure, Loading } from "./primitives";
 import { SourceChip, SourceMark } from "./SourceMark";
 import { PaperReader } from "./literature/PaperReader";
@@ -83,6 +83,12 @@ export function Literature({ projectId }: { projectId: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [imported, setImported] = useState<Set<string>>(new Set());
+  /*
+   * What happened when the full text was asked for, per record (D410): the
+   * server's own sentence, whether it is "being read" or a refusal.
+   */
+  const [fullText, setFullText] = useState<Map<string, { ok: boolean; text: string }>>(
+    new Map());
   /*
    * The paper currently being read, and what has been taken from papers.
    *
@@ -194,6 +200,26 @@ export function Literature({ projectId }: { projectId: string }) {
     try {
       await ensureImported(record);
     } catch (err) { setError(err); }
+  }
+
+  /**
+   * Add the paper and read its open-access text into it (D410).
+   *
+   * An added paper was a citation and nothing more — no passages, so its
+   * claims could not be located. The server fetches the address the import
+   * recorded, through the guarded fetcher, into the same source.
+   */
+  async function addWithText(record: Paper, key: string) {
+    const say = (ok: boolean, text: string) =>
+      setFullText((current) => new Map(current).set(key, { ok, text }));
+    try {
+      const sourceId = await ensureImported(record);
+      const answer = await api.post<{ note: string }>(
+        `/api/projects/${projectId}/sources/${sourceId}/full-text`, {});
+      say(true, answer.note);
+    } catch (err) {
+      say(false, err instanceof ApiError ? err.message : String(err));
+    }
   }
 
   /**
@@ -450,7 +476,27 @@ export function Literature({ projectId }: { projectId: string }) {
                           >
                             {imported.has(key) ? "In this project" : "Add"}
                           </button>
+                          {/* The same deliberate act as Read, with the text
+                              kept in the project rather than only shown. */}
+                          {record.open_access && record.pdf_url && (
+                            <button
+                              className="btn"
+                              disabled={fullText.get(key)?.ok === true}
+                              onClick={() => void addWithText(record, key)}
+                            >
+                              {fullText.get(key)?.ok ? "Being read"
+                                : "Add and read the full text"}
+                            </button>
+                          )}
                         </footer>
+                        {fullText.get(key) && (
+                          <p className={fullText.get(key)!.ok ? "note" : "ds-blocked"}
+                             role={fullText.get(key)!.ok ? "status" : "alert"}
+                             style={{ margin: "6px 0 0" }}>
+                            {fullText.get(key)!.ok ? "" : "Not read: "}
+                            {fullText.get(key)!.text}
+                          </p>
+                        )}
                       </article>
                     </li>
                   );
@@ -496,9 +542,10 @@ export function Literature({ projectId }: { projectId: string }) {
               )}
 
               <p className="pat-foot">
-                Only metadata is imported. Fetching a PDF is a separate,
-                deliberate act — this never routes around a paywall, and where a
-                paper is open access it says so rather than fetching it for you.
+                Add imports the citation only. Fetching a PDF is a separate,
+                deliberate act — this never routes around a paywall — and where a
+                paper is open access, <em>Add and read the full text</em> is that
+                act: its text is read into the project, so its claims can be found.
               </p>
             </>
           )}

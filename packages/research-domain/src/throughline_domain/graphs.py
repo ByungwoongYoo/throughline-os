@@ -291,6 +291,11 @@ def discovery_map(cur, *, project_id: str) -> dict[str, Any]:
     for label, query in (
         ("sources", "SELECT COUNT(*) AS n FROM sources WHERE project_id = %s"),
         ("papers", "SELECT COUNT(*) AS n FROM papers WHERE project_id = %s"),
+        # Papers whose text has been read, however they arrived — an uploaded or
+        # fetched PDF has passages and no `papers` row. What the paper-first
+        # rung needs to know is whether a claim can be located (D413).
+        ("readable_papers", "SELECT COUNT(DISTINCT source_id) AS n FROM passages "
+                            "WHERE project_id = %s"),
         ("datasets", "SELECT COUNT(*) AS n FROM datasets WHERE project_id = %s"),
         ("analyses", "SELECT COUNT(*) AS n FROM analysis_runs WHERE project_id = %s "
                      "AND status = 'completed'"),
@@ -538,6 +543,14 @@ def _recommendation(counts: dict[str, Any], findings: dict[str, int],
                       "one finishes."), None
     if not counts["sources"]:
         return "sources", "Add sources: upload papers or a dataset to begin.", None
+    if not counts["datasets"] and counts.get("readable_papers"):
+        # Starting from a paper. "Add a dataset" was the only answer, and
+        # nothing joined a paper's claim to the data that could test it, so a
+        # paper-first project never reached a finding (D413). Still `profile`:
+        # data is what is missing, and the claim is how to find the right data.
+        return "profile", ("Your papers make claims that data could test. Read one "
+                           "for its claims in Compare, then find data for a claim "
+                           "with Find data."), None
     if not counts["datasets"]:
         # `profile`, not `sources`. The dataset is a step of its own even though
         # it is taken on the Sources screen, and it is the one whose control

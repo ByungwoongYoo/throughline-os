@@ -25,6 +25,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { Fold } from "@/components/primitives";
 import { Network3D } from "@/components/charts/Network3D";
 import { Field3D } from "@/components/charts/Field3D";
 import { VoxelVolume } from "@/components/charts/VoxelVolume";
@@ -223,6 +224,13 @@ export default function Charts3DPage() {
     <main className="c3d-page">
       <header>
         <h1>Spatial charts</h1>
+        {/* The charts before the account of them (T184): one line to act on,
+            and the counts and the cost of depth one press away, unchanged. */}
+        <p>
+          Drag a chart to rotate it; hold ctrl or ⌘ while scrolling to zoom. Each
+          one says what its depth is hiding.
+        </p>
+        <Fold summary="What is catalogued here, and what depth costs" count={2}>
         <p>
           {/*
             * Derived, not asserted. This said `available()` — built *and*
@@ -273,6 +281,7 @@ export default function Charts3DPage() {
           reach the bottom. A static three-dimensional image cannot be read,
           and motion parallax is what makes one legible.
         </p>
+        </Fold>
         <p>
           {/* Back to the workspace, which is where a reader arrived from.
               "/" is the page for somebody who does not have an account yet. */}

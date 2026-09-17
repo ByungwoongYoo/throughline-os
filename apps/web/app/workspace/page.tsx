@@ -152,6 +152,8 @@ function Workspace({ user }: { user: SignedInUser }) {
    * relies on it too: its entrance into the lineage is a place, not a message
    * passed sideways into a component.
    */
+  /** What Find data opens with when a claim sent the researcher there (D413). */
+  const [dataQuery, setDataQuery] = useState<string | undefined>(undefined);
   const [view, setViewState] = useState<View | null>(() =>
     typeof window === "undefined"
       ? null
@@ -735,7 +737,8 @@ function Workspace({ user }: { user: SignedInUser }) {
                   /* A found dataset comes in through the same door a dropped
                      file uses, and the researcher goes with it to watch it
                      being profiled. */
-                  <DataSearch projectId={project.id}
+                  <DataSearch projectId={project.id} initialQuery={dataQuery}
+                              key={dataQuery ?? ""}
                               onImported={(id) => { reloadSources(); reloadMap(); open("source", id); }} />
                 )}
                 {view === "figure" && (
@@ -951,7 +954,12 @@ function Workspace({ user }: { user: SignedInUser }) {
           <Compare projectId={project.id} sources={sources}
                    onOpenSource={(id) => open("source", id)}
                    onFindPapers={() => go({ section: "sources", item: null }, { view: "papers" })}
-                   onAddData={() => go({ section: "sources", item: null }, { view: "library" })} />
+                   onAddData={() => go({ section: "sources", item: null }, { view: "library" })}
+                   onConnectModel={() => go({ section: "settings", item: null })}
+                   onFindData={(query) => {
+                     setDataQuery(query);
+                     go({ section: "sources", item: null }, { view: "data" });
+                   }} />
         )}
         {section === "notebook" && <Notebook projectId={project.id} />}
         {section === "journal" && (

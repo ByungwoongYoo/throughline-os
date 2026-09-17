@@ -113,6 +113,30 @@ class TestEachRungNamesItsStep:
             "profile",
             "Add a dataset — discovery needs tabular data to test relationships.")
 
+    def test_a_paper_with_no_data_is_sent_to_its_claims(self, cur, project):
+        """
+        D413. A project holding readable papers and no table was told only to
+        add a dataset, and nothing joined a paper's claim to finding data that
+        could test it — so starting from a paper never reached a finding. The
+        rung now names that route. Still `profile`: data is still what is
+        missing, and the claim is how to find the right data.
+        """
+        source_id = new_id("src")
+        cur.execute(
+            "INSERT INTO sources(id, project_id, source_type, title, "
+            "ingestion_status) VALUES (%s, %s, 'upload', 'A paper', 'ready')",
+            (source_id, project))
+        cur.execute(
+            "INSERT INTO passages(id, project_id, source_id, ordinal, kind, locator, "
+            "section, content, metadata) VALUES (%s, %s, %s, 0, 'paragraph', 'p. 1', "
+            "'Results', 'Consumption rose with resistance.', '{}')",
+            (new_id("psg"), project, source_id))
+
+        assert _recommendation(cur, project) == (
+            "profile",
+            "Your papers make claims that data could test. Read one for its claims "
+            "in Compare, then find data for a claim with Find data.")
+
     def test_a_dataset_with_nothing_run_on_it_is_sent_to_discover(
             self, cur, project):
         """A profiled table and nothing tested against it."""

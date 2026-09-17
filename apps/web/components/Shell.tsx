@@ -551,7 +551,7 @@ export function Shell({
             <span>{group.label}</span>
             {/* The bare number beside a group reads as a count of the things
                 inside the project — "Evidence 3" as three sources — when it
-                counts the screens behind the heading (T187). The digit stays,
+                counts the screens behind the heading (T188). The digit stays,
                 because the row has no space for a word; what it counts is
                 said to a screen reader, and by the sentence under the rail. */}
             <span className="groupbar-count"

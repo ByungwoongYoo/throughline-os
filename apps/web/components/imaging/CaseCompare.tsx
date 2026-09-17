@@ -27,6 +27,7 @@
  */
 
 import { useCallback, useMemo, useState } from "react";
+import { Fold } from "@/components/primitives";
 import { CaseWorkspace, OpenScan } from "@/components/imaging/CaseWorkspace";
 import { Grid, gridFromFunction } from "@/lib/charts3d/voxels";
 import {
@@ -343,24 +344,34 @@ export function CaseCompare({ standalone = false }: { standalone?: boolean }) {
     <div className="case-page">
       <header>
         {standalone && <h1>Compare images</h1>}
+        {/*
+          * The tool before the argument for it (T184). Every sentence that was
+          * here still is: the lede says what the page does, the warning stays
+          * in view because it limits what anything below may be read as, and
+          * why comparability rather than resemblance is one press away.
+          */}
         <p>
-          An image, held beside what you already have — a scan, a micrograph, a
-          gel, a plate, or a figure lifted out of a paper. Each is sorted by
-          whether it <em>may</em> be compared with the first, not by how much it
-          resembles it. What an image looks like is dominated by how it was
-          acquired rather than by what was in front of the instrument, in every
-          one of those fields, so a list ordered by resemblance would mostly be
-          a list of images taken on the same instrument — and it would look
-          convincing while being about the instrument.
+          Open an image beside what you already have — a scan, a micrograph, a
+          gel, a plate, or a figure from a paper. Each is sorted by whether it{" "}
+          <em>may</em> be compared with the first, not by how much it resembles it.
         </p>
-        <p className="case-note">
-          Which facts decide a comparison depends on the field, so each brings
-          its own: a scan is judged on modality, sequence and geometry, a
-          micrograph on technique, channel, preparation and optics, a figure on
-          what is plotted, how it is normalised and what its error bars mean.
-          Nothing is compared across two fields — a micrograph and a scan share
-          no axis, and saying so is more useful than a verdict about neither.
-        </p>
+        <Fold summary="Why comparability rather than resemblance" count={2}>
+          <p className="case-note">
+            What an image looks like is dominated by how it was acquired rather
+            than by what was in front of the instrument, in every one of those
+            fields, so a list ordered by resemblance would mostly be a list of
+            images taken on the same instrument — and it would look convincing
+            while being about the instrument.
+          </p>
+          <p className="case-note">
+            Which facts decide a comparison depends on the field, so each brings
+            its own: a scan is judged on modality, sequence and geometry, a
+            micrograph on technique, channel, preparation and optics, a figure on
+            what is plotted, how it is normalised and what its error bars mean.
+            Nothing is compared across two fields — a micrograph and a scan share
+            no axis, and saying so is more useful than a verdict about neither.
+          </p>
+        </Fold>
         <p className="case-warning">
           Research tooling. Nothing here ranks, scores or suggests a
           conclusion, and nothing here has looked at the pixels. Everything
@@ -398,19 +409,6 @@ export function CaseCompare({ standalone = false }: { standalone?: boolean }) {
         )}
       </header>
 
-      <section className="case-privacy">
-        <h2>What the file says about who or where</h2>
-        <p className="case-note">{describeReview(phi)}</p>
-        <p className="case-note">
-          The file is read in this browser. It is not uploaded, and the
-          identifying fields are never written into the project — only the
-          acquisition fields the comparison is decided on. This is not only a
-          medical question: a photograph carries the coordinates it was taken
-          at, which identifies a collection site, and sometimes a home, as
-          surely as a name does. You are told when one does.
-        </p>
-      </section>
-
       <section className="case-open">
         <h2>Open your own images</h2>
         <p className="case-note">
@@ -421,23 +419,6 @@ export function CaseCompare({ standalone = false }: { standalone?: boolean }) {
           browser, not uploaded. The first image opened becomes the one
           everything else is compared against, so open it first and the rest
           after.
-        </p>
-        <p className="case-note">
-          TIFF is read here by this application rather than by the browser, at
-          eight, sixteen and thirty-two bits, uncompressed or LZW, PackBits or
-          Deflate. An OME-TIFF also states its objective, channel, acquisition
-          mode and exposure, and those are read — which is the difference
-          between a verdict and &ldquo;cannot be judged&rdquo;. Tiled files and
-          the JPEG-in-TIFF compressions are declined by name rather than guessed
-          at, because a wrong decode produces an image that still looks like a
-          micrograph.
-        </p>
-        <p className="case-note">
-          DICOM headers are read whatever the file; pixels only when they are
-          stored uncompressed. A compressed series is still <em>judged</em> for
-          comparability — the header is all that takes — and declined for
-          display, naming its transfer syntax, because a wrong codec produces an
-          image that looks like a scan.
         </p>
         <label className="case-noteinput">
           {/*
@@ -480,6 +461,25 @@ export function CaseCompare({ standalone = false }: { standalone?: boolean }) {
             onChange={(event) => setAuthor(event.target.value)}
           />
         </label>
+        <Fold summary="What each format can and cannot tell a comparison" count={2}>
+          <p className="case-note">
+            TIFF is read here by this application rather than by the browser, at
+            eight, sixteen and thirty-two bits, uncompressed or LZW, PackBits or
+            Deflate. An OME-TIFF also states its objective, channel, acquisition
+            mode and exposure, and those are read — which is the difference
+            between a verdict and &ldquo;cannot be judged&rdquo;. Tiled files and
+            the JPEG-in-TIFF compressions are declined by name rather than guessed
+            at, because a wrong decode produces an image that still looks like a
+            micrograph.
+          </p>
+            <p className="case-note">
+            DICOM headers are read whatever the file; pixels only when they are
+            stored uncompressed. A compressed series is still <em>judged</em> for
+            comparability — the header is all that takes — and declined for
+            display, naming its transfer syntax, because a wrong codec produces an
+            image that looks like a scan.
+          </p>
+        </Fold>
         {problems.length > 0 && (
           <ul className="case-problems">
             {problems.map((p) => <li key={p}>{p}</li>)}
@@ -494,6 +494,19 @@ export function CaseCompare({ standalone = false }: { standalone?: boolean }) {
             carries all four, so a series gets an actual verdict.
           </p>
         )}
+      </section>
+
+      <section className="case-privacy">
+        <h2>What the file says about who or where</h2>
+        <p className="case-note">{describeReview(phi)}</p>
+        <p className="case-note">
+          The file is read in this browser. It is not uploaded, and the
+          identifying fields are never written into the project — only the
+          acquisition fields the comparison is decided on. This is not only a
+          medical question: a photograph carries the coordinates it was taken
+          at, which identifies a collection site, and sometimes a home, as
+          surely as a name does. You are told when one does.
+        </p>
       </section>
 
       {opened.length > 0 && (

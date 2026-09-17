@@ -21,11 +21,11 @@ title; a DOI is a DOI.
 
 from __future__ import annotations
 
-import concurrent.futures
 import re
 from typing import Any
 
 from .base import Connector, ConnectorError, SourceRecord
+from .fanout import fan_out, late_note
 from .more_sources import MORE_CONNECTORS
 from .sources import CONNECTORS as CORE_CONNECTORS
 
@@ -112,16 +112,20 @@ def search(query: str, *, sources: list[str] | None = None, limit: int = 20,
         except Exception as exc:  # noqa: BLE001 — one source must not sink the rest
             return name, exc
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(names)) as pool:
-        futures = [pool.submit(run, name) for name in names]
-        for future in concurrent.futures.as_completed(futures, timeout=timeout):
-            name, outcome = future.result()
-            if isinstance(outcome, Exception):
-                statuses[name] = {"ok": False, "count": 0,
-                                  "note": str(outcome)[:300]}
-                continue
-            statuses[name] = {"ok": True, "count": len(outcome), "note": None}
-            collected.extend(outcome)
+    # A source that hangs is reported like one that errors (D409): the page
+    # keeps what arrived by the deadline, and nothing waits for the rest.
+    finished, late = fan_out(names, run, deadline=timeout)
+    for name in names:
+        if name in late:
+            statuses[name] = {"ok": False, "count": 0, "note": late_note(timeout)}
+            continue
+        outcome = finished[name][1]
+        if isinstance(outcome, Exception):
+            statuses[name] = {"ok": False, "count": 0,
+                              "note": str(outcome)[:300]}
+            continue
+        statuses[name] = {"ok": True, "count": len(outcome), "note": None}
+        collected.extend(outcome)
 
     merged = merge(collected)
     return {

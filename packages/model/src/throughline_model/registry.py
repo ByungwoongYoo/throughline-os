@@ -391,12 +391,31 @@ def configure(*, provider: str | None = None, model: str | None = None,
     _cached.cache_clear()
 
 
+def _default_model(provider_name: str) -> str | None:
+    """The model a provider runs when nobody named one; None when there is none."""
+    name = provider_name.lower()
+    if name == "ollama":
+        from .ollama import DEFAULT_MODEL
+        return DEFAULT_MODEL
+    if name == "anthropic":
+        from .anthropic_provider import DEFAULT_MODEL
+        return DEFAULT_MODEL
+    return None
+
+
 def selection() -> dict[str, str | None]:
-    """What is selected right now, and where the choice came from."""
+    """What is selected right now, and where the choice came from.
+
+    `model` is the one that will answer (T182). It was None whenever nobody had
+    named one, while the provider ran its own default — so the capability
+    report showed no model on a machine where model features worked.
+    """
+    provider_name = (_override["provider"]
+                     or os.environ.get("THROUGHLINE_MODEL_PROVIDER", "ollama"))
     return {
-        "provider": _override["provider"]
-                    or os.environ.get("THROUGHLINE_MODEL_PROVIDER", "ollama"),
-        "model": _override["model"] or os.environ.get("THROUGHLINE_MODEL"),
+        "provider": provider_name,
+        "model": (_override["model"] or os.environ.get("THROUGHLINE_MODEL")
+                  or _default_model(provider_name)),
         "source": "chosen in the interface" if _override["provider"]
                   or _override["model"] else "environment",
     }

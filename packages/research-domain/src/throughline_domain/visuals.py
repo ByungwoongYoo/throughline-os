@@ -169,6 +169,13 @@ def create_visual(
         raise VisualError(f"Unknown analysis run: {spec.analysis_run_id}")
     if run["project_id"] != project_id:
         raise VisualError("The analysis run belongs to a different project.")
+    if finding_id:
+        # The run was checked and the finding was not, so a figure in your
+        # project could be filed against another account's finding (T185).
+        cur.execute("SELECT 1 FROM findings WHERE id = %s AND project_id = %s",
+                    (finding_id, project_id))
+        if cur.fetchone() is None:
+            raise VisualError("The finding belongs to a different project.")
 
     result = run["result"] or {}
     data = visual_prepare.prepare(spec, analysis_result=result, sample=sample)
