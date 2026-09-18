@@ -754,6 +754,123 @@ def test_the_download_a_researcher_asks_for_arrives_as_that_format(client):
     assert "600px" in png.headers["content-disposition"]
 
 
+def test_a_figure_comes_on_the_ground_it_is_asked_for_and_keeps_the_other(client):
+    """T191: a dark copy is its own file, and does not replace the light one a
+    manuscript already links to. Every export used to be opaque white."""
+    from matplotlib import image as mpimg
+    import io
+
+    project_id, run_id = _http_project_with_analysis(client)
+    visual_id = client.post(f"/api/projects/{project_id}/visuals",
+                            json={"analysis_run_id": run_id}).json()["visual_id"]
+
+    light = client.post(f"/api/visuals/{visual_id}/render?format=png")
+    dark = client.post(f"/api/visuals/{visual_id}/render?format=png&ground=dark")
+    clear = client.post(
+        f"/api/visuals/{visual_id}/render?format=png&ground=dark&transparent=true")
+    for response in (light, dark, clear):
+        assert response.status_code == 200, response.text
+    keys = {light.json()["storage_key"], dark.json()["storage_key"],
+            clear.json()["storage_key"]}
+    assert len(keys) == 3, "each ground is its own file"
+
+    again = client.post(f"/api/visuals/{visual_id}/render?format=png")
+    assert again.json()["render_id"] == light.json()["render_id"]
+
+    download = client.get(
+        f"/api/visuals/{visual_id}/download?format=png&ground=dark&transparent=true")
+    assert download.status_code == 200, download.text
+    assert "-dark-transparent.png" in download.headers["content-disposition"]
+    corner = mpimg.imread(io.BytesIO(download.content))[2, 2]
+    assert corner.shape[0] == 4 and corner[3] == 0
+
+
+def test_a_ground_that_does_not_exist_is_refused_with_the_ones_that_do(client):
+    project_id, run_id = _http_project_with_analysis(client)
+    visual_id = client.post(f"/api/projects/{project_id}/visuals",
+                            json={"analysis_run_id": run_id}).json()["visual_id"]
+
+    sepia = client.post(f"/api/visuals/{visual_id}/render?format=png&ground=sepia")
+    assert sepia.status_code == 400, sepia.text
+    assert "light, dark" in sepia.json()["detail"]
+    eps = client.post(f"/api/visuals/{visual_id}/render?format=eps&transparent=true")
+    assert eps.status_code == 400 and "no transparency" in eps.json()["detail"]
+
+
+def _second_figure(client, project_id: str) -> str:
+    """A second recorded figure in the same project, from a Spearman run."""
+    sources = client.get(f"/api/projects/{project_id}/sources").json()
+    version_id = sources[0]["dataset"]["dataset_version_id"]
+    queued = client.post(f"/api/projects/{project_id}/analyses", json={
+        "method": "spearman_correlation",
+        "dataset_version_ids": [version_id],
+        "variables": {"x": "consumption_ddd", "y": "resistance_pct"},
+    })
+    assert queued.status_code == 202, queued.text
+    _drain()
+    return client.post(f"/api/projects/{project_id}/visuals", json={
+        "analysis_run_id": queued.json()["analysis_run_id"]}).json()["visual_id"]
+
+
+def test_recorded_figures_compose_into_one_lettered_figure(client):
+    """T192: panels A and B, each with its recorded numbers, in one file."""
+    project_id, run_id = _http_project_with_analysis(client)
+    first = client.post(f"/api/projects/{project_id}/visuals",
+                        json={"analysis_run_id": run_id}).json()["visual_id"]
+    second = _second_figure(client, project_id)
+
+    checked = client.post(f"/api/projects/{project_id}/figures/compose/check",
+                          json={"visual_ids": [first, second]})
+    assert checked.status_code == 200, checked.text
+    panels = checked.json()["panels"]
+    assert [p["letter"] for p in panels] == ["A", "B"]
+    assert [p["visual_id"] for p in panels] == [first, second]
+    # The numbers are the runs' own, not recomputed: n and a p-value each.
+    assert all("n = 120" in p["metrics"] and "p " in p["metrics"] for p in panels)
+
+    drawn = client.post(f"/api/projects/{project_id}/figures/compose",
+                        json={"visual_ids": [first, second], "format": "svg"})
+    assert drawn.status_code == 200, drawn.text
+    assert "figure-2-panels.svg" in drawn.headers["content-disposition"]
+    text = drawn.text
+    # Text stays text in the SVG, so the letters and numbers are searchable.
+    assert ">A<" in text and ">B<" in text
+    # And the file carries both panels' ids for tracing back.
+    assert first in text and second in text
+
+
+def test_a_composition_cannot_reach_a_figure_in_another_project(client):
+    project_id, run_id = _http_project_with_analysis(client)
+    mine = client.post(f"/api/projects/{project_id}/visuals",
+                       json={"analysis_run_id": run_id}).json()["visual_id"]
+    other_id, other_run = _http_project_with_analysis(client)
+    theirs = client.post(f"/api/projects/{other_id}/visuals",
+                         json={"analysis_run_id": other_run}).json()["visual_id"]
+
+    for route in ("figures/compose", "figures/compose/check"):
+        refused = client.post(f"/api/projects/{project_id}/{route}",
+                              json={"visual_ids": [mine, theirs], "format": "pdf"})
+        assert refused.status_code == 404, (route, refused.text)
+        assert theirs in refused.json()["detail"]
+
+
+def test_a_composition_refuses_what_it_cannot_draw_with_a_reason(client):
+    project_id, run_id = _http_project_with_analysis(client)
+    visual_id = client.post(f"/api/projects/{project_id}/visuals",
+                            json={"analysis_run_id": run_id}).json()["visual_id"]
+    base = f"/api/projects/{project_id}/figures/compose"
+
+    twice = client.post(base, json={"visual_ids": [visual_id, visual_id]})
+    assert twice.status_code == 409 and "twice" in twice.json()["detail"]
+    unknown = client.post(base, json={"visual_ids": [visual_id], "format": "gif"})
+    assert unknown.status_code == 400 and "Supported" in unknown.json()["detail"]
+    clear_eps = client.post(base, json={"visual_ids": [visual_id], "format": "eps",
+                                        "transparent": True})
+    assert clear_eps.status_code == 400
+    empty = client.post(base, json={"visual_ids": []})
+    assert empty.status_code == 422
+
+
 def test_the_format_warning_is_available_before_the_file_is(client):
     """
     The render step exists so the interface can warn *before* the download. A
