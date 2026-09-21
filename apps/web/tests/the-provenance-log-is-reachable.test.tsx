@@ -10,7 +10,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  ProvenanceLogLink, ReproductionScriptLink,
+  ProvenanceLogLink, ReplayReceiptLink, ReproductionScriptLink,
 } from "@/components/provenancelog";
 
 afterEach(cleanup);
@@ -57,5 +57,20 @@ describe("taking the script away", () => {
     render(<ReproductionScriptLink runId="arun_1" />);
     expect(screen.getByText(/not a finding/i)).toBeTruthy();
     expect(screen.getByText(/assumption checks/i)).toBeTruthy();
+  });
+});
+
+describe("taking the replay contract away", () => {
+  it("offers a receipt beside the recorded run", () => {
+    render(<ReplayReceiptLink runId="arun_1" />);
+    const link = screen.getByRole("link", { name: /replay receipt/i });
+    expect(link.getAttribute("href")).toBe("/api/analyses/arun_1/receipt.json");
+    expect(link.hasAttribute("download")).toBe(true);
+  });
+
+  it("states that the receipt is one-run evidence, not a finding replay", () => {
+    render(<ReplayReceiptLink runId="arun_1" />);
+    expect(screen.getByText(/one analysis run/i)).toBeTruthy();
+    expect(screen.getByText(/not the assumption checks/i)).toBeTruthy();
   });
 });

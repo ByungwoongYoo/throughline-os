@@ -19,6 +19,7 @@ from typing import Any, Sequence
 from throughline_schemas.enums import LineageType, ObjectType
 
 from throughline_schemas.words import plural
+from . import version as installation_version
 from .events import audit, emit
 from .ids import new_id
 from .lineage import add_edge
@@ -373,7 +374,10 @@ def record_result(
         (
             RUN_COMPLETED if ok else RUN_FAILED, object_id,
             runtime.get("python", ""), runtime,
-            {"sandbox_notes": payload.get("sandbox_notes") or []},
+            {
+                "sandbox_notes": payload.get("sandbox_notes") or [],
+                "throughline": dict(installation_version.current()),
+            },
             sandbox.policy, int(payload.get("random_seed", spec_row.get("random_seed", 0))),
             {"dataset_content_hash": (spec_row.get("_dataset") or {}).get("content_hash"),
              "spec_content_hash": spec_row.get("content_hash")},
