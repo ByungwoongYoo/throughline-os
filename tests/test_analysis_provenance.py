@@ -173,6 +173,26 @@ def test_analysis_produces_a_real_computed_result_with_provenance(analysed_proje
     assert any(n.startswith("outliers") for n in names)
 
 
+
+def test_a_run_records_the_throughline_build_that_executed_it(
+        analysed_project, monkeypatch):
+    """A later export must never attribute today's checkout to an older run."""
+    build = {
+        "version": "test-build",
+        "source": "checkout",
+        "commit": "a" * 40,
+        "modified": False,
+        "note": "Test build.",
+    }
+    monkeypatch.setattr(analysis.installation_version, "current", lambda: build)
+    project_id, version_id = analysed_project
+
+    run_id = _analyse(project_id, version_id, method="pearson_correlation",
+                      variables={"x": "consumption_ddd", "y": "resistance_pct"})
+
+    assert _run(run_id)["environment"]["throughline"] == build
+
+
 def test_analysis_is_linked_to_the_dataset_it_was_calculated_from(analysed_project):
     """LAW 1 — the number traces back to the rows behind it."""
     project_id, version_id = analysed_project

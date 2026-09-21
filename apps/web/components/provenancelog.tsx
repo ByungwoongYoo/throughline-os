@@ -48,6 +48,27 @@ export function ReproductionScriptLink({ runId }: { runId: string }) {
 }
 
 
+
+export function ReplayReceiptLink({ runId }: { runId: string }) {
+  return (
+    <div className="prov-log">
+      <a className="btn" href={`/api/analyses/${runId}/receipt.json`} download>
+        Download replay receipt
+      </a>
+      <Fold summary="What the replay receipt proves" count={1}>
+        <span className="note">
+          Binds this recorded analysis to its input and specification hashes,
+          recorded software and Throughline build identity, and the expected
+          headline result with an explicit comparison rule. It covers this one
+          analysis run, not the assumption checks or correction that decide
+          whether a result is a finding.
+        </span>
+      </Fold>
+    </div>
+  );
+}
+
+
 export function ProvenanceLogLink({ findingId }: { findingId: string }) {
   return (
     <div className="prov-log">

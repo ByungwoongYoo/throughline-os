@@ -62,7 +62,7 @@ import { LibraryNote } from "@/components/librarynote";
 import { ForkLineage } from "@/components/forklineage";
 import { FindingStanding } from "@/components/lifecycle";
 import {
-  ProvenanceLogLink, ReproductionScriptLink,
+  ProvenanceLogLink, ReplayReceiptLink, ReproductionScriptLink,
 } from "@/components/provenancelog";
 import { Journal } from "@/components/journal";
 import { Variables } from "@/components/variables";
@@ -944,6 +944,7 @@ function Workspace({ user }: { user: SignedInUser }) {
                   asked while looking at the number.
                 */}
                 <ReproductionScriptLink runId={selection.id} />
+                <ReplayReceiptLink runId={selection.id} />
                 {/*
                   The plain reading was reachable only through a connection,
                   so an analysis a researcher specified had no legible version

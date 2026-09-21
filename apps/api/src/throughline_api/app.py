@@ -33,6 +33,7 @@ from throughline_domain import (
     code_export,
     cohorts,
     provenance_log,
+    replay_receipt,
     research_context,
     tables,
     bibliography,
@@ -2232,6 +2233,38 @@ def analysis_reproduction_script(run_id: str,
         media_type="text/x-python; charset=utf-8",
         headers={"Content-Disposition":
                  f'attachment; filename="{run_id}-reproduce.py"'},
+    )
+
+
+
+@app.get("/api/analyses/{run_id}/receipt.json")
+def analysis_replay_receipt(run_id: str,
+                            user: dict = Depends(current_user)) -> Response:
+    """Portable comparison contract for one recorded analysis run.
+
+    This does not widen the existing reproduction claim. It is emitted only
+    where Throughline already has a faithful companion `reproduce.py`, and it
+    describes the headline values that script should reproduce plus the
+    recorded provenance needed to identify the run it is replaying.
+    """
+    with transaction() as cur:
+        cur.execute("SELECT project_id FROM analysis_runs WHERE id = %s",
+                    (run_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Analysis run not found.")
+        scoped_project(row["project_id"], user)
+        try:
+            text = replay_receipt.as_json(cur, run_id)
+        except replay_receipt.CannotReceipt as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from exc
+    return Response(
+        content=text,
+        media_type="application/json",
+        headers={"Content-Disposition":
+                 f'attachment; filename="{run_id}-replay-receipt.json"'},
     )
 
 
