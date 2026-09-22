@@ -38,9 +38,10 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Command, rank } from "./CommandPalette";
+import { Command, rank } from "./commands";
 import { Verb, VERBS, matchVerbs, verbsByGroup } from "./verbs";
 import type { Destination } from "./verbs";
+import { AskEntry, readHistory, remember } from "./askhistory";
 
 /** One thing the bar is offering to do. */
 export type Offer =
@@ -85,21 +86,39 @@ export type BarProps = {
    * answers "what do I do?" before being asked.
    */
   suggestions?: Array<{ label: string; run: () => void; primary?: boolean }>;
-  /** Big and centred (the landing) or compact (the top of every screen). */
-  size?: "home" | "compact";
+  /**
+   * `dock` is the always-on bar at the foot of every screen; `home` the big
+   * centred one; `compact` the small one a header can hold.
+   */
+  size?: "home" | "compact" | "dock";
+  /**
+   * Which project's trail to keep, and whether to keep one at all.
+   *
+   * Absent means no memory — the compact and home bars do not want a panel of
+   * recents opening over the screen they sit on.
+   */
+  historyKey?: string;
   placeholder?: string;
   /** Called after anything runs, so the landing can clear itself. */
   onRan?: (what: string) => void;
 };
 
 export function OneBar({ commands, onVerb, suggestions = [], size = "compact",
-                        placeholder, onRan }: BarProps) {
+                        placeholder, onRan, historyKey }: BarProps) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const [open, setOpen] = useState(false);
   const [helping, setHelping] = useState(false);
+  const [trail, setTrail] = useState<AskEntry[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
+
+  /* Read after mount, never during render: `localStorage` does not exist on
+     the server, and reading it in the render body makes the first client paint
+     disagree with the server's HTML. */
+  useEffect(() => {
+    if (historyKey) setTrail(readHistory(historyKey));
+  }, [historyKey]);
 
   const offers = useMemo(() => offersFor(query, commands), [query, commands]);
 
@@ -109,10 +128,29 @@ export function OneBar({ commands, onVerb, suggestions = [], size = "compact",
     if (offer.kind === "verb") onVerb(offer.verb.to, offer.argument);
     else offer.command.run();
     const said = offer.kind === "verb" ? offer.verb.label : offer.command.label;
+    if (historyKey) {
+      setTrail(remember(historyKey, offer.kind === "verb"
+        ? { kind: "verb", verbId: offer.verb.id, argument: offer.argument,
+            label: offer.argument ? `${offer.verb.label} — ${offer.argument}` : offer.verb.label }
+        : { kind: "object", commandId: offer.command.id, label: offer.command.label }));
+    }
     setQuery("");
     setOpen(false);
     onRan?.(said);
-  }, [onVerb, onRan]);
+  }, [onVerb, onRan, historyKey]);
+
+  /** Go where a trail entry went, by looking its target up again now. */
+  const replay = useCallback((entry: AskEntry) => {
+    if (entry.kind === "verb") {
+      const verb = VERBS.find((v) => v.id === entry.verbId);
+      if (verb) onVerb(verb.to, entry.argument);
+      return;
+    }
+    // The object may have been deleted since. Saying so beats a dead press.
+    const command = commands.find((c) => c.id === entry.commandId);
+    if (command) command.run();
+    else setQuery(entry.label);
+  }, [commands, onVerb]);
 
   /*
    * Keys are handled on the input rather than the document, unlike the palette.
@@ -126,10 +164,15 @@ export function OneBar({ commands, onVerb, suggestions = [], size = "compact",
       if (event.key === "Escape") { setQuery(""); setOpen(false); }
       return;
     }
-    if (event.key === "ArrowDown") {
+    // Ctrl-N / Ctrl-P alongside the arrows: the palette this replaced answered
+    // them and said so, and a keyboard surface that quietly stops answering a
+    // binding it advertised is worse than one that never did (T197).
+    const down = event.key === "ArrowDown" || (event.key === "n" && event.ctrlKey);
+    const up = event.key === "ArrowUp" || (event.key === "p" && event.ctrlKey);
+    if (down) {
       event.preventDefault();
       setActive((i) => (i + 1) % offers.length);
-    } else if (event.key === "ArrowUp") {
+    } else if (up) {
       event.preventDefault();
       setActive((i) => (i - 1 + offers.length) % offers.length);
     } else if (event.key === "Enter") {
@@ -141,6 +184,29 @@ export function OneBar({ commands, onVerb, suggestions = [], size = "compact",
       setOpen(false);
     }
   }
+
+  /*
+   * ⌘K / Ctrl-K puts the keyboard here (T197).
+   *
+   * It used to open a modal palette, which searched the same `commands` list
+   * through the same `rank` and did no verbs at all — a strict subset of this
+   * bar behind a second front door. The shortcut is the one thing that door
+   * had that this one did not, so it moved here and the door went.
+   *
+   * Bound only by the dock: the compact and home bars can appear beside it,
+   * and two listeners would fight over the same keystroke.
+   */
+  useEffect(() => {
+    if (size !== "dock") return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "k" || !(event.metaKey || event.ctrlKey)) return;
+      event.preventDefault();
+      inputRef.current?.focus();
+      setOpen(true);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [size]);
 
   // A click outside closes the list without clearing what was typed.
   useEffect(() => {
@@ -173,8 +239,15 @@ export function OneBar({ commands, onVerb, suggestions = [], size = "compact",
             ?? "Ask for anything — “find papers about soil”, “what’s next”, “add data”"}
           onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
+          /* Click as well as focus. After running something the input keeps
+             focus while the panel is closed, so a second click fired no focus
+             event and the bar appeared dead to anyone reaching for it twice. */
+          onClick={() => setOpen(true)}
           onKeyDown={onKeyDown}
         />
+        {!query && size === "dock" && (
+          <kbd className="onebar-key" aria-hidden>⌘K</kbd>
+        )}
         {query && (
           <button type="button" className="onebar-clear" aria-label="Clear"
                   onClick={() => { setQuery(""); inputRef.current?.focus(); }}>
@@ -230,6 +303,61 @@ export function OneBar({ commands, onVerb, suggestions = [], size = "compact",
           </p>
           <button type="button" className="btn-text" onClick={() => setHelping(true)}>
             See everything you can ask for →
+          </button>
+        </div>
+      )}
+
+      {/*
+        * The dock's empty state: what is worth doing now, and where you have
+        * been (T195). Shown only while the box is focused and empty, so the
+        * bar is a thin line the rest of the time and never covers the screen
+        * it sits on. This is the panel that replaces what a rail gave away for
+        * free — the sense that these places exist.
+        */}
+      {/* Always, once focused and empty — not only when there are chips or a
+          trail to show. A fresh project has neither, and that is exactly the
+          reader who most needs "What can I ask?" (T197). */}
+      {size === "dock" && open && !query.trim() && (
+        <div className="onebar-start">
+          {suggestions.length > 0 && (
+            <div className="onebar-start-block">
+              <h4>Worth doing now</h4>
+              <div className="onebar-chips">
+                {suggestions.map((chip) => (
+                  <button
+                    key={chip.label}
+                    type="button"
+                    className={`onebar-chip${chip.primary ? " is-primary" : ""}`}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => { chip.run(); setOpen(false); onRan?.(chip.label); }}
+                  >
+                    {chip.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {trail.length > 0 && (
+            <div className="onebar-start-block">
+              <h4>Where you have been</h4>
+              <ul className="onebar-trail">
+                {trail.map((entry) => (
+                  <li key={`${entry.at}`}>
+                    <button type="button" className="onebar-trail-item"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => { replay(entry); setOpen(false); }}>
+                      {entry.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <button type="button" className="onebar-help-open"
+                  onMouseDown={(e) => e.preventDefault()}
+                  aria-expanded={helping}
+                  onClick={() => setHelping((v) => !v)}>
+            {helping ? "Hide what you can ask" : "What can I ask?"}
           </button>
         </div>
       )}
@@ -302,10 +430,14 @@ export function VerbSheet({ onPick }: { onPick: (verb: Verb) => void }) {
           </ul>
         </section>
       ))}
+      {/* What the name search covers, named kind by kind (T197).
+          The modal palette this replaced said so in its placeholder, and a
+          control that under-describes itself is the mirror of §123: nobody
+          types an analysis id into a box that never claimed to know one. */}
       <p className="verbsheet-foot">
-        {VERBS.length} things to ask for, and everything in the project by name —
-        a column, a run, a connection, a finding, a report, or an id somebody
-        sent you.
+        {VERBS.length} things to ask for — and everything this project holds, by
+        name or by id: any section, source, connection, finding, analysis,
+        report, figure, or standalone page.
       </p>
     </div>
   );
