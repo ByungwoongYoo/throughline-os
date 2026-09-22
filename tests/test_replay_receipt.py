@@ -25,18 +25,53 @@ BUILD = {
 }
 
 
+def _dataset(cur, project: str) -> tuple[str, str]:
+    file_id, source_id = new_id("fil"), new_id("src")
+    dataset_id, version_id = new_id("dst"), new_id("dsv")
+    dataset_hash = new_id("hash")
+    cur.execute(
+        "INSERT INTO files(id, project_id, content_hash, filename, size_bytes, storage_key) "
+        "VALUES (%s, %s, %s, 'receipt.csv', 1, %s)",
+        (file_id, project, dataset_hash, f"test/{file_id}"),
+    )
+    cur.execute(
+        "INSERT INTO sources(id, project_id, source_type, title, file_id, content_hash, "
+        "ingestion_status) VALUES (%s, %s, 'upload', 'receipt.csv', %s, %s, 'ready')",
+        (source_id, project, file_id, dataset_hash),
+    )
+    cur.execute(
+        "INSERT INTO datasets(id, project_id, source_id, name, format) "
+        "VALUES (%s, %s, %s, 'receipt.csv', 'csv')",
+        (dataset_id, project, source_id),
+    )
+    cur.execute(
+        "INSERT INTO dataset_versions(id, dataset_id, version, content_hash, row_count, "
+        "column_count) VALUES (%s, %s, 1, %s, 120, 2)",
+        (version_id, dataset_id, dataset_hash),
+    )
+    for ordinal, name in enumerate(("consumption", "resistance")):
+        cur.execute(
+            "INSERT INTO dataset_columns(id, dataset_version_id, ordinal, name, "
+            "original_name, physical_type, semantic_type) "
+            "VALUES (%s, %s, %s, %s, %s, 'double', 'continuous')",
+            (new_id("dcol"), version_id, ordinal, name, name),
+        )
+    return version_id, dataset_hash
+
+
 def _run(cur, project, *, method="pearson_correlation", status=RUN_COMPLETED,
          result=None, environment=None):
+    version_id, dataset_hash = _dataset(cur, project)
     spec_id = new_id("aspec")
-    spec_hash = "spec123"
+    spec_hash = new_id("spec")
     cur.execute(
         "INSERT INTO analysis_specs(id, project_id, analysis_type, method, "
-        "variables, research_question, method_rationale, content_hash, "
-        "created_by) VALUES (%s, %s, 'confirmatory', %s, %s, %s, %s, %s, "
-        "'researcher')",
+        "variables, filters, research_question, method_rationale, content_hash, "
+        "created_by, dataset_version_ids) VALUES (%s, %s, 'confirmatory', %s, %s, "
+        "'[]'::jsonb, %s, %s, %s, 'researcher', %s::jsonb)",
         (spec_id, project, method, {"x": "consumption", "y": "resistance"},
          "Does consumption track resistance?", "Both variables are continuous.",
-         spec_hash),
+         spec_hash, json.dumps([version_id])),
     )
     run_id = analysis.create_run(cur, project_id=project, spec_id=spec_id)
     cur.execute(
@@ -45,7 +80,7 @@ def _run(cur, project, *, method="pearson_correlation", status=RUN_COMPLETED,
         "sandbox_policy=%s WHERE id=%s",
         (status, result or RESULT, "3.12.11", 11,
          {"python": "3.12.11", "pandas": "2.3.2", "scipy": "1.16.1"},
-         {"dataset_content_hash": "data123", "spec_content_hash": spec_hash},
+         {"dataset_content_hash": dataset_hash, "spec_content_hash": spec_hash},
          environment if environment is not None else {"throughline": BUILD},
          {"enforced": {"separate_process": True}}, run_id),
     )
@@ -62,8 +97,8 @@ def test_receipt_is_stable_and_binds_the_existing_record(cur, project):
     body = json.loads(first)
     assert body["format"] == "throughline.replay-receipt.v1"
     assert body["analysis"]["method"] == "pearson_correlation"
-    assert body["analysis"]["spec_hash"] == "spec123"
-    assert body["inputs"]["dataset_content_hash"] == "data123"
+    assert body["analysis"]["spec_hash"]
+    assert body["inputs"]["dataset_content_hash"]
     assert body["execution"]["random_seed"] == 11
     assert body["execution"]["throughline"]["commit"] == BUILD["commit"]
     assert body["replay"]["companion_script"] == f"{run_id}-reproduce.py"

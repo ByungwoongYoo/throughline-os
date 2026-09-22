@@ -1,8 +1,7 @@
 """Portable replay receipt for one immutable recorded analysis run.
 
-Throughline already records the ingredients of reproducibility and, for a
-small set of methods, can emit a faithful reproduction script.  This module
-binds those existing pieces into one stable, machine-readable contract:
+A receipt is issued only inside the same explicit eligibility boundary as the
+companion reproduction script.  It binds:
 
 - which immutable run/spec/data were used;
 - which seed/runtime/dependencies and Throughline build produced it;
@@ -10,8 +9,8 @@ binds those existing pieces into one stable, machine-readable contract:
 - which comparison rule decides whether the replay agrees.
 
 It deliberately does *not* claim to reproduce a finding, its assumption checks,
-or a multiple-comparison decision.  The companion script already carries the
-same boundary and this receipt keeps it explicit.
+or a multiple-comparison decision.  The companion script carries the same
+boundary and this receipt keeps it explicit.
 """
 from __future__ import annotations
 
@@ -19,7 +18,7 @@ import hashlib
 import json
 from typing import Any
 
-from . import code_export
+from . import code_export, replay_capability
 
 FORMAT = "throughline.replay-receipt.v1"
 
@@ -34,7 +33,7 @@ COMPARISON = {
 
 
 class CannotReceipt(RuntimeError):
-    """The run exists, but a faithful first-version replay receipt cannot be made."""
+    """The run exists, but it is outside the current replay-receipt contract."""
 
 
 def _canonical(value: Any) -> str:
@@ -72,46 +71,21 @@ def _recorded_build(environment: dict[str, Any]) -> dict[str, Any]:
 
 
 def for_run(cur, run_id: str) -> dict[str, Any]:
-    cur.execute(
-        """
-        SELECT r.id, r.status, r.random_seed, r.input_hashes, r.runtime,
-               r.dependency_versions, r.environment, r.sandbox_policy, r.result,
-               s.method, s.variables, s.content_hash AS spec_hash
-          FROM analysis_runs r
-          JOIN analysis_specs s ON s.id = r.spec_id
-         WHERE r.id = %s
-        """,
-        (run_id,),
-    )
-    row = cur.fetchone()
-    if not row:
-        raise LookupError(f"Unknown analysis run: {run_id}")
-    run = dict(row)
-
-    if run["status"] != "completed":
-        raise CannotReceipt(
-            f"Analysis run {run_id} is {run['status']!r}, not completed. "
-            "A replay receipt can only bind a recorded result."
-        )
+    try:
+        run = replay_capability.eligible_run(cur, run_id)
+    except replay_capability.ReplayIneligible as exc:
+        raise CannotReceipt(str(exc)) from exc
 
     method = str(run["method"])
     if method not in code_export.EMITTABLE:
+        # Classification and implementation drift is a broken build, but a
+        # receipt must still fail closed if it somehow reaches production.
         raise CannotReceipt(
-            f"No replay receipt is emitted for {method}. Throughline cannot yet "
-            "export a faithful reproduction script for that method; receipts in "
-            "this first version exist only where the companion replay is honest. "
-            f"Scripts exist for: {', '.join(sorted(code_export.EMITTABLE))}."
+            f"{method} is declared replay-supported but has no companion exporter "
+            "in this build."
         )
 
     result = dict(run.get("result") or {})
-    missing = [name for name in ("estimate", "p_value", "sample_size")
-               if result.get(name) is None]
-    if missing:
-        raise CannotReceipt(
-            f"Analysis run {run_id} does not record {', '.join(missing)}, so its "
-            "replay cannot be compared using the v1 receipt contract."
-        )
-
     receipt: dict[str, Any] = {
         "format": FORMAT,
         "run_id": run["id"],

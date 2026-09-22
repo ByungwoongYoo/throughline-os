@@ -7,15 +7,14 @@ collaborator means by "show me the code".
 
 **It is generated from the recorded spec, never from prose.** The method, the
 variables, the confidence level and the seed all come from `analysis_specs`
-and `analysis_runs` — the same rows the run itself used — so the script and
-the recorded number have one source rather than two that can disagree.
+and `analysis_runs` — the same rows the run itself used — so the script and the
+recorded number have one source rather than two that can disagree.
 
 **It refuses what it cannot reproduce faithfully.** Twelve methods exist in the
-runtime; this emits code for the ones whose computation is a few honest lines
-of scipy or statsmodels, and refuses the rest by name. A script that looked
-like the analysis and quietly did something else would be worse than no script
-at all, because it would be believed — and this product exists to prevent
-exactly that class of claim.
+runtime; this emits code only where the replay-capability contract declares an
+eligible run. A script that looked like the analysis and quietly did something
+else would be worse than no script at all, because it would be believed — and
+this product exists to prevent exactly that class of claim.
 
 **It states what it leaves out.** The script re-runs one analysis. It does not
 re-run the sandbox, the assumption checks, or the multiple-comparison
@@ -28,8 +27,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from . import replay_capability
+
 #: Methods whose computation can be written out in full, and the call that
-#: does it. Anything absent is refused rather than approximated.
+#: does it. This is an implementation map, not by itself a replay-support claim;
+#: tests require it to agree with replay_capability.REPLAY_SUPPORTED_METHODS.
 EMITTABLE: dict[str, str] = {
     "pearson_correlation": "stats.pearsonr",
     "spearman_correlation": "stats.spearmanr",
@@ -37,7 +39,7 @@ EMITTABLE: dict[str, str] = {
 
 
 class CannotEmit(RuntimeError):
-    """The recorded method has no faithful short form."""
+    """The recorded run lies outside the faithful replay-export boundary."""
 
 
 HEADER = '''"""
@@ -78,51 +80,31 @@ print(f"p = {{p_value:.6g}}")
 
 
 def for_run(cur, run_id: str) -> str:
-    """A runnable script for one recorded analysis, or a refusal."""
-    cur.execute(
-        """
-        SELECT r.id, r.status, r.input_hashes,
-               s.method, s.variables, s.research_question, s.method_rationale,
-               f.filename
-          FROM analysis_runs r
-          JOIN analysis_specs s ON s.id = r.spec_id
-          LEFT JOIN dataset_versions dv
-                 ON dv.id = (s.dataset_version_ids ->> 0)
-          LEFT JOIN datasets d ON d.id = dv.dataset_id
-          LEFT JOIN sources src ON src.id = d.source_id
-          LEFT JOIN files f ON f.id = src.file_id
-         WHERE r.id = %s
-        """,
-        (run_id,),
-    )
-    run = cur.fetchone()
-    if not run:
-        raise LookupError(f"Unknown analysis run: {run_id}")
+    """A runnable script for one replay-eligible recorded analysis, or refusal."""
+    try:
+        run = replay_capability.eligible_run(cur, run_id)
+    except replay_capability.ReplayIneligible as exc:
+        supported = ", ".join(sorted(replay_capability.REPLAY_SUPPORTED_METHODS))
+        raise CannotEmit(f"{exc} Replay-supported methods: {supported}.") from exc
 
-    method = run["method"]
-    if method not in EMITTABLE:
+    method = str(run["method"])
+    call = EMITTABLE.get(method)
+    if call is None:
+        # Defensive even though the registry-accounting test makes this a broken
+        # build: never issue an artifact if classification and implementation drift.
         raise CannotEmit(
-            f"No script is written for {method}. Its computation is more than "
-            f"a few lines and a short version would be a different analysis "
-            f"wearing this one's name. The provenance log records what was "
-            f"run; scripts exist for: {', '.join(sorted(EMITTABLE))}."
+            f"{method} is declared replay-supported but has no exporter in this build."
         )
 
-    variables = run["variables"] or {}
-    if not variables.get("x") or not variables.get("y"):
-        raise CannotEmit(
-            "This run records no x and y to correlate, so there is nothing to "
-            "write out.")
-
-    hashes = run["input_hashes"] or {}
+    variables = dict(run["variables"] or {})
+    hashes = dict(run["input_hashes"] or {})
     return (
         HEADER.format(
             question=run["research_question"] or "An analysis.",
             run_id=run["id"],
             rationale=run["method_rationale"] or "not recorded",
-            content_hash=hashes.get("dataset_content_hash") or "not recorded",
-            path=run["filename"] or "your-data.csv",
+            content_hash=hashes["dataset_content_hash"],
+            path=run["filename"],
         )
-        + BODY.format(x=variables["x"], y=variables["y"],
-                      call=EMITTABLE[method])
+        + BODY.format(x=variables["x"], y=variables["y"], call=call)
     )
